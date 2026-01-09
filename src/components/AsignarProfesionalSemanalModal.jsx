@@ -1,0 +1,2375 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Button, Form } from 'react-bootstrap';
+import { useEmpresa } from '../EmpresaContext';
+import SeleccionarProfesionalesModal from './SeleccionarProfesionalesModal';
+import { calcularSemanasParaDiasHabiles } from '../utils/feriadosArgentina';
+import {
+  crearAsignacionSemanal,
+  obtenerAsignacionesSemanalPorObra,
+  eliminarAsignacionSemanal,
+  actualizarAsignacionSemanal
+} from '../services/profesionalesObraService';
+
+const AsignarProfesionalSemanalModal = ({
+  show,
+  onHide,
+  obra,
+  profesionalesDisponibles = [],
+  onAsignar,
+  configuracionObra = null, // Nueva prop para recibir configuración global
+  onRefreshProfesionales = null // Nueva prop para refrescar lista de profesionales
+}) => {
+  // Helper para parsear fechas evitando problemas de zona horaria
+  const parsearFechaLocal = (fechaStr) => {
+    if (!fechaStr) return new Date();
+    if (fechaStr.includes('-')) {
+      const soloFecha = fechaStr.split('T')[0];
+      const [year, month, day] = soloFecha.split('-');
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 0, 0, 0, 0);
+    }
+    return new Date(fechaStr);
+  };
+
+  // Helper para obtener el número de semana ISO
+  const getISOWeek = (date) => {
+    const target = new Date(date.valueOf());
+    const dayNr = (date.getDay() + 6) % 7;
+    target.setDate(target.getDate() - dayNr + 3);
+    const firstThursday = target.valueOf();
+    target.setMonth(0, 1);
+    if (target.getDay() !== 4) {
+      target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+    }
+    return 1 + Math.ceil((firstThursday - target) / 604800000);
+  };
+
+  // Helper para obtener el año ISO de la semana
+  const getISOWeekYear = (date) => {
+    const target = new Date(date.valueOf());
+    target.setDate(target.getDate() + 3 - (target.getDay() + 6) % 7);
+    return target.getFullYear();
+  };
+
+  // Helper para generar semanaKey en formato ISO (YYYY-Www)
+  const getSemanaKeyISO = (fecha) => {
+    const year = getISOWeekYear(fecha);
+    const week = getISOWeek(fecha);
+    return `${year}-W${String(week).padStart(2, '0')}`;
+  };
+
+  // Estados principales
+  const [profesionalesSeleccionados, setProfesionalesSeleccionados] = useState([]);
+  const [mostrarModalSeleccion, setMostrarModalSeleccion] = useState(false);
+  const [semanaSeleccionadaParaAsignar, setSemanaSeleccionadaParaAsignar] = useState(null);
+  const [modalidadAsignacion, setModalidadAsignacion] = useState(''); // 'total' o 'semanal'
+  const [asignacionesPorSemana, setAsignacionesPorSemana] = useState({});
+  const [cargando, setCargando] = useState(false);
+  const [paso, setPaso] = useState(configuracionObra ? 2 : 1); // Si hay configuración, saltar paso 1
+  const [presupuesto, setPresupuesto] = useState(null);
+  const [loadingPresupuesto, setLoadingPresupuesto] = useState(false);
+  const [asignacionesExistentes, setAsignacionesExistentes] = useState([]);
+  const [loadingAsignaciones, setLoadingAsignaciones] = useState(false);
+
+  // Estado para tracking de asignaciones eliminadas
+  const [asignacionesEliminadas, setAsignacionesEliminadas] = useState([]);
+
+  // Estado para almacenar TODOS los profesionales de la empresa (para mapear nombres)
+  const [todosProfesionales, setTodosProfesionales] = useState([]);
+
+  // Usar configuración global si está disponible, sino usar estados locales
+  const [semanasObjetivo, setSemanasObjetivo] = useState(configuracionObra?.semanasObjetivo?.toString() || '');
+
+  // 🔥 Crear configuración actualizada con fechaProbableInicio y jornales del presupuesto más reciente
+  // Obtener empresa del contexto
+  const { empresaSeleccionada } = useEmpresa();
+
+  const configuracionObraActualizada = useMemo(() => {
+    if (!configuracionObra) return null;
+
+    // Verificar si el presupuesto cargado es más reciente que el de la configuración
+    const esPresupuestoMasReciente = presupuesto && configuracionObra.presupuestoSeleccionado &&
+      presupuesto.version > configuracionObra.presupuestoSeleccionado.version;
+
+    if (esPresupuestoMasReciente) {
+      console.log('🔥 [PROFESIONAL SEMANAL] Detectada versión más reciente del presupuesto:', {
+        versionAntigua: configuracionObra.presupuestoSeleccionado.version,
+        versionNueva: presupuesto.version
+      });
+    }
+
+    // Si hay presupuesto cargado, actualizar configuración
+    if (presupuesto) {
+      const fechaActualizada = presupuesto.fechaProbableInicio?.includes('T')
+        ? presupuesto.fechaProbableInicio.split('T')[0]
+        : presupuesto.fechaProbableInicio || configuracionObra.fechaInicio;
+
+      // Obtener días hábiles del presupuesto (tiempoEstimadoTerminacion)
+      let diasHabilesPresupuesto = configuracionObra.jornalesTotales;
+      if (presupuesto.tiempoEstimadoTerminacion) {
+        diasHabilesPresupuesto = presupuesto.tiempoEstimadoTerminacion;
+      } else if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
+        // Fallback: calcular sumando jornales si no existe tiempoEstimadoTerminacion
+        diasHabilesPresupuesto = presupuesto.itemsCalculadora.reduce((total, rubro) => {
+          const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
+                                    rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
+                                    rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
+          if (esLegacyDuplicado) return total;
+
+          const incluir = rubro.incluirEnCalculoDias !== false;
+          if (!incluir) return total;
+
+          const jornalesRubro = rubro.jornales?.reduce((sum, j) => sum + (j.cantidad || 0), 0) || 0;
+          const profesionalesRubro = rubro.profesionales?.reduce((sum, p) => sum + (p.cantidadJornales || 0), 0) || 0;
+          return total + jornalesRubro + profesionalesRubro;
+        }, 0) || configuracionObra.jornalesTotales;
+      }
+
+      // 🔥 USAR días hábiles del presupuesto (fuente de verdad), NO semanasObjetivo × 5
+      const diasHabiles = presupuesto.tiempoEstimadoTerminacion || configuracionObra.diasHabiles || (configuracionObra.semanasObjetivo * 5);
+      // Recalcular capacidad necesaria: días del presupuesto ÷ días configurados
+      const capacidadNecesaria = diasHabiles > 0 ? Math.ceil(diasHabilesPresupuesto / diasHabiles) : 0;
+
+      return {
+        ...configuracionObra,
+        fechaInicio: fechaActualizada,
+        jornalesTotales: diasHabilesPresupuesto, // Días del presupuesto
+        diasHabiles, // Días configurados por el usuario
+        capacidadNecesaria,
+        presupuestoSeleccionado: presupuesto
+      };
+    }
+
+    console.log('🔥 [PROFESIONAL SEMANAL] Usando configuracionObra sin cambios');
+    return configuracionObra;
+  }, [configuracionObra, presupuesto]);
+
+  // Cargar presupuesto cuando se abre el modal
+  useEffect(() => {
+    if (show && obra) {
+      cargarTodosProfesionales();
+      cargarPresupuestoObra();
+      cargarAsignacionesExistentes();
+    }
+  }, [show, obra]);
+
+  // 🆕 Cargar profesionales seleccionados desde asignaciones existentes
+  useEffect(() => {
+    if (!show || !asignacionesExistentes || asignacionesExistentes.length === 0) return;
+
+    // Buscar asignaciones en modalidad "total" (obra completa)
+    const asignacionesTotales = asignacionesExistentes.filter(a => a.modalidad === 'total');
+
+    if (asignacionesTotales.length > 0) {
+      console.log('🔍 Cargando profesionales desde asignaciones "total":', asignacionesTotales);
+
+      // Extraer profesionales únicos
+      const profesionalesUnicos = [];
+      const profesionalesIds = new Set();
+
+      asignacionesTotales.forEach(asignacion => {
+        if (asignacion.profesionalId && !profesionalesIds.has(asignacion.profesionalId)) {
+          profesionalesIds.add(asignacion.profesionalId);
+          profesionalesUnicos.push({
+            id: asignacion.profesionalId,
+            nombre: asignacion.profesionalNombre,
+            tipoProfesional: asignacion.profesionalTipo
+          });
+        }
+      });
+
+      console.log('✅ Profesionales cargados:', profesionalesUnicos);
+      setProfesionalesSeleccionados(profesionalesUnicos);
+      setModalidadAsignacion('total');
+    }
+  }, [show, asignacionesExistentes]);
+
+  // Función para cargar TODOS los profesionales de la empresa
+  const cargarTodosProfesionales = async () => {
+    try {
+      if (!empresaSeleccionada?.id) return;
+
+      const response = await fetch(
+        `http://localhost:8080/api/profesionales?empresaId=${empresaSeleccionada.id}`,
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setTodosProfesionales(data || []);
+        console.log('✅ Cargados todos los profesionales:', data?.length);
+      }
+    } catch (error) {
+      console.error('❌ Error cargando todos los profesionales:', error);
+    }
+  };
+
+  const cargarAsignacionesExistentes = async () => {
+    setLoadingAsignaciones(true);
+    try {
+      console.log('🔍 Cargando asignaciones para obra:', obra?.id, 'empresa:', empresaSeleccionada?.id);
+
+      if (!empresaSeleccionada?.id) {
+        console.warn('⚠️ No hay empresa seleccionada, saltando carga de asignaciones');
+        setLoadingAsignaciones(false);
+        return;
+      }
+
+      // 1. Obtener el presupuesto con estado válido más reciente
+      const presupuestoAprobado = await obtenerPresupuestoAprobadoMasReciente();
+      console.log('🔍 Presupuesto con estado válido más reciente:', presupuestoAprobado);
+
+      // 2. Obtener ASIGNACIONES SEMANALES de la obra
+      const responseSemanal = await obtenerAsignacionesSemanalPorObra(obra.id, empresaSeleccionada.id);
+      console.log('🔍 Asignaciones semanales response completo:', responseSemanal);
+
+      let dataSemanal = responseSemanal.data || responseSemanal || [];
+      if (dataSemanal.data && Array.isArray(dataSemanal.data)) {
+        dataSemanal = dataSemanal.data;
+      }
+
+      // 3. Obtener ASIGNACIONES POR OBRA COMPLETA
+      let dataObra = [];
+      try {
+        const responseObra = await fetch(
+          `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
+          {
+            headers: {
+              'empresaId': empresaSeleccionada.id.toString(),
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        if (responseObra.ok) {
+          dataObra = await responseObra.json();
+          console.log('🔍 Asignaciones por obra completa:', dataObra);
+        }
+      } catch (error) {
+        console.warn('⚠️ No se pudieron cargar asignaciones por obra completa:', error);
+      }
+
+      // 4. COMBINAR AMBOS TIPOS DE ASIGNACIONES
+      const todasLasAsignaciones = [...dataSemanal, ...dataObra];
+      console.log('🔍 Total asignaciones combinadas:', todasLasAsignaciones.length);
+
+      // Extraer datos dependiendo de la estructura de respuesta
+      let data = todasLasAsignaciones;
+      console.log('🔍 Asignaciones existentes data inicial:', data);
+
+      // Si los datos están en response.data.data (estructura del backend)
+      if (data.data && Array.isArray(data.data)) {
+        data = data.data;
+        console.log('🔍 Asignaciones extraídas de data.data:', data);
+      }
+
+      // DEPURAR: Mostrar estructura real de los datos
+      if (data.length > 0) {
+        console.log('🔍 [DEBUG] Estructura real de una asignación:', data[0]);
+        console.log('🔍 [DEBUG] Claves disponibles:', Object.keys(data[0]));
+
+        // Verificar si alguna asignación tiene información de estado
+        data.forEach((asignacion, index) => {
+          console.log(`🔍 [DEBUG] Asignación ${index} - ID: ${asignacion.asignacionId}, tiene estado en respuesta:`, asignacion.estado !== undefined);
+        });
+      }
+
+      // 3. Filtrar asignaciones para mostrar solo las del presupuesto APROBADO más reciente
+      let asignacionesFiltradas = data;
+      if (presupuestoAprobado && presupuestoAprobado.id) {
+        asignacionesFiltradas = data.filter(asignacion => {
+          // Si la asignación tiene presupuestoId, filtrar por el presupuesto APROBADO
+          if (asignacion.presupuestoId) {
+            return asignacion.presupuestoId === presupuestoAprobado.id;
+          }
+          // Si no tiene presupuestoId, mostrarla (compatibilidad con versiones anteriores)
+          return true;
+        });
+        console.log('🔍 Asignaciones filtradas por presupuesto APROBADO:', asignacionesFiltradas);
+        console.log('🔍 Cantidad antes del filtro:', data.length, 'después del filtro:', asignacionesFiltradas.length);
+      }
+
+      // 4. FILTRAR SOLO ASIGNACIONES ACTIVAS
+      // Como el backend no incluye campo 'estado', usamos filtro manual
+      const asignacionesInactivasConocidas = [66]; // Carlos Rodriguez que sabemos está INACTIVO
+      const asignacionesInactivasTotal = [...asignacionesInactivasConocidas, ...asignacionesEliminadas];
+
+      const asignacionesActivas = asignacionesFiltradas.filter(asignacion => {
+        const esInactivo = asignacionesInactivasTotal.includes(asignacion.asignacionId);
+        if (esInactivo) {
+          console.log(`🚫 Filtrando asignación INACTIVA - ID: ${asignacion.asignacionId} (eliminada previamente)`);
+        }
+        return !esInactivo;
+      });
+
+      console.log('🔍 Asignaciones después de filtrar ACTIVAS:', asignacionesActivas);
+      console.log('🔍 Cantidad antes del filtro ACTIVO:', asignacionesFiltradas.length, 'después del filtro ACTIVO:', asignacionesActivas.length);
+
+      console.log('🔍 Asignaciones finales a procesar:', asignacionesActivas);
+      console.log('🔍 Cantidad de asignaciones:', Array.isArray(asignacionesActivas) ? asignacionesActivas.length : 'No es array');
+
+      // Agregar nombre de la obra a cada asignación
+      const asignacionesConObra = asignacionesActivas.map(asignacion => ({
+        ...asignacion,
+        obraNombre: obra?.nombre || obra?.direccion || 'Obra actual'
+      }));
+
+      setAsignacionesExistentes(Array.isArray(asignacionesConObra) ? asignacionesConObra : []);
+    } catch (error) {
+      console.error('❌ Error cargando asignaciones existentes:', error);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error response status:', error.response?.status);
+      console.error('❌ Error response data:', error.response?.data);
+      console.error('❌ Error response statusText:', error.response?.statusText);
+
+      // Mostrar detalles específicos del error del servidor
+      if (error.response) {
+        console.error('❌ DETALLES DEL SERVER ERROR:');
+        console.error('   - Status:', error.response.status);
+        console.error('   - StatusText:', error.response.statusText);
+        console.error('   - Data:', JSON.stringify(error.response.data, null, 2));
+        console.error('   - URL:', error.config?.url);
+
+        // Si es error 404, el endpoint puede no existir o la obra no tener asignaciones
+        if (error.response.status === 404) {
+          console.warn('⚠️ 404: Endpoint no encontrado o la obra no tiene asignaciones');
+        } else if (error.response.status === 500) {
+          console.error('🚨 500: Error interno del servidor');
+        } else if (error.response.status === 400) {
+          console.error('🚨 400: Bad Request - Parámetros incorrectos');
+        }
+      } else if (error.request) {
+        console.error('❌ No hubo respuesta del servidor:', error.request);
+      } else {
+        console.error('❌ Error configurando request:', error.message);
+      }
+
+      // Si es un error de seguridad/empresaId, mostrar mensaje específico
+      if (error.message?.includes('empresaId')) {
+        console.warn('⚠️ Error de empresaId al cargar asignaciones. Verificando configuración...');
+        console.log('🔍 EmpresaSeleccionada actual:', empresaSeleccionada);
+      }
+
+      setAsignacionesExistentes([]);
+    } finally {
+      setLoadingAsignaciones(false);
+    }
+  };
+
+  // Función helper para obtener el presupuesto con estado válido más reciente
+  const obtenerPresupuestoAprobadoMasReciente = async () => {
+    try {
+      const response = await fetch(
+        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
+        {
+          headers: {
+            'empresaId': empresaSeleccionada.id.toString(),
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        let data = await response.json();
+
+        if (!Array.isArray(data)) {
+          data = [data];
+        }
+
+        if (Array.isArray(data) && data.length > 0) {
+          // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
+          const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
+
+          // Buscar presupuestos con estado válido
+          const presupuestosValidos = data.filter(p => estadosValidos.includes(p.estado));
+
+          if (presupuestosValidos.length > 0) {
+            // Ordenar por versión/fecha más reciente y tomar el primero
+            const presupuestoMasReciente = presupuestosValidos.sort((a, b) => {
+              // Ordenar por versión si está disponible
+              if (a.version !== undefined && b.version !== undefined) {
+                return b.version - a.version;
+              }
+              // Si no hay versión, ordenar por ID (asumiendo que IDs más altos = más recientes)
+              return (b.id || 0) - (a.id || 0);
+            })[0];
+
+            console.log('✅ Presupuesto con estado válido más reciente encontrado:', presupuestoMasReciente);
+            return presupuestoMasReciente;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error obteniendo presupuesto con estado válido:', err);
+    }
+
+    return null;
+  };
+
+  const cargarPresupuestoObra = async () => {
+    setLoadingPresupuesto(true);
+    try {
+      if (!empresaSeleccionada?.id || !obra?.id) {
+        console.warn('⚠️ No hay empresa u obra seleccionada, saltando carga de presupuesto');
+        setLoadingPresupuesto(false);
+        return;
+      }
+
+      const response = await fetch(
+        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
+        {
+          headers: {
+            'empresaId': empresaSeleccionada.id.toString(),
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        let data = await response.json();
+
+        if (!Array.isArray(data)) {
+          data = [data];
+        }
+
+        if (Array.isArray(data) && data.length > 0) {
+          // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
+          const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
+
+          // Filtrar presupuestos con estado válido
+          const presupuestosValidos = data.filter(p => estadosValidos.includes(p.estado));
+
+          if (presupuestosValidos.length > 0) {
+            // Ordenar por versión más reciente
+            const presupuestoSeleccionado = presupuestosValidos.sort((a, b) => {
+              if (a.version !== undefined && b.version !== undefined) {
+                return b.version - a.version;
+              }
+              return (b.id || 0) - (a.id || 0);
+            })[0];
+
+            setPresupuesto(presupuestoSeleccionado);
+          } else {
+            // Fallback: usar el más reciente sin filtrar por estado
+            const presupuestoSeleccionado = data.sort((a, b) => (b.id || 0) - (a.id || 0))[0];
+            setPresupuesto(presupuestoSeleccionado);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error cargando presupuesto:', err);
+    } finally {
+      setLoadingPresupuesto(false);
+    }
+  };
+
+  // Calcular jornales totales necesarios (días hábiles para terminar la obra)
+  const jornalesTotales = useMemo(() => {
+    // PRIORIDAD 1: Si el presupuesto tiene tiempoEstimadoTerminacion, usar ese valor
+    if (presupuesto?.tiempoEstimadoTerminacion) {
+      return presupuesto.tiempoEstimadoTerminacion;
+    }
+
+    // PRIORIDAD 2: Si hay configuración global, usar esos datos
+    if (configuracionObra?.jornalesTotales) {
+      return configuracionObra.jornalesTotales;
+    }
+
+    // PRIORIDAD 3: Calcular desde el presupuesto sumando jornales (fallback legacy)
+    if (!presupuesto || !presupuesto.itemsCalculadora) return 0;
+
+    return presupuesto.itemsCalculadora.reduce((total, rubro) => {
+      // Filtrar rubros legacy/duplicados
+      const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
+                                rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
+                                rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
+
+      if (esLegacyDuplicado) return total;
+
+      // Por defecto incluir si no está definido
+      const incluir = rubro.incluirEnCalculoDias !== false;
+      if (!incluir) return total;
+
+      const jornalesRubro = rubro.jornales?.reduce((sum, j) => sum + (j.cantidad || 0), 0) || 0;
+      const profesionalesRubro = rubro.profesionales?.reduce((sum, p) => sum + (p.cantidadJornales || 0), 0) || 0;
+      return total + jornalesRubro + profesionalesRubro;
+    }, 0) || 0;
+  }, [presupuesto, configuracionObra]);
+
+  // Calcular días hábiles desde semanasObjetivo
+  const diasHabilesObjetivo = useMemo(() => {
+    // Si hay configuración global, usar esos datos
+    if (configuracionObra?.diasHabiles) {
+      return configuracionObra.diasHabiles;
+    }
+
+    // Si no, calcular desde semanasObjetivo local
+    if (!semanasObjetivo || semanasObjetivo <= 0) return 0;
+    return parseInt(semanasObjetivo) * 5;
+  }, [semanasObjetivo, configuracionObra]);
+
+  // Calcular capacidad necesaria
+  const capacidadNecesaria = useMemo(() => {
+    // 🆕 PRIORIDAD 1: Calcular desde el presupuesto vinculado
+    if (configuracionObra?.presupuestoSeleccionado?.itemsCalculadora) {
+      let capacidad = 0;
+      configuracionObra.presupuestoSeleccionado.itemsCalculadora.forEach(rubro => {
+        const incluirRubro = rubro.incluirEnCalculoDias !== false;
+        if (!incluirRubro) return;
+
+        if (rubro.jornales && Array.isArray(rubro.jornales)) {
+          rubro.jornales.forEach(jornal => {
+            const incluirJornal = jornal.incluirEnCalculoDias !== false;
+            const cantidad = Number(jornal.cantidad || 0);
+            if (incluirJornal && cantidad > 0) {
+              capacidad++;
+            }
+          });
+        }
+      });
+
+      if (capacidad > 0) {
+        console.log('👥 [AsignarProfesionalSemanal] Capacidad calculada desde presupuesto:', capacidad);
+        return capacidad;
+      }
+    }
+
+    // PRIORIDAD 2: Si hay configuración global con capacidadNecesaria, usar esos datos
+    if (configuracionObra?.capacidadNecesaria) {
+      console.log('👥 [AsignarProfesionalSemanal] Capacidad desde configuración:', configuracionObra.capacidadNecesaria);
+      return configuracionObra.capacidadNecesaria;
+    }
+
+    // PRIORIDAD 3: Calcular localmente (fallback)
+    if (diasHabilesObjetivo === 0) return 0;
+    const capacidadFallback = Math.ceil(jornalesTotales / diasHabilesObjetivo);
+    console.log('👥 [AsignarProfesionalSemanal] Capacidad fallback:', capacidadFallback);
+    return capacidadFallback;
+  }, [jornalesTotales, diasHabilesObjetivo, configuracionObra]);
+
+  // Calcular información de profesionales asignados
+  const resumenProfesionales = useMemo(() => {
+    if (!asignacionesExistentes || asignacionesExistentes.length === 0) {
+      return {
+        totalAsignados: 0,
+        profesionalesPorRubro: {},
+        profesionalesUnicos: 0,
+        faltantes: capacidadNecesaria
+      };
+    }
+
+    const profesionalesPorRubro = {};
+    const profesionalesUnicos = new Map();
+    let totalJornalesAsignados = 0;
+
+    const asignacionesActivas = asignacionesExistentes;
+
+    asignacionesActivas.forEach(asignacion => {
+      totalJornalesAsignados += asignacion.totalJornalesAsignados || 0;
+
+      if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
+        asignacion.asignacionesPorSemana.forEach(semana => {
+          if (semana.detallesPorDia && Array.isArray(semana.detallesPorDia)) {
+            semana.detallesPorDia.forEach(detalle => {
+              if (detalle.profesionalId && detalle.cantidad > 0) {
+                const profesionalId = detalle.profesionalId;
+
+                if (!profesionalesUnicos.has(profesionalId)) {
+                  const profesionalInfo = profesionalesDisponibles.find(p => p.id === profesionalId);
+
+                  const profesionalNombre = profesionalInfo?.nombre || `Profesional ${profesionalId}`;
+                  const profesionalRubro = profesionalInfo?.tipoProfesional || 'Sin rubro';
+                  const profesionalRol = profesionalInfo?.rol || 'Trabajador';
+
+                  profesionalesUnicos.set(profesionalId, {
+                    id: profesionalId,
+                    nombre: profesionalNombre,
+                    rubro: profesionalRubro,
+                    rol: profesionalRol
+                  });
+
+                  if (!profesionalesPorRubro[profesionalRubro]) {
+                    profesionalesPorRubro[profesionalRubro] = [];
+                  }
+
+                  const yaExisteEnRubro = profesionalesPorRubro[profesionalRubro].some(p => p.id === profesionalId);
+                  if (!yaExisteEnRubro) {
+                    profesionalesPorRubro[profesionalRubro].push({
+                      nombre: profesionalNombre,
+                      rol: profesionalRol,
+                      id: profesionalId
+                    });
+                  }
+                }
+              }
+            });
+          }
+        });
+      }
+    });
+
+    const profesionalesUnicosCount = profesionalesUnicos.size;
+    const faltantes = Math.max(0, capacidadNecesaria - profesionalesUnicosCount);
+
+    return {
+      totalAsignados: profesionalesUnicosCount, // Cantidad de profesionales únicos
+      profesionalesPorRubro,
+      profesionalesUnicos: profesionalesUnicosCount,
+      faltantes: Math.ceil(faltantes),
+      totalJornalesAsignados
+    };
+  }, [asignacionesExistentes, capacidadNecesaria, diasHabilesObjetivo, profesionalesDisponibles]);
+
+  // 🔥 NUEVA FUNCIONALIDAD: Comparar profesionales asignados vs presupuesto y calcular diferencia de tiempo
+  const compararProfesionalesVsPresupuesto = useMemo(() => {
+    // Obtener días hábiles estimados en el presupuesto
+    const diasEstimadosOriginales = configuracionObraActualizada?.diasHabiles || diasHabilesObjetivo || 0;
+
+    // Obtener capacidad necesaria del presupuesto (profesionales necesarios por día)
+    const capacidadPresupuesto = capacidadNecesaria || 0;
+
+    // Calcular jornales TOTALES del presupuesto (días × profesionales/día)
+    const jornalesPresupuestoTotales = diasEstimadosOriginales * capacidadPresupuesto;
+
+    // Obtener total de profesionales asignados
+    const profesionalesAsignados = resumenProfesionales.totalAsignados || 0;
+
+    if (diasEstimadosOriginales === 0 || capacidadPresupuesto === 0) {
+      return {
+        estado: 'sin-datos',
+        mensaje: 'Configura primero la obra para ver estimaciones',
+        diasDiferencia: 0,
+        porcentajeDiferencia: 0
+      };
+    }
+
+    if (profesionalesAsignados === 0) {
+      return {
+        estado: 'sin-asignacion',
+        mensaje: 'Sin profesionales asignados',
+        diasDiferencia: 0,
+        porcentajeDiferencia: 0,
+        diasEstimadosOriginales,
+        capacidadPresupuesto,
+        jornalesPresupuesto: jornalesPresupuestoTotales
+      };
+    }
+
+    // Calcular días reales que tomará la obra con los profesionales asignados
+    // Fórmula: diasReales = jornalesTotales / profesionalesAsignados
+    const diasReales = Math.ceil(jornalesPresupuestoTotales / profesionalesAsignados);
+
+    // Calcular diferencia en días
+    const diasDiferencia = diasReales - diasEstimadosOriginales;
+
+    // Calcular porcentaje de diferencia
+    const porcentajeDiferencia = Math.round((diasDiferencia / diasEstimadosOriginales) * 100);
+
+    // Determinar estado
+    let estado, mensaje, emoji, color;
+
+    if (profesionalesAsignados === capacidadPresupuesto) {
+      // Misma cantidad de profesionales
+      estado = 'a-tiempo';
+      emoji = '✅';
+      color = 'success';
+      mensaje = `Perfecto: ${profesionalesAsignados} profesionales = ${capacidadPresupuesto} necesarios → Terminarás en ${diasEstimadosOriginales} días`;
+    } else if (profesionalesAsignados > capacidadPresupuesto) {
+      // Más profesionales (terminará antes)
+      const diasMenos = Math.abs(diasDiferencia);
+      const profesionalesMas = profesionalesAsignados - capacidadPresupuesto;
+      estado = 'adelantado';
+      emoji = '🚀';
+      color = 'info';
+      mensaje = `Terminarás ANTES: ${profesionalesMas} profesional${profesionalesMas !== 1 ? 'es' : ''} extra → ${diasMenos} día${diasMenos !== 1 ? 's' : ''} menos (${diasReales} días en lugar de ${diasEstimadosOriginales})`;
+    } else {
+      // Menos profesionales (terminará después)
+      const profesionalesFaltantes = capacidadPresupuesto - profesionalesAsignados;
+      estado = 'atrasado';
+      emoji = '⚠️';
+      color = 'warning';
+      mensaje = `Terminarás DESPUÉS: Faltan ${profesionalesFaltantes} profesional${profesionalesFaltantes !== 1 ? 'es' : ''} → ${diasDiferencia} día${diasDiferencia !== 1 ? 's' : ''} más (${diasReales} días en lugar de ${diasEstimadosOriginales})`;
+    }
+
+    return {
+      estado,
+      mensaje,
+      emoji,
+      color,
+      diasDiferencia,
+      porcentajeDiferencia,
+      diasEstimadosOriginales,
+      diasReales,
+      capacidadPresupuesto,
+      profesionalesAsignados,
+      jornalesPresupuesto: jornalesPresupuestoTotales
+    };
+  }, [
+    configuracionObraActualizada,
+    diasHabilesObjetivo,
+    capacidadNecesaria,
+    resumenProfesionales
+  ]);
+
+  // Calcular días hábiles reales entre fechaInicio y fechaFin
+  const calcularDiasHabiles = (fechaInicio, cantidadDias) => {
+    const inicio = new Date(fechaInicio);
+    const dias = [];
+    let diasAgregados = 0;
+
+    // Función para calcular Pascua (algoritmo de Butcher)
+    const calcularPascua = (year) => {
+      const a = year % 19;
+      const b = Math.floor(year / 100);
+      const c = year % 100;
+      const d = Math.floor(b / 4);
+      const e = b % 4;
+      const f = Math.floor((b + 8) / 25);
+      const g = Math.floor((b - f + 1) / 3);
+      const h = (19 * a + b - d - g + 15) % 30;
+      const i = Math.floor(c / 4);
+      const k = c % 4;
+      const l = (32 + 2 * e + 2 * i - h - k) % 7;
+      const m = Math.floor((a + 11 * h + 22 * l) / 451);
+      const month = Math.floor((h + l - 7 * m + 114) / 31);
+      const day = ((h + l - 7 * m + 114) % 31) + 1;
+      return new Date(year, month - 1, day);
+    };
+
+    // Función para obtener el n-ésimo día de la semana de un mes
+    const getNthWeekdayOfMonth = (year, month, weekday, n) => {
+      const date = new Date(year, month, 1);
+      let count = 0;
+
+      while (date.getMonth() === month) {
+        if (date.getDay() === weekday) {
+          count++;
+          if (count === n) {
+            return new Date(date);
+          }
+        }
+        date.setDate(date.getDate() + 1);
+      }
+      return null;
+    };
+
+    // Función para verificar si una fecha es feriado
+    const esFeriado = (fecha) => {
+      const year = fecha.getFullYear();
+      const mes = fecha.getMonth() + 1; // 1-12
+      const dia = fecha.getDate();
+      const mesdia = `${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+
+      // Feriados fijos de Argentina
+      const feriadosFijos = [
+        '01-01', // Año Nuevo
+        '03-24', // Día Nacional de la Memoria por la Verdad y la Justicia
+        '04-02', // Día del Veterano y de los Caídos en la Guerra de Malvinas
+        '05-01', // Día del Trabajador
+        '05-25', // Revolución de Mayo
+        '06-20', // Paso a la Inmortalidad del General Manuel Belgrano
+        '07-09', // Día de la Independencia
+        '12-08', // Inmaculada Concepción de María
+        '12-25'  // Navidad
+      ];
+
+      if (feriadosFijos.includes(mesdia)) {
+        return true;
+      }
+
+      // Feriados móviles calculados
+      const pascua = calcularPascua(year);
+
+      // Carnaval (Lunes y Martes antes de Miércoles de Ceniza, que es 47 días antes de Pascua)
+      const carnavalLunes = new Date(pascua);
+      carnavalLunes.setDate(pascua.getDate() - 48);
+      const carnavalMartes = new Date(pascua);
+      carnavalMartes.setDate(pascua.getDate() - 47);
+
+      // Jueves Santo y Viernes Santo
+      const juevesSanto = new Date(pascua);
+      juevesSanto.setDate(pascua.getDate() - 3);
+      const viernesSanto = new Date(pascua);
+      viernesSanto.setDate(pascua.getDate() - 2);
+
+      // Día del Respeto a la Diversidad Cultural (segundo lunes de octubre)
+      const diversidadCultural = getNthWeekdayOfMonth(year, 9, 1, 2); // octubre = mes 9 (0-indexed)
+
+      // Día de la Soberanía Nacional (cuarto lunes de noviembre)
+      const soberaniaNacional = getNthWeekdayOfMonth(year, 10, 1, 4); // noviembre = mes 10
+
+      // Paso a la Inmortalidad de San Martín (tercer lunes de agosto)
+      const sanMartin = getNthWeekdayOfMonth(year, 7, 1, 3); // agosto = mes 7
+
+      // Comparar fechas
+      const compararFecha = (f1, f2) => {
+        return f1 && f2 &&
+               f1.getFullYear() === f2.getFullYear() &&
+               f1.getMonth() === f2.getMonth() &&
+               f1.getDate() === f2.getDate();
+      };
+
+      if (compararFecha(fecha, carnavalLunes) ||
+          compararFecha(fecha, carnavalMartes) ||
+          compararFecha(fecha, juevesSanto) ||
+          compararFecha(fecha, viernesSanto) ||
+          compararFecha(fecha, diversidadCultural) ||
+          compararFecha(fecha, soberaniaNacional) ||
+          compararFecha(fecha, sanMartin)) {
+        return true;
+      }
+
+      // Feriados puente específicos por año (estos cambian cada año)
+      // 2025
+      if (year === 2025) {
+        if (mesdia === '04-18' || // Viernes Santo
+            mesdia === '05-02' || // Feriado puente
+            mesdia === '06-16' || // Puente Güemes
+            mesdia === '10-13' || // Feriado puente
+            mesdia === '11-24') { // Feriado puente
+          return true;
+        }
+      }
+
+      // 2026
+      if (year === 2026) {
+        if (mesdia === '02-16' || // Lunes de Carnaval
+            mesdia === '02-17' || // Martes de Carnaval
+            mesdia === '03-23' || // Feriado puente
+            mesdia === '06-15' || // Puente Güemes
+            mesdia === '10-12' || // Feriado puente
+            mesdia === '11-23') { // Feriado puente
+          return true;
+        }
+      }
+
+      // 2027
+      if (year === 2027) {
+        if (mesdia === '02-08' || // Lunes de Carnaval
+            mesdia === '02-09' || // Martes de Carnaval
+            mesdia === '03-25' || // Jueves Santo
+            mesdia === '03-26' || // Viernes Santo
+            mesdia === '05-24' || // Feriado puente
+            mesdia === '06-21' || // Puente Güemes
+            mesdia === '10-11' || // Feriado puente
+            mesdia === '11-22') { // Feriado puente
+          return true;
+        }
+      }
+
+      // 2028
+      if (year === 2028) {
+        if (mesdia === '02-28' || // Lunes de Carnaval
+            mesdia === '02-29' || // Martes de Carnaval
+            mesdia === '04-13' || // Jueves Santo
+            mesdia === '04-14' || // Viernes Santo
+            mesdia === '05-26' || // Feriado puente
+            mesdia === '06-19' || // Puente Güemes
+            mesdia === '10-09' || // Feriado puente
+            mesdia === '11-20') { // Feriado puente
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    let fechaActual = new Date(inicio);
+    while (diasAgregados < cantidadDias) {
+      const diaSemana = fechaActual.getDay();
+      const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
+      const esFeriadoNacional = esFeriado(fechaActual);
+
+      // Solo agregar si es día hábil (no es fin de semana ni feriado)
+      if (!esFinDeSemana && !esFeriadoNacional) {
+        dias.push(new Date(fechaActual));
+        diasAgregados++;
+      }
+
+      fechaActual.setDate(fechaActual.getDate() + 1);
+    }
+
+    return dias;
+  };
+
+  // Calcular días hábiles según las semanas objetivo
+  const diasHabilesDisponibles = useMemo(() => {
+    if (!obra || !configuracionObraActualizada?.fechaInicio || diasHabilesObjetivo === 0) return [];
+    return calcularDiasHabiles(parsearFechaLocal(configuracionObraActualizada.fechaInicio), diasHabilesObjetivo);
+  }, [obra, configuracionObraActualizada?.fechaInicio, diasHabilesObjetivo]);
+
+  // Función auxiliar para verificar si una fecha es feriado (reutilizando la lógica de calcularDiasHabiles)
+  const esFeriadoFn = (fecha) => {
+    const year = fecha.getFullYear();
+    const mes = fecha.getMonth() + 1;
+    const dia = fecha.getDate();
+    const mesdia = `${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+
+    const feriadosFijos = [
+      '01-01', '03-24', '04-02', '05-01', '05-25', '06-20',
+      '07-09', '12-08', '12-25'
+    ];
+
+    if (feriadosFijos.includes(mesdia)) return true;
+
+    // Cálculo de Pascua
+    const a = year % 19;
+    const b = Math.floor(year / 100);
+    const c = year % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    const pascua = new Date(year, month - 1, day);
+
+    const carnavalLunes = new Date(pascua);
+    carnavalLunes.setDate(pascua.getDate() - 48);
+    const carnavalMartes = new Date(pascua);
+    carnavalMartes.setDate(pascua.getDate() - 47);
+    const juevesSanto = new Date(pascua);
+    juevesSanto.setDate(pascua.getDate() - 3);
+    const viernesSanto = new Date(pascua);
+    viernesSanto.setDate(pascua.getDate() - 2);
+
+    const compararFecha = (f1, f2) => {
+      return f1 && f2 &&
+             f1.getFullYear() === f2.getFullYear() &&
+             f1.getMonth() === f2.getMonth() &&
+             f1.getDate() === f2.getDate();
+    };
+
+    if (compararFecha(fecha, carnavalLunes) ||
+        compararFecha(fecha, carnavalMartes) ||
+        compararFecha(fecha, juevesSanto) ||
+        compararFecha(fecha, viernesSanto)) {
+      return true;
+    }
+
+    // Feriados puente por año
+    if (year === 2025 && ['04-18', '05-02', '06-16', '10-13', '11-24'].includes(mesdia)) return true;
+    if (year === 2026 && ['02-16', '02-17', '03-23', '06-15', '10-12', '11-23'].includes(mesdia)) return true;
+    if (year === 2027 && ['02-08', '02-09', '03-25', '03-26', '05-24', '06-21', '10-11', '11-22'].includes(mesdia)) return true;
+    if (year === 2028 && ['02-28', '02-29', '04-13', '04-14', '05-26', '06-19', '10-09', '11-20'].includes(mesdia)) return true;
+
+    return false;
+  };
+
+  // Agrupar días por semana calendario completa (Lunes a Domingo)
+  const semanas = useMemo(() => {
+    if (!obra || !configuracionObraActualizada?.fechaInicio || diasHabilesObjetivo === 0) return [];
+
+    const fechaInicio = parsearFechaLocal(configuracionObraActualizada.fechaInicio);
+
+    const semanasPorProyecto = [];
+
+    // Encontrar el lunes de la semana de inicio
+    const primerLunes = new Date(fechaInicio);
+    const diaSemana = primerLunes.getDay();
+    const diasHastaLunes = diaSemana === 0 ? -6 : 1 - diaSemana;
+    primerLunes.setDate(primerLunes.getDate() + diasHastaLunes);
+
+    // Calcular cuántas semanas necesitamos mostrar
+    const ultimoDiaHabil = diasHabilesDisponibles[diasHabilesDisponibles.length - 1];
+    if (!ultimoDiaHabil) return [];
+
+    let fechaActual = new Date(primerLunes);
+    let numeroSemana = 1;
+
+    while (fechaActual <= ultimoDiaHabil) {
+      const diasSemana = [];
+
+      // Generar los 7 días de la semana (Lunes a Domingo)
+      for (let i = 0; i < 7; i++) {
+        const fecha = new Date(fechaActual);
+        fecha.setDate(fechaActual.getDate() + i);
+        fecha.setHours(0, 0, 0, 0); // Normalizar a medianoche
+
+        const esFinDeSemana = fecha.getDay() === 0 || fecha.getDay() === 6;
+        const esFeriado = esFeriadoFn(fecha);
+
+        // Normalizar fechaInicio para comparación precisa
+        const fechaInicioNormalizada = new Date(fechaInicio);
+        fechaInicioNormalizada.setHours(0, 0, 0, 0);
+
+        const esAntesDeInicio = fecha < fechaInicioNormalizada;
+        const esDespuesDelFinal = ultimoDiaHabil && fecha > ultimoDiaHabil;
+
+        diasSemana.push({
+          fecha: new Date(fecha),
+          esHabil: !esFinDeSemana && !esFeriado && !esAntesDeInicio && !esDespuesDelFinal,
+          esFinDeSemana,
+          esFeriado,
+          esAntesDeInicio,
+          esDespuesDelFinal
+        });
+      }
+
+      // Solo agregar la semana si tiene al menos un día hábil dentro del rango
+      const tieneHabiles = diasSemana.some(d => d.esHabil);
+      if (tieneHabiles) {
+        const diasHabiles = diasSemana.filter(d => d.esHabil);
+        const primerDiaHabil = diasHabiles[0]?.fecha;
+        const ultimoDiaHabil = diasHabiles[diasHabiles.length - 1]?.fecha;
+
+        // Generar semanaKey en formato ISO (YYYY-Www) usando el lunes de la semana
+        const semanaKeyISO = getSemanaKeyISO(fechaActual);
+
+        semanasPorProyecto.push({
+          key: semanaKeyISO, // Usar formato ISO en lugar de "proyecto-semana-X"
+          numeroSemana: numeroSemana,
+          year: 'Proyecto',
+          dias: diasSemana.filter(d => d.esHabil).map(d => d.fecha), // Solo días hábiles para compatibilidad
+          diasCompletos: diasSemana, // Todos los días de la semana
+          diasHabiles: diasHabiles.length,
+          fechaInicio: primerDiaHabil || diasSemana[0].fecha, // Primer día hábil real
+          fechaFin: ultimoDiaHabil || diasSemana[6].fecha // Último día hábil real
+        });
+        numeroSemana++;
+      }
+
+      // Avanzar a la siguiente semana
+      fechaActual.setDate(fechaActual.getDate() + 7);
+    }
+
+    return semanasPorProyecto;
+  }, [obra, configuracionObraActualizada?.fechaInicio, diasHabilesObjetivo, diasHabilesDisponibles]);
+
+  // Resetear estados cuando se cierra el modal
+  useEffect(() => {
+    if (!show) {
+      setProfesionalesSeleccionados([]);
+      setSemanasObjetivo('');
+      setModalidadAsignacion('');
+      setAsignacionesPorSemana({});
+      setSemanaSeleccionadaParaAsignar(null);
+      setPaso(1);
+      setPresupuesto(null);
+    }
+  }, [show]);
+
+  // Calcular total de jornales asignados
+  const totalJornalesAsignados = useMemo(() => {
+    if (modalidadAsignacion === 'total') {
+      // En modalidad total: cada profesional = 1 jornal/día × días hábiles
+      return profesionalesSeleccionados.length * diasHabilesObjetivo;
+    } else if (modalidadAsignacion === 'semanal') {
+      // Sumar jornales de todas las semanas
+      let total = 0;
+      Object.values(asignacionesPorSemana).forEach(semana => {
+        const profesionalesPorDia = semana.profesionales?.length || 0;
+        Object.values(semana.cantidadesPorDia || {}).forEach(cantidad => {
+          total += (parseInt(cantidad) || 0) * profesionalesPorDia;
+        });
+      });
+      return total;
+    }
+    return 0;
+  }, [modalidadAsignacion, profesionalesSeleccionados, asignacionesPorSemana, diasHabilesObjetivo]);
+
+  const handleContinuarPaso1 = () => {
+    if (!semanasObjetivo || semanasObjetivo <= 0) {
+      alert('Por favor ingresa un número de semanas válido');
+      return;
+    }
+    setPaso(2);
+  };
+
+  const handleSeleccionarModalidad = (modalidad) => {
+    setModalidadAsignacion(modalidad);
+    setPaso(3);
+  };
+
+  // Handler para eliminar todas las asignaciones de una semana
+  const handleEliminarAsignacionesSemana = async (semanaKey, e) => {
+    e.stopPropagation(); // Evitar que se abra el modal de edición
+
+    if (!confirm('¿Estás seguro de eliminar todas las asignaciones de esta semana?')) {
+      return;
+    }
+
+    try {
+      const semana = semanas.find(s => s.key === semanaKey);
+      if (!semana) {
+        console.error('❌ No se encontró la semana:', semanaKey);
+        return;
+      }
+
+      console.log('🗑️ Eliminando asignaciones para semana:', semanaKey, 'días:', semana.dias);
+
+      // Buscar todas las asignaciones que pertenecen a esta semana
+      const asignacionesAEliminar = [];
+
+      asignacionesExistentes.forEach(asignacion => {
+        if (asignacion.asignacionId) {
+          // Verificar si la asignación tiene días en esta semana
+          if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
+            asignacion.asignacionesPorSemana.forEach(asignacionSemanaData => {
+              if (asignacionSemanaData.detallesPorDia && Array.isArray(asignacionSemanaData.detallesPorDia)) {
+                const tieneDetallesEnEstaSemana = asignacionSemanaData.detallesPorDia.some(detalle => {
+                  if (!detalle.fecha) return false;
+                  const fechaDetalle = new Date(detalle.fecha).toDateString();
+                  return semana.dias.some(diaSemana => {
+                    const diaSemanaStr = new Date(diaSemana).toDateString();
+                    return fechaDetalle === diaSemanaStr;
+                  });
+                });
+
+                if (tieneDetallesEnEstaSemana) {
+                  asignacionesAEliminar.push(asignacion.asignacionId);
+                }
+              }
+            });
+          }
+        }
+      });
+
+      console.log('🗑️ IDs de asignaciones a eliminar:', asignacionesAEliminar);
+
+      // Eliminar del backend
+      if (asignacionesAEliminar.length > 0) {
+        const eliminaciones = asignacionesAEliminar.map(asignacionId =>
+          eliminarAsignacionSemanal(asignacionId, empresaSeleccionada.id)
+            .then(() => {
+              console.log('✅ Asignación eliminada del backend:', asignacionId);
+              // Agregar a la lista de eliminadas para filtrar
+              setAsignacionesEliminadas(prev => [...prev, asignacionId]);
+            })
+            .catch(error => {
+              console.error('❌ Error eliminando asignación:', asignacionId, error);
+              throw error;
+            })
+        );
+
+        await Promise.all(eliminaciones);
+
+        // Refrescar asignaciones después de eliminar todas
+        await cargarAsignacionesExistentes();
+
+        // Refrescar lista de profesionales disponibles
+        if (onRefreshProfesionales) {
+          await onRefreshProfesionales();
+        }
+
+        alert(`✅ Se eliminaron ${asignacionesAEliminar.length} asignación(es) de esta semana`);
+      }
+
+      // Eliminar del estado local
+      setAsignacionesPorSemana(prev => {
+        const nuevo = { ...prev };
+        delete nuevo[semanaKey];
+        return nuevo;
+      });
+
+      console.log('✅ Asignaciones de semana eliminadas:', semanaKey);
+    } catch (error) {
+      console.error('❌ Error eliminando asignaciones:', error);
+      alert('Error al eliminar las asignaciones: ' + error.message);
+    }
+  };
+
+  // Handler para abrir modal de selección de profesionales para una semana específica
+  const handleAbrirSeleccionProfesionalesSemana = (semanaKey) => {
+    setSemanaSeleccionadaParaAsignar(semanaKey);
+    // Cargar profesionales ya asignados a esta semana (si existen)
+    const asignacionSemana = asignacionesPorSemana[semanaKey];
+    if (asignacionSemana?.profesionales) {
+      setProfesionalesSeleccionados(asignacionSemana.profesionales);
+    } else {
+      setProfesionalesSeleccionados([]);
+    }
+    setMostrarModalSeleccion(true);
+  };
+
+  const handleConfirmarProfesionales = (profesionales) => {
+    if (modalidadAsignacion === 'total') {
+      // Simplemente guardar los profesionales seleccionados
+      // Cada profesional = 1 jornal/día automáticamente
+      setProfesionalesSeleccionados(profesionales);
+    } else if (modalidadAsignacion === 'semanal' && semanaSeleccionadaParaAsignar) {
+      // Asignar profesionales a la semana seleccionada
+      const semana = semanas.find(s => s.key === semanaSeleccionadaParaAsignar);
+      if (!semana) return;
+
+      // Pre-cargar con la cantidad de profesionales seleccionados
+      const cantidadesPorDia = {};
+      const cantidadProfesionales = profesionales.length.toString();
+
+      semana.dias.forEach(dia => {
+        const fechaKey = dia.toISOString().split('T')[0];
+        // Pre-cargar con la cantidad de profesionales seleccionados
+        cantidadesPorDia[fechaKey] = cantidadProfesionales;
+      });
+
+      // Guardar asignación de la semana
+      setAsignacionesPorSemana(prev => ({
+        ...prev,
+        [semanaSeleccionadaParaAsignar]: {
+          profesionales: profesionales,
+          cantidadesPorDia: cantidadesPorDia
+        }
+      }));
+    }
+    setMostrarModalSeleccion(false);
+  };
+
+  const handleEliminarProfesional = (profesionalId) => {
+    setProfesionalesSeleccionados(prev => prev.filter(p => p.id !== profesionalId));
+  };
+
+  const handleCantidadPorDiaChange = (semanaKey, fecha, cantidad) => {
+    setAsignacionesPorSemana(prev => ({
+      ...prev,
+      [semanaKey]: {
+        ...prev[semanaKey],
+        cantidadesPorDia: {
+          ...prev[semanaKey]?.cantidadesPorDia,
+          [fecha]: cantidad
+        }
+      }
+    }));
+  };
+
+  const handleEliminarProfesionalDeSemana = (semanaKey, profesionalId) => {
+    setAsignacionesPorSemana(prev => {
+      const semana = prev[semanaKey];
+      if (!semana) return prev;
+
+      const profesionalesActualizados = semana.profesionales.filter(p => p.id !== profesionalId);
+
+      // Si no quedan profesionales, eliminar toda la semana
+      if (profesionalesActualizados.length === 0) {
+        const nuevo = { ...prev };
+        delete nuevo[semanaKey];
+        return nuevo;
+      }
+
+      return {
+        ...prev,
+        [semanaKey]: {
+          ...semana,
+          profesionales: profesionalesActualizados
+        }
+      };
+    });
+  };
+
+  const handleAsignar = async () => {
+    // Validaciones
+    if (modalidadAsignacion === 'total') {
+      if (profesionalesSeleccionados.length === 0) {
+        alert('Por favor selecciona al menos un profesional');
+        return;
+      }
+      // Ya no validamos cantidades porque cada profesional = 1 jornal/día automáticamente
+    } else if (modalidadAsignacion === 'semanal') {
+      if (Object.keys(asignacionesPorSemana).length === 0) {
+        alert('Por favor asigna profesionales a al menos una semana');
+        return;
+      }
+    }
+
+    setCargando(true);
+    try {
+      // PASO 1: SIEMPRE eliminar asignaciones existentes para evitar conflictos 409
+      console.log('🗑️ Limpiando asignaciones existentes de la obra:', obra.id);
+
+      try {
+        // Intentar obtener asignaciones actuales directamente
+        const asignacionesActuales = await obtenerAsignacionesSemanalPorObra(obra.id, empresaSeleccionada.id);
+        console.log('📋 Asignaciones actuales encontradas:', asignacionesActuales);
+
+        const asignacionesArray = asignacionesActuales?.data || asignacionesActuales || [];
+
+        if (Array.isArray(asignacionesArray) && asignacionesArray.length > 0) {
+          console.log(`🗑️ Eliminando ${asignacionesArray.length} asignaciones existentes...`);
+
+          for (const asignacion of asignacionesArray) {
+            if (asignacion.id) {
+              try {
+                await eliminarAsignacionSemanal(asignacion.id, empresaSeleccionada.id);
+                console.log('✅ Asignación eliminada:', asignacion.id);
+              } catch (error) {
+                console.warn('⚠️ Error eliminando asignación:', asignacion.id, error.message);
+              }
+            }
+          }
+        } else {
+          console.log('✅ No hay asignaciones previas que eliminar');
+        }
+      } catch (error) {
+        console.warn('⚠️ Error obteniendo asignaciones actuales (puede no haber ninguna):', error.message);
+        // Continuar de todas formas - puede que no haya asignaciones previas
+      }
+
+      // PASO 2: Crear las nuevas asignaciones
+      console.log('✨ Creando nuevas asignaciones...');
+
+      // Construir payload según el contrato del backend
+      const payload = {
+        obraId: obra.id,
+        modalidad: modalidadAsignacion,
+        semanasObjetivo: parseInt(semanasObjetivo),
+      };
+
+      if (modalidadAsignacion === 'total') {
+        // En modalidad total (equipo fijo), cada profesional trabaja 1 jornal/día automáticamente
+        payload.profesionales = profesionalesSeleccionados.map(prof => ({
+          profesionalId: prof.id,
+          nombre: prof.nombre,
+          cantidadPorDia: 1 // Número, no string
+        }));
+
+        console.log('📤 Profesionales para modalidad total:', JSON.stringify(payload.profesionales, null, 2));
+      } else if (modalidadAsignacion === 'semanal') {
+        // Convertir asignacionesPorSemana a formato de payload
+        console.log('🔍 asignacionesPorSemana state:', JSON.stringify(asignacionesPorSemana, null, 2));
+
+        payload.asignacionesPorSemana = Object.entries(asignacionesPorSemana).map(([semanaKey, datos]) => {
+          console.log(`🔍 Procesando semana ${semanaKey}:`, datos);
+
+          // Validar que haya profesionales
+          if (!datos.profesionales || datos.profesionales.length === 0) {
+            console.warn(`⚠️ Semana ${semanaKey} no tiene profesionales asignados`);
+            return null;
+          }
+
+          // Validar cantidadesPorDia
+          const cantidadesPorDia = datos.cantidadesPorDia || {};
+          console.log(`🔍 Cantidades por día para semana ${semanaKey}:`, cantidadesPorDia);
+
+          // Filtrar cantidades vacías o inválidas y formatear fechas correctamente
+          const cantidadesLimpias = {};
+          Object.entries(cantidadesPorDia).forEach(([fecha, cantidad]) => {
+            const cantidadNum = parseInt(cantidad);
+            if (!isNaN(cantidadNum) && cantidadNum > 0) {
+              // Asegurar que la fecha esté en formato YYYY-MM-DD
+              let fechaFormateada = fecha;
+              if (fecha.includes('T')) {
+                fechaFormateada = fecha.split('T')[0];
+              }
+              // Mantener como string según el ejemplo del backend
+              cantidadesLimpias[fechaFormateada] = cantidad.toString();
+            }
+          });
+
+          console.log(`🔍 Cantidades limpias para semana ${semanaKey}:`, cantidadesLimpias);
+
+          return {
+            semanaKey,
+            profesionales: datos.profesionales.map(prof => ({
+              profesionalId: prof.id,
+              nombre: prof.nombre
+            })),
+            cantidadesPorDia: cantidadesLimpias
+          };
+        }).filter(item => item !== null); // Filtrar semanas sin profesionales
+
+        console.log('📤 asignacionesPorSemana procesadas:', JSON.stringify(payload.asignacionesPorSemana, null, 2));
+      }
+
+      console.log('📤 Payload a enviar:', JSON.stringify(payload, null, 2));
+      console.log('🏢 EmpresaId:', empresaSeleccionada.id);
+
+      // Llamar al servicio del backend (siempre POST después de eliminar)
+      const response = await crearAsignacionSemanal(payload, empresaSeleccionada.id);
+
+      // 🔍 DEBUG: Ver qué retorna exactamente el backend
+      console.log('🔍 Response completo del backend:', response);
+      console.log('🔍 Response.data:', response.data);
+      console.log('🔍 Response.status:', response.status);
+      console.log('🔍 Response keys:', Object.keys(response));
+      console.log('🔍 Response prototype:', Object.getPrototypeOf(response));
+      console.log('🔍 Response stringified:', JSON.stringify(response, null, 2));
+
+      // Verificar si es una estructura de axios o algo diferente
+      if (response.config && response.headers) {
+        console.log('✅ Es una respuesta de axios');
+      } else {
+        console.log('❌ NO es una respuesta de axios estándar');
+      }
+
+      // Verificar si la respuesta es exitosa basándose en el status HTTP o estructura
+      const isSuccessful = response.status === 200 ||
+                          response.status === 201 ||
+                          response.success === true ||  // Para responses que no son de axios
+                          (response.data && response.data.success === true) ||
+                          (response.data && !response.data.error && !response.data.message);
+
+      if (isSuccessful) {
+        // Intentar extraer información de diferentes formatos de respuesta
+        let mensaje = '✅ Asignación creada exitosamente';
+        let detalles = '';
+
+        // Si el response tiene success directamente (no es axios)
+        if (response.success === true && response.data) {
+          const { totalJornalesAsignados, diasHabiles, profesionalesAsignados } = response.data;
+          detalles = `\n• Jornales asignados: ${totalJornalesAsignados || 'N/A'}\n• Días hábiles: ${diasHabiles || 'N/A'}\n• Profesionales: ${profesionalesAsignados || 'N/A'}`;
+          if (response.message) {
+            mensaje = response.message;
+          }
+        }
+        // Si es respuesta de axios con data
+        else if (response.data) {
+          // Si la respuesta tiene estructura con success
+          if (response.data.success === true && response.data.data) {
+            const { totalJornalesAsignados, diasHabiles, profesionalesAsignados } = response.data.data;
+            detalles = `\n• Jornales asignados: ${totalJornalesAsignados || 'N/A'}\n• Días hábiles: ${diasHabiles || 'N/A'}\n• Profesionales: ${profesionalesAsignados || 'N/A'}`;
+          }
+          // Si la respuesta tiene mensaje directo
+          else if (response.data.message && !response.data.error) {
+            mensaje = response.data.message;
+          }
+          // Si la respuesta tiene datos directamente
+          else if (response.data.totalJornalesAsignados !== undefined) {
+            const { totalJornalesAsignados, diasHabiles, profesionalesAsignados } = response.data;
+            detalles = `\n• Jornales asignados: ${totalJornalesAsignados || 'N/A'}\n• Días hábiles: ${diasHabiles || 'N/A'}\n• Profesionales: ${profesionalesAsignados || 'N/A'}`;
+          }
+          // Si la respuesta es un string simple
+          else if (typeof response.data === 'string') {
+            mensaje = response.data;
+          }
+          // Si hay error en la respuesta
+          else if (response.data.error || (response.data.success === false)) {
+            throw new Error(response.data.error || response.data.message || 'Error en la respuesta del backend');
+          }
+        }
+
+        alert(mensaje + detalles);
+
+        // Recargar asignaciones existentes para actualizar la vista
+        await cargarAsignacionesExistentes();
+
+        // Refrescar lista de profesionales disponibles
+        if (onRefreshProfesionales) {
+          await onRefreshProfesionales();
+        }
+
+        // Callback opcional para actualizar lista en el componente padre
+        if (onAsignar) {
+          await onAsignar(payload);
+        }
+
+        onHide();
+      } else {
+        // La respuesta no fue exitosa
+        const errorMessage = response.data?.message || response.data?.error || response.message || response.error || `Error HTTP ${response.status || 'desconocido'}`;
+        throw new Error(errorMessage);
+      }
+    } catch (error) {
+      console.error('Error al asignar profesionales:', error);
+      console.error('Error completo:', {
+        message: error.message,
+        response: error.response,
+        request: error.request,
+        config: error.config
+      });
+
+      // Manejo de errores según el contrato del backend
+      if (error.response) {
+        const { status, data } = error.response;
+
+        console.error('Response status:', status);
+        console.error('Response data:', data);
+
+        let errorMessage = '';
+
+        if (status === 400) {
+          // Error de validación
+          if (data && typeof data === 'object') {
+            errorMessage = `❌ Error de validación:\n${data.message || data.error || JSON.stringify(data, null, 2)}`;
+          } else {
+            errorMessage = `❌ Error de validación: ${data || 'Datos inválidos'}`;
+          }
+        } else if (status === 404) {
+          errorMessage = `❌ No encontrado:\n${data.message || data.error || 'Recurso no encontrado'}`;
+        } else if (status === 500) {
+          // Error 500 - Error interno del servidor
+          console.error('🚨 Error 500 del servidor');
+          if (data && typeof data === 'object') {
+            errorMessage = `❌ Error del servidor (500):\n${data.message || data.error || 'Error interno del servidor'}`;
+
+            // Si hay stack trace o detalles adicionales
+            if (data.trace) {
+              console.error('Stack trace del backend:', data.trace);
+            }
+            if (data.path) {
+              console.error('Path del error:', data.path);
+            }
+            if (data.timestamp) {
+              console.error('Timestamp del error:', data.timestamp);
+            }
+          } else {
+            errorMessage = `❌ Error del servidor (500): ${data || 'Error interno del servidor'}`;
+          }
+        } else {
+          errorMessage = `❌ Error del servidor (${status}):\n${data?.message || data?.error || data || 'Error desconocido'}`;
+        }
+
+        alert(errorMessage);
+      } else if (error.request) {
+        // Request se hizo pero no hubo respuesta
+        console.error('No response from server:', error.request);
+        alert('❌ Error de conexión con el servidor\n\nVerifica que el backend esté corriendo en http://localhost:8080');
+      } else {
+        // Error al configurar la request
+        console.error('Error configurando request:', error.message);
+        alert(`❌ Error: ${error.message}`);
+      }
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const formatearFecha = (fecha) => {
+    const dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    return `${dias[fecha.getDay()]} ${fecha.getDate()}/${fecha.getMonth() + 1}`;
+  };
+
+  const formatearFechaCompleta = (fecha) => {
+    return `${fecha.getDate()}/${fecha.getMonth() + 1}/${fecha.getFullYear()}`;
+  };
+
+  // Función para eliminar una asignación individual
+  const handleEliminarAsignacion = async (asignacionId) => {
+    if (!window.confirm('¿Estás seguro de que quieres eliminar esta asignación?')) {
+      return;
+    }
+
+    try {
+      console.log('🗑️ Eliminando asignación:', asignacionId);
+      await eliminarAsignacionSemanal(asignacionId, empresaSeleccionada.id);
+
+      alert('✅ Asignación eliminada correctamente');
+
+      // Recargar asignaciones para actualizar la vista
+      await cargarAsignacionesExistentes();
+
+      // Refrescar lista de profesionales disponibles en la página padre
+      if (onRefreshProfesionales) {
+        await onRefreshProfesionales();
+      }
+
+    } catch (error) {
+      console.error('❌ Error eliminando asignación:', error);
+      alert(`❌ Error eliminando asignación: ${error.message || error}`);
+    }
+  };
+
+  // Función para eliminar todas las asignaciones de un profesional específico
+  const handleEliminarProfesionalDeObra = async (profesionalId, nombreProfesional) => {
+    console.log('🗑️ [DEBUG] Iniciando eliminación de profesional:', { profesionalId, nombreProfesional });
+    console.log('🗑️ [DEBUG] Tipo de profesionalId:', typeof profesionalId);
+    console.log('🗑️ [DEBUG] asignacionesExistentes:', asignacionesExistentes);
+
+    if (!window.confirm(`¿Estás seguro de que quieres eliminar todas las asignaciones de ${nombreProfesional} de esta obra?`)) {
+      return;
+    }
+
+    try {
+      // Solo procesar asignaciones ACTIVAS (todas las que vienen del backend)
+      const asignacionesActivas = asignacionesExistentes;
+
+      console.log('🗑️ [DEBUG] asignacionesActivas filtradas:', asignacionesActivas);
+
+      const asignacionesParaEliminar = [];
+
+      asignacionesActivas.forEach(asignacion => {
+        console.log('🗑️ [DEBUG] Revisando asignación:', asignacion);
+        let tieneElProfesional = false;
+
+        // La estructura del backend es siempre anidada
+        if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
+          asignacion.asignacionesPorSemana.forEach(semana => {
+            if (semana.detallesPorDia && Array.isArray(semana.detallesPorDia)) {
+              semana.detallesPorDia.forEach(detalle => {
+                console.log('🗑️ [DEBUG] Revisando detalle:', { detalle, profesionalIdBuscado: profesionalId, tipoDetalle: typeof detalle.profesionalId, tipoBuscado: typeof profesionalId });
+                if (detalle.profesionalId === profesionalId && detalle.cantidad > 0) {
+                  console.log('🗑️ [DEBUG] ¡MATCH! Encontrado en estructura anidada:', detalle.profesionalId, '===', profesionalId);
+                  tieneElProfesional = true;
+                } else if (parseInt(detalle.profesionalId) === parseInt(profesionalId) && detalle.cantidad > 0) {
+                  console.log('🗑️ [DEBUG] ¡MATCH con parseInt! Encontrado:', detalle.profesionalId, '===', profesionalId);
+                  tieneElProfesional = true;
+                } else {
+                  console.log('🗑️ [DEBUG] No match:', detalle.profesionalId, '!==', profesionalId, 'cantidad:', detalle.cantidad);
+                }
+              });
+            }
+          });
+        }
+
+        if (tieneElProfesional) {
+          const id = asignacion.asignacionId; // Usar asignacionId que es lo que devuelve el backend
+          console.log('🗑️ [DEBUG] Agregando a eliminar - ID:', id);
+          if (id) {
+            asignacionesParaEliminar.push(id);
+          }
+        }
+      });
+
+      console.log(`🗑️ [DEBUG] Total asignaciones para eliminar: ${asignacionesParaEliminar.length}`, asignacionesParaEliminar);
+
+      if (asignacionesParaEliminar.length === 0) {
+        console.log('❌ [DEBUG] No se encontraron asignaciones para eliminar');
+        alert(`❌ No se encontraron asignaciones activas de ${nombreProfesional} para eliminar.`);
+        return;
+      }
+
+      // Eliminar cada asignación
+      let eliminadas = 0;
+      for (const asignacionId of asignacionesParaEliminar) {
+        try {
+          console.log(`🗑️ [DEBUG] Eliminando asignación ID: ${asignacionId}`);
+          const resultado = await eliminarAsignacionSemanal(asignacionId, empresaSeleccionada.id);
+          console.log(`🗑️ [DEBUG] Resultado eliminación:`, resultado);
+          eliminadas++;
+        } catch (error) {
+          console.error(`❌ Error eliminando asignación ${asignacionId}:`, error);
+          console.error(`❌ Error completo:`, error.response || error.message || error);
+        }
+      }
+
+      if (eliminadas > 0) {
+        alert(`✅ Se marcaron como inactivas ${eliminadas} asignaciones de ${nombreProfesional}`);
+
+        // Agregar IDs eliminados al tracking local para filtrado inmediato
+        setAsignacionesEliminadas(prev => {
+          const nuevasEliminadas = [...prev, ...asignacionesParaEliminar];
+          console.log('🎯 [DEBUG] Agregando al tracking de eliminadas:', asignacionesParaEliminar);
+          console.log('🎯 [DEBUG] Lista actualizada de eliminadas:', nuevasEliminadas);
+          return nuevasEliminadas;
+        });
+
+        // Forzar recarga con delay para asegurar que el backend procese la eliminación
+        setTimeout(async () => {
+          console.log('🔄 [DEBUG] Iniciando recarga después de eliminar...');
+
+          try {
+            await cargarAsignacionesExistentes();
+            console.log('🔄 [DEBUG] Recarga de asignaciones completada exitosamente');
+          } catch (error) {
+            console.error('🔄 [DEBUG] Error en recarga de asignaciones:', error);
+          }
+
+          // Refrescar lista de profesionales disponibles si está disponible
+          if (onRefreshProfesionales) {
+            try {
+              console.log('🔄 [DEBUG] Refrescando lista de profesionales disponibles...');
+              await onRefreshProfesionales();
+              console.log('🔄 [DEBUG] Refresh de profesionales completado');
+            } catch (error) {
+              console.error('🔄 [DEBUG] Error en refresh de profesionales:', error);
+            }
+          }
+        }, 500);
+      } else {
+        alert(`❌ No se pudo eliminar ninguna asignación de ${nombreProfesional}`);
+      }
+
+    } catch (error) {
+      console.error('❌ Error eliminando asignaciones del profesional:', error);
+      alert(`❌ Error eliminando asignaciones: ${error.message || error}`);
+    }
+  };
+
+  if (!show) return null;
+
+  return (
+    <>
+    <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+      <div className="modal-dialog modal-xl" style={{ maxWidth: '90%', marginTop: '10px' }}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title">
+              Asignación Semanal de Profesionales - {obra?.nombre}
+            </h5>
+          </div>
+
+          <div className="modal-body" style={{ minHeight: '65vh', maxHeight: '85vh', overflowY: 'auto' }}>
+        {/* Paso 1: Definir semanas objetivo - Solo si no hay configuración global */}
+        {paso === 1 && !configuracionObra && (
+          <div>
+            <h5 className="mb-4">Paso 1: Define el tiempo de ejecución</h5>
+
+            <div className="alert alert-info">
+              <strong>Información de la obra:</strong>
+              <ul className="mb-0 mt-2">
+                <li>Jornales totales necesarios: <strong>{jornalesTotales.toFixed(2)}</strong></li>
+                {configuracionObraActualizada?.fechaInicio && (
+                  <li>Fecha de inicio: <strong>{formatearFechaCompleta(new Date(configuracionObraActualizada.fechaInicio))}</strong></li>
+                )}
+              </ul>
+            </div>
+
+            <Form.Group className="mb-3">
+              <Form.Label>¿En cuántas semanas quieres terminar la obra?</Form.Label>
+              <Form.Control
+                type="number"
+                min="1"
+                value={semanasObjetivo}
+                onChange={(e) => setSemanasObjetivo(e.target.value)}
+                placeholder="Ej: 4"
+                autoFocus
+              />
+              <Form.Text className="text-muted">
+                Esto equivale a {diasHabilesObjetivo} días hábiles
+              </Form.Text>
+            </Form.Group>
+
+            {semanasObjetivo && (
+              <div className="alert alert-success">
+                <strong>Capacidad necesaria:</strong> Para terminar en {semanasObjetivo} semanas ({diasHabilesObjetivo} días hábiles),
+                necesitas una capacidad de <strong>{capacidadNecesaria} jornales por día</strong>.
+                <br />
+                <small className="text-muted">
+                  Cálculo: {jornalesTotales.toFixed(2)} jornales ÷ {diasHabilesObjetivo} días = {capacidadNecesaria} jornales/día
+                </small>
+              </div>
+            )}
+
+            <div className="d-flex justify-content-end mt-4">
+              <Button variant="primary" onClick={handleContinuarPaso1}>
+                Continuar
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Paso 2: Seleccionar modalidad */}
+        {paso === 2 && (
+          <div>
+            <h5 className="mb-4">Paso 2: Elige el tipo de asignación</h5>
+
+            <div className="alert alert-secondary mb-4">
+              <strong>Recordatorio:</strong> Necesitas {capacidadNecesaria} trabajadores/día durante {diasHabilesObjetivo} días
+            </div>
+
+            <div className="row">
+              <div className="col-md-6 mb-3">
+                <div
+                  className={`border rounded p-4 cursor-pointer h-100 ${modalidadAsignacion === 'total' ? 'border-primary bg-light' : ''}`}
+                  onClick={() => handleSeleccionarModalidad('total')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <h6 className="text-primary">
+                    <i className="bi bi-people-fill me-2"></i>
+                    Asignación por Obra Completa
+                  </h6>
+                  <p className="text-muted mb-0">
+                    Asigna los mismos profesionales a toda la obra de forma constante
+                  </p>
+                  <small className="text-muted">
+                    Recomendado cuando el mismo equipo trabaja toda la obra
+                  </small>
+                </div>
+              </div>
+
+              <div className="col-md-6 mb-3">
+                <div
+                  className={`border rounded p-4 cursor-pointer h-100 ${modalidadAsignacion === 'semanal' ? 'border-primary bg-light' : ''}`}
+                  onClick={() => handleSeleccionarModalidad('semanal')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <h6 className="text-success">
+                    <i className="bi bi-calendar-week-fill me-2"></i>
+                    Asignación por Semana
+                  </h6>
+                  <p className="text-muted mb-0">
+                    Asigna diferentes profesionales por semana según las necesidades de cada etapa
+                  </p>
+                  <small className="text-muted">
+                    Recomendado para obras con fases diferenciadas o equipos rotativos
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+        )} {/* Fin paso 2 */}
+
+        {/* Paso 3: Realizar asignación */}
+        {paso === 3 && (
+          <div>
+            <h5 className="mb-4">
+              {modalidadAsignacion === 'total' ? 'Asignación por Obra Completa' : 'Asignación por Semana'}
+            </h5>
+
+            {/* Información de la obra */}
+            <div className="card mb-3 border-primary">
+              <div className="card-body">
+                <h6 className="card-title">
+                  <i className="fas fa-building me-2"></i>
+                  {obra?.nombre}
+                </h6>
+                <div className="row">
+                  <div className="col-md-3">
+                    <small className="text-muted d-block">Tiempo estimado:</small>
+                    <strong className="text-primary">{jornalesTotales.toFixed(0)} días hábiles</strong>
+                  </div>
+                  <div className="col-md-3">
+                    <small className="text-muted d-block">Duración planificada:</small>
+                    <strong className="text-success">
+                      {configuracionObra?.diasHabiles || diasHabilesObjetivo} días (
+                      {(() => {
+                        // 🔥 Calcular semanas dinámicamente desde fecha de inicio y días hábiles
+                        const diasHabiles = configuracionObra?.diasHabiles || diasHabilesObjetivo;
+                        const fechaInicio = obra?.presupuestoNoCliente?.fechaProbableInicio;
+
+                        console.log('🔍 DEBUG AsignarProfesionalSemanalModal:', {
+                          fechaInicio,
+                          diasHabiles,
+                          tienePresupuesto: !!obra?.presupuestoNoCliente,
+                          presupuesto: obra?.presupuestoNoCliente
+                        });
+
+                        if (fechaInicio && diasHabiles > 0) {
+                          const fechaInicioParsed = parsearFechaLocal(fechaInicio);
+                          const semanasCalculadas = calcularSemanasParaDiasHabiles(fechaInicioParsed, diasHabiles);
+                          console.log('✅ Semanas calculadas:', semanasCalculadas);
+                          return semanasCalculadas;
+                        }
+
+                        // Fallback: usar configuración guardada
+                        console.log('⚠️ Usando fallback:', configuracionObra?.semanasObjetivo || semanasObjetivo);
+                        return configuracionObra?.semanasObjetivo || semanasObjetivo;
+                      })()} sem.)
+                    </strong>
+                  </div>
+                  <div className="col-md-3">
+                    <small className="text-muted d-block">Equipo necesario:</small>
+                    <strong className="text-warning">{capacidadNecesaria} trabajadores/día</strong>
+                  </div>
+                  <div className="col-md-3">
+                    <small className="text-muted d-block">Total semanal:</small>
+                    <strong className="text-info">{(capacidadNecesaria * 5).toFixed(0)} jornales</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Asignación por Obra Completa - Mostrar botón para seleccionar profesionales */}
+            {modalidadAsignacion === 'total' && (
+              <div>
+                <div className="card mb-3">
+                  <div className="card-header bg-primary text-white">
+                    <h6 className="mb-0">
+                      <i className="fas fa-users me-2"></i>
+                      Equipo Asignado a Toda la Obra
+                    </h6>
+                  </div>
+                  <div className="card-body">
+                    <div className="mb-3">
+                      <Button
+                        variant="outline-primary"
+                        size="sm"
+                        onClick={() => setMostrarModalSeleccion(true)}
+                      >
+                        <i className="bi bi-person-plus me-2"></i>
+                        {profesionalesSeleccionados.length > 0 ? 'Modificar Equipo' : 'Seleccionar Profesionales'}
+                      </Button>
+                    </div>
+
+                    {/* Lista de profesionales seleccionados */}
+                    {profesionalesSeleccionados.length > 0 ? (
+                      <>
+                        <div className="alert alert-light mb-3">
+                          <strong className="d-block mb-2">
+                            <i className="fas fa-check-circle text-success me-2"></i>
+                            {profesionalesSeleccionados.length} profesional(es) seleccionado(s):
+                          </strong>
+                          <div className="d-flex flex-wrap gap-2">
+                            {profesionalesSeleccionados.map(prof => (
+                              <span
+                                key={prof.id}
+                                className="badge bg-primary d-flex align-items-center gap-2"
+                                style={{ fontSize: '0.9rem', padding: '0.5rem 0.75rem' }}
+                              >
+                                {prof.nombre}
+                                <button
+                                  type="button"
+                                  className="btn-close btn-close-white"
+                                  aria-label="Eliminar"
+                                  onClick={() => handleEliminarProfesional(prof.id)}
+                                  style={{ fontSize: '0.6rem' }}
+                                ></button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 🔥 NUEVO: Panel de comparación de tiempo estimado */}
+                        {compararProfesionalesVsPresupuesto.estado !== 'sin-datos' && compararProfesionalesVsPresupuesto.estado !== 'sin-asignacion' && (
+                          <div className={`alert alert-${compararProfesionalesVsPresupuesto.color} mb-3 border-${compararProfesionalesVsPresupuesto.color}`} style={{ borderWidth: '2px' }}>
+                            <div className="d-flex align-items-start gap-2">
+                              <div style={{ fontSize: '1.5rem' }}>{compararProfesionalesVsPresupuesto.emoji}</div>
+                              <div className="flex-grow-1">
+                                <strong className="d-block mb-2" style={{ fontSize: '1.05rem' }}>
+                                  {compararProfesionalesVsPresupuesto.mensaje}
+                                </strong>
+                                <div className="small">
+                                  <div className="mb-1">
+                                    <i className="fas fa-calculator me-2"></i>
+                                    <strong>Cálculo:</strong> {compararProfesionalesVsPresupuesto.jornalesPresupuesto.toFixed(0)} jornales totales ÷ {compararProfesionalesVsPresupuesto.profesionalesAsignados.toFixed(1)} profesionales/día = {compararProfesionalesVsPresupuesto.diasReales} días
+                                  </div>
+                                  <div>
+                                    <i className="fas fa-users me-2"></i>
+                                    <strong>Presupuesto:</strong> {compararProfesionalesVsPresupuesto.capacidadPresupuesto} prof/día × {compararProfesionalesVsPresupuesto.diasEstimadosOriginales} días |
+                                    <strong className="ms-2">Asignado:</strong> {compararProfesionalesVsPresupuesto.profesionalesAsignados.toFixed(1)} prof/día × {compararProfesionalesVsPresupuesto.diasReales} días
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="alert alert-info mb-3">
+                          <i className="fas fa-info-circle me-2"></i>
+                          <strong>Asignación automática:</strong> Cada profesional trabajará <strong>1 jornal/día</strong> durante todos los {diasHabilesObjetivo} días hábiles de la obra.
+                        </div>
+
+                        <div className={`alert mb-0 ${
+                          profesionalesSeleccionados.length === capacidadNecesaria
+                            ? 'alert-success'
+                            : profesionalesSeleccionados.length > capacidadNecesaria
+                              ? 'alert-info'
+                              : 'alert-warning'
+                        }`}>
+                          <strong>📊 Resumen de asignación:</strong>
+                          <ul className="mb-0 mt-2">
+                            <li><strong>{profesionalesSeleccionados.length} profesional(es)</strong> seleccionados</li>
+                            <li><strong>{profesionalesSeleccionados.length} jornal(es)/día</strong> de capacidad</li>
+                            <li><strong>{profesionalesSeleccionados.length * diasHabilesObjetivo} jornales totales</strong> ({profesionalesSeleccionados.length} × {diasHabilesObjetivo} días)</li>
+                          </ul>
+                          <hr className="my-2" />
+                          <small>
+                            {profesionalesSeleccionados.length === capacidadNecesaria
+                              ? `✅ Perfecto: ${profesionalesSeleccionados.length} asignados = ${capacidadNecesaria} necesarios`
+                              : profesionalesSeleccionados.length > capacidadNecesaria
+                                ? `🚀 Sobran ${profesionalesSeleccionados.length - capacidadNecesaria} profesional(es) → Terminarás antes de tiempo`
+                                : `⚠️ Faltan ${capacidadNecesaria - profesionalesSeleccionados.length} profesional(es) más (necesitas ${capacidadNecesaria} en total)`}
+                          </small>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center text-muted py-3">
+                        <i className="fas fa-user-plus fa-2x mb-2"></i>
+                        <p className="mb-0">No hay profesionales asignados a esta obra</p>
+                        <small>Haz clic en "Seleccionar Profesionales" para comenzar</small>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {modalidadAsignacion === 'semanal' && (
+              <div>
+                {/* Distribución semanal con tarjetas clickeables */}
+                <div className="card mb-3 border-info">
+                  <div className="card-header bg-info text-white">
+                    <h6 className="mb-0">
+                      <i className="fas fa-calendar-week me-2"></i>
+                      Distribución Semanal de Profesionales
+                    </h6>
+                  </div>
+                  <div className="card-body">
+                    {semanas.length === 0 ? (
+                      <div className="alert alert-warning">
+                        <h6 className="alert-heading">
+                          <i className="fas fa-exclamation-triangle me-2"></i>
+                          No se pueden generar las semanas
+                        </h6>
+                        <p className="mb-2">
+                          Para poder asignar profesionales por semana, necesitas configurar primero:
+                        </p>
+                        <ul>
+                          <li>La <strong>fecha de inicio</strong> de la obra</li>
+                          <li>El número de <strong>semanas objetivo</strong> para completar la obra</li>
+                        </ul>
+                        <hr />
+                        <div className="d-flex gap-2">
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => setPaso(1)}
+                          >
+                            <i className="fas fa-cog me-2"></i>
+                            Configurar obra
+                          </button>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => setModalidadAsignacion('total')}
+                          >
+                            <i className="fas fa-people-fill me-2"></i>
+                            Cambiar a asignación por obra completa
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="row">
+                        {semanas.map((semana) => {
+                        // Obtener asignaciones nuevas del estado local
+                        const asignacionSemana = asignacionesPorSemana[semana.key];
+                        const profesionalesNuevos = asignacionSemana?.profesionales || [];
+
+                        // Obtener asignaciones existentes para esta semana del proyecto
+                        const profesionalesExistentes = [];
+
+                        // Procesar asignaciones existentes y mapearlas a semanas del proyecto
+                        asignacionesExistentes.forEach(asignacion => {
+                          if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
+                            asignacion.asignacionesPorSemana.forEach(asignacionSemanaData => {
+                              if (asignacionSemanaData.detallesPorDia && Array.isArray(asignacionSemanaData.detallesPorDia)) {
+                                asignacionSemanaData.detallesPorDia.forEach(detalle => {
+                                  if (detalle.profesionalId && detalle.cantidad > 0 && detalle.fecha) {
+                                    // Verificar si la fecha del detalle está en esta semana del proyecto
+                                    const fechaDetalle = new Date(detalle.fecha);
+                                    const estaEnEstaSemana = semana.dias.some(diaSemana => {
+                                      const diaSemanaFormat = new Date(diaSemana);
+                                      return fechaDetalle.toDateString() === diaSemanaFormat.toDateString();
+                                    });
+
+                                    if (estaEnEstaSemana) {
+                                      // Buscar info del profesional
+                                      const profesionalInfo = profesionalesDisponibles.find(p => p.id === detalle.profesionalId);
+                                      const profesionalExistente = {
+                                        id: detalle.profesionalId,
+                                        nombre: profesionalInfo?.nombre || `Profesional ${detalle.profesionalId}`,
+                                        tipoProfesional: profesionalInfo?.tipoProfesional || 'Trabajador',
+                                        cantidad: detalle.cantidad,
+                                        fecha: detalle.fecha
+                                      };
+
+                                      // Evitar duplicados
+                                      const yaExiste = profesionalesExistentes.some(p => p.id === detalle.profesionalId);
+                                      if (!yaExiste) {
+                                        profesionalesExistentes.push(profesionalExistente);
+                                      }
+                                    }
+                                  }
+                                });
+                              }
+                            });
+                          }
+                        });
+
+                        // Combinar profesionales existentes y nuevos
+                        const profesionalesAsignados = [...profesionalesExistentes, ...profesionalesNuevos];
+                        const jornalesPorSemana = semana.dias.length * (capacidadNecesaria || 0);
+                        const porcentajeSemana = (100 / semanas.length).toFixed(1);
+
+                        return (
+                          <div key={semana.key} className="col-md-6 col-lg-4 mb-3">
+                            <div
+                              className="border rounded p-3 bg-light hover-card position-relative"
+                              style={{ cursor: 'pointer', transition: 'all 0.2s', minHeight: '140px' }}
+                              onClick={() => handleAbrirSeleccionProfesionalesSemana(semana.key)}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#e3f2fd';
+                                e.currentTarget.style.borderColor = '#2196f3';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#f8f9fa';
+                                e.currentTarget.style.borderColor = '#dee2e6';
+                              }}
+                            >
+                              {/* Botón de eliminar en la esquina superior derecha */}
+                              {profesionalesAsignados.length > 0 && (
+                                <button
+                                  className="btn btn-sm btn-danger position-absolute"
+                                  style={{ top: '8px', right: '8px', padding: '2px 6px', fontSize: '0.7rem', zIndex: 10 }}
+                                  onClick={(e) => handleEliminarAsignacionesSemana(semana.key, e)}
+                                  title="Eliminar asignaciones de esta semana"
+                                >
+                                  <i className="fas fa-trash"></i>
+                                </button>
+                              )}
+
+                              <div className="d-flex justify-content-between align-items-start mb-2">
+                                <strong className="text-primary">Semana {semana.numeroSemana}</strong>
+                                <div className="d-flex align-items-center gap-1" style={{ marginRight: profesionalesAsignados.length > 0 ? '30px' : '0' }}>
+                                  <small className="text-muted">{porcentajeSemana}%</small>
+                                  <i className="fas fa-calendar-day text-primary" style={{ fontSize: '0.8rem' }}></i>
+                                </div>
+                              </div>
+
+                              <small className="text-muted d-block mb-1">
+                                {semana.fechaInicio?.toLocaleDateString('es-AR')}
+                                {' al '}
+                                {semana.fechaFin?.toLocaleDateString('es-AR')}
+                              </small>
+
+                              <small className="text-muted d-block mb-2">
+                                <i className="fas fa-calendar-check me-1"></i>
+                                {semana.diasHabiles} día{semana.diasHabiles !== 1 ? 's' : ''} hábil{semana.diasHabiles !== 1 ? 'es' : ''}
+                              </small>
+
+                              {profesionalesAsignados.length > 0 ? (
+                                <>
+                                  <small className="text-success d-block">
+                                    <i className="fas fa-users me-1"></i>
+                                    {profesionalesAsignados.length} profesional{profesionalesAsignados.length !== 1 ? 'es' : ''} asignado{profesionalesAsignados.length !== 1 ? 's' : ''}
+                                  </small>
+                                  <small className="text-info d-block mt-1">
+                                    <i className="fas fa-edit me-1"></i>
+                                    Clic para modificar
+                                  </small>
+                                </>
+                              ) : (
+                                <small className="text-warning d-block">
+                                  <i className="fas fa-user-plus me-1"></i>
+                                  Clic para asignar profesionales
+                                </small>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      </div>
+                    )}
+
+                    {/* Lista de profesionales asignados con opción de eliminar */}
+                    {semanas.length > 0 && (
+                      <div className="mt-3">
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <h6 className="mb-0">
+                          <i className="fas fa-users me-2"></i>
+                          Profesionales Asignados
+                        </h6>
+                        <small className="text-muted">
+                          Clic en una semana para modificar asignaciones
+                        </small>
+                      </div>
+
+                      {(() => {
+                        // Recolectar todos los profesionales asignados agrupados por semana
+                        const profesionalesPorSemana = {};
+
+                        semanas.forEach(semana => {
+                          const asignacionSemana = asignacionesPorSemana[semana.key];
+                          const profesionalesNuevos = asignacionSemana?.profesionales || [];
+
+                          // Obtener asignaciones existentes
+                          const profesionalesExistentes = [];
+                          asignacionesExistentes.forEach(asignacion => {
+                            if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
+                              asignacion.asignacionesPorSemana.forEach(asignacionSemanaData => {
+                                if (asignacionSemanaData.detallesPorDia && Array.isArray(asignacionSemanaData.detallesPorDia)) {
+                                  asignacionSemanaData.detallesPorDia.forEach(detalle => {
+                                    if (detalle.profesionalId && detalle.cantidad > 0 && detalle.fecha) {
+                                      const fechaDetalle = new Date(detalle.fecha);
+                                      const estaEnEstaSemana = semana.dias.some(diaSemana => {
+                                        const diaSemanaFormat = new Date(diaSemana);
+                                        return fechaDetalle.toDateString() === diaSemanaFormat.toDateString();
+                                      });
+
+                                      if (estaEnEstaSemana) {
+                                        // Buscar primero en todosProfesionales, luego en profesionalesDisponibles
+                                        const profesionalInfo = todosProfesionales.find(p => p.id === detalle.profesionalId)
+                                          || profesionalesDisponibles.find(p => p.id === detalle.profesionalId);
+                                        const yaExiste = profesionalesExistentes.some(p => p.id === detalle.profesionalId);
+                                        if (!yaExiste) {
+                                          profesionalesExistentes.push({
+                                            id: detalle.profesionalId,
+                                            nombre: profesionalInfo?.nombre || `Profesional ${detalle.profesionalId}`,
+                                            tipoProfesional: profesionalInfo?.tipoProfesional || profesionalInfo?.tipo_profesional || 'Trabajador',
+                                            asignacionId: asignacion.asignacionId
+                                          });
+                                        }
+                                      }
+                                    }
+                                  });
+                                }
+                              });
+                            }
+                          });
+
+                          const todosProfesionalesSemana = [...profesionalesExistentes, ...profesionalesNuevos];
+                          if (todosProfesionalesSemana.length > 0) {
+                            profesionalesPorSemana[semana.key] = {
+                              semana,
+                              profesionales: todosProfesionalesSemana
+                            };
+                          }
+                        });
+
+                        const hayAsignaciones = Object.keys(profesionalesPorSemana).length > 0;
+
+                        if (!hayAsignaciones) {
+                          return (
+                            <div className="alert alert-info mb-0">
+                              <small>
+                                <i className="fas fa-info-circle me-2"></i>
+                                No hay profesionales asignados. Haz clic en cada semana para comenzar a asignar.
+                              </small>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="table-responsive">
+                            <table className="table table-sm table-hover">
+                              <thead className="table-light">
+                                <tr>
+                                  <th style={{width: '120px'}}>Semana</th>
+                                  <th>Profesional</th>
+                                  <th>Tipo</th>
+                                  <th style={{width: '100px'}} className="text-center">Acciones</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(profesionalesPorSemana).map(([semanaKey, data]) => (
+                                  data.profesionales.map((prof, idx) => (
+                                    <tr key={`${semanaKey}-${prof.id}-${idx}`}>
+                                      {idx === 0 && (
+                                        <td rowSpan={data.profesionales.length} className="align-middle">
+                                          <strong className="text-primary">Semana {data.semana.numeroSemana}</strong>
+                                          <br />
+                                          <small className="text-muted">
+                                            {data.semana.fechaInicio?.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                                            {' - '}
+                                            {data.semana.fechaFin?.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                                          </small>
+                                        </td>
+                                      )}
+                                      <td>{prof.nombre}</td>
+                                      <td>
+                                        <span className="badge bg-secondary" style={{fontSize: '0.7rem'}}>
+                                          {prof.tipoProfesional}
+                                        </span>
+                                      </td>
+                                      <td className="text-center">
+                                        {prof.asignacionId ? (
+                                          <button
+                                            className="btn btn-sm btn-outline-danger"
+                                            style={{padding: '2px 8px', fontSize: '0.75rem'}}
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              if (confirm(`¿Eliminar a ${prof.nombre} de la Semana ${data.semana.numeroSemana}?`)) {
+                                                try {
+                                                  await eliminarAsignacionSemanal(prof.asignacionId, empresaSeleccionada.id);
+                                                  setAsignacionesEliminadas(prev => [...prev, prof.asignacionId]);
+                                                  await cargarAsignacionesExistentes();
+                                                  alert('✅ Asignación eliminada correctamente');
+                                                } catch (error) {
+                                                  console.error('Error:', error);
+                                                  alert('❌ Error al eliminar la asignación: ' + error.message);
+                                                }
+                                              }
+                                            }}
+                                            title="Eliminar asignación"
+                                          >
+                                            <i className="fas fa-trash"></i>
+                                          </button>
+                                        ) : (
+                                          <small className="text-muted">Nuevo</small>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Lista de asignaciones actuales */}
+                {Object.keys(asignacionesPorSemana).length > 0 && totalJornalesAsignados > 0 && (
+                  <div className="card">
+                    <div className="card-header">
+                      <h6 className="mb-0">
+                        <i className="fas fa-list me-2"></i>
+                        Resumen de Asignaciones ({Object.keys(asignacionesPorSemana).length} semanas)
+                      </h6>
+                    </div>
+                    <div className="card-body">
+                      <div className="alert alert-success mb-0">
+                        <strong>Total de jornales asignados:</strong> {totalJornalesAsignados}
+                        <br />
+                        <small>
+                          {totalJornalesAsignados >= jornalesTotales
+                            ? '✅ Suficiente para completar la obra'
+                            : `⚠️ Faltan ${jornalesTotales - totalJornalesAsignados} jornales`}
+                        </small>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )} {/* Fin paso 3 */}
+        </div> {/* Cierra modal-body */}
+
+          <div className="modal-footer" style={{ position: 'sticky', bottom: 0, backgroundColor: 'white', zIndex: 10, borderTop: '1px solid #dee2e6' }}>
+            <button type="button" className="btn btn-secondary" onClick={onHide} disabled={cargando}>
+              Cancelar
+            </button>
+
+            {/* Botón guarda en el backend y cierra el modal */}
+            <button
+              type="button"
+              className="btn btn-success"
+              onClick={handleAsignar}
+              disabled={cargando}
+            >
+              {cargando ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2"></span>
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-check-circle me-2"></i>
+                  Guardar y Cerrar
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Modal secundario para seleccionar profesionales */}
+    <SeleccionarProfesionalesModal
+      show={mostrarModalSeleccion}
+      onHide={() => setMostrarModalSeleccion(false)}
+      profesionalesDisponibles={profesionalesDisponibles}
+      profesionalesSeleccionados={profesionalesSeleccionados}
+      onConfirmar={handleConfirmarProfesionales}
+      asignacionesExistentes={asignacionesExistentes}
+      semanaActual={
+        semanaSeleccionadaParaAsignar
+          ? semanas.find(s => s.key === semanaSeleccionadaParaAsignar)
+          : modalidadAsignacion === 'total' && semanas.length > 0
+            ? { dias: semanas.flatMap(s => s.dias) } // Para modalidad total, todas las fechas
+            : null
+      }
+      fechaInicio={
+        modalidadAsignacion === 'total' && diasHabilesDisponibles.length > 0
+          ? diasHabilesDisponibles[0]
+          : null
+      }
+      fechaFin={
+        modalidadAsignacion === 'total' && diasHabilesDisponibles.length > 0
+          ? diasHabilesDisponibles[diasHabilesDisponibles.length - 1]
+          : null
+      }
+    />
+  </>
+  );
+};
+
+export default AsignarProfesionalSemanalModal;

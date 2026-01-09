@@ -1,0 +1,12 @@
+.modal-dialog-custom {
+  max-width: 900px;
+  margin: 1.75rem auto;
+}
+
+.modal-content {
+  background: #fff !important;
+  border-radius: 0.75rem !important;
+  border: 2px solid #222 !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 1.5px 6px rgba(0,0,0,0.15) !important;
+  z-index: 1055;
+}

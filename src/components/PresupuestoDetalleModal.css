@@ -1,0 +1,15 @@
+.modal-detalle-presupuesto .modal-dialog {
+  max-width: 98vw !important;
+  width: 98vw !important;
+}
+
+.modal-detalle-presupuesto .modal-content {
+  min-height: 90vh;
+  max-height: none;
+  overflow: visible !important;
+}
+
+.modal-detalle-presupuesto .modal-body {
+  max-height: none !important;
+  overflow: visible !important;
+}

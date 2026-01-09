@@ -1,0 +1,120 @@
+/* Colores personalizados para los botones principales del sidebar */
+
+.sidebar-btn-primary {
+  background: #2692eb !important;
+  border: 1px solid #011525 !important;
+  color: white !important;
+}
+.sidebar-btn-info {
+  background: #28a745 !important;
+  border: 1px solid #155724 !important;
+  color: white !important;
+}
+.sidebar-btn-warning {
+  background: #fd7e14 !important;
+  border: 1px solid #a35c00 !important;
+  color: white !important;
+}
+.sidebar-btn-danger {
+  background: #dc3545 !important;
+  border: 1px solid #7a1c23 !important;
+  color: white !important;
+}
+
+.sidebar-btn-info:hover {
+  background: #218838 !important;
+  color: white !important;
+}
+.sidebar-btn-warning:hover {
+  background: #e8590c !important;
+  color: white !important;
+}
+.sidebar-btn-danger:hover {
+  background: #c82333 !important;
+  color: white !important;
+}
+
+.sidebar-btn-info:hover {
+  background: #218838;
+  color: white;
+}
+.sidebar-btn-warning:hover {
+  background: #e8590c;
+  color: white;
+}
+.sidebar-btn-danger:hover {
+  background: #c82333;
+  color: white;
+}
+/* Botones del sidebar presupuestos igual que el principal */
+.sidebar-btn {
+  background: #2692eb;
+  border: 1px solid #011525;
+  color: white;
+  transition: all 0.2s ease;
+}
+
+.sidebar-btn:hover {
+  background: rgba(3, 12, 134, 0.2);
+  color: white;
+  transform: translateX(5px);
+}
+
+.sidebar-btn.active {
+  background: rgba(3, 12, 134, 0.2)!important;
+  color: white;
+  border-color: #03245a;
+}
+/* Botón flotante para abrir el sidebar */
+.sidebar-toggle-btn {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  transition: background 0.2s, box-shadow 0.2s;
+  background: #0d6efd;
+  color: #fff;
+  border: none;
+  outline: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.sidebar-presupuestos {
+  background: #0d6efd !important;
+  color: white;
+  border-right: none;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
+  transition: all 0.2s;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-presupuestos.collapsed {
+  width: 64px !important;
+  min-width: 64px !important;
+  max-width: 64px !important;
+  overflow-x: hidden;
+  transition: all 0.2s;
+}
+
+ .sidebar-title {
+  font-size: 1.2rem;
+  font-weight: bold;
+  margin-bottom: 24px;
+  color: #222;
+}
+
+ .sidebar-content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: stretch;
+}

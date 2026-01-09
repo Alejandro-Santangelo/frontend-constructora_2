@@ -1,0 +1,274 @@
+/* Grid para tarjetas del dashboard */
+.dashboard-grid {
+  display: grid;
+  /* Forzar 4 columnas y tarjetas anchas */
+  grid-template-columns: repeat(4, minmax(350px, 1fr)) !important;
+  gap: 24px;
+  width: 100%;
+  margin: 0;
+}
+
+.dashboard-card {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+}
+/* Estilos personalizados para el sistema de construcción */
+
+/* Animaciones suaves */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Tarjetas con hover effect */
+.card {
+  transition: all 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important;
+}
+
+/* Sidebar styles */
+
+.sidebar-primary {
+  background: linear-gradient(180deg, #0d6efd 0%, #0a58ca 100%);
+  color: white;
+  border-right: none;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
+  transition: all 0.2s;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.sidebar-primary.collapsed {
+  width: 64px !important;
+  min-width: 64px !important;
+  max-width: 64px !important;
+  overflow-x: hidden;
+  transition: all 0.2s;
+}
+
+.sidebar-primary.collapsed .sidebar-btn {
+  justify-content: center !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  margin: 0 auto 8px auto;
+  font-size: 1.3rem;
+}
+
+.sidebar-primary.collapsed .sidebar-btn .flex-grow-1,
+.sidebar-primary.collapsed .sidebar-btn span,
+.sidebar-primary.collapsed .sidebar-btn small {
+  display: none !important;
+}
+
+.sidebar-primary.collapsed .sidebar-btn i {
+  margin-right: 0 !important;
+  font-size: 1.5rem;
+}
+
+.sidebar-secondary {
+  background-color: #f8f9fa;
+  border-right: 1px solid #dee2e6;
+}
+
+/* Botones del sidebar */
+.sidebar-btn {
+  background: #2692eb;
+  border: 1px solid #011525;
+  color: white;
+  transition: all 0.2s ease;
+}
+
+.sidebar-btn:hover {
+  /* Evitar cambiar layout: no usar transform que altere el flujo */
+  background: rgba(3, 12, 134, 0.2);
+  color: white;
+  /* Usar sombra y ligero ajuste visual interno sin desplazar elementos adyacentes */
+  box-shadow: 0 6px 18px rgba(3,12,134,0.12);
+  transform: translateZ(0) scale(1.0);
+}
+
+.sidebar-btn.active {
+  background: rgba(3, 12, 134, 0.2)!important;
+  color: white;
+  border-color: #03245a;
+}
+
+/* Cards de entidades */
+.entity-card {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid #e3e6f0;
+}
+
+.entity-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.25rem 1rem rgba(0,0,0,0.15);
+  border-color: #007bff;
+}
+
+.entity-card.selected {
+  border-color: #007bff;
+  background-color: rgba(0,123,255,0.05);
+}
+
+/* Badges personalizados */
+.badge-construction {
+  background: linear-gradient(45deg, #ff6b35, #f7931e);
+  color: white;
+}
+
+/* Iconos rotatorios */
+.icon-spin-slow {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Botones con efecto */
+.btn-gradient {
+  background: linear-gradient(45deg, #007bff, #0056b3);
+  border: none;
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.btn-gradient:hover {
+  background: linear-gradient(45deg, #0056b3, #004085);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+}
+
+/* Tabs personalizados */
+.nav-tabs .nav-link {
+  border: none;
+  color: #6c757d;
+  transition: all 0.2s ease;
+}
+
+.nav-tabs .nav-link:hover {
+  color: #007bff;
+  background-color: rgba(0,123,255,0.1);
+}
+
+.nav-tabs .nav-link.active {
+  color: #007bff;
+  background-color: rgba(0,123,255,0.1);
+  border-bottom: 2px solid #007bff;
+}
+
+/* Loading spinners personalizados */
+.spinner-construction {
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #ff6b35;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+}
+
+/* Alertas personalizadas */
+.alert-construction {
+  background: linear-gradient(45deg, rgba(255,107,53,0.1), rgba(247,147,30,0.1));
+  border: 1px solid rgba(255,107,53,0.3);
+  color: #d63384;
+}
+
+/* Scrollbar personalizado */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .sidebar-primary,
+  .sidebar-secondary {
+    position: fixed !important;
+    z-index: 1000;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+  
+  .sidebar-primary.show,
+  .sidebar-secondary.show {
+    transform: translateX(0);
+  }
+}
+
+/* Utilities */
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.text-shadow {
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+}
+
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+}
+
+.bg-gradient-success {
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+}
+
+.bg-gradient-warning {
+  background: linear-gradient(135deg, #ffc107 0%, #d39e00 100%);
+}
+
+.bg-gradient-info {
+  background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%);
+}
+
+.bg-gradient-purple {
+  background: linear-gradient(135deg, #6f42c1 0%, #5a2d91 100%);
+}
+
+.bg-purple {
+  background-color: #6f42c1;
+}
+
+.text-purple {
+  color: #6f42c1;
+}
+
+.border-purple {
+  border-color: #6f42c1;
+}
+
+/* Navbar debe estar debajo de los modales */
+.navbar {
+  z-index: 1030 !important;
+}

@@ -1,0 +1,36 @@
+{
+  "name": "frontend-rodrigo",
+  "version": "1.0.0",
+  "description": "Frontend profesional desarrollado con **Vite + React + Bootstrap** para interactuar con tu backend de manera más eficiente que Swagger UI.",
+  "main": "vite.config.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "vite": "^7.1.9"
+  },
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.9.0",
+    "axios": "^1.12.2",
+    "bootstrap": "^5.3.8",
+    "docx": "^9.5.1",
+    "fdir": "^6.5.0",
+    "html2canvas": "^1.4.1",
+    "html2pdf.js": "^0.12.1",
+    "jspdf": "^3.0.3",
+    "react": "^18.2.0",
+    "react-bootstrap": "^2.10.10",
+    "react-dom": "^18.2.0",
+    "react-redux": "^9.2.0",
+    "react-router-dom": "^7.9.4",
+    "recharts": "^3.2.1",
+    "sweetalert2": "^11.26.3",
+    "xlsx": "^0.18.5"
+  }
+}
