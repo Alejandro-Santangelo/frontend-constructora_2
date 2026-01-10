@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import { SidebarContext } from '../App';
 import { catalogoGastosService } from '../services/gastosGeneralesService';
 
 const GastosGeneralesPage = () => {
   const { empresaSeleccionada } = useEmpresa();
+  const { setGastosControls } = useContext(SidebarContext) || {};
 
   // Estados principales
   const [gastos, setGastos] = useState([]);
@@ -32,18 +34,7 @@ const GastosGeneralesPage = () => {
 
   const [gastoSeleccionado, setGastoSeleccionado] = useState(null);
   const [porcentaje, setPorcentaje] = useState('');
-
-  // Categorías predefinidas
-  const categoriasComunes = [
-    'SERVICIOS',
-    'SEGUROS',
-    'IMPUESTOS',
-    'ADMINISTRATIVOS',
-    'TRANSPORTE',
-    'HERRAMIENTAS',
-    'EQUIPAMIENTO',
-    '__OTRO__'
-  ];
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
 
   // Cargar gastos al montar
   useEffect(() => {
@@ -52,6 +43,29 @@ const GastosGeneralesPage = () => {
     }
   }, [empresaSeleccionada]);
 
+  // Configurar controles del sidebar
+  useEffect(() => {
+    if (setGastosControls) {
+      setGastosControls({
+        handleNuevo: abrirModalCrear,
+        handleAjustarTodos: () => setMostrarModalPrecioTodos(true),
+        handleAjustarSeleccionados: () => {
+          if (seleccionados.length > 0) {
+            setMostrarModalPrecioSeleccionados(true);
+          }
+        },
+        seleccionadosCount: seleccionados.length
+      });
+    }
+
+    // Limpiar controles cuando el componente se desmonta
+    return () => {
+      if (setGastosControls) {
+        setGastosControls(null);
+      }
+    };
+  }, [setGastosControls, seleccionados.length]);
+
   const cargarGastos = async () => {
     if (!empresaSeleccionada?.id) return;
 
@@ -59,10 +73,15 @@ const GastosGeneralesPage = () => {
     try {
       const data = await catalogoGastosService.obtenerTodos(empresaSeleccionada.id);
       setGastos(Array.isArray(data) ? data : []);
+
+      // Extraer categorías únicas y ordenarlas
+      const categoriasUnicas = [...new Set(data.map(g => g.categoria).filter(Boolean))].sort();
+      setCategoriasDisponibles([...categoriasUnicas, '__OTRO__']);
     } catch (error) {
       console.error('Error cargando gastos:', error);
       mostrarNotificacion('Error al cargar gastos generales', 'error');
       setGastos([]);
+      setCategoriasDisponibles(['__OTRO__']);
     } finally {
       setLoading(false);
     }
@@ -138,8 +157,8 @@ const GastosGeneralesPage = () => {
 
   const handleCrear = async (e) => {
     e.preventDefault();
-    if (!formData.nombre.trim() || !formData.categoria) {
-      mostrarNotificacion('Nombre y categoría son obligatorios', 'error');
+    if (!formData.nombre.trim()) {
+      mostrarNotificacion('El nombre es obligatorio', 'error');
       return;
     }
 
@@ -171,8 +190,8 @@ const GastosGeneralesPage = () => {
 
   const handleActualizar = async (e) => {
     e.preventDefault();
-    if (!formData.nombre.trim() || !formData.categoria) {
-      mostrarNotificacion('Nombre y categoría son obligatorios', 'error');
+    if (!formData.nombre.trim()) {
+      mostrarNotificacion('El nombre es obligatorio', 'error');
       return;
     }
 
@@ -297,59 +316,6 @@ const GastosGeneralesPage = () => {
           <i className="fas fa-receipt me-2"></i>
           Gastos Generales
         </h2>
-        <div className="d-flex gap-2">
-          <button
-            className="btn btn-primary"
-            onClick={abrirModalCrear}
-            disabled={loading}
-          >
-            <i className="fas fa-plus me-2"></i>
-            Nuevo Gasto
-          </button>
-
-          <div className="btn-group">
-            <button
-              type="button"
-              className="btn btn-success dropdown-toggle"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-              disabled={loading}
-            >
-              <i className="fas fa-percentage me-2"></i>
-              Actualizar Precios
-            </button>
-            <ul className="dropdown-menu">
-              <li>
-                <a
-                  className="dropdown-item"
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setMostrarModalPrecioTodos(true);
-                  }}
-                >
-                  <i className="fas fa-globe me-2"></i>
-                  Todos los gastos
-                </a>
-              </li>
-              <li>
-                <a
-                  className={`dropdown-item ${seleccionados.length === 0 ? 'disabled' : ''}`}
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (seleccionados.length > 0) {
-                      setMostrarModalPrecioSeleccionados(true);
-                    }
-                  }}
-                >
-                  <i className="fas fa-check-square me-2"></i>
-                  Seleccionados ({seleccionados.length})
-                </a>
-              </li>
-            </ul>
-          </div>
-        </div>
       </div>
 
       {/* Filtros */}
@@ -551,7 +517,7 @@ const GastosGeneralesPage = () => {
                       onChange={(e) => setFormData({ ...formData, categoria: e.target.value, categoriaCustom: '' })}
                       required
                     >
-                      {categoriasComunes.map(cat => (
+                      {categoriasDisponibles.map(cat => (
                         <option key={cat} value={cat}>
                           {cat === '__OTRO__' ? 'Otros...' : cat}
                         </option>
@@ -665,7 +631,7 @@ const GastosGeneralesPage = () => {
                       onChange={(e) => setFormData({ ...formData, categoria: e.target.value, categoriaCustom: '' })}
                       required
                     >
-                      {categoriasComunes.map(cat => (
+                      {categoriasDisponibles.map(cat => (
                         <option key={cat} value={cat}>
                           {cat === '__OTRO__' ? 'Otros...' : cat}
                         </option>

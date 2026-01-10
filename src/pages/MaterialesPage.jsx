@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import { SidebarContext } from '../App';
 import api from '../services/api';
 import catalogoMaterialesUpdateService from '../services/catalogoMaterialesUpdateService';
 
 const MaterialesPage = () => {
   const { empresaSeleccionada } = useEmpresa();
+  const { setMaterialesControls } = useContext(SidebarContext) || {};
 
   // Estados principales
   const [materiales, setMateriales] = useState([]);
@@ -41,13 +43,37 @@ const MaterialesPage = () => {
     }
   }, [empresaSeleccionada]);
 
+  // Configurar controles del sidebar
+  useEffect(() => {
+    if (setMaterialesControls) {
+      setMaterialesControls({
+        handleNuevo: abrirModalCrear,
+        handleAjustarTodos: () => setMostrarModalPrecioTodos(true),
+        handleAjustarSeleccionados: () => {
+          if (seleccionados.length > 0) {
+            setMostrarModalPrecioSeleccionados(true);
+          }
+        },
+        seleccionadosCount: seleccionados.length
+      });
+    }
+
+    // Limpiar controles cuando el componente se desmonta
+    return () => {
+      if (setMaterialesControls) {
+        setMaterialesControls(null);
+      }
+    };
+  }, [setMaterialesControls, seleccionados.length]);
+
   const cargarMateriales = async () => {
     if (!empresaSeleccionada?.id) return;
 
     setLoading(true);
     try {
       const response = await api.materiales.getAll(empresaSeleccionada.id);
-      setMateriales(Array.isArray(response.data) ? response.data : []);
+      // api.materiales.getAll devuelve el array directamente, NO { data: [...] }
+      setMateriales(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error('Error cargando materiales:', error);
       mostrarNotificacion('Error al cargar materiales', 'error');
@@ -293,59 +319,6 @@ const MaterialesPage = () => {
           <i className="fas fa-boxes me-2"></i>
           Materiales
         </h2>
-        <div className="d-flex gap-2">
-          <button
-            className="btn btn-primary"
-            onClick={abrirModalCrear}
-            disabled={loading}
-          >
-            <i className="fas fa-plus me-2"></i>
-            Nuevo Material
-          </button>
-
-          <div className="btn-group">
-            <button
-              type="button"
-              className="btn btn-success dropdown-toggle"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-              disabled={loading}
-            >
-              <i className="fas fa-percentage me-2"></i>
-              Ajustar Precios
-            </button>
-            <ul className="dropdown-menu">
-              <li>
-                <a
-                  className="dropdown-item"
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setMostrarModalPrecioTodos(true);
-                  }}
-                >
-                  <i className="fas fa-globe me-2"></i>
-                  Todos los materiales
-                </a>
-              </li>
-              <li>
-                <a
-                  className={`dropdown-item ${seleccionados.length === 0 ? 'disabled' : ''}`}
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (seleccionados.length > 0) {
-                      setMostrarModalPrecioSeleccionados(true);
-                    }
-                  }}
-                >
-                  <i className="fas fa-check-square me-2"></i>
-                  Seleccionados ({seleccionados.length})
-                </a>
-              </li>
-            </ul>
-          </div>
-        </div>
       </div>
 
       {/* Búsqueda */}

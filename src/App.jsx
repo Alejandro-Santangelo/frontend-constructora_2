@@ -18,6 +18,7 @@ const UsuariosPage = lazy(() => import('./pages/UsuariosPage'));
 const PresupuestosNoClientePage = lazy(() => import('./pages/PresupuestosNoClientePage'));
 const SistemaFinancieroPage = lazy(() => import('./pages/SistemaFinancieroPage'));
 const GastosGeneralesPage = lazy(() => import('./pages/GastosGeneralesPage'));
+const MaterialesPage = lazy(() => import('./pages/MaterialesPage'));
 const DiagnosticoBackend = lazy(() => import('./components/DiagnosticoBackend'));
 
 // Componente de carga
@@ -58,6 +59,8 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
   const location = useLocation();
   const [presupuestoControls, setPresupuestoControls] = useState(null);
   const [obrasControls, setObrasControls] = useState(null);
+  const [materialesControls, setMaterialesControls] = useState(null);
+  const [gastosControls, setGastosControls] = useState(null);
 
   // Definir el ancho del sidebar según el estado
   // Eliminar marginLeft para que el layout no se achique tanto
@@ -72,7 +75,8 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
       <div style={{ display: 'flex', flex: 1, minHeight: '100vh' }}>
         {location.pathname !== '/presupuestos' &&
          location.pathname !== '/profesionales' &&
-         location.pathname !== '/profesionales-obras' &&         location.pathname !== '/gastos-generales' &&          location.pathname !== '/empresas' &&
+         location.pathname !== '/profesionales-obras' &&
+         location.pathname !== '/empresas' &&
          location.pathname !== '/clientes' &&
          location.pathname !== '/' &&
          location.pathname !== '/dashboard' && (
@@ -81,10 +85,12 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
             onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
             presupuestoControls={presupuestoControls}
             obrasControls={obrasControls}
+            materialesControls={materialesControls}
+            gastosControls={gastosControls}
           />
         )}
         <main
-          className={location.pathname === '/empresas' || location.pathname === '/clientes' || location.pathname === '/presupuestos-no-cliente' || location.pathname === '/presupuestos' || location.pathname === '/obras' || location.pathname === '/gastos-generales' ? 'main-content' : 'main-content px-md-4'}
+          className={location.pathname === '/empresas' || location.pathname === '/clientes' || location.pathname === '/presupuestos-no-cliente' || location.pathname === '/presupuestos' || location.pathname === '/obras' || location.pathname === '/gastos-generales' || location.pathname === '/materiales' ? 'main-content' : 'main-content px-md-4'}
           style={{
             flex: 1,
             minWidth: 0,
@@ -94,7 +100,7 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
           }}
         >
           <div className="fade-in">
-            <SidebarContext.Provider value={{ setPresupuestoControls, setObrasControls }}>
+            <SidebarContext.Provider value={{ setPresupuestoControls, setObrasControls, setMaterialesControls, setGastosControls }}>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
                   <Route path="/" element={<FunctionalDashboard showNotification={showNotification} />} />
@@ -106,6 +112,7 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
                   <Route path="/profesionales-obras" element={<ProfesionalesObrasPage showNotification={showNotification} />} />
                   <Route path="/profesionales-obra" element={<ProfesionalesObrasPage showNotification={showNotification} />} />
                   <Route path="/gastos-generales" element={<GastosGeneralesPage showNotification={showNotification} />} />
+                  <Route path="/materiales" element={<MaterialesPage showNotification={showNotification} />} />
                   <Route path="/usuarios" element={<UsuariosPage showNotification={showNotification} />} />
                   <Route path="/sistema-financiero" element={<SistemaFinancieroPage showNotification={showNotification} setSidebarCollapsed={setSidebarCollapsed} sidebarCollapsed={sidebarCollapsed} />} />
                   <Route path="/diagnostico" element={<DiagnosticoBackend />} />

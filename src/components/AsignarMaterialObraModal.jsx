@@ -559,29 +559,34 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
       // Guardar en localStorage las asignaciones manuales
       if (asignacionesManuales.length > 0) {
-        // 🔥 DESHABILITADO: Backend rechaza Content-Type con charset
-        // console.log('📝 Verificando/creando materiales en catálogo...');
-        // const { obtenerOCrearMaterial } = await import('../services/catalogoMaterialesService');
-        // const asignacionesConCatalogo = await Promise.all(
-        //   asignacionesManuales.map(async (asig) => {
-        //     const materialCatalogo = await obtenerOCrearMaterial(
-        //       asig.nombreMaterial || asig.nombre,
-        //       asig.unidadMedida || asig.unidad,
-        //       0,
-        //       empresaSeleccionada.id
-        //     );
-        //     return {
-        //       ...asig,
-        //       materialId: materialCatalogo.id
-        //     };
-        //   })
-        // );
+        // 🔥 CREAR MATERIALES EN EL CATÁLOGO (sin Content-Type charset)
+        console.log('📝 Verificando/creando materiales en catálogo...');
+        const { obtenerOCrearMaterial } = await import('../services/catalogoMaterialesService');
+        const asignacionesConCatalogo = await Promise.all(
+          asignacionesManuales.map(async (asig) => {
+            try {
+              const materialCatalogo = await obtenerOCrearMaterial(
+                asig.nombreMaterial || asig.nombre,
+                asig.unidadMedida || asig.unidad,
+                0, // precio se asigna en la asignación individual
+                empresaSeleccionada.id
+              );
+              console.log('✅ Material en catálogo:', materialCatalogo);
+              return {
+                ...asig,
+                materialId: materialCatalogo.id
+              };
+            } catch (error) {
+              console.error('❌ Error creando material en catálogo:', error);
+              return {
+                ...asig,
+                materialId: null // Fallback si falla
+              };
+            }
+          })
+        );
 
-        console.log('⚠️ Materiales manuales (backend los creará):', asignacionesManuales.length);
-        const asignacionesConCatalogo = asignacionesManuales.map(asig => ({
-          ...asig,
-          materialId: null // Backend asignará ID
-        }));
+        console.log('✅ Materiales procesados con catálogo:', asignacionesConCatalogo.length);
 
         const key = `obra_materiales_${obra.id}_${empresaSeleccionada.id}`;
         const asignacionesExistentes = JSON.parse(localStorage.getItem(key) || '[]');
@@ -592,6 +597,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
           nombreMaterial: asig.nombreMaterial || asig.nombre,
           unidadMedida: asig.unidadMedida || asig.unidad,
           cantidadAsignada: parseFloat(asig.cantidadAsignada ?? asig.cantidad),
+          precioUnitario: parseFloat(asig.precioUnitario || 0),
           numeroSemana: asig.numeroSemana,
           fechaAsignacion: asig.fechaAsignacion || null,
           esSemanal: asig.esSemanal || false,

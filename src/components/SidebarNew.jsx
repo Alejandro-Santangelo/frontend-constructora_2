@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useEmpresa } from '../EmpresaContext';
 
-const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControls }) => {
+const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControls, materialesControls, gastosControls }) => {
   const location = useLocation();
   const { empresaSeleccionada } = useEmpresa();
 
@@ -11,6 +11,12 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
 
   // Verificar si estamos en la página de obras
   const isObrasPage = location.pathname === '/obras';
+
+  // Verificar si estamos en la página de materiales
+  const isMaterialesPage = location.pathname === '/materiales';
+
+  // Verificar si estamos en la página de gastos generales
+  const isGastosPage = location.pathname === '/gastos-generales';
 
   const menuItems = [
     {
@@ -404,6 +410,78 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                   <i className="fas fa-check-double me-2"></i>✅ Aprobar Trabajo Extra
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Sección de acciones para MATERIALES */}
+        {isMaterialesPage && materialesControls && !collapsed && (
+          <div className="mt-3 px-2">
+            <div className="mb-2">
+              <small className="text-white-50 fw-bold">GESTIÓN DE MATERIALES</small>
+            </div>
+            <div className="d-flex flex-column gap-2">
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#4CAF50', border: 'none' }}
+                onClick={materialesControls.handleNuevo}
+              >
+                <i className="fas fa-plus me-2"></i>Nuevo Material
+              </button>
+
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#00BCD4', border: 'none' }}
+                onClick={materialesControls.handleAjustarTodos}
+              >
+                <i className="fas fa-percentage me-2"></i>Ajustar Todos
+              </button>
+
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#FF9800', border: 'none' }}
+                disabled={materialesControls.seleccionadosCount === 0}
+                onClick={materialesControls.handleAjustarSeleccionados}
+              >
+                <i className="fas fa-check-square me-2"></i>
+                Ajustar Seleccionados ({materialesControls.seleccionadosCount})
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sección de acciones para GASTOS GENERALES */}
+        {isGastosPage && gastosControls && !collapsed && (
+          <div className="mt-3 px-2">
+            <div className="mb-2">
+              <small className="text-white-50 fw-bold">GESTIÓN DE GASTOS</small>
+            </div>
+            <div className="d-flex flex-column gap-2">
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#4CAF50', border: 'none' }}
+                onClick={gastosControls.handleNuevo}
+              >
+                <i className="fas fa-plus me-2"></i>Nuevo Gasto
+              </button>
+
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#00BCD4', border: 'none' }}
+                onClick={gastosControls.handleAjustarTodos}
+              >
+                <i className="fas fa-percentage me-2"></i>Ajustar Todos
+              </button>
+
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#FF9800', border: 'none' }}
+                disabled={gastosControls.seleccionadosCount === 0}
+                onClick={gastosControls.handleAjustarSeleccionados}
+              >
+                <i className="fas fa-check-square me-2"></i>
+                Ajustar Seleccionados ({gastosControls.seleccionadosCount})
+              </button>
             </div>
           </div>
         )}

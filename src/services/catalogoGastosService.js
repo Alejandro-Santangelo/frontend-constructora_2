@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
 /**
@@ -22,7 +24,7 @@ export const buscarGastoPorNombre = async (nombre, empresaId) => {
     const gastos = await response.json();
     // Buscar coincidencia exacta (case insensitive)
     return gastos.find(g =>
-      (g.descripcion || '').toLowerCase().trim() === nombre.toLowerCase().trim()
+      (g.nombre || '').toLowerCase().trim() === nombre.toLowerCase().trim()
     ) || null;
   } catch (error) {
     console.error('Error buscando gasto por nombre:', error);
@@ -37,32 +39,22 @@ export const buscarGastoPorNombre = async (nombre, empresaId) => {
 export const crearGastoGeneral = async (datos, empresaId) => {
   try {
     const payload = {
-      descripcion: datos.nombre || datos.descripcion,
-      precioUnitario: datos.precioUnitario || 0,
-      cantidad: 1, // Valor por defecto para el catálogo
-      subtotal: datos.precioUnitario || 0,
-      observaciones: datos.observaciones || 'Creado desde asignación manual',
-      sinCantidad: false,
-      sinPrecio: false,
-      orden: 999,
-      empresaId: empresaId
+      nombre: datos.nombre || datos.descripcion,
+      descripcion: datos.descripcion || '',
+      unidadMedida: datos.unidadMedida || '',
+      categoria: datos.categoria || '',
+      precioUnitarioBase: datos.precioUnitario || datos.precioUnitarioBase || 0
+      // NO enviar empresaId en body - solo en header
     };
 
-    const response = await fetch(`${API_BASE_URL}/gastos-generales`, {
-      method: 'POST',
+    const response = await axios.post(`${API_BASE_URL}/gastos-generales`, payload, {
       headers: {
-        'Content-Type': 'application/json',
-        'empresaId': empresaId.toString()
-      },
-      body: JSON.stringify(payload)
+        'empresaId': empresaId.toString(),
+        'Content-Type': 'application/json'
+      }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Error al crear gasto general: ${errorText}`);
-    }
-
-    return await response.json();
+    return response.data;
   } catch (error) {
     console.error('Error creando gasto general:', error);
     throw error;

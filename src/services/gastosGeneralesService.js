@@ -1,5 +1,5 @@
 // Servicio para gestión de Gastos Generales (presupuesto_gasto_general)
-import apiClient from './api';
+import api from './api';
 
 // ============================================================
 // ENDPOINTS DE PRESUPUESTO_GASTO_GENERAL (Legacy)
@@ -9,25 +9,25 @@ import apiClient from './api';
 export const getGastosGeneralesPorItem = async (itemId, empresaId = null) => {
   let url = `/api/presupuesto-gasto-general/item/${itemId}`;
   if (empresaId) url += `/empresa/${empresaId}`;
-  const response = await apiClient.get(url);
+  const response = await api.get(url);
   return response.data;
 };
 
 // Crear gasto general
 export const crearGastoGeneral = async (gasto) => {
-  const response = await apiClient.post('/api/presupuesto-gasto-general', gasto);
+  const response = await api.post('/api/presupuesto-gasto-general', gasto);
   return response.data;
 };
 
 // Editar gasto general
 export const editarGastoGeneral = async (gasto) => {
-  const response = await apiClient.put(`/api/presupuesto-gasto-general/${gasto.id}`, gasto);
+  const response = await api.put(`/api/presupuesto-gasto-general/${gasto.id}`, gasto);
   return response.data;
 };
 
 // Eliminar gasto general por ID
 export const eliminarGastoGeneral = async (id) => {
-  const response = await apiClient.delete(`/api/presupuesto-gasto-general/${id}`);
+  const response = await api.delete(`/api/presupuesto-gasto-general/${id}`);
   return response.data;
 };
 
@@ -35,7 +35,7 @@ export const eliminarGastoGeneral = async (id) => {
 export const eliminarGastosPorItem = async (itemId, empresaId = null) => {
   let url = `/api/presupuesto-gasto-general/item/${itemId}`;
   if (empresaId) url += `/empresa/${empresaId}`;
-  const response = await apiClient.delete(url);
+  const response = await api.delete(url);
   return response.data;
 };
 
@@ -43,7 +43,7 @@ export const eliminarGastosPorItem = async (itemId, empresaId = null) => {
 // ENDPOINTS DE CATÁLOGO GASTOS_GENERALES (Nuevo)
 // ============================================================
 
-const BASE_URL = '/gastos-generales';
+const BASE_URL = '/api/gastos-generales';
 
 export const catalogoGastosService = {
   /**
@@ -51,10 +51,9 @@ export const catalogoGastosService = {
    */
   async obtenerTodos(empresaId) {
     try {
-      const response = await apiClient.get(BASE_URL, {
-        headers: { empresaId: empresaId.toString() }
-      });
-      return response.data;
+      // api.get ya devuelve response.data directamente
+      const data = await api.get(BASE_URL, { empresaId });
+      return data;
     } catch (error) {
       console.error('Error obteniendo gastos generales:', error);
       throw error;
@@ -66,10 +65,8 @@ export const catalogoGastosService = {
    */
   async obtenerPorId(id, empresaId) {
     try {
-      const response = await apiClient.get(`${BASE_URL}/${id}`, {
-        headers: { empresaId: empresaId.toString() }
-      });
-      return response.data;
+      const data = await api.get(`${BASE_URL}/${id}`, { empresaId });
+      return data;
     } catch (error) {
       console.error(`Error obteniendo gasto general ${id}:`, error);
       throw error;
@@ -81,10 +78,8 @@ export const catalogoGastosService = {
    */
   async crear(gasto, empresaId) {
     try {
-      const response = await apiClient.post(BASE_URL, gasto, {
-        headers: { empresaId: empresaId.toString() }
-      });
-      return response.data;
+      const data = await api.post(BASE_URL, gasto, { empresaId });
+      return data;
     } catch (error) {
       console.error('Error creando gasto general:', error);
       throw error;
@@ -96,10 +91,8 @@ export const catalogoGastosService = {
    */
   async actualizar(id, gasto, empresaId) {
     try {
-      const response = await apiClient.put(`${BASE_URL}/${id}`, gasto, {
-        headers: { empresaId: empresaId.toString() }
-      });
-      return response.data;
+      const data = await api.put(`${BASE_URL}/${id}`, gasto, { empresaId });
+      return data;
     } catch (error) {
       console.error(`Error actualizando gasto general ${id}:`, error);
       throw error;
@@ -111,9 +104,7 @@ export const catalogoGastosService = {
    */
   async eliminar(id, empresaId) {
     try {
-      await apiClient.delete(`${BASE_URL}/${id}`, {
-        headers: { empresaId: empresaId.toString() }
-      });
+      await api.delete(`${BASE_URL}/${id}`, { empresaId });
       return true;
     } catch (error) {
       console.error(`Error eliminando gasto general ${id}:`, error);
@@ -126,10 +117,8 @@ export const catalogoGastosService = {
    */
   async obtenerPorCategoria(categoria, empresaId) {
     try {
-      const response = await apiClient.get(`${BASE_URL}/categoria/${categoria}`, {
-        headers: { empresaId: empresaId.toString() }
-      });
-      return response.data;
+      const data = await api.get(`${BASE_URL}/categoria/${categoria}`, { empresaId });
+      return data;
     } catch (error) {
       console.error(`Error obteniendo gastos de categoría ${categoria}:`, error);
       throw error;
@@ -141,15 +130,8 @@ export const catalogoGastosService = {
    */
   async actualizarPrecioTodos(porcentaje, empresaId) {
     try {
-      const response = await apiClient.put(
-        `${BASE_URL}/actualizar-precio-todos`,
-        null,
-        {
-          params: { porcentaje },
-          headers: { empresaId: empresaId.toString() }
-        }
-      );
-      return response.data;
+      const data = await api.put(`${BASE_URL}/actualizar-precio-todos`, null, { porcentaje, empresaId });
+      return data;
     } catch (error) {
       console.error('Error actualizando precios de todos:', error);
       throw error;
@@ -161,15 +143,8 @@ export const catalogoGastosService = {
    */
   async actualizarPrecioUno(id, porcentaje, empresaId) {
     try {
-      const response = await apiClient.put(
-        `${BASE_URL}/${id}/actualizar-precio`,
-        null,
-        {
-          params: { porcentaje },
-          headers: { empresaId: empresaId.toString() }
-        }
-      );
-      return response.data;
+      const data = await api.put(`${BASE_URL}/${id}/actualizar-precio`, null, { porcentaje, empresaId });
+      return data;
     } catch (error) {
       console.error(`Error actualizando precio del gasto ${id}:`, error);
       throw error;
@@ -181,14 +156,8 @@ export const catalogoGastosService = {
    */
   async actualizarPrecioVarios(ids, porcentaje, empresaId) {
     try {
-      const response = await apiClient.put(
-        `${BASE_URL}/actualizar-precio-varios`,
-        { ids, porcentaje },
-        {
-          headers: { empresaId: empresaId.toString() }
-        }
-      );
-      return response.data;
+      const data = await api.put(`${BASE_URL}/actualizar-precio-varios`, { ids, porcentaje }, { empresaId });
+      return data;
     } catch (error) {
       console.error('Error actualizando precios de varios:', error);
       throw error;

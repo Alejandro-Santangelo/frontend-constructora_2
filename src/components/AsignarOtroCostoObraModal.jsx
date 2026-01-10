@@ -1279,17 +1279,22 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
           let gastoId = esManual ? null : Number(asignacion.otroCostoId);
 
-          // 🔥 DESHABILITADO: Backend tiene CORS bloqueado para /api/gastos-generales
+          // 🔥 CREAR GASTO EN EL CATÁLOGO si es manual (sin Content-Type charset)
           if (esManual) {
-            console.log('⚠️ Gasto manual (backend lo creará):', asignacion.nombreOtroCosto);
-            gastoId = null; // Backend creará el gasto automáticamente
-            // const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
-            // const gastoCatalogo = await obtenerOCrearGasto(
-            //   asignacion.nombreOtroCosto,
-            //   Number(asignacion.importe),
-            //   empresaSeleccionada.id
-            // );
-            // gastoId = gastoCatalogo.id;
+            try {
+              console.log('📝 Creando gasto en catálogo:', asignacion.nombreOtroCosto);
+              const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
+              const gastoCatalogo = await obtenerOCrearGasto(
+                asignacion.nombreOtroCosto,
+                Number(asignacion.importe),
+                empresaSeleccionada.id
+              );
+              gastoId = gastoCatalogo.id;
+              console.log('✅ Gasto creado/encontrado en catálogo:', gastoCatalogo);
+            } catch (error) {
+              console.error('❌ Error creando gasto en catálogo:', error);
+              gastoId = null; // Fallback - backend intentará crear
+            }
           }
 
           const payload = {
