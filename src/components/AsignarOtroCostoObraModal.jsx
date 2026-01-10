@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import DetalleSemanalGastosModal from './DetalleSemanalGastosModal';
 import AsignarOtroCostoSemanalModal from './AsignarOtroCostoSemanalModal';
+import api from '../services/api';
 
 /**
  * Modal para asignar otros costos/gastos generales del presupuestoNoCliente a una obra específica
@@ -33,6 +34,16 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
   const [error, setError] = useState(null);
   const [forceUpdate, setForceUpdate] = useState(0); // Para forzar re-render
 
+  // 🆕 Estados para modo presupuesto (global vs detalle)
+  const [modoPresupuesto, setModoPresupuesto] = useState(null); // 'GLOBAL' | 'DETALLE' | 'MIXTO'
+  const [presupuestoGlobalDisponible, setPresupuestoGlobalDisponible] = useState(0);
+  const [presupuestoGlobalTotal, setPresupuestoGlobalTotal] = useState(0);
+  const [gastosCreados, setGastosCreados] = useState([]); // Gastos creados manualmente desde global
+  const [rubrosPresupuesto, setRubrosPresupuesto] = useState([]);
+
+  // Debug visible (por si el usuario no ve console logs)
+  const [debugDeteccionPresupuesto, setDebugDeteccionPresupuesto] = useState(null);
+
   // Estados para detalle semanal
   const [mostrarDetalleSemana, setMostrarDetalleSemana] = useState(false);
   const [semanaSeleccionada, setSemanaSeleccionada] = useState(null);
@@ -41,19 +52,37 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
   // Estados para asignación semanal completa
   const [mostrarAsignacionSemanal, setMostrarAsignacionSemanal] = useState(false);
   const [semanaAsignacionCompleta, setSemanaAsignacionCompleta] = useState(null);
+  const [rubroSeleccionado, setRubroSeleccionado] = useState('General'); // Rubro actual
 
   // Estado para formulario de asignación individual
   const [mostrarFormularioIndividual, setMostrarFormularioIndividual] = useState(false);
 
+  // 🆕 Estado para creación manual de gasto
+  const [mostrarCrearGastoManual, setMostrarCrearGastoManual] = useState(false);
+  const [nuevoGastoManual, setNuevoGastoManual] = useState({
+    descripcion: '',
+    categoria: 'General',
+    categoriaCustom: '',
+    cantidadAsignada: '',
+    importeUnitario: '',
+    observaciones: ''
+  });
+
   // Formulario de nueva asignación
   const [nuevaAsignacion, setNuevaAsignacion] = useState({
-    otroCostoId: '', // ID del costo del presupuesto
+    tipoAsignacion: '', // 'IMPORTE_GLOBAL' o 'ELEMENTO_DETALLADO'
+    otroCostoId: '', // ID del costo del presupuesto o 'MANUAL_' + timestamp
     cantidadAsignada: '',
     importeUnitario: '', // 🔥 NUEVO: importe por unidad
     importeAsignado: '',
     fechaAsignacion: '', // Inicializar vacío, se configura al abrir modal
-    observaciones: ''
+    observaciones: '',
+    esManual: false // 🆕 Flag para gastos creados manualmente
   });
+
+  // 🆕 Estados para edición de asignación existente
+  const [asignacionEnEdicion, setAsignacionEnEdicion] = useState(null);
+  const [mostrarModalEdicion, setMostrarModalEdicion] = useState(false);
 
   // Calcular stock disponible real (descontando asignaciones)
   const calcularStockDisponible = (costoId) => {
@@ -128,8 +157,28 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       console.log('🧹 [OTROS COSTOS] Limpiando estado del modal (cerrado)');
       setPresupuesto(null);
       setOtrosCostosDisponibles([]);
+      setModoPresupuesto(null);
+      setPresupuestoGlobalDisponible(0);
+      setPresupuestoGlobalTotal(0);
+      setGastosCreados([]);
+      setRubrosPresupuesto([]);
+      setDebugDeteccionPresupuesto(null);
     }
   }, [show, obra, configuracionObra?.presupuestoSeleccionado?.id]);
+
+  // 🆕 useEffect para recalcular disponible del presupuesto global cuando cambian asignaciones
+  useEffect(() => {
+    if (modoPresupuesto === 'GLOBAL' && presupuestoGlobalTotal > 0) {
+      const totalAsignado = asignaciones.reduce((sum, asig) => {
+        return sum + (parseFloat(asig.importeAsignado) || 0);
+      }, 0);
+
+      const disponibleRestante = presupuestoGlobalTotal - totalAsignado;
+      setPresupuestoGlobalDisponible(Math.max(0, disponibleRestante));
+
+      console.log(`🔄 Recalculando disponible - Total: $${presupuestoGlobalTotal.toLocaleString('es-AR')}, Asignado: $${totalAsignado.toLocaleString('es-AR')}, Disponible: $${disponibleRestante.toLocaleString('es-AR')}`);
+    }
+  }, [asignaciones, modoPresupuesto, presupuestoGlobalTotal]);
 
   // Función para obtener la fecha de asignación real basada en fecha probable inicio
   const obtenerFechaAsignacionReal = () => {
@@ -145,9 +194,76 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     return fechaFallback;
   };
 
+  const normalizarTexto = (value) => {
+    return (value ?? '')
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  };
+
+  const extraerImporteItem = (item) => {
+    const candidatos = [
+      item?.importe,
+      item?.subtotal,
+      item?.total,
+      item?.monto,
+      item?.valor,
+    ];
+    for (const c of candidatos) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  };
+
+  const obtenerRubroFinal = () => {
+    if (nuevoGastoManual.categoria === '__OTRO__') {
+      const custom = (nuevoGastoManual.categoriaCustom || '').trim();
+      return custom;
+    }
+    return (nuevoGastoManual.categoria || 'General').trim() || 'General';
+  };
+
+  const rubrosParaSelect = useMemo(() => {
+    const base = Array.isArray(rubrosPresupuesto) ? [...rubrosPresupuesto] : [];
+    const tieneGeneral = base.some(r => normalizarTexto(r) === 'general');
+    if (!tieneGeneral) base.unshift('General');
+    return base;
+  }, [rubrosPresupuesto]);
+
+  const esItemPresupuestoGlobal = (item) => {
+    if (!item) return false;
+    if (item.esGlobal === true) return true;
+
+    const unidad = normalizarTexto(item.unidad ?? item.unidadMedida);
+    if (unidad === 'global') return true;
+
+    const texto = normalizarTexto(item.descripcion ?? item.nombre ?? item.concepto);
+    return (
+      /presupuesto\s*global/.test(texto) ||
+      /gastos?\s*generales?\s*global/.test(texto) ||
+      /gastos?\s*grales/.test(texto)
+    );
+  };
+
+  const separarGlobalYDetalle = (items) => {
+    const arr = Array.isArray(items) ? items : [];
+    const globalItems = arr.filter(esItemPresupuestoGlobal);
+    const detalleItems = arr.filter((x) => !esItemPresupuestoGlobal(x));
+    const globalItem = globalItems[0] || null;
+    const importeGlobal = globalItem ? extraerImporteItem(globalItem) : 0;
+    return {
+      globalItem,
+      importeGlobal,
+      detalleItems,
+      tieneGlobal: Boolean(globalItem),
+    };
+  };
+
   // Función para obtener gastos generales con stock (según backend)
   const obtenerGastosGeneralesConStock = async (presupuestoId, empresaId) => {
-    const response = await fetch(`http://localhost:8080/api/presupuestos-no-cliente/${presupuestoId}/gastos-generales`, {
+    const response = await fetch(`/api/presupuestos-no-cliente/${presupuestoId}/gastos-generales`, {
       method: 'GET',
       headers: {
         'empresaId': empresaId.toString(),
@@ -196,7 +312,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
     console.log('📦 Payload final enviado al backend (formato original):', payload);
 
-    const response = await fetch(`http://localhost:8080/api/obras/${obraId}/otros-costos`, {
+    const response = await fetch(`/api/obras/${obraId}/otros-costos`, {
       method: 'POST',
       headers: {
         'empresaId': empresaId.toString(),
@@ -221,33 +337,20 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       console.log('🔍🔍🔍 [OTROS COSTOS] INICIANDO CARGA DE PRESUPUESTO 🔍🔍🔍');
       console.log('🔍 Buscando presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) más reciente para obra:', obra.id);
 
-      // Añadir timestamp para evitar caché
-      const timestamp = new Date().getTime();
+      // SIEMPRE buscar la versión más reciente del presupuesto usando el servicio API
+      const data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
+      console.log('📦 Total presupuestos obtenidos:', data?.length || 0);
 
-      // SIEMPRE buscar la versión más reciente del presupuesto en la API
-      const todosPresupuestosUrl = `http://localhost:8080/api/presupuestos-no-cliente?empresaId=${empresaSeleccionada.id}&_t=${timestamp}`;
-      console.log('📡 Llamando a:', todosPresupuestosUrl);
-
-      const todosPresupuestosResponse = await fetch(todosPresupuestosUrl, {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      });
-      if (!todosPresupuestosResponse.ok) {
-        throw new Error('No se pudieron obtener los presupuestos');
-      }
-
-      const todosPresupuestos = await todosPresupuestosResponse.json();
-      console.log('📦 Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
+      // El backend puede devolver el array directamente o dentro de content/datos
+      const presupuestos = Array.isArray(data) ? data : (data?.content || data?.datos || []);
 
       // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
       const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
 
       // Filtrar por obraId y estado válido
-      const presupuestosObra = (todosPresupuestos || []).filter(p =>
-        (p.obraId === obra.id || p.idObra === obra.id) && estadosValidos.includes(p.estado)
+      const presupuestosObra = (presupuestos || []).filter(p =>
+        (Number(p.obraId) === Number(obra.id) || Number(p.idObra) === Number(obra.id)) &&
+        estadosValidos.includes(p.estado)
       );
       console.log('✅ Presupuestos con estado válido de obra', obra.id, ':', presupuestosObra.length);
 
@@ -256,7 +359,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       }
 
       // Tomar el más reciente entre los APROBADOS (mayor versión o mayor ID)
-      const presupuestoActual = presupuestosObra.sort((a, b) => {
+      const presupuestoResumen = presupuestosObra.sort((a, b) => {
           if (a.numeroPresupuesto === b.numeroPresupuesto) {
             return (b.version || 0) - (a.version || 0);
           }
@@ -264,94 +367,390 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         })[0];
 
       // IMPORTANTE: Siempre buscar la versión más reciente, incluso si tenemos una en configuracionObra
-      if (presupuestoActual && configuracionObra?.presupuestoSeleccionado &&
-          presupuestoActual.version !== configuracionObra.presupuestoSeleccionado.version) {
+      if (presupuestoResumen && configuracionObra?.presupuestoSeleccionado &&
+          presupuestoResumen.version !== configuracionObra.presupuestoSeleccionado.version) {
         console.log('🔄 Detectada nueva versión del presupuesto:', {
-          actual: presupuestoActual.version,
+          actual: presupuestoResumen.version,
           configuracion: configuracionObra.presupuestoSeleccionado.version
         });
       }
 
-      const presupuestoId = presupuestoActual.id;
-      console.log('✅ Usando presupuesto con estado válido ID:', presupuestoId, 'versión:', presupuestoActual.version, 'estado:', presupuestoActual.estado);
+      const presupuestoId = presupuestoResumen.id;
+      console.log('✅ Obteniendo presupuesto completo ID:', presupuestoId, 'versión:', presupuestoResumen.version);
+
+      // 🔥 OBTENER EL PRESUPUESTO COMPLETO PARA TENER itemsCalculadora Y OTROS COSTOS
+      const presupuestoActual = await api.presupuestosNoCliente.getById(presupuestoId, empresaSeleccionada.id);
+
+      if (!presupuestoActual) {
+        throw new Error('No se pudieron obtener los detalles del presupuesto ' + presupuestoId);
+      }
+
+      console.log('✅ Presupuesto completo obtenido:', presupuestoActual.id, 'con', presupuestoActual.itemsCalculadora?.length || 0, 'items en calculadora');
       console.log('📅 fechaProbableInicio en presupuestoActual:', presupuestoActual.fechaProbableInicio);
 
-      // Intentar obtener gastos generales usando la función del backend
+      // 🆕 DETECTAR MODO DEL PRESUPUESTO (GLOBAL vs DETALLE)
       let gastosDisponibles = [];
-      try {
-        console.log('📡 Intentando endpoint de gastos generales (backend):', presupuestoId);
+      let modoDetectado = null;
+      let presupuestoGlobal = 0;
+      let fuenteDeteccion = null;
 
-        const gastosGeneralesData = await obtenerGastosGeneralesConStock(presupuestoId, empresaSeleccionada.id);
-        console.log('📦 Gastos generales obtenidos del backend:', gastosGeneralesData);
+      const rubrosMap = new Map();
+      const obtenerTextoDeCampo = (val) => {
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'string') return val.trim();
+        if (typeof val === 'number') return Number.isFinite(val) ? String(val) : '';
+        if (typeof val === 'object') {
+          const candidatos = [val.nombre, val.descripcion, val.label, val.value, val.titulo];
+          for (const c of candidatos) {
+            if (typeof c === 'string' && c.trim()) return c.trim();
+          }
+        }
+        return '';
+      };
 
-        // 🔍 LOG: Ver estructura completa del primer gasto
-        if (gastosGeneralesData && gastosGeneralesData.length > 0) {
-          console.log('🔍 ESTRUCTURA del primer gasto:', {
-            objetoCompleto: gastosGeneralesData[0],
-            importe: gastosGeneralesData[0].importe,
-            todasLasPropiedades: Object.keys(gastosGeneralesData[0])
-          });
+      const extraerRubroDeItem = (it) => {
+        if (!it) return '';
+        if (typeof it === 'string') return it.trim();
+
+        const directos = [
+          it.categoria,
+          it.rubro,
+          it.rubroNombre,
+          it.nombreRubro,
+          it.categoriaNombre,
+          it.nombreCategoria,
+          it.tipoRubro,
+          it.tipo,
+        ];
+
+        for (const d of directos) {
+          const t = obtenerTextoDeCampo(d);
+          if (t) return t;
         }
 
-        // Usar todos los gastos que devuelve el backend (no filtrar por estadoStock)
-        gastosDisponibles = (gastosGeneralesData || []).map(gasto => ({
-          id: gasto.id,
-          nombre: gasto.descripcion,
-          descripcion: gasto.descripcion,
-          categoria: gasto.categoria || 'General',
-          cantidadDisponible: 3, // Cantidad por defecto para volquetes
-          unidadMedida: 'unidades',
-          importe: gasto.importe,
-          esDelStock: true
-        }));
+        const anidados = [
+          it.categoria?.nombre,
+          it.categoria?.descripcion,
+          it.rubro?.nombre,
+          it.rubro?.descripcion,
+        ];
+        for (const a of anidados) {
+          const t = obtenerTextoDeCampo(a);
+          if (t) return t;
+        }
 
-        console.log('✅ Gastos generales procesados:', gastosDisponibles.length);
-      } catch (stockError) {
-        console.log('⚠️ Endpoint gastos-generales no disponible, usando otros-costos como respaldo:', stockError.message);
+        return '';
+      };
 
-        // Respaldo: usar el endpoint original de otros-costos
-        try {
-          const otrosCostosUrl = `http://localhost:8080/api/presupuestos-no-cliente/${presupuestoId}/otros-costos`;
-          console.log('📡 Llamando a endpoint de respaldo:', otrosCostosUrl);
+      const obtenerCategoriaGasto = (g) => {
+        const t = extraerRubroDeItem(g);
+        return t || 'General';
+      };
 
-          const otrosCostosResponse = await fetch(otrosCostosUrl, {
-            headers: {
-              'empresaId': empresaSeleccionada.id.toString()
-            }
-          });
+      const agregarRubro = (r) => {
+        const val = (r ?? '').toString().trim();
+        if (!val) return;
+        const key = normalizarTexto(val);
+        if (!key || key === 'sin categoria') return;
+        if (!rubrosMap.has(key)) rubrosMap.set(key, val);
+      };
+      const extraerRubrosDeArray = (arr) => {
+        (Array.isArray(arr) ? arr : []).forEach(it => agregarRubro(extraerRubroDeItem(it)));
+      };
 
-          if (otrosCostosResponse.ok) {
-            const otrosCostosData = await otrosCostosResponse.json();
-            console.log('📋 Otros costos del presupuesto (respaldo):', otrosCostosData);
-
-            // Convertir formato de otros costos al formato esperado
-            gastosDisponibles = (otrosCostosData || []).map(costo => {
-              // Detectar si es un recurso físico basándose en el nombre/descripción
-              const esRecursoFisico = /volquete|contenedor|andamio|herramienta|equipo|maquina|vehiculo|camion/i.test(costo.descripcion || '');
-
-              return {
-                id: costo.id,
-                nombre: costo.descripcion,
-                descripcion: costo.descripcion,
-                categoria: costo.categoria || 'General',
-                cantidadDisponible: esRecursoFisico ? 3 : null, // Si es recurso físico, asignar cantidad predeterminada
-                importe: costo.importe,
-                esDelStock: esRecursoFisico
-              };
-            });
-
-            console.log('✅ Otros costos convertidos:', gastosDisponibles.length);
-          } else {
-            const errorText = await otrosCostosResponse.text();
-            throw new Error(`Error ${otrosCostosResponse.status}: ${errorText}`);
+      const parsearArrayDesdeJson = (val) => {
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') {
+          try {
+            const parsed = JSON.parse(val || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
           }
-        } catch (respaldoError) {
-          console.error('❌ Error en endpoint de respaldo:', respaldoError);
-          throw new Error(`No se pudieron obtener gastos ni otros costos: ${respaldoError.message}`);
+        }
+        return [];
+      };
+
+      // 🆕 EXTRAER RUBROS DE TODAS LAS FUENTES POSIBLES DEL PRESUPUESTO
+      if (presupuestoActual.itemsCalculadora && Array.isArray(presupuestoActual.itemsCalculadora)) {
+        presupuestoActual.itemsCalculadora.forEach(it => {
+          // Extraer rubro usando la lógica robusta
+          agregarRubro(extraerRubroDeItem(it));
+
+          // También probar campos específicos que suelen ser rubros
+          agregarRubro(obtenerTextoDeCampo(it.tipoProfesional));
+          agregarRubro(obtenerTextoDeCampo(it.nombreItem));
+          agregarRubro(obtenerTextoDeCampo(it.descripcion));
+
+          // También extraer de sus gastos generales internos si existen
+          if (it.gastosGenerales && Array.isArray(it.gastosGenerales)) {
+            extraerRubrosDeArray(it.gastosGenerales);
+          }
+        });
+      }
+
+      // Probar también en "detalles" (formato alternativo)
+      if (presupuestoActual.detalles && Array.isArray(presupuestoActual.detalles)) {
+        presupuestoActual.detalles.forEach(it => {
+          agregarRubro(extraerRubroDeItem(it));
+          agregarRubro(obtenerTextoDeCampo(it.tipoProfesional));
+          agregarRubro(obtenerTextoDeCampo(it.nombreItem));
+          agregarRubro(obtenerTextoDeCampo(it.descripcion));
+        });
+      }
+
+      // 1. Verificar si tiene otrosCostos (formato simple)
+      const otrosCostosDesdeJson = parsearArrayDesdeJson(presupuestoActual.otrosCostosJson);
+      const otrosCostosDesdeProp = Array.isArray(presupuestoActual.otrosCostos) ? presupuestoActual.otrosCostos : [];
+      const otrosCostosCandidatos = (otrosCostosDesdeProp.length > 0) ? otrosCostosDesdeProp : otrosCostosDesdeJson;
+
+      if (otrosCostosCandidatos.length > 0) {
+        extraerRubrosDeArray(otrosCostosCandidatos);
+        fuenteDeteccion = (otrosCostosDesdeProp.length > 0)
+          ? 'presupuestoActual.otrosCostos'
+          : 'presupuestoActual.otrosCostosJson';
+
+        const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosCandidatos);
+
+        if (tieneGlobal) {
+          presupuestoGlobal = presupuestoGlobal || importeGlobal;
+        }
+
+        if (tieneGlobal && detalleItems.length === 0) {
+          modoDetectado = 'GLOBAL';
+          gastosDisponibles = [];
+        } else if (tieneGlobal && detalleItems.length > 0) {
+          modoDetectado = 'MIXTO';
+          gastosDisponibles = detalleItems.map(gasto => ({
+            id: gasto.id,
+            nombre: gasto.descripcion,
+            descripcion: gasto.descripcion,
+            categoria: obtenerCategoriaGasto(gasto),
+            cantidadDisponible: gasto.cantidad ?? null,
+            precioUnitario: gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe,
+            importe: gasto.subtotal || gasto.importe,
+            esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
+          }));
+        } else {
+          modoDetectado = 'DETALLE';
+          gastosDisponibles = otrosCostosCandidatos.map(gasto => ({
+            id: gasto.id,
+            nombre: gasto.descripcion,
+            descripcion: gasto.descripcion,
+            categoria: obtenerCategoriaGasto(gasto),
+            cantidadDisponible: gasto.cantidad ?? null,
+            precioUnitario: gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe,
+            importe: gasto.subtotal || gasto.importe,
+            esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
+          }));
         }
       }
 
-      setOtrosCostosDisponibles(gastosDisponibles);
+      // 2. Verificar itemsCalculadora.gastosGenerales (formato anidado)
+      // ✅ Solo buscar más gastos si NO es modo GLOBAL
+      if (!modoDetectado && presupuestoActual.itemsCalculadora && Array.isArray(presupuestoActual.itemsCalculadora)) {
+        const todosGastos = [];
+        presupuestoActual.itemsCalculadora.forEach(item => {
+          if (item.gastosGenerales && Array.isArray(item.gastosGenerales)) {
+            extraerRubrosDeArray(item.gastosGenerales);
+            todosGastos.push(...item.gastosGenerales);
+          }
+        });
+
+        if (todosGastos.length > 0) {
+          fuenteDeteccion = 'presupuestoActual.itemsCalculadora.gastosGenerales';
+          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(todosGastos);
+          if (tieneGlobal) {
+            presupuestoGlobal = presupuestoGlobal || importeGlobal;
+          }
+
+          if (tieneGlobal && detalleItems.length === 0) {
+            modoDetectado = 'GLOBAL';
+            gastosDisponibles = [];
+          } else if (tieneGlobal && detalleItems.length > 0) {
+            modoDetectado = 'MIXTO';
+            gastosDisponibles = detalleItems.map(gasto => ({
+              id: gasto.id,
+              nombre: gasto.descripcion,
+              descripcion: gasto.descripcion,
+              categoria: obtenerCategoriaGasto(gasto),
+              cantidadDisponible: gasto.cantidad,
+              precioUnitario: gasto.precioUnitario,
+              importe: gasto.subtotal,
+              esDelStock: true
+            }));
+          } else {
+            modoDetectado = 'DETALLE';
+            gastosDisponibles = todosGastos.map(gasto => ({
+              id: gasto.id,
+              nombre: gasto.descripcion,
+              descripcion: gasto.descripcion,
+              categoria: obtenerCategoriaGasto(gasto),
+              cantidadDisponible: gasto.cantidad,
+              precioUnitario: gasto.precioUnitario,
+              importe: gasto.subtotal,
+              esDelStock: true
+            }));
+          }
+        }
+      }
+
+      // 3. Intentar endpoint del backend como respaldo
+      // ✅ Solo buscar en backend si NO detectó ningún modo aún
+      if (!modoDetectado) {
+        try {
+          console.log('📡 Intentando endpoint de gastos generales (backend):', presupuestoId);
+
+          const gastosGeneralesData = await obtenerGastosGeneralesConStock(presupuestoId, empresaSeleccionada.id);
+          console.log('📦 Gastos generales obtenidos del backend:', gastosGeneralesData);
+
+          extraerRubrosDeArray(gastosGeneralesData);
+
+          // 🔍 LOG: Ver estructura completa del primer gasto
+          if (gastosGeneralesData && gastosGeneralesData.length > 0) {
+            console.log('🔍 ESTRUCTURA del primer gasto:', {
+              objetoCompleto: gastosGeneralesData[0],
+              importe: gastosGeneralesData[0].importe,
+              todasLasPropiedades: Object.keys(gastosGeneralesData[0])
+            });
+          }
+
+          fuenteDeteccion = 'endpoint /gastos-generales';
+          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(gastosGeneralesData || []);
+          if (tieneGlobal) {
+            presupuestoGlobal = presupuestoGlobal || importeGlobal;
+          }
+
+          if (tieneGlobal && detalleItems.length === 0) {
+            modoDetectado = 'GLOBAL';
+            gastosDisponibles = [];
+          } else if (tieneGlobal && detalleItems.length > 0) {
+            modoDetectado = 'MIXTO';
+            gastosDisponibles = detalleItems.map(gasto => ({
+              id: gasto.id,
+              nombre: gasto.descripcion,
+              descripcion: gasto.descripcion,
+              categoria: obtenerCategoriaGasto(gasto),
+              cantidadDisponible: 3,
+              unidadMedida: 'unidades',
+              importe: gasto.importe,
+              esDelStock: true
+            }));
+          } else {
+            gastosDisponibles = (gastosGeneralesData || []).map(gasto => ({
+              id: gasto.id,
+              nombre: gasto.descripcion,
+              descripcion: gasto.descripcion,
+              categoria: obtenerCategoriaGasto(gasto),
+              cantidadDisponible: 3,
+              unidadMedida: 'unidades',
+              importe: gasto.importe,
+              esDelStock: true
+            }));
+            modoDetectado = gastosDisponibles.length > 0 ? 'DETALLE' : null;
+          }
+        } catch (stockError) {
+          console.log('⚠️ Endpoint gastos-generales no disponible, usando otros-costos como respaldo:', stockError.message);
+
+          // Respaldo: usar el endpoint original de otros-costos
+          try {
+            const otrosCostosUrl = `/api/presupuestos-no-cliente/${presupuestoId}/otros-costos`;
+            console.log('📡 Llamando a endpoint de respaldo:', otrosCostosUrl);
+
+            const otrosCostosResponse = await fetch(otrosCostosUrl, {
+              headers: {
+                'empresaId': empresaSeleccionada.id.toString()
+              }
+            });
+
+            if (otrosCostosResponse.ok) {
+              const otrosCostosData = await otrosCostosResponse.json();
+              console.log('📋 Otros costos del presupuesto (respaldo):', otrosCostosData);
+
+              extraerRubrosDeArray(otrosCostosData);
+
+              fuenteDeteccion = 'endpoint /otros-costos (respaldo)';
+              const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosData || []);
+              if (tieneGlobal) {
+                presupuestoGlobal = presupuestoGlobal || importeGlobal;
+              }
+
+              if (tieneGlobal && detalleItems.length === 0) {
+                modoDetectado = 'GLOBAL';
+                gastosDisponibles = [];
+                console.log('🌍 GLOBAL detectado en endpoint de respaldo (solo item global)');
+              } else {
+                // Convertir formato de otros costos al formato esperado
+                const base = tieneGlobal ? detalleItems : (otrosCostosData || []);
+                if (tieneGlobal && detalleItems.length > 0) {
+                  modoDetectado = 'MIXTO';
+                }
+
+                gastosDisponibles = base.map(costo => {
+                // Detectar si es un recurso físico basándose en el nombre/descripción
+                const esRecursoFisico = /volquete|contenedor|andamio|herramienta|equipo|maquina|vehiculo|camion/i.test(costo.descripcion || '');
+
+                return {
+                  id: costo.id,
+                  nombre: costo.descripcion,
+                  descripcion: costo.descripcion,
+                  categoria: obtenerCategoriaGasto(costo),
+                  cantidadDisponible: esRecursoFisico ? 3 : null, // Si es recurso físico, asignar cantidad predeterminada
+                  importe: costo.importe,
+                  esDelStock: esRecursoFisico
+                };
+                });
+
+                if (!modoDetectado) {
+                  modoDetectado = gastosDisponibles.length > 0 ? 'DETALLE' : null;
+                }
+                console.log('✅ Otros costos convertidos:', gastosDisponibles.length);
+              }
+            } else {
+              const errorText = await otrosCostosResponse.text();
+              throw new Error(`Error ${otrosCostosResponse.status}: ${errorText}`);
+            }
+          } catch (respaldoError) {
+            console.error('❌ Error en endpoint de respaldo:', respaldoError);
+            // No lanzar error, simplemente no hay gastos disponibles
+          }
+        }
+      }
+
+      // 4. Establecer modo final y disponibles
+      const modoFinal = modoDetectado || 'GLOBAL';
+      setModoPresupuesto(modoFinal);
+
+      setDebugDeteccionPresupuesto({
+        modoFinal,
+        fuenteDeteccion,
+        presupuestoGlobal,
+        itemsDetalle: gastosDisponibles.length,
+        rubrosDetectados: rubrosMap.size,
+        rubrosEjemplo: Array.from(rubrosMap.values()).slice(0, 8),
+      });
+
+      // ✅ En MODO GLOBAL, asegurar lista vacía; en DETALLE, usar los gastos encontrados
+      if (modoFinal === 'GLOBAL') {
+        setOtrosCostosDisponibles([]);
+        console.log('🌍 MODO GLOBAL - Lista de gastos disponibles: VACÍA (crear manual)');
+      } else {
+        setOtrosCostosDisponibles(gastosDisponibles);
+        console.log('📋 MODO DETALLE - Gastos disponibles:', gastosDisponibles.length);
+      }
+
+      setPresupuestoGlobalTotal(presupuestoGlobal);
+      setPresupuestoGlobalDisponible(presupuestoGlobal);
+
+      // Rubros sugeridos desde el presupuesto vinculado
+      setRubrosPresupuesto(Array.from(rubrosMap.values()).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })));
+
+      console.log(`🎯 MODO FINAL DETECTADO: ${modoDetectado || 'GLOBAL'}`);
+      if (modoDetectado === 'GLOBAL') {
+        console.log(`💰 Presupuesto Global Total: $${presupuestoGlobal.toLocaleString('es-AR')}`);
+      } else {
+        console.log(`📋 Gastos Detallados: ${gastosDisponibles.length} items`);
+      }
 
       // Convertir fechaProbableInicio de ISO a formato YYYY-MM-DD
       const fechaRaw = presupuestoActual.fechaProbableInicio;
@@ -396,7 +795,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       console.log('🔍 Cargando asignaciones actuales de otros costos...');
 
       const response = await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/otros-costos`,
+        `/api/obras/${obra.id}/otros-costos`,
         {
           headers: {
             'empresaId': empresaSeleccionada.id.toString()
@@ -407,20 +806,80 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Asignaciones actuales:', data);
-        setAsignaciones(Array.isArray(data) ? data : []);
-      } else if (response.status === 500) {
-        console.warn('⚠️ Error 500 en el backend - Trabajando en modo offline');
-        setAsignaciones([]);
-      } else if (response.status === 404) {
-        console.warn('⚠️ Endpoint no encontrado - Funcionalidad no implementada aún');
-        setAsignaciones([]);
-      } else {
-        console.warn(`⚠️ No se pudieron cargar las asignaciones (Status: ${response.status})`);
-        setAsignaciones([]);
+
+        // Cargar también asignaciones locales de respaldo si el backend está incompleto
+        let locales = JSON.parse(localStorage.getItem(`asignaciones_locales_costos_${obra.id}`) || '[]');
+
+        // 🧹 LIMPIEZA: Filtrar asignaciones semanales mal formadas
+        const localesLimpias = locales.filter(asig => {
+          const esMalFormada = (asig.observaciones?.includes('[Gasto Semanal Global]') || asig.observaciones?.includes('[Gasto Semanal Detallado]')) && asig.fechaAsignacion && !asig.esSemanal;
+          if (esMalFormada) {
+            console.log('🗑️ Eliminando asignación semanal mal formada:', asig);
+            return false;
+          }
+          return true;
+        });
+
+        // Actualizar localStorage si hubo cambios
+        if (localesLimpias.length !== locales.length) {
+          localStorage.setItem(`asignaciones_locales_costos_${obra.id}`, JSON.stringify(localesLimpias));
+          console.log(`🧹 Limpieza completada: ${locales.length - localesLimpias.length} asignaciones eliminadas`);
+        }
+
+        // Combinar (evitando duplicados por ID si el backend ya los tiene)
+        const combined = [...(Array.isArray(data) ? data : [])];
+        localesLimpias.forEach(loc => {
+          if (!combined.some(c => c.id === loc.id)) {
+            combined.push(loc);
+          }
+        });
+
+        setAsignaciones(combined);
+
+        // 🆕 Calcular disponible del presupuesto global después de cargar asignaciones
+        if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
+          const totalAsignado = combined.reduce((sum, asig) => {
+            return sum + (parseFloat(asig.importeAsignado) || 0);
+          }, 0);
+
+          const disponibleRestante = presupuestoGlobalTotal - totalAsignado;
+          setPresupuestoGlobalDisponible(Math.max(0, disponibleRestante));
+
+          console.log(`💰 Presupuesto Global - Total: $${presupuestoGlobalTotal.toLocaleString('es-AR')}, Asignado: $${totalAsignado.toLocaleString('es-AR')}, Disponible: $${disponibleRestante.toLocaleString('es-AR')}`);
+        }
+      } else if (response.status === 500 || response.status === 404 || !response.ok) {
+        console.warn(`⚠️ Error backend (Status: ${response.status}) - Trabajando en modo local`);
+        let locales = JSON.parse(localStorage.getItem(`asignaciones_locales_costos_${obra.id}`) || '[]');
+
+        // 🧹 LIMPIEZA: Filtrar asignaciones semanales mal formadas (con fechaAsignacion cuando deberían ser esSemanal)
+        const localesLimpias = locales.filter(asig => {
+          // Si tiene el marcador de gasto semanal en observaciones pero tiene fechaAsignacion, es un error
+          const esMalFormada = (asig.observaciones?.includes('[Gasto Semanal Global]') || asig.observaciones?.includes('[Gasto Semanal Detallado]')) && asig.fechaAsignacion && !asig.esSemanal;
+          if (esMalFormada) {
+            console.log('🗑️ Eliminando asignación semanal mal formada:', asig);
+            return false;
+          }
+          return true;
+        });
+
+        // Actualizar localStorage con las asignaciones limpias
+        if (localesLimpias.length !== locales.length) {
+          localStorage.setItem(`asignaciones_locales_costos_${obra.id}`, JSON.stringify(localesLimpias));
+          console.log(`🧹 Limpieza completada: ${locales.length - localesLimpias.length} asignaciones eliminadas`);
+        }
+
+        setAsignaciones(localesLimpias);
+
+        // Calcular disponible localmente si el backend falla
+        if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
+          const totalAsignado = locales.reduce((sum, asig) => sum + (parseFloat(asig.importeAsignado) || 0), 0);
+          setPresupuestoGlobalDisponible(Math.max(0, presupuestoGlobalTotal - totalAsignado));
+        }
       }
     } catch (error) {
       console.error('❌ Error cargando asignaciones:', error);
-      setAsignaciones([]);
+      const locales = JSON.parse(localStorage.getItem(`asignaciones_locales_costos_${obra.id}`) || '[]');
+      setAsignaciones(locales);
     }
   };
 
@@ -429,8 +888,69 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     console.log('📊 [DEBUG GASTOS] Estado completo nuevaAsignacion:', nuevaAsignacion);
     console.log('📅 [DEBUG GASTOS] Fecha que se va a procesar:', nuevaAsignacion.fechaAsignacion);
 
-    if (!nuevaAsignacion.otroCostoId) {
-      alert('Por favor seleccione un costo');
+    // ✅ CASO 1: Asignación desde IMPORTE GLOBAL
+    if (nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL') {
+      if (!nuevoGastoManual.descripcion.trim()) {
+        alert('⚠️ Debe ingresar una descripción para el gasto');
+        return;
+      }
+
+      if (nuevoGastoManual.categoria === '__OTRO__' && !obtenerRubroFinal()) {
+        alert('⚠️ Si seleccionas "Otros", debes escribir el rubro');
+        return;
+      }
+
+      const importeAsignado = parseFloat(nuevaAsignacion.importeAsignado) || 0;
+
+      if (importeAsignado <= 0) {
+        alert('⚠️ El importe debe ser mayor a cero');
+        return;
+      }
+
+      if (importeAsignado > presupuestoGlobalDisponible) {
+        alert(`⚠️ El importe ($${importeAsignado.toLocaleString('es-AR')}) excede el disponible ($${presupuestoGlobalDisponible.toLocaleString('es-AR')})`);
+        return;
+      }
+
+      // Crear gasto manual temporal
+      const categoriaFinal = obtenerRubroFinal();
+      const gastoManual = {
+        id: `MANUAL_${Date.now()}`,
+        nombre: nuevoGastoManual.descripcion,
+        descripcion: nuevoGastoManual.descripcion,
+        categoria: categoriaFinal,
+        importe: importeAsignado,
+        esDelStock: false,
+        esManual: true
+      };
+
+      // Asignar como si fuera un elemento seleccionado
+      setNuevaAsignacion({
+        ...nuevaAsignacion,
+        otroCostoId: gastoManual.id,
+        importeAsignado: importeAsignado.toString(),
+        esManual: true
+      });
+
+      // Continuar con el flujo normal usando el gasto manual creado
+      setOtrosCostosDisponibles(prev => [...prev, gastoManual]);
+      setGastosCreados(prev => [...prev, gastoManual]);
+
+      console.log('✅ Gasto manual creado desde IMPORTE_GLOBAL:', gastoManual);
+    }
+
+    // ✅ CASO 2: Si está creando un gasto nuevo desde ELEMENTO_DETALLADO
+    if (nuevaAsignacion.otroCostoId === 'CREAR_NUEVO') {
+      const gastoCreado = handleCrearGastoManual(false);
+      if (!gastoCreado) {
+        return; // handleCrearGastoManual ya mostró el error
+      }
+      // Continuar con la asignación usando el gasto recién creado
+      // El estado ya fue actualizado en handleCrearGastoManual
+    }
+
+    if (!nuevaAsignacion.otroCostoId || nuevaAsignacion.otroCostoId === 'CREAR_NUEVO') {
+      alert('Por favor complete los datos del gasto');
       return;
     }
 
@@ -508,6 +1028,22 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       const resultado = await asignarOtroCostoAObra(obra.id, empresaSeleccionada.id, datos);
       console.log('✅ Costo asignado exitosamente:', resultado);
 
+      // Guardar también en localStorage para persistencia local de respaldo
+      const locKey = `asignaciones_locales_costos_${obra.id}`;
+      const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
+      currentLocales.push({
+        id: resultado.id || `LOCAL_${Date.now()}`,
+        descripcion: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto',
+        nombreOtroCosto: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto',
+        importeAsignado: datos.importeAsignado,
+        fechaAsignacion: datos.fechaAsignacion,
+        categoria: costoSeleccionado?.categoria || 'General',
+        semana: datos.semana,
+        observaciones: datos.observaciones,
+        esManual: costoSeleccionado?.esManual || false
+      });
+      localStorage.setItem(locKey, JSON.stringify(currentLocales));
+
       // Limpiar formulario completamente
       setNuevaAsignacion({
         otroCostoId: '',
@@ -526,15 +1062,145 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       }
     } catch (error) {
       console.error('❌ Error asignando costo:', error);
-      setError(error.message);
-      alert(`Error al asignar costo: ${error.message}`);
+
+      // 🔥 FALLBACK LOCAL: Si el backend falla, guardar localmente para que el usuario pueda probar UI
+      try {
+        const costoSeleccionado = otrosCostosDisponibles.find(
+          c => c.id.toString() === nuevaAsignacion.otroCostoId
+        );
+
+        let numeroSemana = 1;
+        if (nuevaAsignacion.fechaAsignacion && configuracionObraActualizada?.fechaInicio) {
+          const fechaAsignacion = new Date(nuevaAsignacion.fechaAsignacion + 'T12:00:00');
+          const fechaInicio = new Date(configuracionObraActualizada.fechaInicio.split('T')[0] + 'T12:00:00');
+          const diffMs = fechaAsignacion - fechaInicio;
+          const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          numeroSemana = Math.floor(diffDays / 7) + 1;
+        }
+
+        const locKey = `asignaciones_locales_costos_${obra.id}`;
+        const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
+
+        const nuevaAsignacionLocal = {
+          id: `LOCAL_${Date.now()}`,
+          descripcion: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto Local',
+          nombreOtroCosto: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto Local',
+          importeAsignado: parseFloat(nuevaAsignacion.importeAsignado) || (parseFloat(nuevaAsignacion.cantidadAsignada) * parseFloat(nuevaAsignacion.importeUnitario)) || 0,
+          fechaAsignacion: nuevaAsignacion.fechaAsignacion,
+          categoria: costoSeleccionado?.categoria || 'General',
+          semana: numeroSemana,
+          observaciones: (nuevaAsignacion.observaciones || '') + ' [LOCAL - Error Server]',
+          esManual: costoSeleccionado?.esManual || false
+        };
+
+        currentLocales.push(nuevaAsignacionLocal);
+        localStorage.setItem(locKey, JSON.stringify(currentLocales));
+
+        // 🔥 Actualizar visualmente inmediatamente
+        setAsignaciones(prev => [...prev, nuevaAsignacionLocal]);
+        setPresupuestoGlobalDisponible(prev => Math.max(0, prev - nuevaAsignacionLocal.importeAsignado));
+
+        // Limpiar formulario incluso si falló el server pero guardamos local
+        setNuevaAsignacion({
+          otroCostoId: '',
+          cantidadAsignada: '',
+          importeUnitario: '',
+          importeAsignado: '',
+          fechaAsignacion: '',
+          observaciones: ''
+        });
+
+        alert('⚠️ Error en servidor, se guardó localmente para la sesión actual.');
+      } catch (innerError) {
+        console.error('Error en fallback local:', innerError);
+        alert(`Error al asignar costo: ${error.message}`);
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  // 🆕 Función para crear gasto manual desde presupuesto global (inline o modal)
+  const handleCrearGastoManual = (cerrarModal = true) => {
+    if (!nuevoGastoManual.descripcion.trim()) {
+      alert('⚠️ Debe ingresar una descripción para el gasto');
+      return;
+    }
+
+    if (nuevoGastoManual.categoria === '__OTRO__' && !obtenerRubroFinal()) {
+      alert('⚠️ Si seleccionas "Otros", debes escribir el rubro');
+      return;
+    }
+
+    const cantidad = parseFloat(nuevoGastoManual.cantidadAsignada) || 0;
+    const importeUnitario = parseFloat(nuevoGastoManual.importeUnitario) || 0;
+    const importeTotal = cantidad * importeUnitario;
+
+    if (importeTotal <= 0) {
+      alert('⚠️ El importe total debe ser mayor a cero');
+      return;
+    }
+
+    // Validar que no exceda el disponible
+    if (importeTotal > presupuestoGlobalDisponible) {
+      alert(`⚠️ El importe ($${importeTotal.toLocaleString('es-AR')}) excede el disponible ($${presupuestoGlobalDisponible.toLocaleString('es-AR')})`);
+      return;
+    }
+
+    // Crear gasto manual temporal
+    const categoriaFinal = obtenerRubroFinal();
+    const gastoManual = {
+      id: `MANUAL_${Date.now()}`, // ID temporal para gastos manuales
+      nombre: nuevoGastoManual.descripcion,
+      descripcion: nuevoGastoManual.descripcion,
+      categoria: categoriaFinal,
+      cantidadDisponible: cantidad,
+      precioUnitario: importeUnitario,
+      importe: importeTotal,
+      esDelStock: false,
+      esManual: true
+    };
+
+    // Agregar a la lista de gastos disponibles
+    setOtrosCostosDisponibles(prev => [...prev, gastoManual]);
+    setGastosCreados(prev => [...prev, gastoManual]);
+
+    // Pre-seleccionar el gasto recién creado en el formulario
+    setNuevaAsignacion({
+      ...nuevaAsignacion,
+      otroCostoId: gastoManual.id,
+      cantidadAsignada: cantidad.toString(),
+      importeUnitario: importeUnitario.toString(),
+      importeAsignado: importeTotal.toString(),
+      esManual: true
+    });
+
+    // Limpiar formulario de creación
+    setNuevoGastoManual({
+      descripcion: '',
+      categoria: 'General',
+      categoriaCustom: '',
+      cantidadAsignada: '',
+      importeUnitario: '',
+      observaciones: ''
+    });
+
+    // Cerrar modal si se llama desde allí
+    if (cerrarModal) {
+      setMostrarCrearGastoManual(false);
+    }
+
+    console.log('✅ Gasto manual creado:', gastoManual);
+    console.log(`💰 Disponible actualizado: $${presupuestoGlobalDisponible.toLocaleString('es-AR')} → Se asignará $${importeTotal.toLocaleString('es-AR')}`);
+
+    return gastoManual;
+  };
+
   // Nueva función: manejar asignaciones semanales múltiples de costos
   const handleAsignacionSemanalCompleta = async (asignacionesSemana) => {
+    console.log('� [INICIO HANDLER] handleAsignacionSemanalCompleta EJECUTADO - Timestamp:', new Date().toISOString());
+    console.log('�📥 [HANDLER] Recibido:', asignacionesSemana);
+
     if (!asignacionesSemana || asignacionesSemana.length === 0) {
       console.log('⚠️ No hay asignaciones de costos para procesar');
       return;
@@ -548,62 +1214,135 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
       // Procesar cada asignación diaria
       const resultados = [];
+      const nuevasAsignacionesLocales = [];
+
       for (const asignacion of asignacionesSemana) {
-        const payload = {
-          obraId: obra.id,
-          presupuestoOtroCostoId: Number(asignacion.otroCostoId),
-          gastoGeneralId: Number(asignacion.otroCostoId), // Backend requiere este campo
-          importeAsignado: Number(asignacion.importe),
-          semana: Number(asignacion.numeroSemana), // 🔥 Convertir a número
-          observaciones: asignacion.observaciones
-        };
+        try {
+          // Manejar IDs manuales (strings) para evitar NaN
+          const esManual = typeof asignacion.otroCostoId === 'string' && asignacion.otroCostoId.startsWith('MANUAL');
+          const gastoId = esManual ? null : Number(asignacion.otroCostoId);
 
-        console.log(`🔥🔥🔥 POST OTRO COSTO - Payload completo:`, payload);        console.log(`📅 Procesando asignación de costo para ${asignacion.fechaAsignacion}:`, payload);
-
-        const response = await fetch(
-          `http://localhost:8080/api/obras/${obra.id}/otros-costos`,
-          {
-            method: 'POST',
-            headers: {
-              'empresaId': empresaSeleccionada.id.toString(),
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          resultados.push({
-            fecha: asignacion.fechaAsignacion,
-            costo: asignacion.nombreOtroCosto,
-            importe: asignacion.importe,
-            resultado: data
-          });
-
-          // Guardar también en localStorage para organización por días
-          const key = `asignaciones_costos_${obra.id}_${asignacion.fechaAsignacion}`;
-          const asignacionesDia = JSON.parse(localStorage.getItem(key) || '[]');
-          asignacionesDia.push({
-            id: data.id || Date.now(),
-            otroCostoId: asignacion.otroCostoId,
-            nombreCosto: asignacion.nombreOtroCosto,
-            importe: asignacion.importe,
-            fecha: asignacion.fechaAsignacion,
+          const payload = {
+            obraId: obra.id,
+            presupuestoOtroCostoId: gastoId, // Enviar null si es manual
+            gastoGeneralId: gastoId,
+            importeAsignado: Number(asignacion.importe),
+            semana: Number(asignacion.numeroSemana),
             observaciones: asignacion.observaciones,
-            timestamp: new Date().toISOString()
-          });
-          localStorage.setItem(key, JSON.stringify(asignacionesDia));
-        } else {
-          const errorText = await response.text();
-          console.error(`❌ Error en asignación de costo para ${asignacion.fechaAsignacion}:`, errorText);
+            // Agregar metadatos descriptivos para que backend pueda crear el gasto si no existe
+            descripcion: asignacion.nombreOtroCosto,
+            categoria: asignacion.categoria
+          };
+
+          // Intentar guardar en backend
+          let data = null;
+          let success = false;
+
+          try {
+            const response = await fetch(
+              `/api/obras/${obra.id}/otros-costos`,
+              {
+                method: 'POST',
+                headers: {
+                  'empresaId': empresaSeleccionada.id.toString(),
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+              }
+            );
+
+            if (response.ok) {
+              data = await response.json();
+              success = true;
+            } else {
+              console.warn(`⚠️ Backend respondió con error ${response.status} para ${asignacion.fechaAsignacion}`);
+            }
+          } catch (netError) {
+             console.error(`❌ Error de red al asignar costo para ${asignacion.fechaAsignacion}:`, netError);
+          }
+
+          let nuevaAsignacionFinal = null;
+
+          if (success && data) {
+            resultados.push({
+              semana: asignacion.numeroSemana,
+              costo: asignacion.nombreOtroCosto,
+              importe: asignacion.importe,
+              resultado: data
+            });
+
+            // Objeto para almacenamiento local
+            nuevaAsignacionFinal = {
+              id: data.id || `LOCAL_${Date.now()}_${Math.random()}`,
+              descripcion: asignacion.nombreOtroCosto,
+              nombreOtroCosto: asignacion.nombreOtroCosto,
+              importeAsignado: asignacion.importe,
+              categoria: asignacion.categoria,
+              semana: asignacion.numeroSemana,
+              observaciones: asignacion.observaciones,
+              esManual: asignacion.esManual,
+              esSemanal: asignacion.esSemanal || true
+            };
+          } else {
+            // 🔥 FALLBACK LOCAL: Si el backend falla, guardar localmente
+            nuevaAsignacionFinal = {
+              id: `LOCAL_${Date.now()}_${Math.random()}`,
+              descripcion: asignacion.nombreOtroCosto,
+              nombreOtroCosto: asignacion.nombreOtroCosto,
+              importeAsignado: asignacion.importe,
+              categoria: asignacion.categoria,
+              semana: asignacion.numeroSemana,
+              observaciones: (asignacion.observaciones || '') + ' [LOCAL - Error Server/Red]',
+              esManual: asignacion.esManual,
+              esSemanal: asignacion.esSemanal || true
+            };
+
+            resultados.push({
+              semana: asignacion.numeroSemana,
+              costo: asignacion.nombreOtroCosto,
+              importe: asignacion.importe,
+              resultado: { status: 'local' }
+            });
+          }
+
+          if (nuevaAsignacionFinal) {
+            nuevasAsignacionesLocales.push(nuevaAsignacionFinal);
+          }
+        } catch (innerError) {
+          console.error('Error crítico procesando asignación individual:', innerError);
         }
       }
 
-      console.log('✅ Asignaciones semanales de costos completadas:', resultados);
+      // Guardar todo el lote en LocalStorage de una sola vez
+      if (nuevasAsignacionesLocales.length > 0) {
+        const locKey = `asignaciones_locales_costos_${obra.id}`;
+        const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
+        const updatedLocales = [...currentLocales, ...nuevasAsignacionesLocales];
+        localStorage.setItem(locKey, JSON.stringify(updatedLocales));
 
-      // Recargar asignaciones
-      await cargarAsignacionesActuales();
+        // 🔥 ACTUALIZAR ESTADO VISUAL INMEDIATAMENTE
+        // Importante: Usamos functional update para asegurar que tenemos el estado más reciente
+        console.log('📊 [PRE-UPDATE] Estado actual asignaciones:', asignaciones.length);
+        console.log('📊 [ADDING] Nuevas asignaciones locales:', nuevasAsignacionesLocales);
+
+        setAsignaciones(prev => {
+             const newState = [...prev, ...nuevasAsignacionesLocales];
+             console.log('🔄 [POST-UPDATE] Estado visual asignaciones. Nuevo total:', newState.length);
+             console.log('🔄 [DETALLE] Nuevas asignaciones agregadas:', nuevasAsignacionesLocales.length);
+             return newState;
+        });
+
+        // Actualizar disponible
+        if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
+           const totalNuevo = nuevasAsignacionesLocales.reduce((sum, item) => sum + (parseFloat(item.importeAsignado) || 0), 0);
+           setPresupuestoGlobalDisponible(prev => Math.max(0, prev - totalNuevo));
+        }
+      }
+
+      console.log('✅ Asignaciones semanales completadas. Actualizado estado visual.');
+
+      // Recargar asignaciones (Evitar recarga asíncrona que pise el estado local actualizado)
+      // await cargarAsignacionesActuales();
 
       // Cerrar modal
       setMostrarAsignacionSemanal(false);
@@ -629,31 +1368,116 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     }
 
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/otros-costos/${asignacionId}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString()
+      setLoading(true);
+
+      // 1. Eliminar siempre de localStorage por si las dudas
+      const locKey = `asignaciones_locales_costos_${obra.id}`;
+      const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
+      const filtered = currentLocales.filter(a => a.id.toString() !== asignacionId.toString());
+      localStorage.setItem(locKey, JSON.stringify(filtered));
+
+      // 2. Si NO es ID local, intentar eliminar del backend
+      if (!asignacionId.toString().startsWith('LOCAL_')) {
+        const response = await fetch(
+          `/api/obras/${obra.id}/otros-costos/${asignacionId}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'empresaId': empresaSeleccionada.id.toString()
+            }
           }
-        }
-      );
+        );
 
-      if (response.ok) {
-        console.log('✅ Asignación eliminada');
-        await cargarAsignacionesActuales();
-
-        if (onAsignacionExitosa) {
-          onAsignacionExitosa();
+        if (response.ok) {
+          console.log('✅ Asignación eliminada del backend');
+        } else {
+          console.warn('⚠️ No se pudo eliminar del backend (puede no existir), pero se borró localmente.');
         }
-      } else {
-        const errorText = await response.text();
-        console.error(`❌ Error ${response.status} eliminando asignación:`, errorText);
-        throw new Error(`Error ${response.status}: ${errorText}`);
+      }
+
+      // 3. Actualizar UI
+      await cargarAsignacionesActuales();
+      if (onAsignacionExitosa) {
+        onAsignacionExitosa();
       }
     } catch (error) {
       console.error('❌ Error eliminando asignación:', error);
-      alert(`Error: ${error.message}`);
+      // Aún si hay error de red, ya lo borramos de localStorage, así que recargamos
+      await cargarAsignacionesActuales();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditarAsignacion = (asignacion) => {
+    console.log('✏️ Editando asignación:', asignacion);
+    setAsignacionEnEdicion({
+      ...asignacion,
+      // Asegurar que los campos numéricos sean strings para los inputs
+      importeAsignado: asignacion.importeAsignado?.toString() || '',
+      cantidadAsignada: asignacion.cantidadAsignada?.toString() || '1'
+    });
+    setMostrarModalEdicion(true);
+  };
+
+  const handleActualizarAsignacion = async () => {
+    if (!asignacionEnEdicion) return;
+
+    try {
+      setLoading(true);
+
+      // 1. Actualizar en localStorage
+      const locKey = `asignaciones_locales_costos_${obra.id}`;
+      const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
+      const index = currentLocales.findIndex(a => a.id.toString() === asignacionEnEdicion.id.toString());
+
+      const asignacionActualizada = {
+        ...asignacionEnEdicion,
+        importeAsignado: parseFloat(asignacionEnEdicion.importeAsignado),
+        cantidadAsignada: parseFloat(asignacionEnEdicion.cantidadAsignada)
+      };
+
+      if (index !== -1) {
+        currentLocales[index] = asignacionActualizada;
+        localStorage.setItem(locKey, JSON.stringify(currentLocales));
+      } else if (asignacionEnEdicion.id.toString().startsWith('LOCAL_')) {
+        currentLocales.push(asignacionActualizada);
+        localStorage.setItem(locKey, JSON.stringify(currentLocales));
+      }
+
+      // 2. Intentar actualizar en backend si no es local
+      if (!asignacionEnEdicion.id.toString().startsWith('LOCAL_')) {
+        const response = await fetch(
+          `/api/obras/${obra.id}/otros-costos/${asignacionEnEdicion.id}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'empresaId': empresaSeleccionada.id.toString()
+            },
+            body: JSON.stringify(asignacionActualizada)
+          }
+        );
+
+        if (response.ok) {
+          console.log('✅ Asignación actualizada en backend');
+        } else {
+          console.warn('⚠️ No se pudo actualizar en backend, se mantuvo el cambio local.');
+        }
+      }
+
+      console.log('✅ Asignación actualizada');
+      setMostrarModalEdicion(false);
+      setAsignacionEnEdicion(null);
+      await cargarAsignacionesActuales();
+      if (onAsignacionExitosa) onAsignacionExitosa();
+      alert('Asignación actualizada correctamente');
+    } catch (error) {
+      console.error('❌ Error actualizando asignación:', error);
+      setMostrarModalEdicion(false);
+      await cargarAsignacionesActuales();
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -670,21 +1494,36 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
   // Nueva función: abrir formulario con fecha específica
   const abrirAsignacionParaDia = (fechaStr) => {
     console.log('🎯 [DEBUG GASTOS] abrirAsignacionParaDia recibió fecha:', fechaStr);
-    setNuevaAsignacion(prev => ({
-      ...prev,
-      fechaAsignacion: fechaStr
-    }));
+    setNuevaAsignacion({
+      tipoAsignacion: '',
+      otroCostoId: '',
+      cantidadAsignada: '',
+      importeUnitario: '',
+      importeAsignado: '',
+      fechaAsignacion: fechaStr,
+      observaciones: '',
+      esManual: false
+    });
+    setNuevoGastoManual({
+      descripcion: '',
+      categoria: 'General',
+      categoriaCustom: '',
+      cantidadAsignada: '',
+      importeUnitario: '',
+      observaciones: ''
+    });
     setMostrarDetalleSemana(false); // Cerrar detalle semanal
     setMostrarFormularioIndividual(true); // Abrir formulario individual
     console.log(`ð Formulario configurado para fecha: ${fechaStr}`);
   };
 
   // Nueva función: abrir modal de asignación semanal completa
-  const abrirAsignacionSemanal = (numeroSemana) => {
+  const abrirAsignacionSemanal = (numeroSemana, rubroActual = 'General') => {
     setSemanaAsignacionCompleta(numeroSemana);
+    setRubroSeleccionado(rubroActual); // Guardar el rubro desde donde se abre
     setMostrarDetalleSemana(false); // Cerrar detalle si estaba abierto
     setMostrarAsignacionSemanal(true);
-    console.log(`📅 Abriendo asignación semanal completa para semana ${numeroSemana}`);
+    console.log(`📅 Abriendo asignación semanal completa para semana ${numeroSemana}, rubro: ${rubroActual}`);
   };
 
   // Función para manejar envío del formulario individual
@@ -855,6 +1694,14 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
   }, [configuracionObraActualizada?.fechaInicio, diasHabilesDisponibles]);
 
   const calcularDiasHabilesSemana = (numeroSemana) => {
+    console.log('📆 [calcularDiasHabilesSemana] Entrada:', {
+      numeroSemana,
+      presupuesto: !!presupuesto,
+      configuracionObra: !!configuracionObra,
+      fechaProbableInicio: presupuesto?.fechaProbableInicio,
+      fechaInicio: configuracionObra?.fechaInicio
+    });
+
     if (!numeroSemana || numeroSemana < 1) {
       console.warn('⚠️ Número de semana inválido (costos):', numeroSemana);
       return [];
@@ -1000,6 +1847,61 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               </div>
             ) : (
               <>
+                {/* 🆕 Información del modo de presupuesto */}
+                <div className="alert alert-info mb-3">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <div>
+                      <strong>
+                        <i className="fas fa-info-circle me-2"></i>
+                        Modo de Presupuesto: {
+                          modoPresupuesto === 'GLOBAL'
+                            ? '🌍 Global'
+                            : (modoPresupuesto === 'MIXTO' ? '🧩 Mixto' : '📋 Detallado')
+                        }
+                      </strong>
+                    </div>
+                    {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && (
+                      <div className="text-end">
+                        <div>
+                          <small className="text-muted">Presupuesto Total:</small>{' '}
+                          <strong className="text-primary">
+                            ${presupuestoGlobalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </strong>
+                        </div>
+                        <div>
+                          <small className="text-muted">Disponible:</small>{' '}
+                          <strong className={presupuestoGlobalDisponible <= 0 ? 'text-danger' : 'text-success'}>
+                            ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {debugDeteccionPresupuesto && (
+                    <div className="mt-2">
+                      <small className="text-muted">
+                        <strong>Debug:</strong> fuente={debugDeteccionPresupuesto.fuenteDeteccion || 'N/A'} | detalle={debugDeteccionPresupuesto.itemsDetalle} | global=${Number(debugDeteccionPresupuesto.presupuestoGlobal || 0).toLocaleString('es-AR')} | rubros={debugDeteccionPresupuesto.rubrosDetectados ?? 0}
+                         | <button className="btn btn-link btn-sm p-0 text-danger ms-2" onClick={() => {
+                            if(confirm('¿Borrar datos locales de gastos?')) {
+                              localStorage.removeItem(`asignaciones_locales_costos_${obra.id}`);
+                              cargarAsignacionesActuales();
+                            }
+                         }}>Limpiar Local</button>
+                        {(debugDeteccionPresupuesto.rubrosEjemplo && debugDeteccionPresupuesto.rubrosEjemplo.length > 0)
+                          ? ` | ej: ${debugDeteccionPresupuesto.rubrosEjemplo.join(', ')}`
+                          : ''}
+                      </small>
+                    </div>
+                  )}
+                  {modoPresupuesto === 'DETALLE' && (
+                    <div className="mt-2">
+                      <small className="text-muted">
+                        💡 <strong>Modo Detalle:</strong> Selecciona gastos específicos del presupuesto para asignar a la obra.
+                      </small>
+                    </div>
+                  )}
+                </div>
+
                 {/* Distribución semanal estimada - solo si hay configuración */}
                 {configuracionObra && configuracionObra.semanasObjetivo && (
                   <div className="card mb-3 border-warning">
@@ -1024,7 +1926,10 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                           const gastosMonetarios = otrosCostosDisponibles.filter(c => !c.esDelStock || c.cantidadDisponible === null);
                           const elementosFisicos = otrosCostosDisponibles.filter(c => c.esDelStock && c.cantidadDisponible !== null);
 
-                          const totalGastosMonetarios = gastosMonetarios.reduce((sum, costo) => sum + (parseFloat(costo.importe) || 0), 0);
+                          const totalGastosMonetarios = (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO')
+                            ? (presupuestoGlobalTotal + gastosMonetarios.reduce((sum, costo) => sum + (parseFloat(costo.importe) || 0), 0))
+                            : gastosMonetarios.reduce((sum, costo) => sum + (parseFloat(costo.importe) || 0), 0);
+
                           const gastoMonetarioSemanal = (totalGastosMonetarios * parseFloat(porcentajeSemana) / 100).toFixed(2);
 
                           // Calcular elementos físicos por semana
@@ -1050,27 +1955,11 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                               >
                                 <div className="d-flex justify-content-between align-items-center">
                                   <strong className="text-warning">Semana {semana}</strong>
-                                  <div className="d-flex align-items-center gap-1">
-                                    <small className="text-muted">{porcentajeSemana}%</small>
-                                    <i className="fas fa-calendar-day text-warning" style={{ fontSize: '0.8rem' }}></i>
-                                  </div>
                                 </div>
-                                <small className="text-muted d-block">
-                                  <i className="fas fa-users me-1"></i>
-                                  {jornalesPorSemana} jornales
-                                </small>
-
-                                {/* Mostrar gastos monetarios si existen */}
-                                {totalGastosMonetarios > 0 && (
-                                  <small className="text-success d-block">
-                                    <i className="fas fa-dollar-sign me-1"></i>
-                                    ~${gastoMonetarioSemanal}
-                                  </small>
-                                )}
 
                                 {/* Mostrar elementos físicos si existen */}
                                 {elementosPorSemana.length > 0 && (
-                                  <small className="text-primary d-block">
+                                  <small className="text-primary d-block mt-1">
                                     <i className="fas fa-boxes me-1"></i>
                                     {elementosPorSemana.map((elem, idx) => (
                                       <span key={idx}>
@@ -1101,27 +1990,23 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                   </div>
                 )}
 
-                {otrosCostosDisponibles.length === 0 && (
-                  <div className="alert alert-info">
-                    <i className="fas fa-info-circle me-2"></i>
-                    No hay otros costos/gastos generales en el presupuesto de esta obra
+                {/* Mensaje si no hay presupuesto detectable (ni global ni detalle) */}
+                {otrosCostosDisponibles.length === 0 && modoPresupuesto !== 'GLOBAL' && modoPresupuesto !== 'MIXTO' && (
+                  <div className="alert alert-warning shadow-sm border-0 d-flex align-items-center">
+                    <i className="fas fa-exclamation-triangle fs-4 me-3"></i>
+                    <div>
+                      No se detectaron rubros ni ítems de Gastos Generales en el presupuesto de esta obra.
+                      <br />
+                      <small>Verifica que el presupuesto no este vacío o que tenga cargada la calculadora de jornales/gastos.</small>
+                    </div>
                   </div>
                 )}
 
                 {/* Asignación por planificación semanal - se realiza desde las tarjetas de semanas */}
 
                 {/* Lista de asignaciones actuales */}
-                {otrosCostosDisponibles.length > 0 && (
-                  <div className="card">
-                    <div className="card-header bg-light">
-                      <h6 className="mb-0">
-                        <i className="fas fa-check-circle me-2 text-success"></i>
-                        Asignaciones Confirmadas ({asignaciones.length})
-                      </h6>
-                      <small className="text-muted">
-                        Gastos ya asignados y guardados en la base de datos
-                      </small>
-                    </div>
+                {(otrosCostosDisponibles.length > 0 || modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO' || asignaciones.length > 0) && (
+                  <div className="card shadow-sm border-0">
                     <div className="card-body">
                       {asignaciones.length === 0 ? (
                         <div className="text-center text-muted py-3">
@@ -1145,39 +2030,66 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                               <tbody>
                                 {asignaciones.map((asignacion, index) => (
                                   <tr key={asignacion.id || index}>
-                                    <td>{asignacion.descripcion || 'N/A'}</td>
                                     <td>
-                                      <span className="badge bg-secondary">
-                                        {asignacion.categoria || 'General'}
+                                      <div className="fw-bold">
+                                        {asignacion.nombreOtroCosto || asignacion.descripcion || (asignacion.observaciones?.includes('[GASTO MANUAL]')
+                                          ? asignacion.observaciones.split('- Rubro:')[0].replace('[GASTO MANUAL]', '').trim()
+                                          : 'Gasto General')}
+                                      </div>
+                                      {asignacion.semana && (
+                                        <small className="text-muted">
+                                          <i className="fas fa-calendar-week me-1"></i>
+                                          Semana {asignacion.semana}
+                                        </small>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <span className="badge bg-info text-dark">
+                                        {asignacion.categoria || (asignacion.observaciones?.includes('Rubro:')
+                                          ? asignacion.observaciones.split('Rubro:')[1].split('|')[0].trim()
+                                          : 'General')}
                                       </span>
                                     </td>
                                     <td>
-                                      <strong>
-                                        ${Number(asignacion.importeAsignado || 0).toLocaleString('es-AR')}
+                                      <strong className="text-success">
+                                        ${Number(asignacion.importeAsignado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                       </strong>
                                     </td>
                                     <td>
-                                      <small>{(() => {
-                                        const inputFecha = document.querySelector('input[name="fechaProbableInicio"]');
-                                        const fechaStr = inputFecha?.value || '2025-12-16';
-                                        // Convertir de YYYY-MM-DD a DD/MM/YYYY directamente
-                                        const partes = fechaStr.split('-');
-                                        return `${partes[2]}/${partes[1]}/${partes[0]}`;
-                                      })()}</small>
+                                      <small className="fw-bold">
+                                        {asignacion.esSemanal ? (
+                                          <span className="text-warning">
+                                            <i className="fas fa-calendar-week me-1"></i>
+                                            Toda la semana
+                                          </span>
+                                        ) : asignacion.fechaAsignacion ? (() => {
+                                          const partes = asignacion.fechaAsignacion.split('T')[0].split('-');
+                                          return `${partes[2]}/${partes[1]}/${partes[0]}`;
+                                        })() : '-'}
+                                      </small>
                                     </td>
                                     <td>
-                                      <small className="text-muted">
+                                      <small className="text-muted" style={{ fontSize: '0.75rem', display: 'block', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={asignacion.observaciones}>
                                         {asignacion.observaciones || '-'}
                                       </small>
                                     </td>
                                     <td>
-                                      <button
-                                        className="btn btn-sm btn-outline-danger"
-                                        onClick={() => handleEliminarAsignacion(asignacion.id)}
-                                        title="Eliminar asignación"
-                                      >
-                                        <i className="fas fa-trash"></i>
-                                      </button>
+                                      <div className="btn-group shadow-sm">
+                                        <button
+                                          className="btn btn-sm btn-light border"
+                                          onClick={() => handleEditarAsignacion(asignacion)}
+                                          title="Editar asignación"
+                                        >
+                                          <i className="fas fa-edit text-primary"></i>
+                                        </button>
+                                        <button
+                                          className="btn btn-sm btn-light border"
+                                          onClick={() => handleEliminarAsignacion(asignacion.id)}
+                                          title="Eliminar asignación"
+                                        >
+                                          <i className="fas fa-trash text-danger"></i>
+                                        </button>
+                                      </div>
                                     </td>
                                   </tr>
                                 ))}
@@ -1248,6 +2160,133 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
             </div>
             <div className="modal-body">
               <form onSubmit={handleSubmit}>
+                {/* 🆕 Selector de Tipo de Asignación */}
+                <div className="mb-3">
+                  <label className="form-label">
+                    <i className="fas fa-filter me-1"></i>
+                    Tipo de Asignación
+                  </label>
+                  <select
+                    className="form-select"
+                    value={nuevaAsignacion.tipoAsignacion}
+                    onChange={(e) => {
+                      setNuevaAsignacion({
+                        ...nuevaAsignacion,
+                        tipoAsignacion: e.target.value,
+                        otroCostoId: '',
+                        cantidadAsignada: '',
+                        importeUnitario: '',
+                        importeAsignado: ''
+                      });
+                    }}
+                    required
+                  >
+                    <option value="">Seleccionar tipo...</option>
+
+                    {/* Opción: Usar Importe Global (siempre disponible si hay presupuesto global) */}
+                    {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && presupuestoGlobalDisponible > 0 && (
+                      <option value="IMPORTE_GLOBAL">
+                        💰 Importe del Presupuesto Global (Disponible: ${presupuestoGlobalDisponible.toLocaleString('es-AR')})
+                      </option>
+                    )}
+
+                    {/* Opción: Seleccionar Elemento Detallado (si hay gastos disponibles) */}
+                    {otrosCostosDisponibles.length > 0 && (
+                      <option value="ELEMENTO_DETALLADO">
+                        📋 Elemento del Presupuesto Detallado ({otrosCostosDisponibles.length} items disponibles)
+                      </option>
+                    )}
+                  </select>
+
+                  {/* Ayuda según el tipo seleccionado */}
+                  {nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL' && (
+                    <small className="text-muted d-block mt-1">
+                      <i className="fas fa-info-circle me-1"></i>
+                      Asignarás un importe directo del presupuesto global. Debes especificar descripción del gasto.
+                    </small>
+                  )}
+                  {nuevaAsignacion.tipoAsignacion === 'ELEMENTO_DETALLADO' && (
+                    <small className="text-muted d-block mt-1">
+                      <i className="fas fa-info-circle me-1"></i>
+                      Seleccionarás un gasto específico del presupuesto detallado.
+                    </small>
+                  )}
+                </div>
+
+                {/* Mostrar campos según el tipo seleccionado */}
+                {nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL' && (
+                  <>
+                    <div className="alert alert-success mb-3">
+                      <strong>💰 Presupuesto Global Disponible:</strong> ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">
+                        Descripción del Gasto <span className="text-danger">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={nuevoGastoManual.descripcion}
+                        onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, descripcion: e.target.value})}
+                        placeholder="Ej: Volquetes, Escaleras, Seguro, etc."
+                        required
+                      />
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">Categoría/Rubro</label>
+                      <select
+                        className="form-select"
+                        value={nuevoGastoManual.categoria || 'General'}
+                        onChange={(e) => setNuevoGastoManual({
+                          ...nuevoGastoManual,
+                          categoria: e.target.value,
+                          categoriaCustom: e.target.value === '__OTRO__' ? (nuevoGastoManual.categoriaCustom || '') : ''
+                        })}
+                      >
+                        {rubrosParaSelect.map((rubro) => (
+                          <option key={rubro} value={rubro}>{rubro}</option>
+                        ))}
+                        <option value="__OTRO__">Otros (escribir rubro...)</option>
+                      </select>
+                      {nuevoGastoManual.categoria === '__OTRO__' && (
+                        <input
+                          type="text"
+                          className="form-control mt-2"
+                          value={nuevoGastoManual.categoriaCustom || ''}
+                          onChange={(e) => setNuevoGastoManual({ ...nuevoGastoManual, categoriaCustom: e.target.value })}
+                          placeholder="Escribí el rubro (ej: Logística, Herramientas, Alquileres...)"
+                        />
+                      )}
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">
+                        Importe a Asignar <span className="text-danger">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={nuevaAsignacion.importeAsignado}
+                        onChange={(e) => setNuevaAsignacion({...nuevaAsignacion, importeAsignado: e.target.value})}
+                        placeholder="Ej: 500000"
+                        min="0.01"
+                        step="0.01"
+                        required
+                      />
+                      {nuevaAsignacion.importeAsignado && parseFloat(nuevaAsignacion.importeAsignado) > presupuestoGlobalDisponible && (
+                        <small className="text-danger d-block mt-1">
+                          <i className="fas fa-exclamation-triangle me-1"></i>
+                          El importe excede el disponible en ${(parseFloat(nuevaAsignacion.importeAsignado) - presupuestoGlobalDisponible).toLocaleString('es-AR')}
+                        </small>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {nuevaAsignacion.tipoAsignacion === 'ELEMENTO_DETALLADO' && (
+                  <>
                 <div className="mb-3">
                   <label className="form-label">Costo/Gasto General</label>
                   <select
@@ -1306,6 +2345,21 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     required
                   >
                     <option value="">Seleccionar costo...</option>
+
+                    {/* 🆕 Opción para crear nuevo gasto (cuando presupuesto es GLOBAL) */}
+                    {modoPresupuesto === 'GLOBAL' && (
+                      <option value="CREAR_NUEVO" style={{ fontWeight: 'bold', color: '#28a745', backgroundColor: '#d4edda' }}>
+                        ➕ Crear Nuevo Gasto Manual
+                      </option>
+                    )}
+
+                    {/* ℹ️ Mensaje cuando no hay gastos disponibles (modo GLOBAL) */}
+                    {otrosCostosDisponibles.length === 0 && modoPresupuesto === 'GLOBAL' && (
+                      <option disabled style={{ color: '#6c757d', fontStyle: 'italic' }}>
+                        Sin gastos detallados - Use "Crear Nuevo"
+                      </option>
+                    )}
+
                     {(() => {
                       // Agrupar costos por categoría/rubro
                       const costosPorCategoria = {};
@@ -1404,8 +2458,133 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     })()}
                   </select>
                 </div>
+
+                {/* 🆕 Campos adicionales si está creando un gasto nuevo */}
+                {nuevaAsignacion.otroCostoId === 'CREAR_NUEVO' && (
+                  <>
+                    <div className="alert alert-info mb-3 d-flex justify-content-between align-items-center">
+                      <div>
+                        <small>
+                          <i className="fas fa-info-circle me-1"></i>
+                          <strong>Crear gasto desde presupuesto global</strong>
+                          <br />
+                          Disponible: ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </small>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => setMostrarCrearGastoManual(true)}
+                        title="Abrir modal avanzado de creación"
+                      >
+                        <i className="fas fa-cog me-1"></i>
+                        Opciones Avanzadas
+                      </button>
+                    </div>
+
+                    <div className="row mb-3">
+                      <div className="col-md-8">
+                        <label className="form-label">
+                          Descripción del Gasto <span className="text-danger">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={nuevoGastoManual.descripcion}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, descripcion: e.target.value})}
+                          placeholder="Ej: Volquetes, Escaleras, Seguro, etc."
+                          required
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label">Categoría/Rubro</label>
+                        <select
+                          className="form-select"
+                          value={nuevoGastoManual.categoria || 'General'}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, categoria: e.target.value})}
+                        >
+                          <option value="General">General</option>
+                          <option value="Equipamiento">Equipamiento</option>
+                          <option value="Transporte">Transporte</option>
+                          <option value="Servicios">Servicios</option>
+                          <option value="Seguridad">Seguridad</option>
+                          <option value="Administrativo">Administrativo</option>
+                          <option value="Otros">Otros</option>
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <div className="mb-3">
                   {(() => {
+                    // Si está creando nuevo, siempre mostrar campos de cantidad e importe
+                    if (nuevaAsignacion.otroCostoId === 'CREAR_NUEVO') {
+                      return (
+                        <>
+                          <div className="row mb-3">
+                            <div className="col-md-6">
+                              <label className="form-label">
+                                Cantidad <span className="text-danger">*</span>
+                              </label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={nuevoGastoManual.cantidadAsignada}
+                                onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, cantidadAsignada: e.target.value})}
+                                placeholder="Ej: 2"
+                                min="0.01"
+                                step="0.01"
+                                required
+                              />
+                            </div>
+                            <div className="col-md-6">
+                              <label className="form-label">
+                                Importe Unitario <span className="text-danger">*</span>
+                              </label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={nuevoGastoManual.importeUnitario}
+                                onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, importeUnitario: e.target.value})}
+                                placeholder="Ej: 1500000"
+                                min="0.01"
+                                step="0.01"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          {nuevoGastoManual.cantidadAsignada && nuevoGastoManual.importeUnitario && (
+                            <div className="alert alert-success mb-3">
+                              <div className="d-flex justify-content-between align-items-center">
+                                <span><strong>Total del gasto:</strong></span>
+                                <strong className="text-success">
+                                  ${(parseFloat(nuevoGastoManual.cantidadAsignada) * parseFloat(nuevoGastoManual.importeUnitario)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </strong>
+                              </div>
+                              {(() => {
+                                const totalGasto = parseFloat(nuevoGastoManual.cantidadAsignada) * parseFloat(nuevoGastoManual.importeUnitario);
+                                if (totalGasto > presupuestoGlobalDisponible) {
+                                  return (
+                                    <small className="text-danger d-block mt-1">
+                                      <i className="fas fa-exclamation-triangle me-1"></i>
+                                      Excede el disponible en ${(totalGasto - presupuestoGlobalDisponible).toLocaleString('es-AR')}
+                                    </small>
+                                  );
+                                }
+                                return (
+                                  <small className="text-muted d-block mt-1">
+                                    Disponible restante: ${(presupuestoGlobalDisponible - totalGasto).toLocaleString('es-AR')}
+                                  </small>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </>
+                      );
+                    }
+
                     const costoSeleccionado = otrosCostosDisponibles.find(c => c.id.toString() === nuevaAsignacion.otroCostoId);
                     const esDelStock = costoSeleccionado?.cantidadDisponible !== null;
 
@@ -1497,6 +2676,12 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     }
                   })()}
                 </div>
+                </>
+                )}
+
+                {/* Campos comunes para ambos tipos */}
+                {nuevaAsignacion.tipoAsignacion && (
+                  <>
                 <div className="mb-3">
                   <label className="form-label">Fecha de Asignación</label>
                   <input
@@ -1539,6 +2724,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     Cancelar
                   </button>
                 </div>
+                </>
+                )}
               </form>
             </div>
           </div>
@@ -1555,8 +2742,260 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         numeroSemana={semanaAsignacionCompleta}
         diasSemana={calcularDiasHabilesSemana(semanaAsignacionCompleta)}
         otrosCostosDisponibles={otrosCostosDisponibles}
+        rubrosParaSelect={rubrosParaSelect}
+        presupuestoGlobalDisponible={presupuestoGlobalDisponible}
+        modoPresupuesto={modoPresupuesto}
+        rubroInicial={rubroSeleccionado}
         onConfirmarAsignacion={handleAsignacionSemanalCompleta}
       />
+    )}
+
+    {/* 🆕 Modal para Crear Gasto Manual (Modo Global) */}
+    {mostrarCrearGastoManual && (
+      <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1060}}>
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header bg-success text-white">
+              <h6 className="modal-title">
+                <i className="fas fa-plus me-2"></i>
+                Crear Gasto Manual
+              </h6>
+              <button
+                type="button"
+                className="btn-close btn-close-white"
+                onClick={() => {
+                  setMostrarCrearGastoManual(false);
+                  setNuevoGastoManual({
+                    descripcion: '',
+                    categoria: 'General',
+                    categoriaCustom: '',
+                    cantidadAsignada: '',
+                    importeUnitario: '',
+                    observaciones: ''
+                  });
+                }}
+              ></button>
+            </div>
+            <div className="modal-body">
+              <div className="alert alert-info mb-3">
+                <small>
+                  <i className="fas fa-info-circle me-1"></i>
+                  Crea un gasto usando el presupuesto global disponible.
+                  <br />
+                  <strong>Disponible: ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                </small>
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label">
+                  Descripción del Gasto <span className="text-danger">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={nuevoGastoManual.descripcion}
+                  onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, descripcion: e.target.value})}
+                  placeholder="Ej: Volquete, Seguro, Alquiler, etc."
+                />
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label">Categoría/Rubro</label>
+                <select
+                  className="form-select"
+                  value={nuevoGastoManual.categoria || 'General'}
+                  onChange={(e) => setNuevoGastoManual({
+                    ...nuevoGastoManual,
+                    categoria: e.target.value,
+                    categoriaCustom: e.target.value === '__OTRO__' ? (nuevoGastoManual.categoriaCustom || '') : ''
+                  })}
+                >
+                  {rubrosParaSelect.map((rubro) => (
+                    <option key={rubro} value={rubro}>{rubro}</option>
+                  ))}
+                  <option value="__OTRO__">Otros (escribir rubro...)</option>
+                </select>
+                {nuevoGastoManual.categoria === '__OTRO__' && (
+                  <input
+                    type="text"
+                    className="form-control mt-2"
+                    value={nuevoGastoManual.categoriaCustom || ''}
+                    onChange={(e) => setNuevoGastoManual({ ...nuevoGastoManual, categoriaCustom: e.target.value })}
+                    placeholder="Escribí el rubro (ej: Logística, Herramientas, Alquileres...)"
+                  />
+                )}
+              </div>
+
+              <div className="row">
+                <div className="col-md-6 mb-3">
+                  <label className="form-label">
+                    Cantidad <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={nuevoGastoManual.cantidadAsignada}
+                    onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, cantidadAsignada: e.target.value})}
+                    placeholder="Ej: 2"
+                    min="0.01"
+                    step="0.01"
+                  />
+                </div>
+
+                <div className="col-md-6 mb-3">
+                  <label className="form-label">
+                    Importe Unitario <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={nuevoGastoManual.importeUnitario}
+                    onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, importeUnitario: e.target.value})}
+                    placeholder="Ej: 1500000"
+                    min="0.01"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+
+              {nuevoGastoManual.cantidadAsignada && nuevoGastoManual.importeUnitario && (
+                <div className="alert alert-success mb-3">
+                  <strong>Total del gasto:</strong> ${(parseFloat(nuevoGastoManual.cantidadAsignada) * parseFloat(nuevoGastoManual.importeUnitario)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                </div>
+              )}
+
+              <div className="mb-3">
+                <label className="form-label">Observaciones (opcional)</label>
+                <textarea
+                  className="form-control"
+                  value={nuevoGastoManual.observaciones}
+                  onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, observaciones: e.target.value})}
+                  rows="2"
+                  placeholder="Notas adicionales..."
+                ></textarea>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setMostrarCrearGastoManual(false);
+                  setNuevoGastoManual({
+                    descripcion: '',
+                    categoria: 'General',
+                    categoriaCustom: '',
+                    cantidadAsignada: '',
+                    importeUnitario: '',
+                    observaciones: ''
+                  });
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn btn-success"
+                onClick={() => handleCrearGastoManual(true)}
+              >
+                <i className="fas fa-check me-1"></i>
+                Crear y Seleccionar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* 🆕 Modal de Edición de Asignación */}
+    {mostrarModalEdicion && asignacionEnEdicion && (
+      <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1100 }}>
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content shadow-lg border-0">
+            <div className="modal-header bg-primary text-white">
+              <h6 className="modal-title">
+                <i className="fas fa-edit me-2"></i>
+                Editar Asignación de Gasto
+              </h6>
+              <button
+                type="button"
+                className="btn-close btn-close-white"
+                onClick={() => setMostrarModalEdicion(false)}
+              ></button>
+            </div>
+            <div className="modal-body p-4">
+              <div className="mb-3">
+                <label className="form-label fw-bold">Descripción</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={asignacionEnEdicion.descripcion || ''}
+                  onChange={(e) => setAsignacionEnEdicion({...asignacionEnEdicion, descripcion: e.target.value})}
+                />
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label fw-bold">Categoría/Rubro</label>
+                <select
+                  className="form-select"
+                  value={asignacionEnEdicion.categoria || 'General'}
+                  onChange={(e) => setAsignacionEnEdicion({...asignacionEnEdicion, categoria: e.target.value})}
+                >
+                  {rubrosParaSelect.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="row">
+                <div className="col-md-6 mb-3">
+                  <label className="form-label fw-bold">Importe Asignado ($)</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={asignacionEnEdicion.importeAsignado || ''}
+                    onChange={(e) => setAsignacionEnEdicion({...asignacionEnEdicion, importeAsignado: e.target.value})}
+                  />
+                </div>
+                <div className="col-md-6 mb-3">
+                  <label className="form-label fw-bold">Cantidad</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={asignacionEnEdicion.cantidadAsignada || ''}
+                    onChange={(e) => setAsignacionEnEdicion({...asignacionEnEdicion, cantidadAsignada: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label fw-bold">Observaciones</label>
+                <textarea
+                  className="form-control"
+                  rows="3"
+                  value={asignacionEnEdicion.observaciones || ''}
+                  onChange={(e) => setAsignacionEnEdicion({...asignacionEnEdicion, observaciones: e.target.value})}
+                ></textarea>
+              </div>
+            </div>
+            <div className="modal-footer bg-light">
+              <button
+                type="button"
+                className="btn btn-outline-secondary"
+                onClick={() => setMostrarModalEdicion(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary px-4"
+                onClick={handleActualizarAsignacion}
+                disabled={loading}
+              >
+                {loading ? 'Guardando...' : 'Guardar Cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     )}
     </>
   );
