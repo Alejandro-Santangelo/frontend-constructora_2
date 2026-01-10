@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Button, Form } from 'react-bootstrap';
 import { useEmpresa } from '../EmpresaContext';
 import SeleccionarProfesionalesModal from './SeleccionarProfesionalesModal';
+import DetalleSemanaModal from './DetalleSemanaModal';
 import { calcularSemanasParaDiasHabiles } from '../utils/feriadosArgentina';
 import {
   crearAsignacionSemanal,
@@ -19,13 +20,27 @@ const AsignarProfesionalSemanalModal = ({
   configuracionObra = null, // Nueva prop para recibir configuración global
   onRefreshProfesionales = null // Nueva prop para refrescar lista de profesionales
 }) => {
+  // DEBUG: Track parent lifecycle
+  const instanceId = React.useMemo(() => Math.random().toString(36).substr(2, 5), []);
+  useEffect(() => {
+    console.log(`🏰 [AsignarProfesionalSemanalModal ${instanceId}] MOUNTED`);
+    return () => console.log(`🔥 [AsignarProfesionalSemanalModal ${instanceId}] UNMOUNTED`);
+  }, []);
+
+  useEffect(() => {
+     console.log(`🏰 [AsignarProfesionalSemanalModal ${instanceId}] RENDERED. paso: ${paso}, mostrarModalSeleccion: ${mostrarModalSeleccion}`);
+  });
+
   // Helper para parsear fechas evitando problemas de zona horaria
   const parsearFechaLocal = (fechaStr) => {
     if (!fechaStr) return new Date();
+    if (typeof fechaStr !== 'string') {
+      return fechaStr instanceof Date ? fechaStr : new Date();
+    }
     if (fechaStr.includes('-')) {
       const soloFecha = fechaStr.split('T')[0];
       const [year, month, day] = soloFecha.split('-');
-      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 0, 0, 0, 0);
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 7, 0, 0);
     }
     return new Date(fechaStr);
   };
@@ -60,6 +75,7 @@ const AsignarProfesionalSemanalModal = ({
   // Estados principales
   const [profesionalesSeleccionados, setProfesionalesSeleccionados] = useState([]);
   const [mostrarModalSeleccion, setMostrarModalSeleccion] = useState(false);
+  const [mostrarDetalleSemana, setMostrarDetalleSemana] = useState(false); // Estado para el nuevo modal
   const [semanaSeleccionadaParaAsignar, setSemanaSeleccionadaParaAsignar] = useState(null);
   const [modalidadAsignacion, setModalidadAsignacion] = useState(''); // 'total' o 'semanal'
   const [asignacionesPorSemana, setAsignacionesPorSemana] = useState({});
@@ -154,10 +170,21 @@ const AsignarProfesionalSemanalModal = ({
 
   // 🆕 Cargar profesionales seleccionados desde asignaciones existentes
   useEffect(() => {
-    if (!show || !asignacionesExistentes || asignacionesExistentes.length === 0) return;
+    if (!show || !asignacionesExistentes || asignacionesExistentes.length === 0) {
+      console.log('⚠️ No hay asignaciones para procesar:', { show, asignacionesLength: asignacionesExistentes?.length });
+      return;
+    }
+
+    console.log('🔍 Procesando asignaciones existentes:', asignacionesExistentes);
 
     // Buscar asignaciones en modalidad "total" (obra completa)
     const asignacionesTotales = asignacionesExistentes.filter(a => a.modalidad === 'total');
+    const asignacionesSemanales = asignacionesExistentes.filter(a => a.modalidad === 'semanal');
+
+    console.log('📊 Asignaciones por modalidad:', {
+      totales: asignacionesTotales.length,
+      semanales: asignacionesSemanales.length
+    });
 
     if (asignacionesTotales.length > 0) {
       console.log('🔍 Cargando profesionales desde asignaciones "total":', asignacionesTotales);
@@ -177,9 +204,77 @@ const AsignarProfesionalSemanalModal = ({
         }
       });
 
-      console.log('✅ Profesionales cargados:', profesionalesUnicos);
+      console.log('✅ Profesionales cargados (modalidad total):', profesionalesUnicos);
       setProfesionalesSeleccionados(profesionalesUnicos);
       setModalidadAsignacion('total');
+    } else if (asignacionesSemanales.length > 0) {
+      console.log('🔍 Cargando profesionales desde asignaciones "semanal":', asignacionesSemanales);
+      console.log('🔍 Primera asignación (estructura):', JSON.stringify(asignacionesSemanales[0], null, 2));
+
+      // Agrupar asignaciones por semana
+      const asignacionesPorSemanaTemp = {};
+
+      asignacionesSemanales.forEach(asignacion => {
+        // Cada asignación tiene un array asignacionesPorSemana
+        const semanasArray = asignacion.asignacionesPorSemana || [];
+
+        semanasArray.forEach(semanaData => {
+          const semanaKey = semanaData.semanaKey;
+
+          if (!semanaKey) {
+            console.warn('⚠️ Semana sin semanaKey:', semanaData);
+            return;
+          }
+
+          if (!asignacionesPorSemanaTemp[semanaKey]) {
+            asignacionesPorSemanaTemp[semanaKey] = {
+              profesionales: [],
+              cantidadesPorDia: {},
+              asignacionesDia: {}
+            };
+          }
+
+          // Procesar detalles por día
+          const detallesPorDia = semanaData.detallesPorDia || [];
+
+          detallesPorDia.forEach(detalle => {
+            // Agregar profesional único a esta semana
+            const profesionalExiste = asignacionesPorSemanaTemp[semanaKey].profesionales.find(
+              p => p.id === detalle.profesionalId
+            );
+
+            if (!profesionalExiste && detalle.profesionalId) {
+              asignacionesPorSemanaTemp[semanaKey].profesionales.push({
+                id: detalle.profesionalId,
+                nombre: detalle.profesionalNombre,
+                tipoProfesional: detalle.profesionalTipo
+              });
+            }
+
+            // Agregar cantidad por día
+            const fecha = detalle.fecha;
+            if (fecha) {
+              asignacionesPorSemanaTemp[semanaKey].cantidadesPorDia[fecha] =
+                (asignacionesPorSemanaTemp[semanaKey].cantidadesPorDia[fecha] || 0) + (detalle.cantidad || 1);
+
+              // Agregar a asignacionesDia para el modal detalle
+              if (!asignacionesPorSemanaTemp[semanaKey].asignacionesDia[fecha]) {
+                asignacionesPorSemanaTemp[semanaKey].asignacionesDia[fecha] = [];
+              }
+              asignacionesPorSemanaTemp[semanaKey].asignacionesDia[fecha].push({
+                id: detalle.profesionalId,
+                nombre: detalle.profesionalNombre,
+                tipoProfesional: detalle.profesionalTipo
+              });
+            }
+          });
+        });
+      });
+
+      console.log('✅ Asignaciones semanales procesadas:', JSON.stringify(asignacionesPorSemanaTemp, null, 2));
+      console.log('📊 Keys de semanas:', Object.keys(asignacionesPorSemanaTemp));
+      setAsignacionesPorSemana(asignacionesPorSemanaTemp);
+      setModalidadAsignacion('semanal');
     }
   }, [show, asignacionesExistentes]);
 
@@ -214,6 +309,14 @@ const AsignarProfesionalSemanalModal = ({
 
       if (!empresaSeleccionada?.id) {
         console.warn('⚠️ No hay empresa seleccionada, saltando carga de asignaciones');
+        setLoadingAsignaciones(false);
+        return;
+      }
+
+      // 🔥 USAR ASIGNACIONES YA CARGADAS SI EXISTEN
+      if (obra.asignacionesActuales && Array.isArray(obra.asignacionesActuales) && obra.asignacionesActuales.length > 0) {
+        console.log('✅ Usando asignaciones pre-cargadas desde obra:', obra.asignacionesActuales.length);
+        setAsignacionesExistentes(obra.asignacionesActuales);
         setLoadingAsignaciones(false);
         return;
       }
@@ -1180,17 +1283,43 @@ const AsignarProfesionalSemanalModal = ({
   // Handler para abrir modal de selección de profesionales para una semana específica
   const handleAbrirSeleccionProfesionalesSemana = (semanaKey) => {
     setSemanaSeleccionadaParaAsignar(semanaKey);
-    // Cargar profesionales ya asignados a esta semana (si existen)
-    const asignacionSemana = asignacionesPorSemana[semanaKey];
-    if (asignacionSemana?.profesionales) {
-      setProfesionalesSeleccionados(asignacionSemana.profesionales);
-    } else {
-      setProfesionalesSeleccionados([]);
-    }
-    setMostrarModalSeleccion(true);
+    // Ahora abrimos el modal de gestión detallada
+    setMostrarDetalleSemana(true);
   };
 
-  const handleConfirmarProfesionales = (profesionales) => {
+  // Handler para guardar la asignación detallada de una semana desde el nuevo modal
+  const handleGuardarSemana = (semanaKey, asignacionesDia) => {
+    // Calcular lista única de profesionales para la semana (para mostrar en la tarjeta de resumen)
+    const profsMap = new Map();
+    const cantidades = {};
+
+    Object.entries(asignacionesDia).forEach(([fecha, lista]) => {
+      // Validar fecha y cantidad
+      if (lista && lista.length > 0) {
+        // Asegurar formato fecha YYYY-MM-DD
+        const fechaKey = fecha.includes('T') ? fecha.split('T')[0] : fecha;
+        cantidades[fechaKey] = lista.length.toString();
+        lista.forEach(p => profsMap.set(p.id, p));
+      }
+    });
+
+    const profesionalesUnicos = Array.from(profsMap.values());
+
+    console.log(`💾 Guardando semana ${semanaKey} con detalle diario:`, asignacionesDia);
+
+    setAsignacionesPorSemana(prev => ({
+      ...prev,
+      [semanaKey]: {
+        profesionales: profesionalesUnicos,
+        asignacionesDia: asignacionesDia, // Estructura rica por día
+        cantidadesPorDia: cantidades // Estructura simple para compatibilidad visual si es necesaria
+      }
+    }));
+
+    setMostrarDetalleSemana(false);
+  };
+
+  const handleConfirmarProfesionales = React.useCallback((profesionales) => {
     if (modalidadAsignacion === 'total') {
       // Simplemente guardar los profesionales seleccionados
       // Cada profesional = 1 jornal/día automáticamente
@@ -1220,7 +1349,12 @@ const AsignarProfesionalSemanalModal = ({
       }));
     }
     setMostrarModalSeleccion(false);
-  };
+  }, [modalidadAsignacion, semanaSeleccionadaParaAsignar, semanas]);
+
+  const handleHideModalSeleccion = React.useCallback(() => {
+    console.log('🛑 [AsignarProfesionalSemanalModal] onHide requested for SeleccionarProfesionalesModal');
+    setMostrarModalSeleccion(false);
+  }, []);
 
   const handleEliminarProfesional = (profesionalId) => {
     setProfesionalesSeleccionados(prev => prev.filter(p => p.id !== profesionalId));
@@ -1364,7 +1498,8 @@ const AsignarProfesionalSemanalModal = ({
 
           console.log(`🔍 Cantidades limpias para semana ${semanaKey}:`, cantidadesLimpias);
 
-          return {
+          // Construir objeto de retorno
+          const semanaPayload = {
             semanaKey,
             profesionales: datos.profesionales.map(prof => ({
               profesionalId: prof.id,
@@ -1372,6 +1507,24 @@ const AsignarProfesionalSemanalModal = ({
             })),
             cantidadesPorDia: cantidadesLimpias
           };
+
+          // Si tenemos detalle específico por día (nueva funcionalidad), agregarlo al payload
+          if (datos.asignacionesDia) {
+             const detallesPorDia = [];
+             Object.entries(datos.asignacionesDia).forEach(([fecha, listaProfesionales]) => {
+                const fechaFormateada = fecha.includes('T') ? fecha.split('T')[0] : fecha;
+                listaProfesionales.forEach(prof => {
+                     detallesPorDia.push({
+                         fecha: fechaFormateada,
+                         profesionalId: prof.id,
+                         cantidad: 1 // Por defecto 1 jornal
+                     });
+                });
+             });
+             semanaPayload.detallesPorDia = detallesPorDia;
+          }
+
+          return semanaPayload;
         }).filter(item => item !== null); // Filtrar semanas sin profesionales
 
         console.log('📤 asignacionesPorSemana procesadas:', JSON.stringify(payload.asignacionesPorSemana, null, 2));
@@ -1681,6 +1834,25 @@ const AsignarProfesionalSemanalModal = ({
     }
   };
 
+  // Memoizar semanaActual para evitar re-renders innecesarios en el modal hijo
+  const semanaActualTotal = useMemo(() => {
+    return modalidadAsignacion === 'total' && semanas.length > 0
+      ? { dias: semanas.flatMap(s => s.dias) }
+      : null;
+  }, [modalidadAsignacion, semanas]);
+
+  const fechaInicioTotal = useMemo(() => {
+    return modalidadAsignacion === 'total' && diasHabilesDisponibles.length > 0
+    ? diasHabilesDisponibles[0]
+    : null;
+  }, [modalidadAsignacion, diasHabilesDisponibles]);
+
+  const fechaFinTotal = useMemo(() => {
+    return modalidadAsignacion === 'total' && diasHabilesDisponibles.length > 0
+    ? diasHabilesDisponibles[diasHabilesDisponibles.length - 1]
+    : null;
+  }, [modalidadAsignacion, diasHabilesDisponibles]);
+
   if (!show) return null;
 
   return (
@@ -1792,6 +1964,110 @@ const AsignarProfesionalSemanalModal = ({
                 </div>
               </div>
             </div>
+
+            {/* Sección de profesionales ya asignados */}
+            {(profesionalesSeleccionados.length > 0 || Object.keys(asignacionesPorSemana).length > 0) && (
+              <div className="card mb-3 border-info">
+                <div className="card-header bg-info text-white">
+                  <h6 className="mb-0">
+                    <i className="fas fa-users me-2"></i>
+                    Profesionales Actualmente Asignados
+                  </h6>
+                </div>
+                <div className="card-body">
+                  {modalidadAsignacion === 'total' && profesionalesSeleccionados.length > 0 && (
+                    <div>
+                      <small className="text-muted d-block mb-2">Modalidad: Obra Completa</small>
+                      <div className="d-flex flex-wrap gap-2">
+                        {profesionalesSeleccionados.map(prof => (
+                          <span key={prof.id} className="badge bg-primary" style={{ fontSize: '0.9rem' }}>
+                            <i className="fas fa-user me-1"></i>
+                            {prof.nombre} - {prof.tipoProfesional}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {modalidadAsignacion === 'semanal' && Object.keys(asignacionesPorSemana).length > 0 && (
+                    <div>
+                      <small className="text-muted d-block mb-2">Modalidad: Por Semana</small>
+                      {Object.entries(asignacionesPorSemana).map(([semanaKey, datos], index) => {
+                        // Convertir semanaKey (2026-W03) a formato legible
+                        const semanaNumero = index + 1;
+                        const semanaLabel = `Semana ${semanaNumero}`;
+
+                        // Calcular días asignados por profesional para esta semana
+                        const diasPorProfesional = {};
+                        if (datos.profesionales) {
+                          datos.profesionales.forEach(prof => {
+                            diasPorProfesional[prof.id] = [];
+
+                            // Buscar en asignaciones existentes
+                            asignacionesExistentes.forEach(asignacion => {
+                              if (asignacion.asignacionesPorSemana) {
+                                asignacion.asignacionesPorSemana.forEach(semanaData => {
+                                  if (semanaData.semanaKey === semanaKey && semanaData.detallesPorDia) {
+                                    semanaData.detallesPorDia.forEach(detalle => {
+                                      if (detalle.profesionalId === prof.id && detalle.fecha) {
+                                        const fecha = parsearFechaLocal(detalle.fecha);
+                                        const diaFormato = fecha.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+                                        diasPorProfesional[prof.id].push(diaFormato);
+                                      }
+                                    });
+                                  }
+                                });
+                              }
+                            });
+
+                            // También buscar en estado local
+                            if (datos.asignacionesDia) {
+                              Object.entries(datos.asignacionesDia).forEach(([fecha, profesionales]) => {
+                                if (profesionales.some(p => p.id === prof.id)) {
+                                  const fechaObj = parsearFechaLocal(fecha);
+                                  const diaFormato = fechaObj.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+                                  if (!diasPorProfesional[prof.id].includes(diaFormato)) {
+                                    diasPorProfesional[prof.id].push(diaFormato);
+                                  }
+                                }
+                              });
+                            }
+                          });
+                        }
+
+                        return (
+                          <div key={semanaKey} className="mb-3">
+                            <small className="fw-bold text-secondary">
+                              <i className="fas fa-calendar-week me-1"></i>
+                              {semanaLabel}:
+                            </small>
+                            <div className="mt-1">
+                              {datos.profesionales && datos.profesionales.map(prof => (
+                                <div key={prof.id} className="d-flex align-items-center gap-2 mb-2">
+                                  <span className="badge bg-success" style={{ fontSize: '0.85rem', minWidth: '150px' }}>
+                                    <i className="fas fa-user me-1"></i>
+                                    {prof.nombre}
+                                  </span>
+                                  {diasPorProfesional[prof.id] && diasPorProfesional[prof.id].length > 0 && (
+                                    <div className="d-flex flex-wrap gap-1">
+                                      {diasPorProfesional[prof.id].map((dia, idx) => (
+                                        <span key={idx} className="badge bg-info text-dark" style={{ fontSize: '0.65rem' }}>
+                                          {dia}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )} {/* Fin paso 2 */}
 
@@ -1820,25 +2096,18 @@ const AsignarProfesionalSemanalModal = ({
                       {configuracionObra?.diasHabiles || diasHabilesObjetivo} días (
                       {(() => {
                         // 🔥 Calcular semanas dinámicamente desde fecha de inicio y días hábiles
+                        // (Logica movida para evitar log spam en render)
                         const diasHabiles = configuracionObra?.diasHabiles || diasHabilesObjetivo;
                         const fechaInicio = obra?.presupuestoNoCliente?.fechaProbableInicio;
 
-                        console.log('🔍 DEBUG AsignarProfesionalSemanalModal:', {
-                          fechaInicio,
-                          diasHabiles,
-                          tienePresupuesto: !!obra?.presupuestoNoCliente,
-                          presupuesto: obra?.presupuestoNoCliente
-                        });
-
                         if (fechaInicio && diasHabiles > 0) {
                           const fechaInicioParsed = parsearFechaLocal(fechaInicio);
-                          const semanasCalculadas = calcularSemanasParaDiasHabiles(fechaInicioParsed, diasHabiles);
-                          console.log('✅ Semanas calculadas:', semanasCalculadas);
+                          const semanasCalculadas = Math.ceil(diasHabiles / 5); // Estimacion rapida o calculo real
+                          // PREVENCION LOG SPAM: Quitamos logs de renderizado directo
                           return semanasCalculadas;
                         }
 
                         // Fallback: usar configuración guardada
-                        console.log('⚠️ Usando fallback:', configuracionObra?.semanasObjetivo || semanasObjetivo);
                         return configuracionObra?.semanasObjetivo || semanasObjetivo;
                       })()} sem.)
                     </strong>
@@ -1856,50 +2125,82 @@ const AsignarProfesionalSemanalModal = ({
             </div>
 
             {/* Asignación por Obra Completa - Mostrar botón para seleccionar profesionales */}
-            {modalidadAsignacion === 'total' && (
-              <div>
-                <div className="card mb-3">
-                  <div className="card-header bg-primary text-white">
-                    <h6 className="mb-0">
-                      <i className="fas fa-users me-2"></i>
-                      Equipo Asignado a Toda la Obra
-                    </h6>
-                  </div>
-                  <div className="card-body">
-                    <div className="mb-3">
-                      <Button
-                        variant="outline-primary"
-                        size="sm"
-                        onClick={() => setMostrarModalSeleccion(true)}
-                      >
-                        <i className="bi bi-person-plus me-2"></i>
-                        {profesionalesSeleccionados.length > 0 ? 'Modificar Equipo' : 'Seleccionar Profesionales'}
-                      </Button>
-                    </div>
+            {modalidadAsignacion === 'total' && (() => {
+              // Obtener profesionales únicos de asignaciones existentes si no hay seleccionados
+              let profesionalesMostrar = [...profesionalesSeleccionados];
 
-                    {/* Lista de profesionales seleccionados */}
-                    {profesionalesSeleccionados.length > 0 ? (
+              if (profesionalesMostrar.length === 0 && Object.keys(asignacionesPorSemana).length > 0) {
+                // Extraer profesionales únicos de asignaciones semanales
+                const profesionalesSet = new Map();
+                Object.values(asignacionesPorSemana).forEach(semana => {
+                  if (semana.profesionales) {
+                    semana.profesionales.forEach(prof => {
+                      if (!profesionalesSet.has(prof.id)) {
+                        profesionalesSet.set(prof.id, prof);
+                      }
+                    });
+                  }
+                });
+                profesionalesMostrar = Array.from(profesionalesSet.values());
+              }
+
+              const hayProfesionales = profesionalesMostrar.length > 0;
+
+              return (
+                <div>
+                  <div className="card mb-3">
+                    <div className="card-header bg-primary text-white">
+                      <h6 className="mb-0">
+                        <i className="fas fa-users me-2"></i>
+                        Equipo Asignado a Toda la Obra
+                      </h6>
+                    </div>
+                    <div className="card-body">
+                      {/* Advertencia si cambiando modalidad */}
+                      {Object.keys(asignacionesPorSemana).length > 0 && profesionalesSeleccionados.length === 0 && (
+                        <div className="alert alert-warning mb-3">
+                          <i className="fas fa-exclamation-triangle me-2"></i>
+                          <strong>Atención:</strong> Ya tienes profesionales asignados por semana.
+                          Si cambias a modalidad "Obra Completa", se eliminarán las asignaciones semanales al guardar.
+                        </div>
+                      )}
+
+                      <div className="mb-3">
+                        <Button
+                          variant="outline-primary"
+                          size="sm"
+                          onClick={() => setMostrarModalSeleccion(true)}
+                        >
+                          <i className="bi bi-person-plus me-2"></i>
+                          {hayProfesionales ? 'Modificar Equipo' : 'Seleccionar Profesionales'}
+                        </Button>
+                      </div>
+
+                      {/* Lista de profesionales seleccionados */}
+                      {hayProfesionales ? (
                       <>
                         <div className="alert alert-light mb-3">
                           <strong className="d-block mb-2">
                             <i className="fas fa-check-circle text-success me-2"></i>
-                            {profesionalesSeleccionados.length} profesional(es) seleccionado(s):
+                            {profesionalesMostrar.length} profesional(es) seleccionado(s):
                           </strong>
                           <div className="d-flex flex-wrap gap-2">
-                            {profesionalesSeleccionados.map(prof => (
+                            {profesionalesMostrar.map(prof => (
                               <span
                                 key={prof.id}
                                 className="badge bg-primary d-flex align-items-center gap-2"
                                 style={{ fontSize: '0.9rem', padding: '0.5rem 0.75rem' }}
                               >
                                 {prof.nombre}
-                                <button
-                                  type="button"
-                                  className="btn-close btn-close-white"
-                                  aria-label="Eliminar"
-                                  onClick={() => handleEliminarProfesional(prof.id)}
-                                  style={{ fontSize: '0.6rem' }}
-                                ></button>
+                                {profesionalesSeleccionados.some(p => p.id === prof.id) && (
+                                  <button
+                                    type="button"
+                                    className="btn-close btn-close-white"
+                                    aria-label="Eliminar"
+                                    onClick={() => handleEliminarProfesional(prof.id)}
+                                    style={{ fontSize: '0.6rem' }}
+                                  ></button>
+                                )}
                               </span>
                             ))}
                           </div>
@@ -1936,25 +2237,25 @@ const AsignarProfesionalSemanalModal = ({
                         </div>
 
                         <div className={`alert mb-0 ${
-                          profesionalesSeleccionados.length === capacidadNecesaria
+                          profesionalesMostrar.length === capacidadNecesaria
                             ? 'alert-success'
-                            : profesionalesSeleccionados.length > capacidadNecesaria
+                            : profesionalesMostrar.length > capacidadNecesaria
                               ? 'alert-info'
                               : 'alert-warning'
                         }`}>
                           <strong>📊 Resumen de asignación:</strong>
                           <ul className="mb-0 mt-2">
-                            <li><strong>{profesionalesSeleccionados.length} profesional(es)</strong> seleccionados</li>
-                            <li><strong>{profesionalesSeleccionados.length} jornal(es)/día</strong> de capacidad</li>
-                            <li><strong>{profesionalesSeleccionados.length * diasHabilesObjetivo} jornales totales</strong> ({profesionalesSeleccionados.length} × {diasHabilesObjetivo} días)</li>
+                            <li><strong>{profesionalesMostrar.length} profesional(es)</strong> seleccionados</li>
+                            <li><strong>{profesionalesMostrar.length} jornal(es)/día</strong> de capacidad</li>
+                            <li><strong>{profesionalesMostrar.length * diasHabilesObjetivo} jornales totales</strong> ({profesionalesMostrar.length} × {diasHabilesObjetivo} días)</li>
                           </ul>
                           <hr className="my-2" />
                           <small>
-                            {profesionalesSeleccionados.length === capacidadNecesaria
-                              ? `✅ Perfecto: ${profesionalesSeleccionados.length} asignados = ${capacidadNecesaria} necesarios`
-                              : profesionalesSeleccionados.length > capacidadNecesaria
-                                ? `🚀 Sobran ${profesionalesSeleccionados.length - capacidadNecesaria} profesional(es) → Terminarás antes de tiempo`
-                                : `⚠️ Faltan ${capacidadNecesaria - profesionalesSeleccionados.length} profesional(es) más (necesitas ${capacidadNecesaria} en total)`}
+                            {profesionalesMostrar.length === capacidadNecesaria
+                              ? `✅ Perfecto: ${profesionalesMostrar.length} asignados = ${capacidadNecesaria} necesarios`
+                              : profesionalesMostrar.length > capacidadNecesaria
+                                ? `🚀 Sobran ${profesionalesMostrar.length - capacidadNecesaria} profesional(es) → Terminarás antes de tiempo`
+                                : `⚠️ Faltan ${capacidadNecesaria - profesionalesMostrar.length} profesional(es) más (necesitas ${capacidadNecesaria} en total)`}
                           </small>
                         </div>
                       </>
@@ -1968,7 +2269,8 @@ const AsignarProfesionalSemanalModal = ({
                   </div>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {modalidadAsignacion === 'semanal' && (
               <div>
@@ -2221,12 +2523,51 @@ const AsignarProfesionalSemanalModal = ({
                                   <th style={{width: '120px'}}>Semana</th>
                                   <th>Profesional</th>
                                   <th>Tipo</th>
+                                  <th>Días Asignados</th>
                                   <th style={{width: '100px'}} className="text-center">Acciones</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {Object.entries(profesionalesPorSemana).map(([semanaKey, data]) => (
-                                  data.profesionales.map((prof, idx) => (
+                                {Object.entries(profesionalesPorSemana).map(([semanaKey, data]) => {
+                                  // Obtener días asignados por profesional
+                                  const diasPorProfesional = {};
+
+                                  data.profesionales.forEach(prof => {
+                                    diasPorProfesional[prof.id] = [];
+
+                                    // Buscar en asignaciones existentes los días específicos
+                                    asignacionesExistentes.forEach(asignacion => {
+                                      if (asignacion.asignacionesPorSemana) {
+                                        asignacion.asignacionesPorSemana.forEach(semanaData => {
+                                          if (semanaData.semanaKey === semanaKey && semanaData.detallesPorDia) {
+                                            semanaData.detallesPorDia.forEach(detalle => {
+                                              if (detalle.profesionalId === prof.id && detalle.fecha) {
+                                                const fecha = parsearFechaLocal(detalle.fecha);
+                                                const diaFormato = fecha.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+                                                diasPorProfesional[prof.id].push(diaFormato);
+                                              }
+                                            });
+                                          }
+                                        });
+                                      }
+                                    });
+
+                                    // También buscar en asignacionesPorSemana del estado local
+                                    const asignacionLocal = asignacionesPorSemana[semanaKey];
+                                    if (asignacionLocal?.asignacionesDia) {
+                                      Object.entries(asignacionLocal.asignacionesDia).forEach(([fecha, profesionales]) => {
+                                        if (profesionales.some(p => p.id === prof.id)) {
+                                          const fechaObj = parsearFechaLocal(fecha);
+                                          const diaFormato = fechaObj.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+                                          if (!diasPorProfesional[prof.id].includes(diaFormato)) {
+                                            diasPorProfesional[prof.id].push(diaFormato);
+                                          }
+                                        }
+                                      });
+                                    }
+                                  });
+
+                                  return data.profesionales.map((prof, idx) => (
                                     <tr key={`${semanaKey}-${prof.id}-${idx}`}>
                                       {idx === 0 && (
                                         <td rowSpan={data.profesionales.length} className="align-middle">
@@ -2244,6 +2585,19 @@ const AsignarProfesionalSemanalModal = ({
                                         <span className="badge bg-secondary" style={{fontSize: '0.7rem'}}>
                                           {prof.tipoProfesional}
                                         </span>
+                                      </td>
+                                      <td>
+                                        {diasPorProfesional[prof.id] && diasPorProfesional[prof.id].length > 0 ? (
+                                          <div className="d-flex flex-wrap gap-1">
+                                            {diasPorProfesional[prof.id].map((dia, diaIdx) => (
+                                              <span key={diaIdx} className="badge bg-info text-dark" style={{fontSize: '0.65rem'}}>
+                                                {dia}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <small className="text-muted">Toda la semana</small>
+                                        )}
                                       </td>
                                       <td className="text-center">
                                         {prof.asignacionId ? (
@@ -2273,8 +2627,8 @@ const AsignarProfesionalSemanalModal = ({
                                         )}
                                       </td>
                                     </tr>
-                                  ))
-                                ))}
+                                  ));
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -2345,31 +2699,38 @@ const AsignarProfesionalSemanalModal = ({
     {/* Modal secundario para seleccionar profesionales */}
     <SeleccionarProfesionalesModal
       show={mostrarModalSeleccion}
-      onHide={() => setMostrarModalSeleccion(false)}
+      onHide={handleHideModalSeleccion}
+      empresaId={empresaSeleccionada?.id}
       profesionalesDisponibles={profesionalesDisponibles}
       profesionalesSeleccionados={profesionalesSeleccionados}
       onConfirmar={handleConfirmarProfesionales}
       asignacionesExistentes={asignacionesExistentes}
-      semanaActual={
-        semanaSeleccionadaParaAsignar
-          ? semanas.find(s => s.key === semanaSeleccionadaParaAsignar)
-          : modalidadAsignacion === 'total' && semanas.length > 0
-            ? { dias: semanas.flatMap(s => s.dias) } // Para modalidad total, todas las fechas
-            : null
+      semanaActual={semanaActualTotal}
+      fechaInicio={fechaInicioTotal}
+      fechaFin={fechaFinTotal}
+    />
+
+    {/* Nuevo Modal para gestión detallada por día en la semana */}
+    <DetalleSemanaModal
+      show={mostrarDetalleSemana}
+      onHide={() => setMostrarDetalleSemana(false)}
+      semana={semanaSeleccionadaParaAsignar ? semanas.find(s => s.key === semanaSeleccionadaParaAsignar) : null}
+      asignacionesLocalesSemana={
+          semanaSeleccionadaParaAsignar && asignacionesPorSemana[semanaSeleccionadaParaAsignar]?.asignacionesDia
+          ? asignacionesPorSemana[semanaSeleccionadaParaAsignar].asignacionesDia
+          : {}
       }
-      fechaInicio={
-        modalidadAsignacion === 'total' && diasHabilesDisponibles.length > 0
-          ? diasHabilesDisponibles[0]
-          : null
-      }
-      fechaFin={
-        modalidadAsignacion === 'total' && diasHabilesDisponibles.length > 0
-          ? diasHabilesDisponibles[diasHabilesDisponibles.length - 1]
-          : null
-      }
+      asignacionesGlobales={asignacionesExistentes}
+      profesionalesDisponibles={profesionalesDisponibles}
+      empresaId={empresaSeleccionada?.id}
+      onGuardar={handleGuardarSemana}
     />
   </>
   );
 };
 
-export default AsignarProfesionalSemanalModal;
+export default React.memo(AsignarProfesionalSemanalModal, (prevProps, nextProps) => {
+  // Solo re-renderizar si show u obra.id cambian
+  return prevProps.show === nextProps.show &&
+         prevProps.obra?.id === nextProps.obra?.id;
+});

@@ -3549,22 +3549,34 @@ const ObrasPage = ({ showNotification }) => {
                                               return;
                                             }
 
-                                            // 🔥 Enriquecer obra con presupuesto completo antes de abrir modal
+                                            // 🔥 Enriquecer obra con presupuesto completo Y asignaciones antes de abrir modal
                                             try {
                                               const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId);
                                               const presupuestoCompleto = todosPresupuestos.find(p =>
                                                 p.obraId === obra.id || p.idObra === obra.id
                                               );
 
+                                              // 🔥 NUEVO: Obtener asignaciones actuales de profesionales
+                                              let asignacionesActuales = [];
+                                              try {
+                                                const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaId);
+                                                asignacionesActuales = responseAsignaciones?.data || responseAsignaciones || [];
+                                                console.log('📋 Asignaciones actuales cargadas:', asignacionesActuales.length);
+                                              } catch (error) {
+                                                console.warn('⚠️ No se pudieron cargar asignaciones:', error.message);
+                                              }
+
                                               const obraEnriquecida = {
                                                 ...obra,
-                                                presupuestoNoCliente: presupuestoCompleto || obra.presupuestoNoCliente
+                                                presupuestoNoCliente: presupuestoCompleto || obra.presupuestoNoCliente,
+                                                asignacionesActuales: asignacionesActuales
                                               };
 
                                               console.log('🔍 DEBUG - Obra enriquecida:', {
                                                 obraId: obraEnriquecida.id,
                                                 tienePresupuesto: !!obraEnriquecida.presupuestoNoCliente,
-                                                fechaProbableInicio: obraEnriquecida.presupuestoNoCliente?.fechaProbableInicio
+                                                fechaProbableInicio: obraEnriquecida.presupuestoNoCliente?.fechaProbableInicio,
+                                                asignacionesActuales: asignacionesActuales.length
                                               });
 
                                               setObraParaAsignarProfesionales(obraEnriquecida);

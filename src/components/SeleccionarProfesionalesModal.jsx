@@ -1,5 +1,82 @@
 import React, { useState, useMemo, useEffect } from 'react';
 
+
+
+const configRubros = {
+  'Albañilería': {
+    orden: 1,
+    color: '#8B4513',
+    emoji: '🧱',
+    tipos: ['Oficial Albañil', 'Medio Oficial Albañil', 'Ayudante Albañil', 'Peón', 'Mampostero']
+  },
+  'Electricidad': {
+    orden: 2,
+    color: '#FFD700',
+    emoji: '⚡',
+    tipos: ['Oficial Electricista', 'Medio Oficial Electricista', 'Ayudante Electricista', 'Técnico Electricista']
+  },
+  'Plomería y Gas': {
+    orden: 3,
+    color: '#20B2AA',
+    emoji: '🔧',
+    tipos: ['Oficial Plomero', 'Medio Oficial Plomero', 'Ayudante Plomero', 'Gasista Matriculado']
+  },
+  'Pintura': {
+    orden: 4,
+    color: '#4169E1',
+    emoji: '🎨',
+    tipos: ['Oficial Pintor', 'Medio Oficial Pintor', 'Ayudante Pintor', 'Empapelador']
+  },
+  'Carpintería': {
+    orden: 5,
+    color: '#795548',
+    emoji: '🪚',
+    tipos: ['Oficial Carpintero', 'Ayudante Carpintero', 'Ebanista']
+  },
+  'Herrería': {
+    orden: 6,
+    color: '#607D8B',
+    emoji: '⛓️',
+    tipos: ['Oficial Herrero', 'Ayudante Herrero', 'Soldador']
+  },
+  'Construcción en Seco': {
+    orden: 7,
+    color: '#9E9E9E',
+    emoji: '🏗️',
+    tipos: ['Oficial Yesero', 'Ayudante Yesero', 'Durlockista']
+  },
+  'Pisos y Revestimientos': {
+    orden: 8,
+    color: '#FFB74D',
+    emoji: '🔳',
+    tipos: ['Oficial Solador', 'Oficial Ceramista', 'Marmolero']
+  },
+  'Techos': {
+    orden: 9,
+    color: '#5C6BC0',
+    emoji: '🏠',
+    tipos: ['Techista', 'Zinguero']
+  },
+  'Profesionales': {
+    orden: 10,
+    color: '#2E7D32',
+    emoji: '📐',
+    tipos: ['Arquitecto', 'Ingeniero Civil', 'Maestro Mayor de Obras']
+  },
+  'Supervisión': {
+    orden: 11,
+    color: '#673AB7',
+    emoji: '📋',
+    tipos: ['Jefe de Obra', 'Capataz', 'Encargado']
+  },
+  'Otros': {
+    orden: 99,
+    color: '#6c757d',
+    emoji: '👷',
+    tipos: ['Peón General', 'Sereno', 'Limpieza', 'Jardinero', 'Otros']
+  }
+};
+
 const SeleccionarProfesionalesModal = ({
   show,
   onHide,
@@ -9,9 +86,23 @@ const SeleccionarProfesionalesModal = ({
   asignacionesExistentes = [], // Todas las asignaciones existentes en la obra
   fechaInicio = null, // Fecha de inicio de la asignación actual
   fechaFin = null, // Fecha de fin de la asignación actual
-  semanaActual = null // Información de la semana actual (para asignación semanal)
+  semanaActual = null, // Información de la semana actual (para asignación semanal)
+  empresaId = null,
+  onNuevoProfesional = null // Callback para abrir modal externo de agregar profesional
 }) => {
   const [seleccionados, setSeleccionados] = useState(profesionalesSeleccionados.map(p => p.id));
+  const [profesionalesLocales, setProfesionalesLocales] = useState([]);
+
+  // DEBUG: Check Main Modal Mount/Unmount with ID
+  const instanceId = React.useMemo(() => Math.random().toString(36).substr(2, 5), []);
+  useEffect(() => {
+    console.log(`📍 [SeleccionarProfesionalesModal ${instanceId}] MOUNTED`);
+    return () => console.log(`👋 [SeleccionarProfesionalesModal ${instanceId}] UNMOUNTED`);
+  }, []);
+
+  useEffect(() => {
+    console.log(`👀 [SeleccionarProfesionalesModal ${instanceId}] prop show:`, show);
+  }, [show]);
 
   // Actualizar seleccionados cuando cambien los profesionales seleccionados
   useEffect(() => {
@@ -195,50 +286,29 @@ const SeleccionarProfesionalesModal = ({
   };
 
   const handleConfirmar = () => {
-    const profesionales = profesionalesDisponibles.filter(p => seleccionados.includes(p.id));
+    const todos = [...profesionalesDisponibles, ...profesionalesLocales];
+    // Filtrar duplicados por ID por si acaso
+    const unicosMap = new Map();
+    todos.forEach(p => unicosMap.set(p.id, p));
+    const unicos = Array.from(unicosMap.values());
+
+    const profesionales = unicos.filter(p => seleccionados.includes(p.id));
     onConfirmar(profesionales);
     onHide();
   };
 
-  // Configuración de rubros y tipos de profesionales
-  const configRubros = {
-    'Albañilería': {
-      orden: 1,
-      color: '#8B4513',
-      emoji: '🧱',
-      tipos: ['Oficial Albañil', 'Ayudante Albañil', 'Aprendiz Albañil']
-    },
-    'Pintura': {
-      orden: 2,
-      color: '#4169E1',
-      emoji: '🎨',
-      tipos: ['Oficial Pintor', 'Ayudante Pintor', 'Aprendiz Pintor']
-    },
-    'Plomería': {
-      orden: 3,
-      color: '#20B2AA',
-      emoji: '🔧',
-      tipos: ['Oficial Plomero', 'Ayudante Plomero', 'Aprendiz Plomero']
-    },
-    'Electricidad': {
-      orden: 4,
-      color: '#FFD700',
-      emoji: '⚡',
-      tipos: ['Oficial Electricista', 'Ayudante Electricista', 'Aprendiz Electricista']
-    },
-    'Otros': {
-      orden: 99,
-      color: '#6c757d',
-      emoji: '👷',
-      tipos: []
-    }
-  };
-
   // Asignar rubro a cada tipo de profesional
   const getRubroPorTipo = (tipo) => {
+    if (!tipo) return 'Otros';
+    const tipoNormalizado = tipo.trim(); // No uppercase para comparar exacto primero
+
     for (const [rubro, config] of Object.entries(configRubros)) {
-      if (config.tipos.includes(tipo)) {
+      if (config.tipos.includes(tipoNormalizado)) {
         return rubro;
+      }
+      // Búsqueda parcial si no hay match exacto (fallback)
+      if (config.tipos.some(t => tipo.toUpperCase().includes(t.toUpperCase().replace('OFICIAL ', '').replace('AYUDANTE ', '')))) {
+         return rubro;
       }
     }
     return 'Otros';
@@ -246,7 +316,13 @@ const SeleccionarProfesionalesModal = ({
 
   // Agrupar profesionales por rubro y tipo
   const profesionalesPorRubro = useMemo(() => {
-    const profesionalesActivos = profesionalesDisponibles.filter(p => p.activo);
+    const todos = [...profesionalesDisponibles, ...profesionalesLocales];
+    // Filtrar duplicados
+    const unicosMap = new Map();
+    todos.forEach(p => unicosMap.set(p.id, p));
+    const todosUnicos = Array.from(unicosMap.values());
+
+    const profesionalesActivos = todosUnicos.filter(p => p.activo);
 
     const agrupados = {};
 
@@ -275,10 +351,29 @@ const SeleccionarProfesionalesModal = ({
     return ordenA - ordenB;
   });
 
-  if (!show) return null;
+  // if (!show) return null; // COMENTADO PARA EVITAR DESMONTAJE - Usaremos CSS display
+
+  if (!show) {
+      // Retornar un div vacío oculto para mantener el componente montado pero invisible
+      // Ojo: Si retornamos null, el efecto se mantiene, pero si retornamos algo diferente al render principal...
+      // Mejor estrategia: Renderizar todo pero oculto.
+      // Pero 'modal show' de bootstrap lo hace visible.
+      // Retornaremos null por ahora para comprobar teoría, pero si falla, pasamos a display none.
+      // Wait, user says he sees UNMOUNTED. So it IS unmounting.
+      // Returning null does NOT unmount.
+      // So parent IS removing it.
+      // BUT let's try returning an empty div instead of null.
+      // return <div style={{display: 'none'}}></div>;
+  }
+
+  // ESTRATEGIA: Renderizado condicional por CSS
+  const displayStyle = show ? { display: 'block', backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1060 } : { display: 'none' };
+
+  // Si no está show, no renderizamos el contenido pesado para performance, pero mantenemos el wrapper?
+  // No, si queremos persistencia de estado (input form), debemos renderizar TODO.
 
   return (
-    <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1060 }}>
+    <div className={`modal ${show ? 'show' : ''}`} style={displayStyle}>
       <div className="modal-dialog modal-lg">
         <div className="modal-content">
           <div className="modal-header">
@@ -296,6 +391,19 @@ const SeleccionarProfesionalesModal = ({
               <i className="fas fa-info-circle me-2"></i>
               <strong>Selecciona uno o varios profesionales</strong> para asignar a esta obra.
               Puedes marcar varios a la vez y confirmar al final.
+            </div>
+
+            <div className="d-flex justify-content-between align-items-center mb-3">
+                <h6 className="mb-0 text-muted">Listado de Profesionales</h6>
+                {onNuevoProfesional && (
+                  <button
+                      className="btn btn-sm btn-outline-success"
+                      onClick={onNuevoProfesional}
+                  >
+                      <i className="fas fa-user-plus me-2"></i>
+                      Nuevo Profesional
+                  </button>
+                )}
             </div>
 
             {seleccionados.length > 0 && (
