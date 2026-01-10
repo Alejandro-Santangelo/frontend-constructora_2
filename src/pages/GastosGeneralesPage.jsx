@@ -1,63 +1,75 @@
 import React, { useState, useEffect } from 'react';
 import { useEmpresa } from '../EmpresaContext';
-import api from '../services/api';
-import catalogoMaterialesUpdateService from '../services/catalogoMaterialesUpdateService';
+import { catalogoGastosService } from '../services/gastosGeneralesService';
 
-const MaterialesPage = () => {
+const GastosGeneralesPage = () => {
   const { empresaSeleccionada } = useEmpresa();
 
   // Estados principales
-  const [materiales, setMateriales] = useState([]);
+  const [gastos, setGastos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [categoriaFilter, setCategoriaFilter] = useState('todos');
   const [seleccionados, setSeleccionados] = useState([]);
 
   // Estados para modales
-  const [mostrarModalPrecioTodos, setMostrarModalPrecioTodos] = useState(false);
-  const [mostrarModalPrecioSeleccionados, setMostrarModalPrecioSeleccionados] = useState(false);
-  const [mostrarModalPrecioUno, setMostrarModalPrecioUno] = useState(false);
   const [mostrarModalCrear, setMostrarModalCrear] = useState(false);
   const [mostrarModalEditar, setMostrarModalEditar] = useState(false);
   const [mostrarModalEliminar, setMostrarModalEliminar] = useState(false);
+  const [mostrarModalPrecioTodos, setMostrarModalPrecioTodos] = useState(false);
+  const [mostrarModalPrecioSeleccionados, setMostrarModalPrecioSeleccionados] = useState(false);
+  const [mostrarModalPrecioUno, setMostrarModalPrecioUno] = useState(false);
 
-  const [materialSeleccionado, setMaterialSeleccionado] = useState(null);
-  const [porcentaje, setPorcentaje] = useState('');
-  const [mostrarConfirmacion, setMostrarConfirmacion] = useState(false);
-
-  // Form data
+  // Estados para formularios
   const [formData, setFormData] = useState({
     nombre: '',
     descripcion: '',
-    categoria: '',
+    categoria: 'SERVICIOS',
+    categoriaCustom: '',
     unidadMedida: '',
-    precioUnitario: '',
-    stock: ''
+    precioUnitarioBase: ''
   });
 
-  // Cargar materiales
+  const [gastoSeleccionado, setGastoSeleccionado] = useState(null);
+  const [porcentaje, setPorcentaje] = useState('');
+
+  // Categorías predefinidas
+  const categoriasComunes = [
+    'SERVICIOS',
+    'SEGUROS',
+    'IMPUESTOS',
+    'ADMINISTRATIVOS',
+    'TRANSPORTE',
+    'HERRAMIENTAS',
+    'EQUIPAMIENTO',
+    '__OTRO__'
+  ];
+
+  // Cargar gastos al montar
   useEffect(() => {
     if (empresaSeleccionada?.id) {
-      cargarMateriales();
+      cargarGastos();
     }
   }, [empresaSeleccionada]);
 
-  const cargarMateriales = async () => {
+  const cargarGastos = async () => {
     if (!empresaSeleccionada?.id) return;
 
     setLoading(true);
     try {
-      const response = await api.materiales.getAll(empresaSeleccionada.id);
-      setMateriales(Array.isArray(response.data) ? response.data : []);
+      const data = await catalogoGastosService.obtenerTodos(empresaSeleccionada.id);
+      setGastos(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Error cargando materiales:', error);
-      mostrarNotificacion('Error al cargar materiales', 'error');
-      setMateriales([]);
+      console.error('Error cargando gastos:', error);
+      mostrarNotificacion('Error al cargar gastos generales', 'error');
+      setGastos([]);
     } finally {
       setLoading(false);
     }
   };
 
   const mostrarNotificacion = (mensaje, tipo = 'success') => {
+    // Implementar con tu sistema de notificaciones
     const alertClass = tipo === 'success' ? 'alert-success' : 'alert-danger';
     const div = document.createElement('div');
     div.className = `alert ${alertClass} position-fixed top-0 start-50 translate-middle-x mt-3`;
@@ -67,11 +79,16 @@ const MaterialesPage = () => {
     setTimeout(() => div.remove(), 3000);
   };
 
-  // Filtrado
-  const materialesFiltrados = materiales.filter(mat =>
-    mat.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    mat.descripcion?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filtrar gastos
+  const gastosFiltrados = gastos.filter(gasto => {
+    const matchSearch = gasto.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                       gasto.descripcion?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchCategoria = categoriaFilter === 'todos' || gasto.categoria === categoriaFilter;
+    return matchSearch && matchCategoria;
+  });
+
+  // Categorías únicas para el filtro
+  const categoriasUnicas = ['todos', ...new Set(gastos.map(g => g.categoria).filter(Boolean))];
 
   // Handlers de selección
   const toggleSeleccion = (id) => {
@@ -81,10 +98,10 @@ const MaterialesPage = () => {
   };
 
   const toggleSeleccionTodos = () => {
-    if (seleccionados.length === materialesFiltrados.length) {
+    if (seleccionados.length === gastosFiltrados.length) {
       setSeleccionados([]);
     } else {
-      setSeleccionados(materialesFiltrados.map(m => m.id));
+      setSeleccionados(gastosFiltrados.map(g => g.id));
     }
   };
 
@@ -93,52 +110,60 @@ const MaterialesPage = () => {
     setFormData({
       nombre: '',
       descripcion: '',
-      categoria: '',
+      categoria: 'SERVICIOS',
+      categoriaCustom: '',
       unidadMedida: '',
-      precioUnitario: '',
-      stock: ''
+      precioUnitarioBase: ''
     });
     setMostrarModalCrear(true);
   };
 
-  const abrirModalEditar = (material) => {
-    setMaterialSeleccionado(material);
+  const abrirModalEditar = (gasto) => {
+    setGastoSeleccionado(gasto);
     setFormData({
-      nombre: material.nombre || '',
-      descripcion: material.descripcion || '',
-      categoria: material.categoria || '',
-      unidadMedida: material.unidadMedida || '',
-      precioUnitario: material.precioUnitario || '',
-      stock: material.stock || ''
+      nombre: gasto.nombre || '',
+      descripcion: gasto.descripcion || '',
+      categoria: gasto.categoria || 'SERVICIOS',
+      categoriaCustom: '',
+      unidadMedida: gasto.unidadMedida || '',
+      precioUnitarioBase: gasto.precioUnitarioBase || ''
     });
     setMostrarModalEditar(true);
   };
 
-  const abrirModalEliminar = (material) => {
-    setMaterialSeleccionado(material);
+  const abrirModalEliminar = (gasto) => {
+    setGastoSeleccionado(gasto);
     setMostrarModalEliminar(true);
   };
 
   const handleCrear = async (e) => {
     e.preventDefault();
-    if (!formData.nombre.trim()) {
-      mostrarNotificacion('El nombre es obligatorio', 'error');
+    if (!formData.nombre.trim() || !formData.categoria) {
+      mostrarNotificacion('Nombre y categoría son obligatorios', 'error');
       return;
     }
 
     setLoading(true);
     try {
-      await api.materiales.create({
-        ...formData,
-        precioUnitario: formData.precioUnitario ? parseFloat(formData.precioUnitario) : null,
-        stock: formData.stock ? parseFloat(formData.stock) : null
-      });
-      mostrarNotificacion('Material creado exitosamente');
+      const categoriaFinal = formData.categoria === '__OTRO__'
+        ? formData.categoriaCustom.trim()
+        : formData.categoria;
+
+      const nuevoGasto = {
+        nombre: formData.nombre.trim(),
+        descripcion: formData.descripcion.trim(),
+        categoria: categoriaFinal,
+        unidadMedida: formData.unidadMedida.trim() || null,
+        precioUnitarioBase: formData.precioUnitarioBase ? parseFloat(formData.precioUnitarioBase) : null
+      };
+
+      await catalogoGastosService.crear(nuevoGasto, empresaSeleccionada.id);
+      mostrarNotificacion('Gasto general creado exitosamente');
       setMostrarModalCrear(false);
-      cargarMateriales();
+      cargarGastos();
     } catch (error) {
-      console.error('Error creando material:', error);
-      mostrarNotificacion('Error al crear material', 'error');
+      console.error('Error creando gasto:', error);
+      mostrarNotificacion('Error al crear gasto general', 'error');
     } finally {
       setLoading(false);
     }
@@ -146,53 +171,56 @@ const MaterialesPage = () => {
 
   const handleActualizar = async (e) => {
     e.preventDefault();
-    if (!formData.nombre.trim()) {
-      mostrarNotificacion('El nombre es obligatorio', 'error');
+    if (!formData.nombre.trim() || !formData.categoria) {
+      mostrarNotificacion('Nombre y categoría son obligatorios', 'error');
       return;
     }
 
     setLoading(true);
     try {
-      await api.materiales.update(materialSeleccionado.id, {
-        ...formData,
-        precioUnitario: formData.precioUnitario ? parseFloat(formData.precioUnitario) : null,
-        stock: formData.stock ? parseFloat(formData.stock) : null
-      });
-      mostrarNotificacion('Material actualizado exitosamente');
+      const categoriaFinal = formData.categoria === '__OTRO__'
+        ? formData.categoriaCustom.trim()
+        : formData.categoria;
+
+      const gastoActualizado = {
+        nombre: formData.nombre.trim(),
+        descripcion: formData.descripcion.trim(),
+        categoria: categoriaFinal,
+        unidadMedida: formData.unidadMedida.trim() || null,
+        precioUnitarioBase: formData.precioUnitarioBase ? parseFloat(formData.precioUnitarioBase) : null
+      };
+
+      await catalogoGastosService.actualizar(gastoSeleccionado.id, gastoActualizado, empresaSeleccionada.id);
+      mostrarNotificacion('Gasto general actualizado exitosamente');
       setMostrarModalEditar(false);
-      cargarMateriales();
+      cargarGastos();
     } catch (error) {
-      console.error('Error actualizando material:', error);
-      mostrarNotificacion('Error al actualizar material', 'error');
+      console.error('Error actualizando gasto:', error);
+      mostrarNotificacion('Error al actualizar gasto general', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleEliminar = async () => {
-    if (!materialSeleccionado) return;
+    if (!gastoSeleccionado) return;
 
     setLoading(true);
     try {
-      await api.materiales.delete(materialSeleccionado.id);
-      mostrarNotificacion('Material eliminado exitosamente');
+      await catalogoGastosService.eliminar(gastoSeleccionado.id, empresaSeleccionada.id);
+      mostrarNotificacion('Gasto general eliminado exitosamente');
       setMostrarModalEliminar(false);
-      setMaterialSeleccionado(null);
-      cargarMateriales();
+      setGastoSeleccionado(null);
+      cargarGastos();
     } catch (error) {
-      console.error('Error eliminando material:', error);
-      mostrarNotificacion('Error al eliminar material', 'error');
+      console.error('Error eliminando gasto:', error);
+      mostrarNotificacion('Error al eliminar gasto general', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   // Handlers de actualización de precios
-  const validarPorcentajeExtremo = (valor) => {
-    const num = parseFloat(valor);
-    return Math.abs(num) > 50;
-  };
-
   const handleActualizarPrecioTodos = async () => {
     const porcentajeNum = parseFloat(porcentaje);
     if (isNaN(porcentajeNum)) {
@@ -200,19 +228,13 @@ const MaterialesPage = () => {
       return;
     }
 
-    if (validarPorcentajeExtremo(porcentajeNum) && !mostrarConfirmacion) {
-      setMostrarConfirmacion(true);
-      return;
-    }
-
     setLoading(true);
     try {
-      await catalogoMaterialesUpdateService.actualizarPrecioTodos(porcentajeNum, empresaSeleccionada.id);
-      mostrarNotificacion(`✅ Precios actualizados para todos los materiales (${porcentajeNum >= 0 ? '+' : ''}${porcentajeNum}%)`);
+      await catalogoGastosService.actualizarPrecioTodos(porcentajeNum, empresaSeleccionada.id);
+      mostrarNotificacion(`Precios actualizados correctamente (${porcentajeNum >= 0 ? '+' : ''}${porcentajeNum}%)`);
       setMostrarModalPrecioTodos(false);
       setPorcentaje('');
-      setMostrarConfirmacion(false);
-      cargarMateriales();
+      cargarGastos();
     } catch (error) {
       console.error('Error actualizando precios:', error);
       mostrarNotificacion('Error al actualizar precios', 'error');
@@ -228,20 +250,14 @@ const MaterialesPage = () => {
       return;
     }
 
-    if (validarPorcentajeExtremo(porcentajeNum) && !mostrarConfirmacion) {
-      setMostrarConfirmacion(true);
-      return;
-    }
-
     setLoading(true);
     try {
-      await catalogoMaterialesUpdateService.actualizarPrecioVarios(seleccionados, porcentajeNum, empresaSeleccionada.id);
-      mostrarNotificacion(`✅ Precios actualizados para ${seleccionados.length} materiales (${porcentajeNum >= 0 ? '+' : ''}${porcentajeNum}%)`);
+      await catalogoGastosService.actualizarPrecioVarios(seleccionados, porcentajeNum, empresaSeleccionada.id);
+      mostrarNotificacion(`Precios de ${seleccionados.length} gastos actualizados (${porcentajeNum >= 0 ? '+' : ''}${porcentajeNum}%)`);
       setMostrarModalPrecioSeleccionados(false);
       setPorcentaje('');
-      setMostrarConfirmacion(false);
       setSeleccionados([]);
-      cargarMateriales();
+      cargarGastos();
     } catch (error) {
       console.error('Error actualizando precios:', error);
       mostrarNotificacion('Error al actualizar precios', 'error');
@@ -257,20 +273,14 @@ const MaterialesPage = () => {
       return;
     }
 
-    if (validarPorcentajeExtremo(porcentajeNum) && !mostrarConfirmacion) {
-      setMostrarConfirmacion(true);
-      return;
-    }
-
     setLoading(true);
     try {
-      await catalogoMaterialesUpdateService.actualizarPrecioUno(materialSeleccionado.id, porcentajeNum, empresaSeleccionada.id);
-      mostrarNotificacion(`✅ Precio actualizado (${porcentajeNum >= 0 ? '+' : ''}${porcentajeNum}%)`);
+      await catalogoGastosService.actualizarPrecioUno(gastoSeleccionado.id, porcentajeNum, empresaSeleccionada.id);
+      mostrarNotificacion(`Precio actualizado (${porcentajeNum >= 0 ? '+' : ''}${porcentajeNum}%)`);
       setMostrarModalPrecioUno(false);
       setPorcentaje('');
-      setMostrarConfirmacion(false);
-      setMaterialSeleccionado(null);
-      cargarMateriales();
+      setGastoSeleccionado(null);
+      cargarGastos();
     } catch (error) {
       console.error('Error actualizando precio:', error);
       mostrarNotificacion('Error al actualizar precio', 'error');
@@ -279,19 +289,13 @@ const MaterialesPage = () => {
     }
   };
 
-  const calcularNuevoPrecio = (precioActual, porcentaje) => {
-    const num = parseFloat(porcentaje);
-    if (isNaN(num) || !precioActual) return null;
-    return (parseFloat(precioActual) * (1 + num / 100)).toFixed(2);
-  };
-
   return (
     <div className="container-fluid mt-4">
       {/* Header */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2 className="mb-0">
-          <i className="fas fa-boxes me-2"></i>
-          Materiales
+          <i className="fas fa-receipt me-2"></i>
+          Gastos Generales
         </h2>
         <div className="d-flex gap-2">
           <button
@@ -300,7 +304,7 @@ const MaterialesPage = () => {
             disabled={loading}
           >
             <i className="fas fa-plus me-2"></i>
-            Nuevo Material
+            Nuevo Gasto
           </button>
 
           <div className="btn-group">
@@ -312,7 +316,7 @@ const MaterialesPage = () => {
               disabled={loading}
             >
               <i className="fas fa-percentage me-2"></i>
-              Ajustar Precios
+              Actualizar Precios
             </button>
             <ul className="dropdown-menu">
               <li>
@@ -325,7 +329,7 @@ const MaterialesPage = () => {
                   }}
                 >
                   <i className="fas fa-globe me-2"></i>
-                  Todos los materiales
+                  Todos los gastos
                 </a>
               </li>
               <li>
@@ -348,11 +352,11 @@ const MaterialesPage = () => {
         </div>
       </div>
 
-      {/* Búsqueda */}
+      {/* Filtros */}
       <div className="card mb-4">
         <div className="card-body">
           <div className="row g-3">
-            <div className="col-md-10">
+            <div className="col-md-6">
               <input
                 type="text"
                 className="form-control"
@@ -361,10 +365,26 @@ const MaterialesPage = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            <div className="col-md-4">
+              <select
+                className="form-select"
+                value={categoriaFilter}
+                onChange={(e) => setCategoriaFilter(e.target.value)}
+              >
+                {categoriasUnicas.map(cat => (
+                  <option key={cat} value={cat}>
+                    {cat === 'todos' ? 'Todas las categorías' : cat}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="col-md-2">
               <button
                 className="btn btn-outline-secondary w-100"
-                onClick={() => setSearchTerm('')}
+                onClick={() => {
+                  setSearchTerm('');
+                  setCategoriaFilter('todos');
+                }}
               >
                 <i className="fas fa-times me-2"></i>
                 Limpiar
@@ -383,10 +403,10 @@ const MaterialesPage = () => {
                 <span className="visually-hidden">Cargando...</span>
               </div>
             </div>
-          ) : materialesFiltrados.length === 0 ? (
+          ) : gastosFiltrados.length === 0 ? (
             <div className="text-center text-muted py-5">
               <i className="fas fa-inbox fa-3x mb-3"></i>
-              <p>No hay materiales para mostrar</p>
+              <p>No hay gastos generales para mostrar</p>
             </div>
           ) : (
             <div className="table-responsive">
@@ -396,69 +416,73 @@ const MaterialesPage = () => {
                     <th style={{ width: '50px' }}>
                       <input
                         type="checkbox"
-                        checked={seleccionados.length === materialesFiltrados.length && materialesFiltrados.length > 0}
+                        checked={seleccionados.length === gastosFiltrados.length && gastosFiltrados.length > 0}
                         onChange={toggleSeleccionTodos}
                       />
                     </th>
                     <th>ID</th>
                     <th>Nombre</th>
                     <th>Descripción</th>
+                    <th>Categoría</th>
                     <th>Unidad</th>
-                    <th>Precio Unitario</th>
-                    <th>Stock</th>
+                    <th>Precio Base</th>
                     <th style={{ width: '150px' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {materialesFiltrados.map(material => (
-                    <tr key={material.id}>
+                  {gastosFiltrados.map(gasto => (
+                    <tr key={gasto.id}>
                       <td>
                         <input
                           type="checkbox"
-                          checked={seleccionados.includes(material.id)}
-                          onChange={() => toggleSeleccion(material.id)}
+                          checked={seleccionados.includes(gasto.id)}
+                          onChange={() => toggleSeleccion(gasto.id)}
                         />
                       </td>
-                      <td>{material.id}</td>
-                      <td className="fw-bold">{material.nombre}</td>
+                      <td>{gasto.id}</td>
+                      <td className="fw-bold">{gasto.nombre}</td>
                       <td>
                         <small className="text-muted">
-                          {material.descripcion || '-'}
+                          {gasto.descripcion || '-'}
                         </small>
                       </td>
-                      <td>{material.unidadMedida || '-'}</td>
                       <td>
-                        {material.precioUnitario != null ? (
+                        <span className="badge bg-secondary">
+                          {gasto.categoria}
+                        </span>
+                      </td>
+                      <td>{gasto.unidadMedida || '-'}</td>
+                      <td>
+                        {gasto.precioUnitarioBase != null ? (
                           <span className="fw-bold text-success">
-                            ${parseFloat(material.precioUnitario).toFixed(2)}
+                            ${parseFloat(gasto.precioUnitarioBase).toFixed(2)}
                           </span>
                         ) : (
                           <span className="text-muted">-</span>
                         )}
                       </td>
-                      <td>{material.stock || '-'}</td>
                       <td>
                         <div className="btn-group btn-group-sm">
                           <button
                             className="btn btn-outline-warning"
                             onClick={() => {
-                              setMaterialSeleccionado(material);
+                              setGastoSeleccionado(gasto);
                               setMostrarModalPrecioUno(true);
                             }}
-                            title="Ajustar precio"
+                            title="Actualizar precio"
                           >
                             <i className="fas fa-percentage"></i>
                           </button>
                           <button
                             className="btn btn-outline-primary"
-                            onClick={() => abrirModalEditar(material)}
+                            onClick={() => abrirModalEditar(gasto)}
                             title="Editar"
                           >
                             <i className="fas fa-edit"></i>
                           </button>
                           <button
                             className="btn btn-outline-danger"
-                            onClick={() => abrirModalEliminar(material)}
+                            onClick={() => abrirModalEliminar(gasto)}
                             title="Eliminar"
                           >
                             <i className="fas fa-trash"></i>
@@ -483,7 +507,7 @@ const MaterialesPage = () => {
               <div className="modal-header bg-primary text-white">
                 <h5 className="modal-title">
                   <i className="fas fa-plus me-2"></i>
-                  Nuevo Material
+                  Nuevo Gasto General
                 </h5>
                 <button
                   type="button"
@@ -502,9 +526,11 @@ const MaterialesPage = () => {
                       className="form-control"
                       value={formData.nombre}
                       onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                      maxLength={200}
                       required
                     />
                   </div>
+
                   <div className="mb-3">
                     <label className="form-label">Descripción</label>
                     <textarea
@@ -514,6 +540,36 @@ const MaterialesPage = () => {
                       onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
                     ></textarea>
                   </div>
+
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Categoría <span className="text-danger">*</span>
+                    </label>
+                    <select
+                      className="form-select"
+                      value={formData.categoria}
+                      onChange={(e) => setFormData({ ...formData, categoria: e.target.value, categoriaCustom: '' })}
+                      required
+                    >
+                      {categoriasComunes.map(cat => (
+                        <option key={cat} value={cat}>
+                          {cat === '__OTRO__' ? 'Otros...' : cat}
+                        </option>
+                      ))}
+                    </select>
+                    {formData.categoria === '__OTRO__' && (
+                      <input
+                        type="text"
+                        className="form-control mt-2"
+                        placeholder="Escribir categoría..."
+                        value={formData.categoriaCustom}
+                        onChange={(e) => setFormData({ ...formData, categoriaCustom: e.target.value })}
+                        maxLength={100}
+                        required
+                      />
+                    )}
+                  </div>
+
                   <div className="mb-3">
                     <label className="form-label">Unidad de Medida</label>
                     <input
@@ -521,18 +577,21 @@ const MaterialesPage = () => {
                       className="form-control"
                       value={formData.unidadMedida}
                       onChange={(e) => setFormData({ ...formData, unidadMedida: e.target.value })}
+                      maxLength={50}
                       placeholder="m³, kg, litros, etc."
                     />
                   </div>
+
                   <div className="mb-3">
-                    <label className="form-label">Precio Unitario</label>
+                    <label className="form-label">Precio Unitario Base</label>
                     <input
                       type="number"
                       className="form-control"
-                      value={formData.precioUnitario}
-                      onChange={(e) => setFormData({ ...formData, precioUnitario: e.target.value })}
+                      value={formData.precioUnitarioBase}
+                      onChange={(e) => setFormData({ ...formData, precioUnitarioBase: e.target.value })}
                       step="0.01"
                       min="0"
+                      placeholder="0.00"
                     />
                   </div>
                 </div>
@@ -562,7 +621,7 @@ const MaterialesPage = () => {
               <div className="modal-header bg-warning">
                 <h5 className="modal-title">
                   <i className="fas fa-edit me-2"></i>
-                  Editar Material
+                  Editar Gasto General
                 </h5>
                 <button
                   type="button"
@@ -581,9 +640,11 @@ const MaterialesPage = () => {
                       className="form-control"
                       value={formData.nombre}
                       onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                      maxLength={200}
                       required
                     />
                   </div>
+
                   <div className="mb-3">
                     <label className="form-label">Descripción</label>
                     <textarea
@@ -593,6 +654,36 @@ const MaterialesPage = () => {
                       onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
                     ></textarea>
                   </div>
+
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Categoría <span className="text-danger">*</span>
+                    </label>
+                    <select
+                      className="form-select"
+                      value={formData.categoria}
+                      onChange={(e) => setFormData({ ...formData, categoria: e.target.value, categoriaCustom: '' })}
+                      required
+                    >
+                      {categoriasComunes.map(cat => (
+                        <option key={cat} value={cat}>
+                          {cat === '__OTRO__' ? 'Otros...' : cat}
+                        </option>
+                      ))}
+                    </select>
+                    {formData.categoria === '__OTRO__' && (
+                      <input
+                        type="text"
+                        className="form-control mt-2"
+                        placeholder="Escribir categoría..."
+                        value={formData.categoriaCustom}
+                        onChange={(e) => setFormData({ ...formData, categoriaCustom: e.target.value })}
+                        maxLength={100}
+                        required
+                      />
+                    )}
+                  </div>
+
                   <div className="mb-3">
                     <label className="form-label">Unidad de Medida</label>
                     <input
@@ -600,17 +691,21 @@ const MaterialesPage = () => {
                       className="form-control"
                       value={formData.unidadMedida}
                       onChange={(e) => setFormData({ ...formData, unidadMedida: e.target.value })}
+                      maxLength={50}
+                      placeholder="m³, kg, litros, etc."
                     />
                   </div>
+
                   <div className="mb-3">
-                    <label className="form-label">Precio Unitario</label>
+                    <label className="form-label">Precio Unitario Base</label>
                     <input
                       type="number"
                       className="form-control"
-                      value={formData.precioUnitario}
-                      onChange={(e) => setFormData({ ...formData, precioUnitario: e.target.value })}
+                      value={formData.precioUnitarioBase}
+                      onChange={(e) => setFormData({ ...formData, precioUnitarioBase: e.target.value })}
                       step="0.01"
                       min="0"
+                      placeholder="0.00"
                     />
                   </div>
                 </div>
@@ -649,9 +744,9 @@ const MaterialesPage = () => {
                 ></button>
               </div>
               <div className="modal-body">
-                <p>¿Está seguro de eliminar el material?</p>
+                <p>¿Está seguro que desea eliminar el gasto general?</p>
                 <div className="alert alert-warning">
-                  <strong>{materialSeleccionado?.nombre}</strong>
+                  <strong>{gastoSeleccionado?.nombre}</strong>
                 </div>
                 <p className="text-muted">Esta acción no se puede deshacer.</p>
               </div>
@@ -677,7 +772,7 @@ const MaterialesPage = () => {
         </div>
       )}
 
-      {/* Modal Precio Todos */}
+      {/* Modal Actualizar Precio Todos */}
       {mostrarModalPrecioTodos && (
         <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog">
@@ -685,21 +780,18 @@ const MaterialesPage = () => {
               <div className="modal-header bg-success text-white">
                 <h5 className="modal-title">
                   <i className="fas fa-percentage me-2"></i>
-                  Ajustar Precios - Todos
+                  Actualizar Precios - Todos
                 </h5>
                 <button
                   type="button"
                   className="btn-close btn-close-white"
-                  onClick={() => {
-                    setMostrarModalPrecioTodos(false);
-                    setMostrarConfirmacion(false);
-                  }}
+                  onClick={() => setMostrarModalPrecioTodos(false)}
                 ></button>
               </div>
               <div className="modal-body">
                 <div className="alert alert-info">
                   <i className="fas fa-info-circle me-2"></i>
-                  Ingrese el porcentaje de incremento/decremento. Use números positivos para aumentar y negativos para reducir.
+                  Ingrese el porcentaje de incremento. Use números positivos para aumentar y negativos para reducir.
                   <br />
                   <strong>Ejemplos:</strong> 10 = +10%, -5 = -5%
                 </div>
@@ -717,17 +809,10 @@ const MaterialesPage = () => {
                 </div>
 
                 {porcentaje && (
-                  <div className={`alert ${parseFloat(porcentaje) >= 0 ? 'alert-success' : 'alert-danger'}`}>
-                    <strong>Preview:</strong> Se aplicará{' '}
+                  <div className="alert alert-secondary">
+                    <strong>Preview:</strong> Se aplicará un incremento del{' '}
                     <strong>{parseFloat(porcentaje) >= 0 ? '+' : ''}{porcentaje}%</strong> a{' '}
-                    <strong>{materiales.length}</strong> material(es)
-                  </div>
-                )}
-
-                {mostrarConfirmacion && (
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-triangle me-2"></i>
-                    <strong>¿Está seguro?</strong> Este es un cambio significativo ({porcentaje}%)
+                    <strong>{gastos.length}</strong> registro(s)
                   </div>
                 )}
               </div>
@@ -735,10 +820,7 @@ const MaterialesPage = () => {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => {
-                    setMostrarModalPrecioTodos(false);
-                    setMostrarConfirmacion(false);
-                  }}
+                  onClick={() => setMostrarModalPrecioTodos(false)}
                 >
                   Cancelar
                 </button>
@@ -748,7 +830,7 @@ const MaterialesPage = () => {
                   onClick={handleActualizarPrecioTodos}
                   disabled={loading || !porcentaje}
                 >
-                  {loading ? 'Aplicando...' : (mostrarConfirmacion ? 'Confirmar' : 'Aplicar')}
+                  {loading ? 'Aplicando...' : 'Aplicar'}
                 </button>
               </div>
             </div>
@@ -756,7 +838,7 @@ const MaterialesPage = () => {
         </div>
       )}
 
-      {/* Modal Precio Seleccionados */}
+      {/* Modal Actualizar Precio Seleccionados */}
       {mostrarModalPrecioSeleccionados && (
         <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog">
@@ -764,21 +846,18 @@ const MaterialesPage = () => {
               <div className="modal-header bg-success text-white">
                 <h5 className="modal-title">
                   <i className="fas fa-percentage me-2"></i>
-                  Ajustar Precios - Seleccionados
+                  Actualizar Precios - Seleccionados
                 </h5>
                 <button
                   type="button"
                   className="btn-close btn-close-white"
-                  onClick={() => {
-                    setMostrarModalPrecioSeleccionados(false);
-                    setMostrarConfirmacion(false);
-                  }}
+                  onClick={() => setMostrarModalPrecioSeleccionados(false)}
                 ></button>
               </div>
               <div className="modal-body">
                 <div className="alert alert-info">
                   <i className="fas fa-info-circle me-2"></i>
-                  Ingrese el porcentaje de incremento/decremento.
+                  Ingrese el porcentaje de incremento. Use números positivos para aumentar y negativos para reducir.
                   <br />
                   <strong>Ejemplos:</strong> 10 = +10%, -5 = -5%
                 </div>
@@ -796,17 +875,10 @@ const MaterialesPage = () => {
                 </div>
 
                 {porcentaje && (
-                  <div className={`alert ${parseFloat(porcentaje) >= 0 ? 'alert-success' : 'alert-danger'}`}>
-                    <strong>Preview:</strong> Se aplicará{' '}
+                  <div className="alert alert-secondary">
+                    <strong>Preview:</strong> Se aplicará un incremento del{' '}
                     <strong>{parseFloat(porcentaje) >= 0 ? '+' : ''}{porcentaje}%</strong> a{' '}
-                    <strong>{seleccionados.length}</strong> material(es) seleccionado(s)
-                  </div>
-                )}
-
-                {mostrarConfirmacion && (
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-triangle me-2"></i>
-                    <strong>¿Está seguro?</strong> Este es un cambio significativo ({porcentaje}%)
+                    <strong>{seleccionados.length}</strong> registro(s) seleccionado(s)
                   </div>
                 )}
               </div>
@@ -814,10 +886,7 @@ const MaterialesPage = () => {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => {
-                    setMostrarModalPrecioSeleccionados(false);
-                    setMostrarConfirmacion(false);
-                  }}
+                  onClick={() => setMostrarModalPrecioSeleccionados(false)}
                 >
                   Cancelar
                 </button>
@@ -827,7 +896,7 @@ const MaterialesPage = () => {
                   onClick={handleActualizarPrecioSeleccionados}
                   disabled={loading || !porcentaje}
                 >
-                  {loading ? 'Aplicando...' : (mostrarConfirmacion ? 'Confirmar' : 'Aplicar')}
+                  {loading ? 'Aplicando...' : 'Aplicar'}
                 </button>
               </div>
             </div>
@@ -835,7 +904,7 @@ const MaterialesPage = () => {
         </div>
       )}
 
-      {/* Modal Precio Uno */}
+      {/* Modal Actualizar Precio Uno */}
       {mostrarModalPrecioUno && (
         <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog">
@@ -843,25 +912,22 @@ const MaterialesPage = () => {
               <div className="modal-header bg-warning">
                 <h5 className="modal-title">
                   <i className="fas fa-percentage me-2"></i>
-                  Ajustar Precio
+                  Actualizar Precio
                 </h5>
                 <button
                   type="button"
                   className="btn-close"
-                  onClick={() => {
-                    setMostrarModalPrecioUno(false);
-                    setMostrarConfirmacion(false);
-                  }}
+                  onClick={() => setMostrarModalPrecioUno(false)}
                 ></button>
               </div>
               <div className="modal-body">
                 <div className="alert alert-secondary">
-                  <strong>{materialSeleccionado?.nombre}</strong>
+                  <strong>{gastoSeleccionado?.nombre}</strong>
                   <br />
                   Precio actual:{' '}
-                  {materialSeleccionado?.precioUnitario != null ? (
+                  {gastoSeleccionado?.precioUnitarioBase != null ? (
                     <strong className="text-success">
-                      ${parseFloat(materialSeleccionado.precioUnitario).toFixed(2)}
+                      ${parseFloat(gastoSeleccionado.precioUnitarioBase).toFixed(2)}
                     </strong>
                   ) : (
                     <span className="text-muted">No definido</span>
@@ -870,7 +936,7 @@ const MaterialesPage = () => {
 
                 <div className="alert alert-info">
                   <i className="fas fa-info-circle me-2"></i>
-                  Ingrese el porcentaje de incremento/decremento.
+                  Ingrese el porcentaje de incremento. Use números positivos para aumentar y negativos para reducir.
                 </div>
 
                 <div className="mb-3">
@@ -885,16 +951,10 @@ const MaterialesPage = () => {
                   />
                 </div>
 
-                {porcentaje && materialSeleccionado?.precioUnitario != null && (
-                  <div className={`alert ${parseFloat(porcentaje) >= 0 ? 'alert-success' : 'alert-danger'}`}>
-                    <strong>Nuevo precio:</strong> ${calcularNuevoPrecio(materialSeleccionado.precioUnitario, porcentaje)}
-                  </div>
-                )}
-
-                {mostrarConfirmacion && (
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-triangle me-2"></i>
-                    <strong>¿Está seguro?</strong> Este es un cambio significativo ({porcentaje}%)
+                {porcentaje && gastoSeleccionado?.precioUnitarioBase != null && (
+                  <div className="alert alert-secondary">
+                    <strong>Nuevo precio:</strong>{' '}
+                    ${(parseFloat(gastoSeleccionado.precioUnitarioBase) * (1 + parseFloat(porcentaje) / 100)).toFixed(2)}
                   </div>
                 )}
               </div>
@@ -902,10 +962,7 @@ const MaterialesPage = () => {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => {
-                    setMostrarModalPrecioUno(false);
-                    setMostrarConfirmacion(false);
-                  }}
+                  onClick={() => setMostrarModalPrecioUno(false)}
                 >
                   Cancelar
                 </button>
@@ -915,7 +972,7 @@ const MaterialesPage = () => {
                   onClick={handleActualizarPrecioUno}
                   disabled={loading || !porcentaje}
                 >
-                  {loading ? 'Aplicando...' : (mostrarConfirmacion ? 'Confirmar' : 'Aplicar')}
+                  {loading ? 'Aplicando...' : 'Aplicar'}
                 </button>
               </div>
             </div>
@@ -926,4 +983,4 @@ const MaterialesPage = () => {
   );
 };
 
-export default MaterialesPage;
+export default GastosGeneralesPage;

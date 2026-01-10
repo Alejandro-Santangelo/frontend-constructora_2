@@ -16,6 +16,7 @@ const FunctionalDashboard = ({ showNotification }) => {
     profesionales: 0,
     obrasActivas: 0,
     materialesStock: 0,
+    gastosGenerales: 0,
     proveedores: 0,
     usuarios: 0,
     presupuestos: 0,
@@ -66,6 +67,7 @@ const FunctionalDashboard = ({ showNotification }) => {
           // no la lista maestra de profesionales.
           apiService.profesionalesObra.getAll(empresaId),
           apiService.materiales.getAll(empresaId),
+          apiService.gastosGenerales.getAll(empresaId),
           // Temporalmente comentados hasta implementar en backend
           // apiService.proveedores.getAll(), // Mantener sin empresaId - es endpoint general
           // apiService.usuarios.getAll(),    // Mantener sin empresaId - es endpoint general
@@ -80,13 +82,14 @@ const FunctionalDashboard = ({ showNotification }) => {
           profesionales: 0,
           obrasActivas: 0,
           materialesStock: 0,
+          gastosGenerales: 0,
           proveedores: 0,
           usuarios: 0,
           presupuestos: 0,
           transaccionesFinancieras: 0
         };
 
-        const [empresasRes, clientesRes, obrasRes, profRes, matRes, presupRes] = results;
+        const [empresasRes, clientesRes, obrasRes, profRes, matRes, gastosRes, presupRes] = results;
 
         // Empresas - viene directo como array desde /api/empresas/simple
         let empresasCount = defaults.empresas;
@@ -138,6 +141,16 @@ const FunctionalDashboard = ({ showNotification }) => {
           else if (val?.totalElements) materialesCount = val.totalElements;
         }
 
+        // Gastos Generales
+        let gastosGeneralesCount = defaults.gastosGenerales;
+        if (gastosRes.status === 'fulfilled') {
+          const val = gastosRes.value;
+          if (Array.isArray(val)) gastosGeneralesCount = val.length;
+          else if (val?.datos && Array.isArray(val.datos)) gastosGeneralesCount = val.datos.length;
+          else if (val?.content && Array.isArray(val.content)) gastosGeneralesCount = val.content.length;
+          else if (val?.totalElements) gastosGeneralesCount = val.totalElements;
+        }
+
         // Proveedores - usar valor por defecto hasta implementar endpoint
         let proveedoresCount = defaults.proveedores;
         // if (provRes.status === 'fulfilled') {
@@ -179,6 +192,7 @@ const FunctionalDashboard = ({ showNotification }) => {
           profesionales: profCount,
           obrasActivas: obrasCount, // aproximación
           materialesStock: materialesCount,
+          gastosGenerales: gastosGeneralesCount,
           proveedores: proveedoresCount,
           usuarios: usuariosCount,
           presupuestos: presupuestosCount,
@@ -284,6 +298,15 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'secondary',
       link: '/materiales',
       description: 'Catálogo de materiales'
+    },
+    {
+      title: 'Gastos Generales',
+      value: stats.gastosGenerales,
+      icon: 'fas fa-receipt',
+      color: 'warning',
+      link: '/gastos-generales',
+      description: 'Otros costos y gastos',
+      customColor: '#20c997'
     },
     {
       title: 'Proveedores',

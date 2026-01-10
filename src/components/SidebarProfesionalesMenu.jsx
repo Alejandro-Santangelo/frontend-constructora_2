@@ -54,7 +54,8 @@ const SidebarProfesionalesMenu = ({ onAction }) => {
           <div className="mt-2 ms-2">
             <button style={{background:'#fff',color:'#ffc107',borderRadius:6,fontWeight:600,fontSize:'1rem',padding:'10px 12px',marginBottom:6}} className="w-100" onClick={() => onAction('actualizar')}>Actualizar datos del profesional</button>
             <button style={{background:'#fff',color:'#6c757d',borderRadius:6,fontWeight:600,fontSize:'1rem',padding:'10px 12px',marginBottom:6}} className="w-100" onClick={() => onAction('actualizarValorHoraTodos')}>Actualizar valor jornal de todos</button>
-            {/* Botón 'Actualizar valor hora de uno' eliminado */}
+            <button style={{background:'#fff',color:'#17a2b8',borderRadius:6,fontWeight:600,fontSize:'1rem',padding:'10px 12px',marginBottom:6}} className="w-100" onClick={() => onAction('actualizarPorcentajeGananciaTodos')}>Actualizar % ganancia de todos</button>
+            <button style={{background:'#fff',color:'#6f42c1',borderRadius:6,fontWeight:600,fontSize:'1rem',padding:'10px 12px',marginBottom:6}} className="w-100" onClick={() => onAction('actualizarPorcentajeGananciaUno')}>Actualizar % ganancia de uno</button>
           </div>
         )}
       </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 import { obtenerAsignacionesSemanalPorObra } from '../services/profesionalesObraService';
 import api from '../services/api';
+import catalogoProfesionalesService from '../services/catalogoProfesionalesService';
 import SidebarProfesionalesMenu from '../components/SidebarProfesionalesMenu';
 import { getTipoProfesionalBadgeClass, ordenarPorRubro } from '../utils/badgeColors';
 
@@ -11,6 +12,12 @@ const ProfesionalesPage = ({ showNotification }) => {
   const [gananciaStep, setGananciaStep] = useState(1);
   const [gananciaResultados, setGananciaResultados] = useState(null);
   const [gananciaPorcentaje, setGananciaPorcentaje] = useState("");
+
+  // Estados para selección múltiple y actualización masiva
+  const [seleccionados, setSeleccionados] = useState([]);
+  const [mostrarModalPorcentajeVarios, setMostrarModalPorcentajeVarios] = useState(false);
+  const [porcentajeVarios, setPorcentajeVarios] = useState('');
+
   const [activeTab, setActiveTab] = useState('lista');
   const [profesionales, setProfesionales] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -701,6 +708,61 @@ const ProfesionalesPage = ({ showNotification }) => {
               <div className="card" onClick={(e) => e.stopPropagation()}>
                 <div className="card-header d-flex justify-content-between align-items-center">
                   <h5>Lista de Profesionales</h5>
+                  <div className="btn-group">
+                    <button
+                      type="button"
+                      className="btn btn-success dropdown-toggle"
+                      data-bs-toggle="dropdown"
+                      aria-expanded="false"
+                      disabled={loading}
+                    >
+                      <i className="fas fa-percentage me-2"></i>
+                      Actualizar % Ganancia
+                    </button>
+                    <ul className="dropdown-menu">
+                      <li>
+                        <a
+                          className="dropdown-item"
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleSidebarAction('actualizarPorcentajeGananciaTodos');
+                          }}
+                        >
+                          <i className="fas fa-globe me-2"></i>
+                          Todos los profesionales
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          className="dropdown-item"
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleSidebarAction('actualizarPorcentajeGananciaUno');
+                          }}
+                        >
+                          <i className="fas fa-user me-2"></i>
+                          Un profesional específico
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          className={`dropdown-item ${seleccionados.length === 0 ? 'disabled' : ''}`}
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (seleccionados.length > 0) {
+                              setMostrarModalPorcentajeVarios(true);
+                            }
+                          }}
+                        >
+                          <i className="fas fa-check-square me-2"></i>
+                          Seleccionados ({seleccionados.length})
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
                 </div>
                 <div className="card-body">
                   {loading ? (
@@ -714,6 +776,19 @@ const ProfesionalesPage = ({ showNotification }) => {
                       <table className="table table-striped">
                         <thead>
                           <tr>
+                            <th style={{width: '50px'}}>
+                              <input
+                                type="checkbox"
+                                checked={seleccionados.length === profesionales.length && profesionales.length > 0}
+                                onChange={() => {
+                                  if (seleccionados.length === profesionales.length) {
+                                    setSeleccionados([]);
+                                  } else {
+                                    setSeleccionados(profesionales.map(p => p.id));
+                                  }
+                                }}
+                              />
+                            </th>
                             <th>ID</th>
                             <th>Nombre</th>
                             <th>Rubro</th>
@@ -753,6 +828,19 @@ const ProfesionalesPage = ({ showNotification }) => {
                               style={{ cursor: 'pointer' }}
                               className={isSelected ? 'table-primary' : ''}
                             >
+                              <td onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={seleccionados.includes(profesionalId)}
+                                  onChange={() => {
+                                    setSeleccionados(prev =>
+                                      prev.includes(profesionalId)
+                                        ? prev.filter(id => id !== profesionalId)
+                                        : [...prev, profesionalId]
+                                    );
+                                  }}
+                                />
+                              </td>
                               <td>
                                 {isSelected && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
                                 {profesionalId}
@@ -2179,6 +2267,104 @@ const ProfesionalesPage = ({ showNotification }) => {
                       </button>
                     </div>
                   </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Actualizar Porcentaje de Varios */}
+        {mostrarModalPorcentajeVarios && (
+          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div className="modal-dialog">
+              <div className="modal-content">
+                <div className="modal-header bg-success text-white">
+                  <h5 className="modal-title">
+                    <i className="fas fa-percentage me-2"></i>
+                    Actualizar % Ganancia - Seleccionados
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close btn-close-white"
+                    onClick={() => {
+                      setMostrarModalPorcentajeVarios(false);
+                      setPorcentajeVarios('');
+                    }}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <div className="alert alert-info">
+                    <i className="fas fa-info-circle me-2"></i>
+                    Ingrese el porcentaje de ganancia a establecer para los profesionales seleccionados.
+                    <br />
+                    <strong>Ejemplo:</strong> 15 para establecer 15% de ganancia
+                  </div>
+
+                  <div className="mb-3">
+                    <label className="form-label">Porcentaje de Ganancia (%)</label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={porcentajeVarios}
+                      onChange={(e) => setPorcentajeVarios(e.target.value)}
+                      placeholder="Ej: 15"
+                      step="0.01"
+                      min="0"
+                    />
+                  </div>
+
+                  {porcentajeVarios && (
+                    <div className="alert alert-secondary">
+                      <strong>Preview:</strong> Se establecerá{' '}
+                      <strong>{porcentajeVarios}%</strong> de ganancia para{' '}
+                      <strong>{seleccionados.length}</strong> profesional(es) seleccionado(s)
+                    </div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setMostrarModalPorcentajeVarios(false);
+                      setPorcentajeVarios('');
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    onClick={async () => {
+                      const porcentajeNum = parseFloat(porcentajeVarios);
+                      if (isNaN(porcentajeNum) || porcentajeNum < 0) {
+                        alert('Ingrese un porcentaje válido');
+                        return;
+                      }
+
+                      setLoading(true);
+                      try {
+                        await catalogoProfesionalesService.actualizarPorcentajeVarios(
+                          seleccionados,
+                          porcentajeNum,
+                          empresaId
+                        );
+                        showNotification?.(`✅ Porcentaje de ganancia actualizado para ${seleccionados.length} profesionales`, 'success');
+                        setMostrarModalPorcentajeVarios(false);
+                        setPorcentajeVarios('');
+                        setSeleccionados([]);
+                        loadProfesionales();
+                      } catch (error) {
+                        console.error('Error actualizando porcentaje:', error);
+                        alert('Error al actualizar porcentaje de ganancia');
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    disabled={loading || !porcentajeVarios}
+                  >
+                    {loading ? 'Aplicando...' : 'Aplicar'}
+                  </button>
                 </div>
               </div>
             </div>

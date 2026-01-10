@@ -1174,9 +1174,35 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         const subtotalJornales = jornalesFinales.reduce((sum, j) => sum + (j.subtotal || 0), 0);
 
         // ✅ UNIFICACIÓN DE GASTOS PREVIA (para recálculo correcto)
-        const gastosUnificados = (item.gastosGenerales && item.gastosGenerales.length > 0)
+        const gastosRaw = (item.gastosGenerales && item.gastosGenerales.length > 0)
           ? item.gastosGenerales
           : (item.otrosCostos && item.otrosCostos.length > 0 ? item.otrosCostos : []);
+
+        // 🔥 WORKAROUND: El backend NO guarda esGlobal, detectarlo por patrón de descripción
+        const gastosUnificados = gastosRaw.map(gasto => {
+          let esGlobalDetectado = false;
+
+          // Si viene del backend (sin esGlobal), detectar por descripción
+          if (gasto.esGlobal === undefined || gasto.esGlobal === null || gasto.esGlobal === false) {
+            const desc = (gasto.descripcion || '').toLowerCase();
+            esGlobalDetectado = desc.includes('presupuesto global') ||
+                                desc.includes('gastos grales.') ||
+                                desc.includes('gastos generales global');
+
+            if (esGlobalDetectado) {
+              console.log('🔥 GASTO GLOBAL DETECTADO POR PATRÓN:', gasto.descripcion);
+            }
+          } else {
+            esGlobalDetectado = gasto.esGlobal;
+          }
+
+          return {
+            ...gasto,
+            esGlobal: esGlobalDetectado,
+            unidad: esGlobalDetectado ? 'global' : (gasto.unidad || null)
+          };
+        });
+
         const subtotalGastosCalc = gastosUnificados.reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0);
         const subtotalGastosFinal = item.subtotalGastosGenerales || subtotalGastosCalc;
 
@@ -6446,12 +6472,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     delete payload.materiales; // Eliminar el campo antiguo
 
 
-    payload.otrosCostos = (payload.otrosCostos || []).map(o => ({
-      importe: Number(o.importe) || 0,
-      descripcion: o.descripcion || ''
-    }));
-
-
     if (payload.honorarioDireccionValorFijo === '' || payload.honorarioDireccionValorFijo == null) {
       payload.honorarioDireccionValorFijo = null;
     } else {
@@ -7230,16 +7250,47 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             sinCantidad: Boolean(material.sinCantidad ?? false),
             sinPrecio: Boolean(material.sinPrecio ?? false)
           })),
-          gastosGenerales: (item.gastosGenerales || []).map(gasto => ({
-            // ✅ Al editar trabajos extra, NO enviar IDs para evitar conflictos 409
-            id: esTrabajoExtra && payload.id ? null : (gasto.id && gasto.id < 1000000 ? gasto.id : null),
-            descripcion: gasto.descripcion,
-            cantidad: Number(gasto.cantidad ?? 0),
-            precioUnitario: Number(gasto.precioUnitario ?? 0),
-            subtotal: Number(gasto.subtotal ?? 0),
-            sinCantidad: Boolean(gasto.sinCantidad ?? false),
-            sinPrecio: Boolean(gasto.sinPrecio ?? false)
-          })),
+          gastosGenerales: (item.gastosGenerales || []).map(gasto => {
+            // � WORKAROUND: Detectar gasto global por patrón de descripción
+            let esGlobalDetectado = false;
+
+            if (gasto.esGlobal === undefined || gasto.esGlobal === null || gasto.esGlobal === false) {
+              const desc = (gasto.descripcion || '').toLowerCase();
+              esGlobalDetectado = desc.includes('presupuesto global') ||
+                                  desc.includes('gastos grales.') ||
+                                  desc.includes('gastos generales global');
+
+              if (esGlobalDetectado) {
+                console.log('🔥 [MAPEO GUARDADO] Detectado gasto global:', gasto.descripcion);
+              }
+            } else {
+              esGlobalDetectado = gasto.esGlobal;
+            }
+
+            // 🔍 DEBUG: Ver valor original de esGlobal ANTES de mapear
+            console.log('🔍 [DEBUG MAPEO] Gasto original:', {
+              descripcion: gasto.descripcion,
+              esGlobal_original: gasto.esGlobal,
+              esGlobal_detectado: esGlobalDetectado,
+              esGlobal_tipo: typeof gasto.esGlobal,
+              esGlobal_undefined: gasto.esGlobal === undefined,
+              esGlobal_null: gasto.esGlobal === null,
+              unidad: gasto.unidad
+            });
+
+            return {
+              // ✅ Al editar trabajos extra, NO enviar IDs para evitar conflictos 409
+              id: esTrabajoExtra && payload.id ? null : (gasto.id && gasto.id < 1000000 ? gasto.id : null),
+              descripcion: gasto.descripcion,
+              cantidad: Number(gasto.cantidad ?? 0),
+              precioUnitario: Number(gasto.precioUnitario ?? 0),
+              subtotal: Number(gasto.subtotal ?? 0),
+              sinCantidad: Boolean(gasto.sinCantidad ?? false),
+              sinPrecio: Boolean(gasto.sinPrecio ?? false),
+              esGlobal: Boolean(esGlobalDetectado), // 🔥 USAR EL VALOR DETECTADO
+              unidad: esGlobalDetectado ? 'global' : (gasto.unidad || gasto.unidadMedida || null) // 🔥 Asignar 'global' si es detectado
+            };
+          }),
           esGastoGeneral: Boolean(item.esGastoGeneral ?? false)
         };
       });
@@ -7327,6 +7378,42 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     } else {
       payload.itemsCalculadora = [];
     }
+
+    // 🔥 CONSOLIDAR GASTOS GENERALES: Extraer de itemsCalculadora y agregar a otrosCostos
+    // IMPORTANTE: Hacer esto DESPUÉS de procesar itemsCalculadora
+    const gastosConsolidados = [];
+
+    // Extraer gastos de todos los items en itemsCalculadora que ya está procesado
+    if (payload.itemsCalculadora && payload.itemsCalculadora.length > 0) {
+      payload.itemsCalculadora.forEach(item => {
+        if (item.gastosGenerales && item.gastosGenerales.length > 0) {
+          item.gastosGenerales.forEach(gasto => {
+            console.log('💰 [CONSOLIDAR] Gasto encontrado:', {
+              descripcion: gasto.descripcion,
+              esGlobal: gasto.esGlobal,
+              unidad: gasto.unidad,
+              subtotal: gasto.subtotal
+            });
+
+            gastosConsolidados.push({
+              importe: Number(gasto.subtotal) || (Number(gasto.cantidad || 1) * Number(gasto.precioUnitario || 0)),
+              descripcion: gasto.descripcion || '',
+              cantidad: Number(gasto.cantidad) || 1,
+              precioUnitario: Number(gasto.precioUnitario) || 0,
+              subtotal: Number(gasto.subtotal) || (Number(gasto.cantidad || 1) * Number(gasto.precioUnitario || 0)),
+              unidad: gasto.unidad || null,
+              esGlobal: Boolean(gasto.esGlobal) // 🔥 CRÍTICO: Preservar esGlobal
+            });
+          });
+        }
+      });
+    }
+
+    // Asignar gastos consolidados al payload (reemplaza cualquier valor anterior)
+    payload.otrosCostos = gastosConsolidados;
+
+    console.log('💰 [CONSOLIDACIÓN FINAL] Total gastos consolidados:', gastosConsolidados.length);
+    console.log('💰 [CONSOLIDACIÓN FINAL] Detalles:', gastosConsolidados);
 
     // ✅ RECALCULAR totalPresupuesto desde payload.itemsCalculadora (FILTRANDO LEGACY)
     const itemsValidosParaTotal = (payload.itemsCalculadora || []).filter(item => {

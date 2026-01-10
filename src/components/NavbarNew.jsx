@@ -24,6 +24,7 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
     { path: '/profesionales', icon: 'fas fa-user-tie', label: 'Profesionales' },
     { path: '/profesionales-obra', icon: 'fas fa-users-cog', label: 'Profesionales por Obra' },
     { path: '/materiales', icon: 'fas fa-boxes', label: 'Materiales' },
+    { path: '/gastos-generales', icon: 'fas fa-receipt', label: 'Gastos Generales' },
     { path: '/sistema-financiero', icon: 'fas fa-money-bill-wave', label: 'Pagos - Cobros - Retiros' },
     { path: '/proveedores', icon: 'fas fa-truck', label: 'Proveedores' },
     { path: '/stock', icon: 'fas fa-warehouse', label: 'Stock' },
@@ -91,8 +92,8 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
         <i className={`fas ${navbarCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'}`}></i>
       </button>
 
-      <nav 
-        className="navbar navbar-expand-lg navbar-dark bg-primary sticky-top" 
+      <nav
+        className="navbar navbar-expand-lg navbar-dark bg-primary sticky-top"
         style={{
           transform: navbarCollapsed ? 'translateY(-100%)' : 'translateY(0)',
           transition: 'transform 0.3s ease',

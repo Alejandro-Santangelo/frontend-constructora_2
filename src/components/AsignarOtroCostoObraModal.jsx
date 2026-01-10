@@ -209,6 +209,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       item?.total,
       item?.monto,
       item?.valor,
+      item?.precioUnitario, // 🆕 Agregar precioUnitario para gastos globales
     ];
     for (const c of candidatos) {
       const n = Number(c);
@@ -286,7 +287,9 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       presupuestoOtroCostoId: parseInt(datos.gastoGeneralId), // Compatibilidad con ambas implementaciones
       fechaAsignacion: datos.fechaAsignacion,
       importeAsignado: parseFloat(datos.importeAsignado),
-      observaciones: datos.observaciones || null
+      observaciones: datos.observaciones || null,
+      esGlobal: Boolean(datos.esGlobal), // 🔥 NUEVO: Preservar flag de gasto global
+      esManual: Boolean(datos.esManual) // 🔥 NUEVO: Preservar flag de gasto manual
     };
 
     // 🔥 Incluir semana si está presente
@@ -504,6 +507,15 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       const otrosCostosDesdeProp = Array.isArray(presupuestoActual.otrosCostos) ? presupuestoActual.otrosCostos : [];
       const otrosCostosCandidatos = (otrosCostosDesdeProp.length > 0) ? otrosCostosDesdeProp : otrosCostosDesdeJson;
 
+      // 🔍 LOG: Estructura de otrosCostos
+      console.log('🔍🔍🔍 [DEBUG GASTOS GLOBALES] Analizando otrosCostos:', {
+        tieneProp: otrosCostosDesdeProp.length > 0,
+        tieneJson: otrosCostosDesdeJson.length > 0,
+        candidatosTotal: otrosCostosCandidatos.length,
+        primerItem: otrosCostosCandidatos[0],
+        estructuraCompleta: otrosCostosCandidatos
+      });
+
       if (otrosCostosCandidatos.length > 0) {
         extraerRubrosDeArray(otrosCostosCandidatos);
         fuenteDeteccion = (otrosCostosDesdeProp.length > 0)
@@ -512,8 +524,15 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
         const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosCandidatos);
 
+        console.log('🔍 [DEBUG GASTOS GLOBALES] Resultado separarGlobalYDetalle:', {
+          tieneGlobal,
+          importeGlobal,
+          detalleItemsCount: detalleItems.length
+        });
+
         if (tieneGlobal) {
           presupuestoGlobal = presupuestoGlobal || importeGlobal;
+          console.log('💰 [DEBUG GASTOS GLOBALES] presupuestoGlobal asignado:', presupuestoGlobal);
         }
 
         if (tieneGlobal && detalleItems.length === 0) {
@@ -557,11 +576,26 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           }
         });
 
+        // 🔍 LOG: Gastos encontrados en itemsCalculadora
+        console.log('🔍🔍🔍 [DEBUG GASTOS GLOBALES] Gastos en itemsCalculadora.gastosGenerales:', {
+          totalGastos: todosGastos.length,
+          primerGasto: todosGastos[0],
+          estructuraCompleta: todosGastos
+        });
+
         if (todosGastos.length > 0) {
           fuenteDeteccion = 'presupuestoActual.itemsCalculadora.gastosGenerales';
           const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(todosGastos);
+
+          console.log('🔍 [DEBUG GASTOS GLOBALES] Resultado separarGlobalYDetalle (itemsCalculadora):', {
+            tieneGlobal,
+            importeGlobal,
+            detalleItemsCount: detalleItems.length
+          });
+
           if (tieneGlobal) {
             presupuestoGlobal = presupuestoGlobal || importeGlobal;
+            console.log('💰 [DEBUG GASTOS GLOBALES] presupuestoGlobal asignado (itemsCalculadora):', presupuestoGlobal);
           }
 
           if (tieneGlobal && detalleItems.length === 0) {
@@ -912,10 +946,20 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         return;
       }
 
-      // Crear gasto manual temporal
+      // 🔥 DESHABILITADO: Backend tiene CORS bloqueado para /api/gastos-generales
+      // console.log('📝 Verificando/creando gasto en catálogo...');
+      // const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
+      // const gastoCatalogo = await obtenerOCrearGasto(
+      //   nuevoGastoManual.descripcion,
+      //   importeAsignado,
+      //   empresaSeleccionada.id
+      // );
+      // console.log('✅ Gasto en catálogo:', gastoCatalogo);
+
+      // Crear gasto manual (backend lo creará automáticamente)
       const categoriaFinal = obtenerRubroFinal();
       const gastoManual = {
-        id: `MANUAL_${Date.now()}`,
+        // id: gastoCatalogo.id, // Backend asignará ID
         nombre: nuevoGastoManual.descripcion,
         descripcion: nuevoGastoManual.descripcion,
         categoria: categoriaFinal,
@@ -978,7 +1022,9 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         gastoGeneralId: nuevaAsignacion.otroCostoId,
         fechaAsignacion: nuevaAsignacion.fechaAsignacion,
         semana: numeroSemana, // 🔥 AGREGAR SEMANA
-        observaciones: nuevaAsignacion.observaciones || null
+        observaciones: nuevaAsignacion.observaciones || null,
+        esGlobal: Boolean(nuevaAsignacion.esManual), // 🔥 Marcar como global si es manual (modo IMPORTE_GLOBAL)
+        esManual: Boolean(nuevaAsignacion.esManual) // 🔥 Preservar flag de gasto manual
       };
 
       console.log('🔍 DEBUG - Estado completo:');
@@ -1121,7 +1167,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
   };
 
   // 🆕 Función para crear gasto manual desde presupuesto global (inline o modal)
-  const handleCrearGastoManual = (cerrarModal = true) => {
+  const handleCrearGastoManual = async (cerrarModal = true) => {
     if (!nuevoGastoManual.descripcion.trim()) {
       alert('⚠️ Debe ingresar una descripción para el gasto');
       return;
@@ -1147,10 +1193,20 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       return;
     }
 
-    // Crear gasto manual temporal
+    // 🔥 DESHABILITADO: Backend tiene CORS bloqueado para /api/gastos-generales
+    // console.log('📝 Verificando/creando gasto en catálogo...');
+    // const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
+    // const gastoCatalogo = await obtenerOCrearGasto(
+    //   nuevoGastoManual.descripcion,
+    //   importeUnitario,
+    //   empresaSeleccionada.id
+    // );
+    // console.log('✅ Gasto en catálogo:', gastoCatalogo);
+
+    // Crear gasto manual (backend lo creará automáticamente)
     const categoriaFinal = obtenerRubroFinal();
     const gastoManual = {
-      id: `MANUAL_${Date.now()}`, // ID temporal para gastos manuales
+      // id: gastoCatalogo.id, // Backend asignará ID
       nombre: nuevoGastoManual.descripcion,
       descripcion: nuevoGastoManual.descripcion,
       categoria: categoriaFinal,
@@ -1220,18 +1276,34 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         try {
           // Manejar IDs manuales (strings) para evitar NaN
           const esManual = typeof asignacion.otroCostoId === 'string' && asignacion.otroCostoId.startsWith('MANUAL');
-          const gastoId = esManual ? null : Number(asignacion.otroCostoId);
+
+          let gastoId = esManual ? null : Number(asignacion.otroCostoId);
+
+          // 🔥 DESHABILITADO: Backend tiene CORS bloqueado para /api/gastos-generales
+          if (esManual) {
+            console.log('⚠️ Gasto manual (backend lo creará):', asignacion.nombreOtroCosto);
+            gastoId = null; // Backend creará el gasto automáticamente
+            // const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
+            // const gastoCatalogo = await obtenerOCrearGasto(
+            //   asignacion.nombreOtroCosto,
+            //   Number(asignacion.importe),
+            //   empresaSeleccionada.id
+            // );
+            // gastoId = gastoCatalogo.id;
+          }
 
           const payload = {
             obraId: obra.id,
-            presupuestoOtroCostoId: gastoId, // Enviar null si es manual
+            presupuestoOtroCostoId: gastoId,
             gastoGeneralId: gastoId,
             importeAsignado: Number(asignacion.importe),
             semana: Number(asignacion.numeroSemana),
             observaciones: asignacion.observaciones,
             // Agregar metadatos descriptivos para que backend pueda crear el gasto si no existe
             descripcion: asignacion.nombreOtroCosto,
-            categoria: asignacion.categoria
+            categoria: asignacion.categoria,
+            esGlobal: Boolean(asignacion.esManual), // 🔥 NUEVO: Marcar como global si es manual
+            esManual: Boolean(asignacion.esManual) // 🔥 NUEVO: Preservar flag de gasto manual
           };
 
           // Intentar guardar en backend

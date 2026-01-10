@@ -770,6 +770,15 @@ export const apiService = {
     getProximoVencer: (dias = 30) => apiService.get('/api/stock-materiales/proximo-vencer', { dias }),
   },
 
+  // ==================== GASTOS GENERALES ====================
+  gastosGenerales: {
+    getAll: (empresaId) => apiService.get('/api/gastos-generales', { empresaId }),
+    getById: (id, empresaId) => apiService.get(`/api/gastos-generales/${id}`, { empresaId }),
+    create: (data, empresaId) => apiService.post('/api/gastos-generales', data, { empresaId }),
+    update: (id, data, empresaId) => apiService.put(`/api/gastos-generales/${id}`, data, { empresaId }),
+    delete: (id, empresaId) => apiService.delete(`/api/gastos-generales/${id}`, { empresaId }),
+  },
+
   // ==================== COSTOS ====================
   costos: {
     getAll: (empresaId, page = 0, size = 10) => apiService.get('/api/costos', { empresaId, page, size }),

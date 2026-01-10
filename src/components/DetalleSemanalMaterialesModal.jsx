@@ -1,17 +1,17 @@
 import React from 'react';
 
-const DetalleSemanalMaterialesModal = ({ 
-  show, 
-  onClose, 
-  obra, 
-  numeroSemana, 
+const DetalleSemanalMaterialesModal = ({
+  show,
+  onClose,
+  obra,
+  numeroSemana,
   configuracionObra,
   materialesDisponibles = [],
   asignaciones = [],
   onAbrirAsignacionParaDia, // Nueva función para abrir formulario con fecha específica
   onAsignarParaTodaLaSemana // Nueva función para asignar a toda la semana
 }) => {
-  
+
   // Helper para parsear fechas evitando problemas de zona horaria
   const parsearFechaLocal = (fechaStr) => {
     if (!fechaStr) return new Date();
@@ -22,12 +22,12 @@ const DetalleSemanalMaterialesModal = ({
     }
     return new Date(fechaStr);
   };
-  
+
   const calcularDiasHabilesSemana = (numeroSemana) => {
     if (!configuracionObra?.fechaInicio) return [];
-    
+
     const fechaInicio = parsearFechaLocal(configuracionObra.fechaInicio);
-    
+
     // Lista de feriados argentinos
     const feriadosArgentinos = [
       '2025-01-01', // Año Nuevo
@@ -45,22 +45,22 @@ const DetalleSemanalMaterialesModal = ({
       '2025-12-08', // Inmaculada Concepción
       '2025-12-25', // Navidad
     ];
-    
+
     const esFinDeSemana = (fecha) => {
       const dia = fecha.getDay();
       return dia === 0 || dia === 6; // Domingo o sábado
     };
-    
+
     const esFeriado = (fecha) => {
       const fechaStr = fecha.toISOString().split('T')[0];
       return feriadosArgentinos.includes(fechaStr);
     };
-    
+
     // Calcular el primer día de esta semana del proyecto (basado en días hábiles)
     const diasHabilesTranscurridos = (numeroSemana - 1) * 5; // 5 días hábiles por semana
     let fechaActual = new Date(fechaInicio);
     let contadorDiasHabiles = 0;
-    
+
     // Avanzar hasta llegar al primer día de la semana deseada
     while (contadorDiasHabiles < diasHabilesTranscurridos) {
       if (!esFinDeSemana(fechaActual) && !esFeriado(fechaActual)) {
@@ -70,36 +70,36 @@ const DetalleSemanalMaterialesModal = ({
         fechaActual.setDate(fechaActual.getDate() + 1);
       }
     }
-    
+
     // Retroceder al lunes de la semana para mostrar contexto completo
     const primerDiaHabilSemana = new Date(fechaActual);
     const diaSemanaActual = fechaActual.getDay();
     const diasHastaLunes = diaSemanaActual === 0 ? -6 : 1 - diaSemanaActual;
     const fechaLunes = new Date(fechaActual);
     fechaLunes.setDate(fechaActual.getDate() + diasHastaLunes);
-    
+
     // Normalizar fechas para comparación (eliminar hora)
     const fechaInicioNormalizada = new Date(fechaInicio);
     fechaInicioNormalizada.setHours(0, 0, 0, 0);
-    
+
     // Generar todos los días de lunes a viernes para mostrar contexto
     const todosLosDias = [];
     const nombresDias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
-    
+
     for (let i = 0; i < 5; i++) {
       const dia = new Date(fechaLunes);
       dia.setDate(fechaLunes.getDate() + i);
       dia.setHours(0, 0, 0, 0);
-      
+
       const esHabil = !esFinDeSemana(dia) && !esFeriado(dia);
       // Comparar con fecha de inicio del proyecto, no con primer día hábil de la semana
       const esDiaDelProyecto = dia >= fechaInicioNormalizada;
       const esInteractivo = esHabil && esDiaDelProyecto;
-      
+
       // Determinar el tipo de día para el estilo visual
       let tipoDia = 'habil';
       let motivoNoHabil = '';
-      
+
       if (esFinDeSemana(dia)) {
         tipoDia = 'fin-semana';
         motivoNoHabil = dia.getDay() === 0 ? 'Domingo' : 'Sábado';
@@ -110,7 +110,7 @@ const DetalleSemanalMaterialesModal = ({
         tipoDia = 'pre-inicio';
         motivoNoHabil = 'Anterior al inicio del proyecto';
       }
-      
+
       todosLosDias.push({
         fecha: new Date(dia),
         fechaStr: dia.toISOString().split('T')[0],
@@ -121,17 +121,21 @@ const DetalleSemanalMaterialesModal = ({
         motivoNoHabil: motivoNoHabil
       });
     }
-    
+
     return todosLosDias;
   };
 
   if (!show || !numeroSemana) return null;
 
   const diasSemana = calcularDiasHabilesSemana(numeroSemana);
-  
-  // Función para obtener asignaciones de un día específico
+
+  // Separar asignaciones semanales de diarias
+  const asignacionesSemanales = asignaciones.filter(asig => asig.esSemanal === true);
+  const asignacionesDiarias = asignaciones.filter(asig => !asig.esSemanal);
+
+  // Función para obtener asignaciones de un día específico (solo diarias)
   const getAsignacionesDia = (fechaStr) => {
-    return asignaciones.filter(asignacion => {
+    return asignacionesDiarias.filter(asignacion => {
       const fechaAsignacion = new Date(asignacion.fechaAsignacion).toISOString().split('T')[0];
       return fechaAsignacion === fechaStr;
     });
@@ -146,9 +150,9 @@ const DetalleSemanalMaterialesModal = ({
               <i className="fas fa-calendar-week me-2"></i>
               Planificación Materiales - Semana {numeroSemana} - {obra?.nombre}
             </h5>
-            <button 
-              type="button" 
-              className="btn btn-light btn-sm ms-auto" 
+            <button
+              type="button"
+              className="btn btn-light btn-sm ms-auto"
               onClick={onClose}
             >
               Cerrar
@@ -163,19 +167,18 @@ const DetalleSemanalMaterialesModal = ({
                     <div className="mt-1">
                       <small>
                         Jornales por semana: <strong>{(configuracionObra.capacidadNecesaria || 0) * 5}</strong> |
-                        Planificación para la semana del {diasSemana.find(d => d.esInteractivo)?.fecha?.toLocaleDateString('es-AR')} 
+                        Planificación para la semana del {diasSemana.find(d => d.esInteractivo)?.fecha?.toLocaleDateString('es-AR')}
                         al {diasSemana.filter(d => d.esInteractivo).pop()?.fecha?.toLocaleDateString('es-AR')}
                       </small>
                     </div>
                   )}
                 </div>
                 <div>
-                  <button 
+                  <button
                     className="btn btn-sm btn-primary"
                     onClick={() => {
-                      console.log('Asignar material para toda la semana', numeroSemana);
                       if (onAsignarParaTodaLaSemana) {
-                        onAsignarParaTodaLaSemana('material', diasSemana);
+                        onAsignarParaTodaLaSemana(numeroSemana);
                       }
                     }}
                   >
@@ -186,15 +189,47 @@ const DetalleSemanalMaterialesModal = ({
               </div>
             </div>
 
+            {/* Sección de Asignaciones Semanales */}
+            {asignacionesSemanales.length > 0 && (
+              <div className="alert alert-success border-0 shadow-sm mb-4">
+                <div className="d-flex align-items-center mb-2">
+                  <i className="fas fa-calendar-week fs-5 me-2"></i>
+                  <h6 className="mb-0 fw-bold">Materiales Asignados para Toda la Semana</h6>
+                </div>
+                <div className="table-responsive">
+                  <table className="table table-sm table-hover mb-0">
+                    <thead className="table-light">
+                      <tr>
+                        <th>Material</th>
+                        <th>Cantidad</th>
+                        <th>Unidad</th>
+                        <th>Observaciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {asignacionesSemanales.map((asig, idx) => (
+                        <tr key={idx}>
+                          <td className="fw-bold">{asig.nombreMaterial || asig.nombre || asig.presupuestoMaterial?.nombre || 'Material'}</td>
+                          <td>{asig.cantidadAsignada ?? asig.cantidad}</td>
+                          <td><span className="badge bg-secondary">{asig.unidadMedida || asig.unidad || asig.presupuestoMaterial?.unidad || ''}</span></td>
+                          <td className="text-muted small">{asig.observaciones || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             <div className="row">
               {diasSemana.map((dia, index) => {
                 const asignacionesDia = getAsignacionesDia(dia.fechaStr);
-                
+
                 // Determinar estilos basados en el tipo de día
                 let cardClass = 'card ';
                 let headerClass = '';
                 let textClass = '';
-                
+
                 if (dia.tipoDia === 'habil' && dia.esInteractivo) {
                   // Día hábil normal
                   cardClass += 'border-primary';
@@ -216,7 +251,7 @@ const DetalleSemanalMaterialesModal = ({
                   headerClass = 'bg-light text-muted';
                   textClass = 'text-muted';
                 }
-                
+
                 return (
                 <div key={index} className="col-md-4 col-lg-2 mb-3">
                   <div className={cardClass}>
@@ -236,15 +271,14 @@ const DetalleSemanalMaterialesModal = ({
                         <i className="fas fa-boxes me-1"></i>
                         Materiales
                       </h6>
-                      
+
                       {dia.esInteractivo ? (
                         // Día interactivo - mostrar botones y asignaciones normalmente
                         <>
                           <div className="mb-2">
-                            <button 
+                            <button
                               className="btn btn-sm btn-outline-success w-100"
                               onClick={() => {
-                                console.log(`Abriendo formulario de asignación para ${dia.fechaStr}`);
                                 if (onAbrirAsignacionParaDia) {
                                   onAbrirAsignacionParaDia(dia.fechaStr);
                                 }
@@ -254,7 +288,7 @@ const DetalleSemanalMaterialesModal = ({
                               Agregar
                             </button>
                           </div>
-                          
+
                           {/* Lista de materiales asignados a este día */}
                           <div className="small">
                             {asignacionesDia.length > 0 ? (
@@ -294,7 +328,7 @@ const DetalleSemanalMaterialesModal = ({
                 );
               })}
             </div>
-            
+
             <div className="alert alert-light mt-3">
               <i className="fas fa-info-circle me-2"></i>
               <strong>Planificación de la Semana {numeroSemana}:</strong>
@@ -306,16 +340,16 @@ const DetalleSemanalMaterialesModal = ({
             </div>
           </div>
           <div className="modal-footer">
-            <button 
-              type="button" 
-              className="btn btn-secondary" 
+            <button
+              type="button"
+              className="btn btn-secondary"
               onClick={onClose}
             >
               <i className="fas fa-arrow-left me-2"></i>
               Volver a Resumen
             </button>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-primary"
               onClick={() => {
                 console.log('Guardar planificación de la semana', numeroSemana);

@@ -26,7 +26,7 @@ const AsignarOtroCostoSemanalModal = ({
   // Estado para creación rápida de gasto (similar al modal individual)
   const [nuevoGastoManual, setNuevoGastoManual] = useState({
     descripcion: '',
-    categoria: rubroInicial, // Usar el rubro inicial que viene por prop
+    categoria: typeof rubroInicial === 'string' ? rubroInicial : 'General', // Asegurar que sea string
     categoriaCustom: ''
   });
 
@@ -252,9 +252,10 @@ const AsignarOtroCostoSemanalModal = ({
                         categoriaCustom: e.target.value === '__OTRO__' ? (nuevoGastoManual.categoriaCustom || '') : ''
                       })}
                     >
-                      {rubrosParaSelect.map(r => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
+                      {(Array.isArray(rubrosParaSelect) ? rubrosParaSelect : []).map((r, idx) => {
+                        const valorRubro = typeof r === 'string' ? r : (r?.nombre || r?.valor || String(r));
+                        return <option key={idx} value={valorRubro}>{valorRubro}</option>;
+                      })}
                       <option value="__OTRO__">Otros (escribir...)</option>
                     </select>
                     {nuevoGastoManual.categoria === '__OTRO__' && (

@@ -2604,7 +2604,7 @@ const ObrasPage = ({ showNotification }) => {
           return { count: 0, asignaciones: [] };
         }),
 
-        // Materiales - Obtener los materiales asignados desde el backend
+        // Materiales - Obtener los materiales asignados desde el backend Y localStorage
         axios.get(`/api/obras/${obraId}/materiales`, {
           headers: {
             empresaId: empresaId,
@@ -2612,23 +2612,39 @@ const ObrasPage = ({ showNotification }) => {
           }
         }).then(response => {
           const data = response.data?.data || response.data || [];
-          const materiales = Array.isArray(data) ? data : [];
-          const count = materiales.length;
-          console.log('  📊 Materiales asignados:', count, materiales);
+          const materialesBackend = Array.isArray(data) ? data : [];
+
+          // 🔥 TAMBIÉN CARGAR MATERIALES DE LOCALSTORAGE
+          const keyMateriales = `obra_materiales_${obraId}_${empresaId}`;
+          const materialesLocalStorage = JSON.parse(localStorage.getItem(keyMateriales) || '[]');
+
+          // Combinar materiales del backend y localStorage
+          const materialesCombinados = [...materialesBackend, ...materialesLocalStorage];
+          const count = materialesCombinados.length;
+
+          console.log('  📊 Materiales backend:', materialesBackend.length);
+          console.log('  📊 Materiales localStorage:', materialesLocalStorage.length);
+          console.log('  📊 Materiales TOTAL:', count, materialesCombinados);
 
           // Guardar los datos completos de materiales
           setDatosAsignacionesPorObra(prev => ({
             ...prev,
             [obraId]: {
               ...prev[obraId],
-              materiales: materiales
+              materiales: materialesCombinados
             }
           }));
 
           return count;
         }).catch(error => {
           console.warn('  ⚠️ Error cargando materiales:', error.message);
-          return 0;
+
+          // 🔥 Si falla el backend, al menos contar localStorage
+          const keyMateriales = `obra_materiales_${obraId}_${empresaId}`;
+          const materialesLocalStorage = JSON.parse(localStorage.getItem(keyMateriales) || '[]');
+          console.log('  📊 Materiales localStorage (fallback):', materialesLocalStorage.length);
+
+          return materialesLocalStorage.length;
         }),
 
         // Gastos/Otros costos asignados
@@ -3266,31 +3282,19 @@ const ObrasPage = ({ showNotification }) => {
                                   style={{ cursor: 'pointer' }}
                                   className="text-center"
                                 >
-                                  {(() => {
-                                    // Solo mostrar botón de expandir si tiene presupuesto detallado
-                                    const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
-                                                            (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
-
-                                    if (!tienePresupuesto) {
-                                      return <span className="text-muted">-</span>;
-                                    }
-
-                                    return (
-                                      <button
-                                        className="btn btn-sm btn-primary rounded-circle p-0"
-                                        style={{
-                                          width: '30px',
-                                          height: '30px',
-                                          transition: 'all 0.3s ease'
-                                        }}
-                                        title={obrasExpandidas.has(obra.id) ? 'Ocultar detalles' : 'Ver detalles'}
-                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                                      >
-                                        <i className={`fas fa-${obrasExpandidas.has(obra.id) ? 'minus' : 'plus'} text-white`}></i>
-                                      </button>
-                                    );
-                                  })()}
+                                  <button
+                                    className="btn btn-sm btn-primary rounded-circle p-0"
+                                    style={{
+                                      width: '30px',
+                                      height: '30px',
+                                      transition: 'all 0.3s ease'
+                                    }}
+                                    title={obrasExpandidas.has(obra.id) ? 'Ocultar detalles' : 'Ver detalles'}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                  >
+                                    <i className={`fas fa-${obrasExpandidas.has(obra.id) ? 'minus' : 'plus'} text-white`}></i>
+                                  </button>
                                 </td>
                                 <td>
                                   {isSelected && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
@@ -3406,17 +3410,11 @@ const ObrasPage = ({ showNotification }) => {
                               </td>
                             </tr>
 
-                            {/* Fila expandible con detalles - Solo para obras con presupuesto detallado */}
-                            {(() => {
-                              const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
-                                                      (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
-
-                              if (!tienePresupuesto) return null;
-
-                              return obrasExpandidas.has(obra.id) && (
-                                <tr>
-                                  <td colSpan="10" className="p-0">
-                                    <div className="bg-light p-3 border-top">
+                            {/* Fila expandible con detalles */}
+                            {obrasExpandidas.has(obra.id) && (
+                              <tr>
+                                <td colSpan="10" className="p-0">
+                                  <div className="bg-light p-3 border-top">
                                     {/* CONFIGURACIÓN GLOBAL DE OBRA */}
                                     <div className="mb-4 p-3 border rounded bg-white">
                                       <div className="row align-items-center">
@@ -3693,8 +3691,7 @@ const ObrasPage = ({ showNotification }) => {
                                   </div>
                                 </td>
                               </tr>
-                              );
-                            })()}
+                            )}
                           </React.Fragment>
                           );
                           })}
@@ -5294,8 +5291,13 @@ const totalFinal = (() => {
         <AsignarMaterialObraModal
           show={mostrarModalAsignarMateriales}
           onClose={() => {
+            console.log('🔄 Cerrando modal de materiales - recargando contadores...');
             setMostrarModalAsignarMateriales(false);
             setObraParaAsignarMateriales(null);
+            // 🔥 RECARGAR CONTADORES AL CERRAR para actualizar badge
+            if (obraParaAsignarMateriales?.id) {
+              cargarContadoresObra(obraParaAsignarMateriales.id);
+            }
           }}
           obra={obraParaAsignarMateriales}
           configuracionObra={obtenerConfiguracionObra(obraParaAsignarMateriales?.id)}
