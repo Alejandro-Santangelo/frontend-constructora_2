@@ -32,19 +32,40 @@ export const obtenerMaterialesAsignados = async (obraId, empresaId) => {
  */
 export const asignarMaterial = async (obraId, data, empresaId) => {
   try {
+    const esGlobal = Boolean(data.esGlobal);
+
     const payload = {
       obraId: parseInt(obraId),
-      presupuestoMaterialId: parseInt(data.presupuestoMaterialId),
       cantidadAsignada: parseFloat(data.cantidadAsignada),
-      observaciones: data.observaciones || ''
+      precioUnitario: data.precioUnitario !== undefined ? parseFloat(data.precioUnitario) : undefined, // 🔥 Agregar precio unitario
+      observaciones: data.observaciones || '',
+      esGlobal: esGlobal
     };
-    
-    // Incluir semana si está presente (campo requerido por backend)
-    if (data.numeroSemana) {
+
+    if (esGlobal) {
+      // Material global: sin IDs, con descripción y unidad
+      payload.presupuestoMaterialId = null;
+      payload.materialCatalogoId = null;
+      payload.descripcion = data.descripcion || data.nombre;
+      payload.unidadMedida = data.unidadMedida || data.unidad;
+    } else {
+      // Material del presupuesto: con ID
+      payload.presupuestoMaterialId = parseInt(data.presupuestoMaterialId);
+    }
+
+    // Incluir semana si está presente
+    if (data.numeroSemana !== undefined && data.numeroSemana !== null) {
       payload.semana = parseInt(data.numeroSemana);
     }
-    
-    const response = await api.post(`/api/obras/${obraId}/materiales`, 
+
+    // Incluir fecha de asignación si está presente
+    if (data.fechaAsignacion) {
+      payload.fechaAsignacion = data.fechaAsignacion;
+    }
+
+    console.log('📦 Payload material enviado al backend:', payload);
+
+    const response = await api.post(`/api/obras/${obraId}/materiales`,
       payload,
       {
         headers: { empresaId: empresaId.toString() }

@@ -166,7 +166,6 @@ const DetalleSemanalMaterialesModal = ({
                   {configuracionObra && (
                     <div className="mt-1">
                       <small>
-                        Jornales por semana: <strong>{(configuracionObra.capacidadNecesaria || 0) * 5}</strong> |
                         Planificación para la semana del {diasSemana.find(d => d.esInteractivo)?.fecha?.toLocaleDateString('es-AR')}
                         al {diasSemana.filter(d => d.esInteractivo).pop()?.fecha?.toLocaleDateString('es-AR')}
                       </small>

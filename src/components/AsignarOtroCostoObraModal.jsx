@@ -281,39 +281,40 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
   // Función para asignar otros costos a obra (usando formato original que funcionaba)
   const asignarOtroCostoAObra = async (obraId, empresaId, datos) => {
+    const esManual = Boolean(datos.esManual);
+
     const payload = {
       obraId: parseInt(obraId),
-      gastoGeneralId: parseInt(datos.gastoGeneralId),
-      presupuestoOtroCostoId: parseInt(datos.gastoGeneralId), // Compatibilidad con ambas implementaciones
-      fechaAsignacion: datos.fechaAsignacion,
       importeAsignado: parseFloat(datos.importeAsignado),
-      observaciones: datos.observaciones || null,
-      esGlobal: Boolean(datos.esGlobal), // 🔥 NUEVO: Preservar flag de gasto global
-      esManual: Boolean(datos.esManual) // 🔥 NUEVO: Preservar flag de gasto manual
+      semana: datos.semana ? Number(datos.semana) : null,
+      fechaAsignacion: datos.fechaAsignacion || null,
+      esGlobal: Boolean(datos.esGlobal),
+      observaciones: datos.observaciones || null
     };
 
-    // 🔥 Incluir semana si está presente
-    if (datos.semana !== null && datos.semana !== undefined) {
-      payload.semana = Number(datos.semana);
+    if (esManual) {
+      // Gasto manual: sin IDs, con descripción y categoría
+      payload.presupuestoOtroCostoId = null;
+      payload.gastoGeneralId = null;
+      payload.descripcion = datos.descripcion || datos.nombre;
+      payload.categoria = datos.categoria || 'General';
+    } else {
+      // Gasto del presupuesto: con IDs
+      payload.presupuestoOtroCostoId = parseInt(datos.gastoGeneralId);
+      payload.gastoGeneralId = parseInt(datos.gastoGeneralId);
     }
 
-    // Si es un recurso físico, agregar la cantidad para control de stock
+    // Si es un recurso físico, agregar la cantidad
     if (datos.cantidadAsignada !== undefined && datos.cantidadAsignada !== null) {
       payload.cantidadAsignada = parseInt(datos.cantidadAsignada);
     }
 
     // VALIDACIÓN CRÍTICA: Nunca enviar importe 0
     if (!payload.importeAsignado || payload.importeAsignado <= 0) {
-      console.error('❌ BLOQUEANDO envío - importeAsignado inválido:', payload.importeAsignado);
-
-      // Usar valor específico basado en la cantidad para volquetes
-      const cantidad = payload.cantidadAsignada || 1;
-      payload.importeAsignado = 1000000 * cantidad; // $1M por volquete
-
-      console.warn(`⚠️ Usando valor de emergencia: $${payload.importeAsignado} (${cantidad} × $1.000.000)`);
+      throw new Error('El importe asignado debe ser mayor a cero');
     }
 
-    console.log('📦 Payload final enviado al backend (formato original):', payload);
+    console.log('📦 Payload enviado al backend:', payload);
 
     const response = await fetch(`/api/obras/${obraId}/otros-costos`, {
       method: 'POST',
@@ -839,38 +840,24 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Asignaciones actuales:', data);
+        console.log('✅ Asignaciones actuales desde BD:', data);
 
-        // Cargar también asignaciones locales de respaldo si el backend está incompleto
-        let locales = JSON.parse(localStorage.getItem(`asignaciones_locales_costos_${obra.id}`) || '[]');
+        // 📦 Cargar también localStorage temporal (solo para este modal)
+        const locKey = `asignaciones_locales_costos_${obra.id}`;
+        const locales = JSON.parse(localStorage.getItem(locKey) || '[]');
 
-        // 🧹 LIMPIEZA: Filtrar asignaciones semanales mal formadas
-        const localesLimpias = locales.filter(asig => {
-          const esMalFormada = (asig.observaciones?.includes('[Gasto Semanal Global]') || asig.observaciones?.includes('[Gasto Semanal Detallado]')) && asig.fechaAsignacion && !asig.esSemanal;
-          if (esMalFormada) {
-            console.log('🗑️ Eliminando asignación semanal mal formada:', asig);
-            return false;
-          }
-          return true;
-        });
-
-        // Actualizar localStorage si hubo cambios
-        if (localesLimpias.length !== locales.length) {
-          localStorage.setItem(`asignaciones_locales_costos_${obra.id}`, JSON.stringify(localesLimpias));
-          console.log(`🧹 Limpieza completada: ${locales.length - localesLimpias.length} asignaciones eliminadas`);
-        }
-
-        // Combinar (evitando duplicados por ID si el backend ya los tiene)
+        // Combinar BD + localStorage temporal (evitar duplicados)
         const combined = [...(Array.isArray(data) ? data : [])];
-        localesLimpias.forEach(loc => {
+        locales.forEach(loc => {
           if (!combined.some(c => c.id === loc.id)) {
-            combined.push(loc);
+            combined.push({ ...loc, esTemporalLocal: true });
           }
         });
 
+        console.log(`📊 Asignaciones: ${data.length} desde BD + ${locales.length} temporales en localStorage = ${combined.length} total`);
         setAsignaciones(combined);
 
-        // 🆕 Calcular disponible del presupuesto global después de cargar asignaciones
+        // Calcular disponible del presupuesto global después de cargar asignaciones
         if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
           const totalAsignado = combined.reduce((sum, asig) => {
             return sum + (parseFloat(asig.importeAsignado) || 0);
@@ -881,39 +868,13 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
           console.log(`💰 Presupuesto Global - Total: $${presupuestoGlobalTotal.toLocaleString('es-AR')}, Asignado: $${totalAsignado.toLocaleString('es-AR')}, Disponible: $${disponibleRestante.toLocaleString('es-AR')}`);
         }
-      } else if (response.status === 500 || response.status === 404 || !response.ok) {
-        console.warn(`⚠️ Error backend (Status: ${response.status}) - Trabajando en modo local`);
-        let locales = JSON.parse(localStorage.getItem(`asignaciones_locales_costos_${obra.id}`) || '[]');
-
-        // 🧹 LIMPIEZA: Filtrar asignaciones semanales mal formadas (con fechaAsignacion cuando deberían ser esSemanal)
-        const localesLimpias = locales.filter(asig => {
-          // Si tiene el marcador de gasto semanal en observaciones pero tiene fechaAsignacion, es un error
-          const esMalFormada = (asig.observaciones?.includes('[Gasto Semanal Global]') || asig.observaciones?.includes('[Gasto Semanal Detallado]')) && asig.fechaAsignacion && !asig.esSemanal;
-          if (esMalFormada) {
-            console.log('🗑️ Eliminando asignación semanal mal formada:', asig);
-            return false;
-          }
-          return true;
-        });
-
-        // Actualizar localStorage con las asignaciones limpias
-        if (localesLimpias.length !== locales.length) {
-          localStorage.setItem(`asignaciones_locales_costos_${obra.id}`, JSON.stringify(localesLimpias));
-          console.log(`🧹 Limpieza completada: ${locales.length - localesLimpias.length} asignaciones eliminadas`);
-        }
-
-        setAsignaciones(localesLimpias);
-
-        // Calcular disponible localmente si el backend falla
-        if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
-          const totalAsignado = locales.reduce((sum, asig) => sum + (parseFloat(asig.importeAsignado) || 0), 0);
-          setPresupuestoGlobalDisponible(Math.max(0, presupuestoGlobalTotal - totalAsignado));
-        }
+      } else {
+        console.error(`❌ Error ${response.status} al cargar asignaciones desde BD`);
+        setAsignaciones([]);
       }
     } catch (error) {
       console.error('❌ Error cargando asignaciones:', error);
-      const locales = JSON.parse(localStorage.getItem(`asignaciones_locales_costos_${obra.id}`) || '[]');
-      setAsignaciones(locales);
+      setAsignaciones([]);
     }
   };
 
@@ -1018,14 +979,23 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       }
 
       // Preparar datos según el tipo de recurso
+      const esManual = Boolean(nuevaAsignacion.esManual || nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL');
+
       const datos = {
         gastoGeneralId: nuevaAsignacion.otroCostoId,
         fechaAsignacion: nuevaAsignacion.fechaAsignacion,
-        semana: numeroSemana, // 🔥 AGREGAR SEMANA
+        semana: numeroSemana,
         observaciones: nuevaAsignacion.observaciones || null,
-        esGlobal: Boolean(nuevaAsignacion.esManual), // 🔥 Marcar como global si es manual (modo IMPORTE_GLOBAL)
-        esManual: Boolean(nuevaAsignacion.esManual) // 🔥 Preservar flag de gasto manual
+        esGlobal: Boolean(nuevaAsignacion.esManual),
+        esManual: esManual
       };
+
+      // Si es manual, agregar descripción y categoría del gasto
+      if (esManual && costoSeleccionado) {
+        datos.descripcion = costoSeleccionado.descripcion || costoSeleccionado.nombre;
+        datos.categoria = costoSeleccionado.categoria || 'General';
+        datos.nombre = costoSeleccionado.nombre || costoSeleccionado.descripcion;
+      }
 
       console.log('🔍 DEBUG - Estado completo:');
       console.log('   nuevaAsignacion:', nuevaAsignacion);
@@ -1074,21 +1044,10 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       const resultado = await asignarOtroCostoAObra(obra.id, empresaSeleccionada.id, datos);
       console.log('✅ Costo asignado exitosamente:', resultado);
 
-      // Guardar también en localStorage para persistencia local de respaldo
+      // 🧹 Limpiar localStorage después de guardado exitoso en BD
       const locKey = `asignaciones_locales_costos_${obra.id}`;
-      const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
-      currentLocales.push({
-        id: resultado.id || `LOCAL_${Date.now()}`,
-        descripcion: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto',
-        nombreOtroCosto: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto',
-        importeAsignado: datos.importeAsignado,
-        fechaAsignacion: datos.fechaAsignacion,
-        categoria: costoSeleccionado?.categoria || 'General',
-        semana: datos.semana,
-        observaciones: datos.observaciones,
-        esManual: costoSeleccionado?.esManual || false
-      });
-      localStorage.setItem(locKey, JSON.stringify(currentLocales));
+      localStorage.removeItem(locKey);
+      console.log('🧹 localStorage limpiado después de guardado exitoso en BD');
 
       // Limpiar formulario completamente
       setNuevaAsignacion({
@@ -1108,59 +1067,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       }
     } catch (error) {
       console.error('❌ Error asignando costo:', error);
-
-      // 🔥 FALLBACK LOCAL: Si el backend falla, guardar localmente para que el usuario pueda probar UI
-      try {
-        const costoSeleccionado = otrosCostosDisponibles.find(
-          c => c.id.toString() === nuevaAsignacion.otroCostoId
-        );
-
-        let numeroSemana = 1;
-        if (nuevaAsignacion.fechaAsignacion && configuracionObraActualizada?.fechaInicio) {
-          const fechaAsignacion = new Date(nuevaAsignacion.fechaAsignacion + 'T12:00:00');
-          const fechaInicio = new Date(configuracionObraActualizada.fechaInicio.split('T')[0] + 'T12:00:00');
-          const diffMs = fechaAsignacion - fechaInicio;
-          const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-          numeroSemana = Math.floor(diffDays / 7) + 1;
-        }
-
-        const locKey = `asignaciones_locales_costos_${obra.id}`;
-        const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
-
-        const nuevaAsignacionLocal = {
-          id: `LOCAL_${Date.now()}`,
-          descripcion: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto Local',
-          nombreOtroCosto: costoSeleccionado?.nombre || costoSeleccionado?.descripcion || 'Gasto Local',
-          importeAsignado: parseFloat(nuevaAsignacion.importeAsignado) || (parseFloat(nuevaAsignacion.cantidadAsignada) * parseFloat(nuevaAsignacion.importeUnitario)) || 0,
-          fechaAsignacion: nuevaAsignacion.fechaAsignacion,
-          categoria: costoSeleccionado?.categoria || 'General',
-          semana: numeroSemana,
-          observaciones: (nuevaAsignacion.observaciones || '') + ' [LOCAL - Error Server]',
-          esManual: costoSeleccionado?.esManual || false
-        };
-
-        currentLocales.push(nuevaAsignacionLocal);
-        localStorage.setItem(locKey, JSON.stringify(currentLocales));
-
-        // 🔥 Actualizar visualmente inmediatamente
-        setAsignaciones(prev => [...prev, nuevaAsignacionLocal]);
-        setPresupuestoGlobalDisponible(prev => Math.max(0, prev - nuevaAsignacionLocal.importeAsignado));
-
-        // Limpiar formulario incluso si falló el server pero guardamos local
-        setNuevaAsignacion({
-          otroCostoId: '',
-          cantidadAsignada: '',
-          importeUnitario: '',
-          importeAsignado: '',
-          fechaAsignacion: '',
-          observaciones: ''
-        });
-
-        alert('⚠️ Error en servidor, se guardó localmente para la sesión actual.');
-      } catch (innerError) {
-        console.error('Error en fallback local:', innerError);
-        alert(`Error al asignar costo: ${error.message}`);
-      }
+      alert(`Error al asignar costo: ${error.message}\n\nLos datos NO fueron guardados. Verifique la conexión con el backend.`);
     } finally {
       setLoading(false);
     }
@@ -1270,7 +1177,6 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
       // Procesar cada asignación diaria
       const resultados = [];
-      const nuevasAsignacionesLocales = [];
 
       for (const asignacion of asignacionesSemana) {
         try {
@@ -1347,79 +1253,23 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               importe: asignacion.importe,
               resultado: data
             });
-
-            // Objeto para almacenamiento local
-            nuevaAsignacionFinal = {
-              id: data.id || `LOCAL_${Date.now()}_${Math.random()}`,
-              descripcion: asignacion.nombreOtroCosto,
-              nombreOtroCosto: asignacion.nombreOtroCosto,
-              importeAsignado: asignacion.importe,
-              categoria: asignacion.categoria,
-              semana: asignacion.numeroSemana,
-              observaciones: asignacion.observaciones,
-              esManual: asignacion.esManual,
-              esSemanal: asignacion.esSemanal || true
-            };
           } else {
-            // 🔥 FALLBACK LOCAL: Si el backend falla, guardar localmente
-            nuevaAsignacionFinal = {
-              id: `LOCAL_${Date.now()}_${Math.random()}`,
-              descripcion: asignacion.nombreOtroCosto,
-              nombreOtroCosto: asignacion.nombreOtroCosto,
-              importeAsignado: asignacion.importe,
-              categoria: asignacion.categoria,
-              semana: asignacion.numeroSemana,
-              observaciones: (asignacion.observaciones || '') + ' [LOCAL - Error Server/Red]',
-              esManual: asignacion.esManual,
-              esSemanal: asignacion.esSemanal || true
-            };
-
-            resultados.push({
-              semana: asignacion.numeroSemana,
-              costo: asignacion.nombreOtroCosto,
-              importe: asignacion.importe,
-              resultado: { status: 'local' }
-            });
-          }
-
-          if (nuevaAsignacionFinal) {
-            nuevasAsignacionesLocales.push(nuevaAsignacionFinal);
+            console.error(`❌ No se pudo guardar asignación para semana ${asignacion.numeroSemana}: ${asignacion.nombreOtroCosto}`);
           }
         } catch (innerError) {
           console.error('Error crítico procesando asignación individual:', innerError);
         }
       }
 
-      // Guardar todo el lote en LocalStorage de una sola vez
-      if (nuevasAsignacionesLocales.length > 0) {
-        const locKey = `asignaciones_locales_costos_${obra.id}`;
-        const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
-        const updatedLocales = [...currentLocales, ...nuevasAsignacionesLocales];
-        localStorage.setItem(locKey, JSON.stringify(updatedLocales));
+      console.log('✅ Asignaciones semanales completadas.');
 
-        // 🔥 ACTUALIZAR ESTADO VISUAL INMEDIATAMENTE
-        // Importante: Usamos functional update para asegurar que tenemos el estado más reciente
-        console.log('📊 [PRE-UPDATE] Estado actual asignaciones:', asignaciones.length);
-        console.log('📊 [ADDING] Nuevas asignaciones locales:', nuevasAsignacionesLocales);
+      // 🧹 Limpiar localStorage después de guardado exitoso en BD
+      const locKey = `asignaciones_locales_costos_${obra.id}`;
+      localStorage.removeItem(locKey);
+      console.log('🧹 localStorage limpiado después de asignaciones semanales exitosas');
 
-        setAsignaciones(prev => {
-             const newState = [...prev, ...nuevasAsignacionesLocales];
-             console.log('🔄 [POST-UPDATE] Estado visual asignaciones. Nuevo total:', newState.length);
-             console.log('🔄 [DETALLE] Nuevas asignaciones agregadas:', nuevasAsignacionesLocales.length);
-             return newState;
-        });
-
-        // Actualizar disponible
-        if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
-           const totalNuevo = nuevasAsignacionesLocales.reduce((sum, item) => sum + (parseFloat(item.importeAsignado) || 0), 0);
-           setPresupuestoGlobalDisponible(prev => Math.max(0, prev - totalNuevo));
-        }
-      }
-
-      console.log('✅ Asignaciones semanales completadas. Actualizado estado visual.');
-
-      // Recargar asignaciones (Evitar recarga asíncrona que pise el estado local actualizado)
-      // await cargarAsignacionesActuales();
+      // Recargar asignaciones desde BD
+      await cargarAsignacionesActuales();
 
       // Cerrar modal
       setMostrarAsignacionSemanal(false);
@@ -1447,29 +1297,27 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     try {
       setLoading(true);
 
-      // 1. Eliminar siempre de localStorage por si las dudas
+      // 1. Eliminar de localStorage temporal si existe
       const locKey = `asignaciones_locales_costos_${obra.id}`;
       const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
       const filtered = currentLocales.filter(a => a.id.toString() !== asignacionId.toString());
       localStorage.setItem(locKey, JSON.stringify(filtered));
 
-      // 2. Si NO es ID local, intentar eliminar del backend
-      if (!asignacionId.toString().startsWith('LOCAL_')) {
-        const response = await fetch(
-          `/api/obras/${obra.id}/otros-costos/${asignacionId}`,
-          {
-            method: 'DELETE',
-            headers: {
-              'empresaId': empresaSeleccionada.id.toString()
-            }
+      // 2. Eliminar de BD
+      const response = await fetch(
+        `/api/obras/${obra.id}/otros-costos/${asignacionId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'empresaId': empresaSeleccionada.id.toString()
           }
-        );
-
-        if (response.ok) {
-          console.log('✅ Asignación eliminada del backend');
-        } else {
-          console.warn('⚠️ No se pudo eliminar del backend (puede no existir), pero se borró localmente.');
         }
+      );
+
+      if (response.ok) {
+        console.log('✅ Asignación eliminada del backend');
+      } else {
+        console.warn('⚠️ No se pudo eliminar del backend (puede no existir), pero se borró localmente.');
       }
 
       // 3. Actualizar UI
@@ -1479,7 +1327,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       }
     } catch (error) {
       console.error('❌ Error eliminando asignación:', error);
-      // Aún si hay error de red, ya lo borramos de localStorage, así que recargamos
+      // Recargar asignaciones desde BD
       await cargarAsignacionesActuales();
     } finally {
       setLoading(false);
@@ -1503,44 +1351,28 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     try {
       setLoading(true);
 
-      // 1. Actualizar en localStorage
-      const locKey = `asignaciones_locales_costos_${obra.id}`;
-      const currentLocales = JSON.parse(localStorage.getItem(locKey) || '[]');
-      const index = currentLocales.findIndex(a => a.id.toString() === asignacionEnEdicion.id.toString());
-
       const asignacionActualizada = {
         ...asignacionEnEdicion,
         importeAsignado: parseFloat(asignacionEnEdicion.importeAsignado),
         cantidadAsignada: parseFloat(asignacionEnEdicion.cantidadAsignada)
       };
 
-      if (index !== -1) {
-        currentLocales[index] = asignacionActualizada;
-        localStorage.setItem(locKey, JSON.stringify(currentLocales));
-      } else if (asignacionEnEdicion.id.toString().startsWith('LOCAL_')) {
-        currentLocales.push(asignacionActualizada);
-        localStorage.setItem(locKey, JSON.stringify(currentLocales));
-      }
-
-      // 2. Intentar actualizar en backend si no es local
-      if (!asignacionEnEdicion.id.toString().startsWith('LOCAL_')) {
-        const response = await fetch(
-          `/api/obras/${obra.id}/otros-costos/${asignacionEnEdicion.id}`,
-          {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'empresaId': empresaSeleccionada.id.toString()
-            },
-            body: JSON.stringify(asignacionActualizada)
-          }
-        );
-
-        if (response.ok) {
-          console.log('✅ Asignación actualizada en backend');
-        } else {
-          console.warn('⚠️ No se pudo actualizar en backend, se mantuvo el cambio local.');
+      const response = await fetch(
+        `/api/obras/${obra.id}/otros-costos/${asignacionEnEdicion.id}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'empresaId': empresaSeleccionada.id.toString()
+          },
+          body: JSON.stringify(asignacionActualizada)
         }
+      );
+
+      if (response.ok) {
+        console.log('✅ Asignación actualizada en backend');
+      } else {
+        console.warn('⚠️ No se pudo actualizar en backend, se mantuvo el cambio local.');
       }
 
       console.log('✅ Asignación actualizada');
@@ -1958,12 +1790,13 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     <div className="mt-2">
                       <small className="text-muted">
                         <strong>Debug:</strong> fuente={debugDeteccionPresupuesto.fuenteDeteccion || 'N/A'} | detalle={debugDeteccionPresupuesto.itemsDetalle} | global=${Number(debugDeteccionPresupuesto.presupuestoGlobal || 0).toLocaleString('es-AR')} | rubros={debugDeteccionPresupuesto.rubrosDetectados ?? 0}
-                         | <button className="btn btn-link btn-sm p-0 text-danger ms-2" onClick={() => {
-                            if(confirm('¿Borrar datos locales de gastos?')) {
+                         | <button className="btn btn-link btn-sm p-0 text-warning ms-2" onClick={() => {
+                            if(confirm('¿Limpiar localStorage temporal de gastos?')) {
                               localStorage.removeItem(`asignaciones_locales_costos_${obra.id}`);
                               cargarAsignacionesActuales();
+                              alert('🧹 localStorage temporal limpiado');
                             }
-                         }}>Limpiar Local</button>
+                         }}>🧹 Limpiar Temp</button>
                         {(debugDeteccionPresupuesto.rubrosEjemplo && debugDeteccionPresupuesto.rubrosEjemplo.length > 0)
                           ? ` | ej: ${debugDeteccionPresupuesto.rubrosEjemplo.join(', ')}`
                           : ''}

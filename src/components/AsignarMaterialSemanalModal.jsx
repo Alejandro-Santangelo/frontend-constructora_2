@@ -24,8 +24,9 @@ const AsignarMaterialSemanalModal = ({
   const [procesando, setProcesando] = useState(false);
 
   const tieneItemsDetallados = (materialesDisponibles?.length || 0) > 0;
-  // Siempre permitir manual (como en Gastos), solo ocultar si es modo DETALLE puro sin global disponible
-  const permiteManual = true; // Siempre habilitado para mantener paridad con Gastos
+  // ⚠️ NOTA: Backend aún no soporta materiales manuales (solo presupuesto)
+  // Habilitado temporalmente - guardará en localStorage hasta que backend lo soporte
+  const permiteManual = true;
 
   useEffect(() => {
     console.log('🔍 [AsignarMaterialSemanalModal] Debug:', {
@@ -174,6 +175,9 @@ const AsignarMaterialSemanalModal = ({
       nombreMaterial,
       unidadMedida,
       cantidad: cantidadNum,
+      precioUnitario: tipoAsignacion === 'CANTIDAD_GLOBAL'
+        ? (parseFloat(nuevoMaterialManual.precioUnitario) || 0)
+        : (materialSeleccionado?.precioUnitario || 0),
       numeroSemana,
       observaciones: observaciones + (tipoAsignacion === 'CANTIDAD_GLOBAL' ? ' [Material Semanal Global]' : ' [Material Semanal Detallado]'),
       esManual: tipoAsignacion === 'CANTIDAD_GLOBAL',
