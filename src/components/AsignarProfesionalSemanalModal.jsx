@@ -323,6 +323,8 @@ const AsignarProfesionalSemanalModal = ({
     setLoadingAsignaciones(true);
     try {
       console.log('🔍 Cargando asignaciones para obra:', obra?.id, 'empresa:', empresaSeleccionada?.id);
+      console.log('🔍 obra._esTrabajoExtra:', obra?._esTrabajoExtra);
+      console.log('🔍 obra.asignacionesActuales:', obra?.asignacionesActuales?.length || 0);
 
       if (!empresaSeleccionada?.id) {
         console.warn('⚠️ No hay empresa seleccionada, saltando carga de asignaciones');
@@ -330,10 +332,18 @@ const AsignarProfesionalSemanalModal = ({
         return;
       }
 
-      // 🔥 USAR ASIGNACIONES YA CARGADAS SI EXISTEN
+      // 🔥 PRIORIDAD 1: USAR ASIGNACIONES YA CARGADAS SI EXISTEN
       if (obra.asignacionesActuales && Array.isArray(obra.asignacionesActuales) && obra.asignacionesActuales.length > 0) {
         console.log('✅ Usando asignaciones pre-cargadas desde obra:', obra.asignacionesActuales.length);
         setAsignacionesExistentes(obra.asignacionesActuales);
+        setLoadingAsignaciones(false);
+        return;
+      }
+
+      // ✅ PRIORIDAD 2: SI ES TRABAJO EXTRA SIN ASIGNACIONES PRE-CARGADAS, INICIAR VACÍO
+      if (obra._esTrabajoExtra) {
+        console.log('✅ Trabajo extra sin asignaciones pre-cargadas - iniciando vacío');
+        setAsignacionesExistentes([]);
         setLoadingAsignaciones(false);
         return;
       }
@@ -482,8 +492,12 @@ const AsignarProfesionalSemanalModal = ({
   // Función helper para obtener el presupuesto con estado válido más reciente
   const obtenerPresupuestoAprobadoMasReciente = async () => {
     try {
+      // ✅ Para trabajos extra, usar obra.id (presupuesto). Para obras, usar obraId real
+      const obraIdReal = obra._esTrabajoExtra
+        ? obra.id
+        : (obra.presupuestoNoCliente?.obraId || obra.obraId || obra.id);
       const response = await fetch(
-        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
+        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
         {
           headers: {
             'empresaId': empresaSeleccionada.id.toString(),
@@ -538,8 +552,13 @@ const AsignarProfesionalSemanalModal = ({
         return;
       }
 
+      // ✅ Para trabajos extra, usar obra.id (presupuesto). Para obras, usar obraId real
+      const obraIdReal = obra._esTrabajoExtra
+        ? obra.id
+        : (obra.presupuestoNoCliente?.obraId || obra.obraId || obra.id);
+      console.log('🔍 [cargarPresupuestoObra] obraIdReal:', obraIdReal, 'esTrabajoExtra:', obra._esTrabajoExtra);
       const response = await fetch(
-        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
+        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
         {
           headers: {
             'empresaId': empresaSeleccionada.id.toString(),

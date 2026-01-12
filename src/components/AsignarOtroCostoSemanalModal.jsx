@@ -126,6 +126,12 @@ const AsignarOtroCostoSemanalModal = ({
       ? nuevoGastoManual.descripcion
       : (otrosCostosDisponibles.find(c => c.id.toString() === costoSeleccionadoId)?.nombre || 'Gasto');
 
+    // Detectar si es Global o Detallado basándose en el contenido real
+    const descripcionCompleta = (nombreGasto || '').toLowerCase();
+    const esGlobal = descripcionCompleta.includes('presupuesto global') ||
+                     descripcionCompleta.includes('para la') ||
+                     descripcionCompleta.includes('para el');
+
     // Crear UNA SOLA asignación para toda la semana (no distribuir por días)
     const asignacionSemanal = {
       otroCostoId: tipoAsignacion === 'IMPORTE_GLOBAL' ? `MANUAL_${Date.now()}` : costoSeleccionadoId,
@@ -133,7 +139,7 @@ const AsignarOtroCostoSemanalModal = ({
       categoria: categoriaFinal,
       importe: importe,
       numeroSemana: numeroSemana,
-      observaciones: observaciones + (tipoAsignacion === 'IMPORTE_GLOBAL' ? ` [Gasto Semanal Global]` : ` [Gasto Semanal Detallado]`),
+      observaciones: observaciones + (esGlobal ? ` [Gasto Semanal Global]` : ` [Gasto Semanal Detallado]`),
       esManual: tipoAsignacion === 'IMPORTE_GLOBAL',
       esSemanal: true // Marcador para identificar que es asignación semanal completa
     };

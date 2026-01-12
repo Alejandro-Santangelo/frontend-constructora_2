@@ -159,28 +159,50 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     setLoadingPresupuesto(true);
     setError(null);
     try {
-      console.log('ðŸ”ðŸ”ðŸ” INICIANDO CARGA DE PRESUPUESTO ðŸ”ðŸ”ðŸ”');
-      console.log('ðŸ” Buscando presupuesto para obra:', obra.id, 'empresa:', empresaSeleccionada.id);
+           console.log('🔍🔍🔍 INICIANDO CARGA DE PRESUPUESTO 🔍🔍🔍');
+      console.log('🚨🚨🚨 OBJETO OBRA COMPLETO:', JSON.stringify(obra, null, 2));
+      console.log('🔍 obra.id:', obra.id);
+      console.log('🔍 obra._obraOriginalId:', obra._obraOriginalId);
+      console.log('🔍 obra.presupuestoNoCliente?.obraId:', obra.presupuestoNoCliente?.obraId);
+      console.log('🔍 obra.obraId:', obra.obraId);
+      console.log('🔍 Buscando presupuesto para obra:', obra.id, 'empresa:', empresaSeleccionada.id);
 
-      // AÃ±adir timestamp para evitar cachÃ© del navegador
+      // Añadir timestamp para evitar caché del navegador
       const timestamp = new Date().getTime();
+      const obraIdReal = obra._obraOriginalId || obra.presupuestoNoCliente?.obraId || obra.obraId || obra.id;
+      console.log('✅ obraIdReal calculado:', obraIdReal);
 
-      // Buscar el presupuesto por obraId
-      const todosPresupuestosUrl = `http://localhost:8080/api/presupuestos-no-cliente?empresaId=${empresaSeleccionada.id}&_t=${timestamp}`;
-      console.log('ðŸ“¡ Llamando a:', todosPresupuestosUrl);
-      const todosPresupuestosResponse = await fetch(todosPresupuestosUrl, {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      });
+      const [respTradicionales, respTrabajosExtra] = await Promise.all([
+        fetch(`http://localhost:8080/api/presupuestos-no-cliente?empresaId=${empresaSeleccionada.id}&_t=${timestamp}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        }).then(r => r.ok ? r.json() : []),
+      fetch(`http://localhost:8080/api/v1/trabajos-extra?empresaId=${empresaSeleccionada.id}&obraId=${obraIdReal}&_t=${timestamp}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        }).then(r => r.ok ? r.json() : [])
+      ]);
+      // Normalizar trabajos extra: asegurar que tengan campo 'id'
+      const trabajosExtraNormalizados = (Array.isArray(respTrabajosExtra) ? respTrabajosExtra : []).map(te => ({
+        ...te,
+        id: te.id || te.idTrabajoExtra || te.trabajoExtraId,
+        esTrabajoExtra: true,
+        tipo: 'TRABAJO_EXTRA'
+      }));
 
-      if (!todosPresupuestosResponse.ok) {
-        throw new Error('No se pudieron obtener los presupuestos');
-      }
+      const todosPresupuestos = [
+        ...(Array.isArray(respTradicionales) ? respTradicionales : []),
+        ...trabajosExtraNormalizados
+      ];
 
-      const todosPresupuestos = await todosPresupuestosResponse.json();
+      console.log('📦 Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
+      console.log('📦 Trabajos extra normalizados:', trabajosExtraNormalizados.length, trabajosExtraNormalizados);
       console.log('ðŸ“¦ Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
 
       // Estados vÃ¡lidos para obras vinculadas (MODIFICADO NO se incluye)
@@ -188,49 +210,72 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
       // Filtrar por obraId Y estado vÃ¡lido
       const presupuestosObra = (todosPresupuestos || []).filter(p =>
-        (p.obraId === obra.id || p.idObra === obra.id) && estadosValidos.includes(p.estado)
-      );
-      console.log('âœ… Presupuestos con estado vÃ¡lido de obra', obra.id, ':', presupuestosObra.length);
-
+  (Number(p.obraId) === Number(obraIdReal) || Number(p.idObra) === Number(obraIdReal)) && estadosValidos.includes(p.estado)
+);
+     console.log('✅ Presupuestos con estado válido de obra (obraId:', obraIdReal, '):', presupuestosObra.length);
       if (presupuestosObra.length === 0) {
-        throw new Error('No se encontrÃ³ un presupuesto con estado vÃ¡lido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
+        throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
       }
 
-      // Tomar el mÃ¡s reciente entre los APROBADOS (mayor versiÃ³n o mayor ID)
-      const presupuestoActual = presupuestosObra.sort((a, b) => {
-        if (a.numeroPresupuesto === b.numeroPresupuesto) {
-          return (b.version || 0) - (a.version || 0);
-        }
-        return b.id - a.id;
-      })[0];
+      // Priorizar trabajos extra sobre presupuestos tradicionales
+      const trabajosExtraObra = presupuestosObra.filter(p => p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA');
+      const tradicionalesObra = presupuestosObra.filter(p => !p.esTrabajoExtra && p.tipo !== 'TRABAJO_EXTRA');
 
-      console.log('ðŸŽ¯ Presupuesto con estado vÃ¡lido seleccionado:', {
+      let presupuestoActual;
+      if (trabajosExtraObra.length > 0) {
+        presupuestoActual = trabajosExtraObra.sort((a, b) => a.id - b.id)[0];
+        console.log('✅ Seleccionando TRABAJO EXTRA:', presupuestoActual.id);
+      } else {
+        presupuestoActual = tradicionalesObra.sort((a, b) => {
+          if (a.numeroPresupuesto === b.numeroPresupuesto) {
+            return (b.version || 0) - (a.version || 0);
+          }
+          return b.id - a.id;
+        })[0];
+        console.log('✅ Seleccionando PRESUPUESTO TRADICIONAL:', presupuestoActual.id);
+      }
+
+      console.log('🎯 Presupuesto con estado válido seleccionado:', {
         id: presupuestoActual.id,
         version: presupuestoActual.version,
         estado: presupuestoActual.estado,
-        fechaProbableInicio: presupuestoActual.fechaProbableInicio
+        fechaProbableInicio: presupuestoActual.fechaProbableInicio,
+        esTrabajoExtra: presupuestoActual.esTrabajoExtra || presupuestoActual.tipo === 'TRABAJO_EXTRA'
       });
 
       const presupuestoId = presupuestoActual.id;
-      console.log('âœ… Usando presupuesto ID:', presupuestoId);
-      console.log('ðŸ“… fechaProbableInicio en presupuestoActual (lista):', presupuestoActual.fechaProbableInicio);
+      const esTrabajoExtra = presupuestoActual.esTrabajoExtra || presupuestoActual.tipo === 'TRABAJO_EXTRA';
+      console.log('✅ Usando presupuesto ID:', presupuestoId, '| Es trabajo extra:', esTrabajoExtra);
+      console.log('�🚨🚨 PRESUPUESTO SELECCIONADO COMPLETO:', JSON.stringify(presupuestoActual, null, 2));
+      console.log('📅 fechaProbableInicio en presupuestoActual (lista):', presupuestoActual.fechaProbableInicio);
 
-      // Obtener presupuesto completo para extraer materiales
-      const presupuestoUrl = `http://localhost:8080/api/presupuestos-no-cliente/${presupuestoId}?empresaId=${empresaSeleccionada.id}&_t=${timestamp}`;
-      console.log('ðŸ“¡ Llamando a presupuesto completo:', presupuestoUrl);
-      const presupuestoResponse = await fetch(presupuestoUrl, {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+      // 🔥 OPTIMIZACIÓN: Si el trabajo extra ya tiene itemsCalculadora, NO consultarlo de nuevo
+      let presupuestoData;
+      if (esTrabajoExtra && presupuestoActual.itemsCalculadora && presupuestoActual.itemsCalculadora.length > 0) {
+        console.log('✅ Trabajo extra YA TIENE itemsCalculadora, usando directamente');
+        presupuestoData = presupuestoActual;
+      } else {
+        // Construir URL según el tipo de presupuesto
+        const presupuestoUrl = esTrabajoExtra
+          ? `http://localhost:8080/api/v1/trabajos-extra/${presupuestoId}?_t=${timestamp}`
+          : `http://localhost:8080/api/presupuestos-no-cliente/${presupuestoId}?empresaId=${empresaSeleccionada.id}&_t=${timestamp}`;
+
+        console.log('🌐🌐🌐 URL A CONSULTAR:', presupuestoUrl);
+
+        const presupuestoResponse = await fetch(presupuestoUrl, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+
+        if (!presupuestoResponse.ok) {
+          throw new Error('No se pudo obtener el presupuesto');
         }
-      });
 
-      if (!presupuestoResponse.ok) {
-        throw new Error('No se pudo obtener el presupuesto');
+        presupuestoData = await presupuestoResponse.json();
       }
-
-      const presupuestoData = await presupuestoResponse.json();
       console.log('ðŸ“¦ presupuestoData completo recibido:', presupuestoData);
       console.log('ðŸ“… fechaProbableInicio en presupuestoData (completo):', presupuestoData.fechaProbableInicio);
 

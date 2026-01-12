@@ -3537,6 +3537,11 @@ const ConfiguracionPresupuestoSection = ({
                       <div className="alert alert-success mt-3 mb-0">
                         <strong>💰 Ganancia por sección:</strong>
                         <div className="row mt-2 small">
+                          {resumen.jornales.honorario > 0 && (
+                            <div className="col-md-3">
+                              🏗️ Jornales: <strong>${resumen.jornales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                            </div>
+                          )}
                           {resumen.profesionales.honorario > 0 && (
                             <div className="col-md-3">
                               👷 Profesionales: <strong>${resumen.profesionales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
@@ -4762,7 +4767,7 @@ const ConfiguracionPresupuestoSection = ({
                             // Calcular mayor costo de honorarios
                             let mayorCostoHon = 0;
                             if (mayoresCostosActual.honorarios?.activo !== false) {
-                              const base = resumen.honorarios?.base || 0;
+                              const base = resumen.totales.honorarios || 0;
                               const valor = Number(mayoresCostosActual.honorarios?.valor || 0);
                               if (valor > 0 && mayoresCostosActual.honorarios?.tipo === 'porcentaje') {
                                 mayorCostoHon = (base * valor) / 100;

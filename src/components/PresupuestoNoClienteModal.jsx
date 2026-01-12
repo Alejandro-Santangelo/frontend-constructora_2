@@ -3023,7 +3023,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       const subtotalManoObraCompleto = profesionalesCompletos.reduce((sum, p) => sum + (p.subtotal || 0), 0);
 
       // ✅ Calcular subtotal de jornales
-      const subtotalJornales = (itemExistente.jornales || []).reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+      const subtotalJornales = (itemExistente.jornales || []).reduce((sum, j) => {
+          const cant = Number(j.cantidadJornales || j.cantidad || 0);
+          const val = Number(j.importeJornal || j.valorUnitario || 0);
+          const sub = Number(j.subtotal) || (cant * val);
+          return sum + sub;
+      }, 0);
 
       const itemActualizado = {
         ...itemExistente, // Mantener todo el contenido existente
@@ -3261,10 +3266,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       const materialesCompletos = materialesCalc;
 
-      const subtotalMaterialesCompleto = materialesCompletos.reduce((sum, m) => sum + (m.subtotal || 0), 0);
+      const subtotalMaterialesCompleto = materialesCompletos.reduce((sum, m) => {
+        let valorItem = 0;
+        if (m.subtotal !== undefined && m.subtotal !== null && Number(m.subtotal) > 0) {
+            valorItem = Number(m.subtotal);
+        } else {
+            // Fallback para items importados/antiguos
+            const precio = Number(m.precioUnitario || m.presupuestoTotal || m.precio || 0);
+            const cantidad = Number(m.cantidad || 1);
+            valorItem = precio * cantidad;
+        }
+        return sum + valorItem;
+      }, 0);
 
       // ✅ Calcular subtotal de jornales
-      const subtotalJornales = (itemExistente.jornales || []).reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+      const subtotalJornales = (itemExistente.jornales || []).reduce((sum, j) => {
+          const cant = Number(j.cantidadJornales || j.cantidad || 0);
+          const val = Number(j.importeJornal || j.valorUnitario || 0);
+          const sub = Number(j.subtotal) || (cant * val);
+          return sum + sub;
+      }, 0);
 
       const itemActualizado = {
         ...itemExistente, // Mantener todo el contenido existente
@@ -3312,7 +3333,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           ...materialesCalc
         ];
 
-        const subtotalMaterialesCompleto = materialesCompletos.reduce((sum, m) => sum + (m.subtotal || 0), 0);
+        const subtotalMaterialesCompleto = materialesCompletos.reduce((sum, m) => {
+          let valorItem = 0;
+          if (m.subtotal !== undefined && m.subtotal !== null && Number(m.subtotal) > 0) {
+              valorItem = Number(m.subtotal);
+          } else {
+              // Fallback para items importados/antiguos
+              const precio = Number(m.precioUnitario || m.presupuestoTotal || m.precio || 0);
+              const cantidad = Number(m.cantidad || 1);
+              valorItem = precio * cantidad;
+          }
+          return sum + valorItem;
+        }, 0);
 
         const itemActualizado = {
           ...rubroExistente,
@@ -3364,7 +3396,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       return;
     }
 
-    const subtotalGastosGeneralesCompleto = gastosGeneralesCalc.reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0);
+    const subtotalGastosGeneralesCompleto = gastosGeneralesCalc.reduce((sum, m) => {
+      let valorItem = 0;
+      if (m.subtotal !== undefined && m.subtotal !== null && Number(m.subtotal) > 0) {
+          valorItem = Number(m.subtotal);
+      } else {
+          // Fallback para items importados/antiguos
+          const precio = Number(m.precioUnitario || m.presupuestoTotal || m.precio || 0);
+          const cantidad = Number(m.cantidad || 1);
+          valorItem = precio * cantidad;
+      }
+      return sum + valorItem;
+    }, 0);
 
     const currentEditingId = itemEditandoId || itemEditandoIdRef.current || window.currentEditingItemId;
 
@@ -3383,10 +3426,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       // REEMPLAZAR gastos (igual que profesionales y materiales)
       const gastosGeneralesCompletos = gastosGeneralesCalc;
 
-      const subtotalGastosGeneralesCompleto = gastosGeneralesCompletos.reduce((sum, g) => sum + (g.subtotal || 0), 0);
+      const subtotalGastosGeneralesCompleto = gastosGeneralesCompletos.reduce((sum, m) => {
+        let valorItem = 0;
+        if (m.subtotal !== undefined && m.subtotal !== null && Number(m.subtotal) > 0) {
+            valorItem = Number(m.subtotal);
+        } else {
+            // Fallback para items importados/antiguos
+            const precio = Number(m.precioUnitario || m.presupuestoTotal || m.precio || 0);
+            const cantidad = Number(m.cantidad || 1);
+            valorItem = precio * cantidad;
+        }
+        return sum + valorItem;
+      }, 0);
 
       // ✅ Calcular subtotal de jornales
-      const subtotalJornales = (itemExistente.jornales || []).reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+      const subtotalJornales = (itemExistente.jornales || []).reduce((sum, j) => {
+          const cant = Number(j.cantidadJornales || j.cantidad || 0);
+          const val = Number(j.importeJornal || j.valorUnitario || 0);
+          const sub = Number(j.subtotal) || (cant * val);
+          return sum + sub;
+      }, 0);
 
       const itemActualizado = {
         ...itemExistente, // Mantener todo el contenido existente
@@ -5308,7 +5367,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
         // ✅ CALCULAR TOTAL DE JORNALES
         if (item.jornales && item.jornales.length > 0) {
-          const subtotalJornales = item.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+          const subtotalJornales = item.jornales.reduce((sum, j) => {
+              const cant = Number(j.cantidadJornales || j.cantidad || 0);
+              const val = Number(j.importeJornal || j.valorUnitario || 0);
+              const sub = Number(j.subtotal) || (cant * val);
+              return sum + sub;
+          }, 0);
           totalJornalesCalculadora += subtotalJornales;
         } else if (item.subtotalJornales && item.subtotalJornales > 0) {
           totalJornalesCalculadora += parseFloat(item.subtotalJornales) || 0;
@@ -5456,6 +5520,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     let totalMatCalculadora = 0;
     let totalGastosGeneralesCalculadora = 0;
     let totalSinDesgloseCalculadora = 0;
+    let totalJornalesCalculadora = 0; // ✅ NUEVO
 
     // ✅ FILTRAR ITEMS LEGACY antes de calcular mayores costos
     const itemsValidosParaMayoresCostos = (itemsCalculadora || []).filter(item => {
@@ -5476,6 +5541,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         totalProfCalculadora += parseFloat(item.subtotalManoObra) || 0;
         totalMatCalculadora += parseFloat(item.subtotalMateriales) || 0;
 
+        // ✅ CALCULAR TOTAL DE JORNALES PARA MAYORES COSTOS
+        if (item.jornales && item.jornales.length > 0) {
+          const subtotalJornales = item.jornales.reduce((sum, j) => {
+              const cant = Number(j.cantidadJornales || j.cantidad || 0);
+              const val = Number(j.importeJornal || j.valorUnitario || 0);
+              const sub = Number(j.subtotal) || (cant * val);
+              return sum + sub;
+          }, 0);
+          totalJornalesCalculadora += subtotalJornales;
+        } else if (item.subtotalJornales && item.subtotalJornales > 0) {
+          totalJornalesCalculadora += parseFloat(item.subtotalJornales) || 0;
+        }
+
         if (item.subtotalGastosGenerales && item.subtotalGastosGenerales > 0) {
           totalGastosGeneralesCalculadora += parseFloat(item.subtotalGastosGenerales) || 0;
         }
@@ -5491,6 +5569,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       }
     });
 
+    // ✅ AGREGAR JORNALES DEL FORM DIRECTOS (si existen)
+    if (form.jornales && form.jornales.length > 0) {
+      const subtotalJornalesDirectos = form.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+      totalJornalesCalculadora += subtotalJornalesDirectos;
+    }
+
     const totalProfCompleto = totalProf + totalProfCalculadora;
     const totalMatCompleto = totalMat + totalMatCalculadora;
     const totalOtrosCompleto = totalOtros + totalGastosGeneralesCalculadora;
@@ -5500,6 +5584,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     let mayorCostoMat = 0;
     let mayorCostoOtros = 0;
     let mayorCostoCalculadora = 0;
+    let mayorCostoJornales = 0; // ✅ NUEVO
 
     if (form.mayoresCostos.profesionales?.activo && form.mayoresCostos.profesionales?.valor) {
       const valor = Number(form.mayoresCostos.profesionales.valor);
@@ -5534,6 +5619,68 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       }
     }
 
+    // ✅ CALCULAR MAYORES COSTOS DE JORNALES
+    if (form.mayoresCostos.jornales?.activo) {
+      const configJornales = form.mayoresCostos.jornales;
+
+      // Modo "porRol"
+      if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
+        // Jornales de itemsCalculadora
+        (itemsCalculadora || []).forEach(item => {
+          if (item.jornales && item.jornales.length > 0) {
+            item.jornales.forEach(jornal => {
+              const configRol = configJornales.porRol[jornal.rol];
+              if (configRol) {
+                const cant = Number(jornal.cantidadJornales || jornal.cantidad || 0);
+                const val = Number(jornal.importeJornal || jornal.valorUnitario || 0);
+                const sub = Number(jornal.subtotal) || (cant * val);
+
+                if (configRol.tipo === 'porcentaje') {
+                  mayorCostoJornales += (sub * Number(configRol.valor)) / 100;
+                } else {
+                  mayorCostoJornales += Number(configRol.valor);
+                }
+              }
+            });
+          }
+        });
+
+        // Jornales directos del form
+        if (form.jornales && form.jornales.length > 0) {
+          form.jornales.forEach(jornal => {
+            const configRol = configJornales.porRol[jornal.rol];
+            if (configRol) {
+              const cant = Number(jornal.cantidadJornales || jornal.cantidad || 0);
+              const val = Number(jornal.importeJornal || jornal.valorUnitario || 0);
+              const sub = Number(jornal.subtotal) || (cant * val);
+
+              if (configRol.tipo === 'porcentaje') {
+                mayorCostoJornales += (sub * Number(configRol.valor)) / 100;
+              } else {
+                mayorCostoJornales += Number(configRol.valor);
+              }
+            }
+          });
+        }
+      }
+      // Modo "todos"
+      else if (configJornales.modoAplicacion === 'todos' && configJornales.valor) {
+        const valor = Number(configJornales.valor);
+        if (configJornales.tipo === 'porcentaje') {
+          mayorCostoJornales = (totalJornalesCalculadora * valor) / 100;
+        } else {
+          mayorCostoJornales = valor;
+        }
+      }
+      // Retrocompatibilidad
+      else if (!configJornales.modoAplicacion && configJornales.valor) {
+        const valor = Number(configJornales.valor);
+        if (configJornales.tipo === 'porcentaje') {
+          mayorCostoJornales = (totalJornalesCalculadora * valor) / 100;
+        }
+      }
+    }
+
     const honorariosBase = calcularHonorarios();
     let mayorCostoHonorarios = 0;
 
@@ -5552,7 +5699,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       otrosCostos: mayorCostoOtros,
       configuracionPresupuesto: mayorCostoCalculadora,
       honorarios: mayorCostoHonorarios,
-      total: mayorCostoProf + mayorCostoMat + mayorCostoOtros + mayorCostoCalculadora + mayorCostoHonorarios
+      jornales: mayorCostoJornales, // ✅ NUEVO
+      total: mayorCostoProf + mayorCostoMat + mayorCostoOtros + mayorCostoCalculadora + mayorCostoHonorarios + mayorCostoJornales
     };
   };
 
@@ -5658,9 +5806,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         acc[key].gastosGenerales = acc[key].gastosGenerales.concat(item.gastosGenerales || []);
 
         // Calcular subtotales desde los arrays si no vienen del backend
-        const subtotalJornalesCalculado = item.jornales ? item.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0) : 0;
+        const subtotalJornalesCalculado = item.jornales ? item.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || (Number(j.cantidadJornales || j.cantidad || 0) * Number(j.importeJornal || j.valorUnitario || 0)) || 0), 0) : 0;
         const subtotalProfesionalesCalculado = item.profesionales ? item.profesionales.reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0) : 0;
-        const subtotalMaterialesCalculado = item.materialesLista ? item.materialesLista.reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || 0), 0) : 0;
+        const subtotalMaterialesCalculado = item.materialesLista ? item.materialesLista.reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || (Number(m.cantidad || 0) * Number(m.precio || 0)) || 0), 0) : 0;
         const subtotalGastosGeneralesCalculado = item.gastosGenerales ? item.gastosGenerales.reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0) : 0;
 
         // ✅ CORREGIDO: Usar siempre los valores calculados desde los arrays
@@ -5897,7 +6045,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           else if (!configJornales.modoAplicacion && configJornales.valor) {
             const valor = Number(configJornales.valor);
             if (configJornales.tipo === 'porcentaje') {
-              mayoresCostosJornales = (rubro.subtotalJornalesConHonorarios * valor) / 100;
+              mayoresCostosJornales = (rubro.subtotalJornales * valor) / 100;
               mayoresCostosRubro += mayoresCostosJornales;
             }
           }
@@ -5950,16 +6098,29 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         }
 
         // Aplicar mayores costos a los Honorarios totales
+        let mcHonJornales = 0;
+        let mcHonManoObra = 0;
+        let mcHonMateriales = 0;
+        let mcHonGastosGenerales = 0;
+
         if (form.mayoresCostos.honorarios?.activo && form.mayoresCostos.honorarios?.valor) {
           const valor = Number(form.mayoresCostos.honorarios.valor);
           if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
-            // Calcular honorarios SIN incluir los del Total Manual (ya se calcularon aparte)
-            const honorariosSinTotalManual = (rubro.honorariosJornales || 0) +
-                                            (rubro.honorariosManoObra || 0) +
-                                            (rubro.honorariosMateriales || 0) +
-                                            (rubro.honorariosGastosGenerales || 0);
+            // Calcular honorarios individuales para distribuir proporcionalmente
+            const hJornales = rubro.honorariosJornales || 0;
+            const hManoObra = rubro.honorariosManoObra || 0;
+            const hMateriales = rubro.honorariosMateriales || 0;
+            const hGastosGenerales = rubro.honorariosGastosGenerales || 0;
+
+            mcHonJornales = (hJornales * valor) / 100;
+            mcHonManoObra = (hManoObra * valor) / 100;
+            mcHonMateriales = (hMateriales * valor) / 100;
+            mcHonGastosGenerales = (hGastosGenerales * valor) / 100;
+
+            const honorariosSinTotalManual = hJornales + hManoObra + hMateriales + hGastosGenerales;
+
             if (honorariosSinTotalManual > 0) {
-              mayoresCostosHonorarios = (honorariosSinTotalManual * valor) / 100;
+              mayoresCostosHonorarios = mcHonJornales + mcHonManoObra + mcHonMateriales + mcHonGastosGenerales;
               mayoresCostosRubro += mayoresCostosHonorarios;
             }
           }
@@ -5972,10 +6133,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         rubro.mayoresCostosTotalManual = mayoresCostosTotalManual;
         rubro.mayoresCostosHonorarios = mayoresCostosHonorarios;
 
-        rubro.subtotalJornalesFinal = rubro.subtotalJornalesConHonorarios + mayoresCostosJornales;
-        rubro.subtotalManoObraFinal = rubro.subtotalManoObraConHonorarios + mayoresCostosManoObra;
-        rubro.subtotalMaterialesFinal = rubro.subtotalMaterialesConHonorarios + mayoresCostosMateriales;
-        rubro.subtotalGastosGeneralesFinal = rubro.subtotalGastosGeneralesConHonorarios + mayoresCostosGastosGenerales;
+        // Total Final = Base + Honorarios + MC(Base) + MC(Honorarios)
+        rubro.subtotalJornalesFinal = rubro.subtotalJornalesConHonorarios + mayoresCostosJornales + mcHonJornales;
+        rubro.subtotalManoObraFinal = rubro.subtotalManoObraConHonorarios + mayoresCostosManoObra + mcHonManoObra;
+        rubro.subtotalMaterialesFinal = rubro.subtotalMaterialesConHonorarios + mayoresCostosMateriales + mcHonMateriales;
+        rubro.subtotalGastosGeneralesFinal = rubro.subtotalGastosGeneralesConHonorarios + mayoresCostosGastosGenerales + mcHonGastosGenerales;
 
         rubro.total += mayoresCostosRubro;
         rubro.mayoresCostosAplicados = mayoresCostosRubro;
@@ -7353,7 +7515,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
           cantidadJornales: Number(cantidadJornalesParaBackend ?? 0),
           importeJornal: Number(importeJornalParaBackend ?? 0),
-          subtotalJornales: (item.jornales || []).reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0),
+          subtotalJornales: (item.jornales || []).reduce((sum, j) => {
+              const cant = Number(j.cantidadJornales || j.cantidad || 0);
+              const val = Number(j.importeJornal || j.valorUnitario || 0);
+              const sub = Number(j.subtotal) || (cant * val);
+              return sum + sub;
+          }, 0),
           subtotalManoObra: (item.profesionales || []).reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0),
           materiales: Number(materialesParaBackend ?? 0),
           subtotalMateriales: (item.materialesLista || []).reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || 0), 0),
@@ -7361,7 +7528,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           totalManual: Number(item.totalManual ?? 0),
           total: (() => {
             // ✅ RECALCULAR total desde TODOS los arrays, NO desde campos del backend
-            const subtotalJornales = (item.jornales || []).reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+            const subtotalJornales = (item.jornales || []).reduce((sum, j) => {
+                const cant = Number(j.cantidadJornales || j.cantidad || 0);
+                const val = Number(j.importeJornal || j.valorUnitario || 0);
+                const sub = Number(j.subtotal) || (cant * val);
+                return sum + sub;
+            }, 0);
             const subtotalProfesionales = (item.profesionales || []).reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0);
             const subtotalMateriales = (item.materialesLista || []).reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || 0), 0);
             const subtotalGastos = (item.gastosGenerales || []).reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0);
@@ -11192,23 +11364,37 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                           <span>
                                             <i className="fas fa-box me-1"></i>
                                             {(() => {
-                                              const subtotalBase = Number(mat.subtotal);
+                                              const subtotalBase = Number(mat.subtotal || 0);
                                               let subtotalFinal = subtotalBase;
+                                              let honorarios = 0;
+                                              let mayoresCostosBase = 0;
+                                              let mayoresCostosHonorarios = 0;
 
+                                              // Calcular honorarios
                                               if (form.honorarios?.materiales?.activo && form.honorarios?.materiales?.valor) {
                                                 const valorHonorario = Number(form.honorarios.materiales.valor);
                                                 if (form.honorarios.materiales.tipo === 'porcentaje') {
-                                                  subtotalFinal += (subtotalBase * valorHonorario) / 100;
+                                                  honorarios = (subtotalBase * valorHonorario) / 100;
                                                 }
                                               }
 
-                                              if (form.mayoresCostos?.activo && form.mayoresCostos?.valor) {
-                                                const valorMayorCosto = Number(form.mayoresCostos.valor);
-                                                if (form.mayoresCostos.tipo === 'porcentaje') {
-                                                  subtotalFinal += (subtotalFinal * valorMayorCosto) / 100;
+                                              // Calcular mayores costos sobre la base
+                                              if (form.mayoresCostos?.materiales?.activo && form.mayoresCostos?.materiales?.valor) {
+                                                const valorMayorCosto = Number(form.mayoresCostos.materiales.valor);
+                                                if (form.mayoresCostos.materiales.tipo === 'porcentaje') {
+                                                  mayoresCostosBase = (subtotalBase * valorMayorCosto) / 100;
                                                 }
                                               }
 
+                                              // Calcular mayores costos sobre honorarios
+                                              if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
+                                                const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
+                                                if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
+                                                  mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
+                                                }
+                                              }
+
+                                              subtotalFinal = subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
                                               const precioUnitarioFinal = mat.cantidad > 0 ? subtotalFinal / Number(mat.cantidad) : 0;
                                               const precioDisplay = precioUnitarioFinal.toLocaleString('es-AR');
 
@@ -11263,22 +11449,35 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       {item.gastosGenerales.map((gasto) => {
                                         const subtotalBase = Number(gasto.subtotal || 0);
                                         let subtotalFinal = subtotalBase;
+                                        let honorarios = 0;
+                                        let mayoresCostosBase = 0;
+                                        let mayoresCostosHonorarios = 0;
 
+                                        // Calcular honorarios
                                         if (form.honorarios?.otrosCostos?.activo && form.honorarios?.otrosCostos?.valor) {
                                           const valorHonorario = Number(form.honorarios.otrosCostos.valor);
                                           if (form.honorarios.otrosCostos.tipo === 'porcentaje') {
-                                            subtotalFinal += (subtotalBase * valorHonorario) / 100;
+                                            honorarios = (subtotalBase * valorHonorario) / 100;
                                           }
                                         }
 
-                                        if (form.mayoresCostos?.activo && form.mayoresCostos?.valor) {
-                                          const valorMayorCosto = Number(form.mayoresCostos.valor);
-                                          if (form.mayoresCostos.tipo === 'porcentaje') {
-                                            subtotalFinal += (subtotalFinal * valorMayorCosto) / 100;
+                                        // Calcular mayores costos sobre la base
+                                        if (form.mayoresCostos?.otrosCostos?.activo && form.mayoresCostos?.otrosCostos?.valor) {
+                                          const valorMayorCosto = Number(form.mayoresCostos.otrosCostos.valor);
+                                          if (form.mayoresCostos.otrosCostos.tipo === 'porcentaje') {
+                                            mayoresCostosBase = (subtotalBase * valorMayorCosto) / 100;
                                           }
                                         }
 
-                                        // SIMPLE: Precio unitario = Total final / Cantidad
+                                        // Calcular mayores costos sobre honorarios
+                                        if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
+                                          const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
+                                          if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
+                                            mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
+                                          }
+                                        }
+
+                                        subtotalFinal = subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
                                         const cantidad = Number(gasto.cantidad || 0);
                                         const precioUnitarioFinal = cantidad > 0 ? subtotalFinal / cantidad : 0;
 
@@ -11340,8 +11539,74 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       <div className="small fw-bold text-primary">Jornales:</div>
                                       {item.jornales.map((jornal) => {
                                         const cantidad = Number(jornal.cantidadJornales || jornal.cantidad || 0);
-                                        const valorUnitario = Number(jornal.importeJornal || jornal.valorUnitario || 0);
-                                        const subtotal = Number(jornal.subtotal || (cantidad * valorUnitario));
+                                        const valorUnitarioBase = Number(jornal.importeJornal || jornal.valorUnitario || 0);
+                                        const subtotalBase = Number(jornal.subtotal || (cantidad * valorUnitarioBase));
+
+                                        let honorarios = 0;
+                                        let mayoresCostosBase = 0;
+                                        let mayoresCostosHonorarios = 0;
+
+                                        // Calcular honorarios para jornales
+                                        if (form.honorarios?.jornales?.activo) {
+                                          const configJornales = form.honorarios.jornales;
+                                          // Modo porRol
+                                          if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
+                                            const configRol = configJornales.porRol[jornal.rol];
+                                            if (configRol) {
+                                              if (configRol.tipo === 'porcentaje') {
+                                                honorarios = (subtotalBase * Number(configRol.valor)) / 100;
+                                              } else {
+                                                honorarios = Number(configRol.valor);
+                                              }
+                                            }
+                                          }
+                                          // Modo todos
+                                          else if (configJornales.modoAplicacion === 'todos' && configJornales.valor) {
+                                            const valor = Number(configJornales.valor);
+                                            if (configJornales.tipo === 'porcentaje') {
+                                              honorarios = (subtotalBase * valor) / 100;
+                                            } else {
+                                              honorarios = valor;
+                                            }
+                                          }
+                                        }
+
+                                        // Calcular mayores costos sobre la base
+                                        if (form.mayoresCostos?.jornales?.activo) {
+                                          const configJornales = form.mayoresCostos.jornales;
+                                          // Modo porRol
+                                          if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
+                                            const configRol = configJornales.porRol[jornal.rol];
+                                            if (configRol) {
+                                              if (configRol.tipo === 'porcentaje') {
+                                                mayoresCostosBase = (subtotalBase * Number(configRol.valor)) / 100;
+                                              } else {
+                                                mayoresCostosBase = Number(configRol.valor);
+                                              }
+                                            }
+                                          }
+                                          // Modo todos
+                                          else if (configJornales.modoAplicacion === 'todos' && configJornales.valor) {
+                                            const valor = Number(configJornales.valor);
+                                            if (configJornales.tipo === 'porcentaje') {
+                                              mayoresCostosBase = (subtotalBase * valor) / 100;
+                                            } else {
+                                              mayoresCostosBase = valor;
+                                            }
+                                          }
+                                        }
+
+                                        // Calcular mayores costos sobre honorarios
+                                        if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
+                                          const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
+                                          if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
+                                            mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
+                                          }
+                                        }
+
+                                        const subtotalFinal = subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
+                                        const valorUnitarioFinal = cantidad > 0 ? subtotalFinal / cantidad : 0;
+                                        const subtotal = subtotalFinal;
 
                                         // ✨ Los checkboxes SIEMPRE empiezan destildados, el usuario debe tildarlos explícitamente
                                         const esModoManual = form.calculoAutomaticoDiasHabiles === false;
@@ -11394,7 +11659,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                               />
                                               <span>
                                                 <i className="fas fa-user-clock me-1"></i>
-                                                {jornal.rol}: {cantidad} × ${valorUnitario.toLocaleString('es-AR')} = ${subtotal.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                {jornal.rol}: {cantidad} × ${valorUnitarioFinal.toLocaleString('es-AR')} = ${subtotal.toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                               </span>
                                             </span>
                                             <div style={{display: 'flex', gap: '4px'}}>
@@ -11563,40 +11828,146 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       {(item.profesionales && item.profesionales.length > 0) || (item.materialesLista && item.materialesLista.length > 0) || (item.gastosGenerales && item.gastosGenerales.length > 0) || (item.jornales && item.jornales.length > 0) ? (
                                         <div>
                                           {(() => {
-                                            const itemTotalBase = Number(item.total || 0);
-                                            const honorariosActuales = calcularHonorarios();
-                                            const totalCalculadoraBase = itemsCalculadora.reduce((sum, i) => sum + (Number(i.total) || 0), 0);
+                                            // ✅ CALCULAR BADGES CON LA MISMA LÓGICA QUE LA COLUMNA DE DETALLES
+                                            let materialesFinal = 0;
+                                            let gastosGeneralesFinal = 0;
+                                            let jornalesFinal = 0;
 
-                                            const proporcionHonorarios = totalCalculadoraBase > 0
-                                              ? (itemTotalBase / totalCalculadoraBase) * honorariosActuales.configuracionPresupuesto
-                                              : 0;
+                                            // MATERIALES - Calcular individualmente cada material
+                                            if (item.materialesLista && item.materialesLista.length > 0) {
+                                              item.materialesLista.forEach(mat => {
+                                                const subtotalBase = Number(mat.subtotal || 0);
+                                                let honorarios = 0;
+                                                let mayoresCostosBase = 0;
+                                                let mayoresCostosHonorarios = 0;
 
-                                            const manoObraBase = Number(item.subtotalManoObra || 0);
-                                            const materialesBase = Number(item.subtotalMateriales || 0);
-                                            const gastosGeneralesBase = Number(item.subtotalGastosGenerales || 0);
-                                            const jornalesBase = item.jornales ? item.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0) : 0;
-                                            const totalComponentes = manoObraBase + materialesBase + gastosGeneralesBase;
+                                                if (form.honorarios?.materiales?.activo && form.honorarios?.materiales?.valor) {
+                                                  const valorHonorario = Number(form.honorarios.materiales.valor);
+                                                  if (form.honorarios.materiales.tipo === 'porcentaje') {
+                                                    honorarios = (subtotalBase * valorHonorario) / 100;
+                                                  }
+                                                }
 
-                                            let manoObraFinal = manoObraBase;
-                                            let materialesFinal = materialesBase;
-                                            let gastosGeneralesFinal = gastosGeneralesBase;
+                                                if (form.mayoresCostos?.materiales?.activo && form.mayoresCostos?.materiales?.valor) {
+                                                  const valorMayorCosto = Number(form.mayoresCostos.materiales.valor);
+                                                  if (form.mayoresCostos.materiales.tipo === 'porcentaje') {
+                                                    mayoresCostosBase = (subtotalBase * valorMayorCosto) / 100;
+                                                  }
+                                                }
 
-                                            if (totalComponentes > 0) {
-                                              const propMO = manoObraBase / totalComponentes;
-                                              const propMat = materialesBase / totalComponentes;
-                                              const propGG = gastosGeneralesBase / totalComponentes;
+                                                if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
+                                                  const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
+                                                  if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
+                                                    mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
+                                                  }
+                                                }
 
-                                              manoObraFinal = manoObraBase + (proporcionHonorarios * propMO);
-                                              materialesFinal = materialesBase + (proporcionHonorarios * propMat);
-                                              gastosGeneralesFinal = gastosGeneralesBase + (proporcionHonorarios * propGG);
+                                                materialesFinal += subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
+                                              });
+                                            }
+
+                                            // GASTOS GENERALES - Calcular individualmente cada gasto
+                                            if (item.gastosGenerales && item.gastosGenerales.length > 0) {
+                                              item.gastosGenerales.forEach(gasto => {
+                                                const subtotalBase = Number(gasto.subtotal || 0);
+                                                let honorarios = 0;
+                                                let mayoresCostosBase = 0;
+                                                let mayoresCostosHonorarios = 0;
+
+                                                if (form.honorarios?.otrosCostos?.activo && form.honorarios?.otrosCostos?.valor) {
+                                                  const valorHonorario = Number(form.honorarios.otrosCostos.valor);
+                                                  if (form.honorarios.otrosCostos.tipo === 'porcentaje') {
+                                                    honorarios = (subtotalBase * valorHonorario) / 100;
+                                                  }
+                                                }
+
+                                                if (form.mayoresCostos?.otrosCostos?.activo && form.mayoresCostos?.otrosCostos?.valor) {
+                                                  const valorMayorCosto = Number(form.mayoresCostos.otrosCostos.valor);
+                                                  if (form.mayoresCostos.otrosCostos.tipo === 'porcentaje') {
+                                                    mayoresCostosBase = (subtotalBase * valorMayorCosto) / 100;
+                                                  }
+                                                }
+
+                                                if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
+                                                  const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
+                                                  if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
+                                                    mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
+                                                  }
+                                                }
+
+                                                gastosGeneralesFinal += subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
+                                              });
+                                            }
+
+                                            // JORNALES - Calcular individualmente cada jornal
+                                            if (item.jornales && item.jornales.length > 0) {
+                                              item.jornales.forEach(jornal => {
+                                                const cantidad = Number(jornal.cantidadJornales || jornal.cantidad || 0);
+                                                const valorUnitarioBase = Number(jornal.importeJornal || jornal.valorUnitario || 0);
+                                                const subtotalBase = Number(jornal.subtotal || (cantidad * valorUnitarioBase));
+
+                                                let honorarios = 0;
+                                                let mayoresCostosBase = 0;
+                                                let mayoresCostosHonorarios = 0;
+
+                                                if (form.honorarios?.jornales?.activo) {
+                                                  const configJornales = form.honorarios.jornales;
+                                                  if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
+                                                    const configRol = configJornales.porRol[jornal.rol];
+                                                    if (configRol) {
+                                                      if (configRol.tipo === 'porcentaje') {
+                                                        honorarios = (subtotalBase * Number(configRol.valor)) / 100;
+                                                      } else {
+                                                        honorarios = Number(configRol.valor);
+                                                      }
+                                                    }
+                                                  } else if (configJornales.modoAplicacion === 'todos' && configJornales.valor) {
+                                                    const valor = Number(configJornales.valor);
+                                                    if (configJornales.tipo === 'porcentaje') {
+                                                      honorarios = (subtotalBase * valor) / 100;
+                                                    } else {
+                                                      honorarios = valor;
+                                                    }
+                                                  }
+                                                }
+
+                                                if (form.mayoresCostos?.jornales?.activo) {
+                                                  const configJornales = form.mayoresCostos.jornales;
+                                                  if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
+                                                    const configRol = configJornales.porRol[jornal.rol];
+                                                    if (configRol) {
+                                                      if (configRol.tipo === 'porcentaje') {
+                                                        mayoresCostosBase = (subtotalBase * Number(configRol.valor)) / 100;
+                                                      } else {
+                                                        mayoresCostosBase = Number(configRol.valor);
+                                                      }
+                                                    }
+                                                  } else if (configJornales.modoAplicacion === 'todos' && configJornales.valor) {
+                                                    const valor = Number(configJornales.valor);
+                                                    if (configJornales.tipo === 'porcentaje') {
+                                                      mayoresCostosBase = (subtotalBase * valor) / 100;
+                                                    } else {
+                                                      mayoresCostosBase = valor;
+                                                    }
+                                                  }
+                                                }
+
+                                                if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
+                                                  const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
+                                                  if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
+                                                    mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
+                                                  }
+                                                }
+
+                                                jornalesFinal += subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
+                                              });
                                             }
 
                                             return (
                                               <>
-                                                {manoObraFinal > 0 && <span className="badge bg-info">M.O.: ${manoObraFinal.toLocaleString('es-AR')}</span>}
                                                 {materialesFinal > 0 && <><br/><span className="badge bg-success mt-1">Mat: ${materialesFinal.toLocaleString('es-AR')}</span></>}
                                                 {gastosGeneralesFinal > 0 && <><br/><span className="badge bg-warning text-dark mt-1">G.G.: ${gastosGeneralesFinal.toLocaleString('es-AR')}</span></>}
-                                                {jornalesBase > 0 && <><br/><span className="badge bg-primary mt-1">Jornales: ${jornalesBase.toLocaleString('es-AR')}</span></>}
+                                                {jornalesFinal > 0 && <><br/><span className="badge bg-primary mt-1">Jornales: ${jornalesFinal.toLocaleString('es-AR')}</span></>}
                                               </>
                                             );
                                           })()}
@@ -11779,88 +12150,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 {/* Columna del Total */}
                                 <td className="text-end">
                                   {(() => {
-                                    // Recalcular el total (código duplicado necesario por el orden de las columnas)
-                                    let totalReal = 0;
+                                    // ✅ USAR EL MISMO itemsCalculadoraConsolidados PARA GARANTIZAR CONSISTENCIA
+                                    const itemConsolidado = itemsCalculadoraConsolidados.find(
+                                      ic => ic.tipoProfesional?.toLowerCase() === item.tipoProfesional?.toLowerCase()
+                                    );
 
-                                    if (item.profesionales && item.profesionales.length > 0) {
-                                      item.profesionales.forEach(prof => {
-                                        const subtotalBase = Number(prof.subtotal);
-                                        let honorario = 0;
-
-                                        if (form.honorarios?.aplicarATodos && form.honorarios.profesionales?.activo) {
-                                          const valorGeneral = Number(form.honorarios.valorGeneral) || 0;
-                                          if (valorGeneral > 0 && form.honorarios.tipoGeneral === 'porcentaje') {
-                                            honorario = (subtotalBase * valorGeneral) / 100;
-                                          }
-                                        } else if (!form.honorarios?.aplicarATodos && form.honorarios?.profesionales?.activo && form.honorarios?.profesionales?.valor) {
-                                          const valor = Number(form.honorarios.profesionales.valor);
-                                          if (form.honorarios.profesionales.tipo === 'porcentaje') {
-                                            honorario = (subtotalBase * valor) / 100;
-                                          }
-                                        }
-
-                                        totalReal += subtotalBase + honorario;
-                                      });
+                                    if (itemConsolidado && itemConsolidado.total) {
+                                      return <strong>${Number(itemConsolidado.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>;
                                     }
 
-                                    if (item.materialesLista && item.materialesLista.length > 0) {
-                                      item.materialesLista.forEach(mat => {
-                                        const subtotalBase = Number(mat.subtotal || 0);
-                                        let honorario = 0;
-
-                                        if (form.honorarios?.aplicarATodos && form.honorarios.materiales?.activo) {
-                                          const valorGeneral = Number(form.honorarios.valorGeneral) || 0;
-                                          if (valorGeneral > 0 && form.honorarios.tipoGeneral === 'porcentaje') {
-                                            honorario = (subtotalBase * valorGeneral) / 100;
-                                          }
-                                        } else if (!form.honorarios?.aplicarATodos && form.honorarios?.materiales?.activo && form.honorarios?.materiales?.valor) {
-                                          const valor = Number(form.honorarios.materiales.valor);
-                                          if (form.honorarios.materiales.tipo === 'porcentaje') {
-                                            honorario = (subtotalBase * valor) / 100;
-                                          }
-                                        }
-
-                                        totalReal += subtotalBase + honorario;
-                                      });
-                                    }
-
-                                    if (item.gastosGenerales && item.gastosGenerales.length > 0) {
-                                      item.gastosGenerales.forEach(gasto => {
-                                        const subtotalBase = Number(gasto.subtotal || 0);
-                                        let honorario = 0;
-
-                                        if (form.honorarios?.aplicarATodos && form.honorarios.otrosCostos?.activo) {
-                                          const valorGeneral = Number(form.honorarios.valorGeneral) || 0;
-                                          if (valorGeneral > 0 && form.honorarios.tipoGeneral === 'porcentaje') {
-                                            honorario = (subtotalBase * valorGeneral) / 100;
-                                          }
-                                        } else if (!form.honorarios?.aplicarATodos && form.honorarios?.otrosCostos?.activo && form.honorarios?.otrosCostos?.valor) {
-                                          const valor = Number(form.honorarios.otrosCostos.valor);
-                                          if (form.honorarios.otrosCostos.tipo === 'porcentaje') {
-                                            honorario = (subtotalBase * valor) / 100;
-                                          }
-                                        }
-
-                                        totalReal += subtotalBase + honorario;
-                                      });
-                                    }
-
-                                    if (item.jornales && item.jornales.length > 0) {
-                                      item.jornales.forEach(jornal => {
-                                        const subtotalJornal = Number(jornal.subtotal || 0);
-                                        totalReal += subtotalJornal;
-                                      });
-                                    }
-
-                                    if (item.totalManual && Number(item.totalManual) > 0) {
-                                      totalReal += Number(item.totalManual);
-                                    }
-
-                                    if (totalReal === 0) {
-                                      totalReal = Number(item.total || 0);
-                                    }
-
-                                    return <strong>${totalReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>;
+                                    // FALLBACK: Si no se encuentra en consolidados, usar el total del item directo
+                                    const totalFallback = Number(item.total || 0);
+                                    return <strong>${totalFallback.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>;
                                   })()}
                                 </td>
                                 <td className="text-center">

@@ -265,12 +265,84 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     );
   };
 
-  const separarGlobalYDetalle = (items) => {
+  const separarGlobalYDetalle = (items, configHonorarios = null, configMayoresCostos = null) => {
     const arr = Array.isArray(items) ? items : [];
     const globalItems = arr.filter(esItemPresupuestoGlobal);
     const detalleItems = arr.filter((x) => !esItemPresupuestoGlobal(x));
     const globalItem = globalItems[0] || null;
-    const importeGlobal = globalItem ? extraerImporteItem(globalItem) : 0;
+
+    console.log('🔍 separarGlobalYDetalle - Items recibidos:', {
+      totalItems: arr.length,
+      globalItems: globalItems.length,
+      detalleItems: detalleItems.length,
+      tieneConfigHonorarios: !!configHonorarios,
+      tieneConfigMayoresCostos: !!configMayoresCostos,
+      globalItem: globalItem ? {
+        id: globalItem.id,
+        descripcion: globalItem.descripcion,
+        importe: globalItem.importe,
+        subtotal: globalItem.subtotal,
+        total: globalItem.total,
+        todasPropiedades: Object.keys(globalItem)
+      } : null
+    });
+
+    let importeGlobal = 0;
+    if (globalItem) {
+      // ✅ CALCULAR IMPORTE GLOBAL INCLUYENDO HONORARIOS Y MAYORES COSTOS
+      const baseGlobal = extraerImporteItem(globalItem);
+      let honorarios = 0;
+      let mayoresCostosBase = 0;
+      let mayoresCostosHonorarios = 0;
+
+      // Usar configuración pasada como parámetro o la del estado
+      const configHon = configHonorarios || presupuesto?.honorarios;
+      const configMC = configMayoresCostos || presupuesto?.mayoresCostos;
+
+      console.log('🔍 Configuración para cálculo:', {
+        tieneConfigHonorarios: !!configHon,
+        honorariosOtrosCostos: configHon?.otrosCostos,
+        tieneConfigMayoresCostos: !!configMC,
+        mayoresCostosOtrosCostos: configMC?.otrosCostos,
+        mayoresCostosHonorarios: configMC?.honorarios
+      });
+
+      // Calcular honorarios de otros costos
+      if (configHon?.otrosCostos?.activo && configHon?.otrosCostos?.valor) {
+        const valorHonorario = Number(configHon.otrosCostos.valor);
+        if (configHon.otrosCostos.tipo === 'porcentaje') {
+          honorarios = (baseGlobal * valorHonorario) / 100;
+        }
+      }
+
+      // Calcular mayores costos sobre la base
+      if (configMC?.otrosCostos?.activo && configMC?.otrosCostos?.valor) {
+        const valorMayorCosto = Number(configMC.otrosCostos.valor);
+        if (configMC.otrosCostos.tipo === 'porcentaje') {
+          mayoresCostosBase = (baseGlobal * valorMayorCosto) / 100;
+        }
+      }
+
+      // Calcular mayores costos sobre honorarios
+      if (honorarios > 0 && configMC?.honorarios?.activo && configMC?.honorarios?.valor) {
+        const valorMCHon = Number(configMC.honorarios.valor);
+        if (configMC.honorarios.tipo === 'porcentaje') {
+          mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
+        }
+      }
+
+      importeGlobal = baseGlobal + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
+
+      console.log('💰 CÁLCULO IMPORTE GLOBAL GASTOS GENERALES:', {
+        baseGlobal,
+        honorarios,
+        mayoresCostosBase,
+        mayoresCostosHonorarios,
+        importeGlobalFinal: importeGlobal,
+        formatoAR: `$${importeGlobal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+      });
+    }
+
     return {
       globalItem,
       importeGlobal,
@@ -356,51 +428,122 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     setError(null);
     try {
       console.log('🔍🔍🔍 [OTROS COSTOS] INICIANDO CARGA DE PRESUPUESTO 🔍🔍🔍');
-      console.log('🔍 Buscando presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) más reciente para obra:', obra.id);
+      console.log('🔍 obra._esTrabajoExtra:', obra._esTrabajoExtra);
+      console.log('🔍 obra.presupuestoNoCliente presente:', !!obra.presupuestoNoCliente);
+      console.log('🔍 obra.id:', obra.id);
 
-      // SIEMPRE buscar la versión más reciente del presupuesto usando el servicio API
-      const data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
-      console.log('📦 Total presupuestos obtenidos:', data?.length || 0);
+      let presupuestoActual = null;
+      let presupuestoId = null; // ✅ Definir aquí para todos los casos
 
-      // El backend puede devolver el array directamente o dentro de content/datos
-      const presupuestos = Array.isArray(data) ? data : (data?.content || data?.datos || []);
-
-      // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
-      const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
-
-      // Filtrar por obraId y estado válido
-      const presupuestosObra = (presupuestos || []).filter(p =>
-        (Number(p.obraId) === Number(obra.id) || Number(p.idObra) === Number(obra.id)) &&
-        estadosValidos.includes(p.estado)
-      );
-      console.log('✅ Presupuestos con estado válido de obra', obra.id, ':', presupuestosObra.length);
-
-      if (presupuestosObra.length === 0) {
-        throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
-      }
-
-      // Tomar el más reciente entre los APROBADOS (mayor versión o mayor ID)
-      const presupuestoResumen = presupuestosObra.sort((a, b) => {
-          if (a.numeroPresupuesto === b.numeroPresupuesto) {
-            return (b.version || 0) - (a.version || 0);
-          }
-          return b.id - a.id;
-        })[0];
-
-      // IMPORTANTE: Siempre buscar la versión más reciente, incluso si tenemos una en configuracionObra
-      if (presupuestoResumen && configuracionObra?.presupuestoSeleccionado &&
-          presupuestoResumen.version !== configuracionObra.presupuestoSeleccionado.version) {
-        console.log('🔄 Detectada nueva versión del presupuesto:', {
-          actual: presupuestoResumen.version,
-          configuracion: configuracionObra.presupuestoSeleccionado.version
+      // ✅ SI YA VIENE EL PRESUPUESTO COMPLETO (trabajo extra pre-cargado), USARLO
+      if (obra.presupuestoNoCliente && obra.presupuestoNoCliente.itemsCalculadora) {
+        console.log('✅ Presupuesto completo ya cargado (trabajo extra):', {
+          id: obra.presupuestoNoCliente.id,
+          items: obra.presupuestoNoCliente.itemsCalculadora?.length || 0
         });
+        presupuestoActual = obra.presupuestoNoCliente;
+        presupuestoId = obra.presupuestoNoCliente.id; // ✅ Asignar ID
+      }
+      // ✅ SI ES TRABAJO EXTRA SIN PRESUPUESTO, CARGAR SU PRESUPUESTO
+      else if (obra._esTrabajoExtra) {
+        console.log('✅ Trabajo Extra detectado - cargando datos del trabajo extra ID:', obra.id);
+
+        // Cargar el trabajo extra completo (que incluye todos los datos del presupuesto)
+        try {
+          presupuestoActual = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+          presupuestoId = presupuestoActual.id; // ✅ Asignar ID
+          console.log('✅ Trabajo extra cargado:', {
+            id: presupuestoActual.id,
+            nombre: presupuestoActual.nombreObra || presupuestoActual.nombre,
+            items: presupuestoActual.itemsCalculadora?.length || 0,
+            esTrabajoExtra: presupuestoActual.esTrabajoExtra
+          });
+        } catch (error) {
+          console.error('❌ Error cargando trabajo extra:', error);
+          throw new Error('No se pudo cargar el trabajo extra');
+        }
+      } else {
+        // ✅ OBRA REGULAR: Buscar presupuesto en presupuestos tradicionales Y trabajos extra
+        console.log('🔍 Buscando presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) más reciente para obra:', obra.id);
+
+        // 🆕 Buscar TANTO en presupuestos tradicionales COMO en trabajos extra
+        const [dataTradicionales, dataTrabajosExtra] = await Promise.all([
+          api.presupuestosNoCliente.getAll(empresaSeleccionada.id),
+          api.trabajosExtra.getAll(empresaSeleccionada.id, { obraId: obra.id })
+        ]);
+
+        console.log('📦 Presupuestos tradicionales obtenidos:', dataTradicionales?.length || 0);
+        console.log('📦 Trabajos extra obtenidos:', dataTrabajosExtra?.length || 0);
+
+        // El backend puede devolver el array directamente o dentro de content/datos
+        const presupuestosTradicionales = Array.isArray(dataTradicionales) ? dataTradicionales : (dataTradicionales?.content || dataTradicionales?.datos || []);
+        const trabajosExtra = Array.isArray(dataTrabajosExtra) ? dataTrabajosExtra : [];
+
+        // 🆕 Combinar ambos tipos de presupuestos
+        const presupuestos = [...presupuestosTradicionales, ...trabajosExtra];
+        console.log('📦 Total presupuestos combinados:', presupuestos.length);
+
+        // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
+        const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
+
+        // Filtrar por obraId y estado válido
+        const presupuestosObra = (presupuestos || []).filter(p =>
+          (Number(p.obraId) === Number(obra.id) || Number(p.idObra) === Number(obra.id)) &&
+          estadosValidos.includes(p.estado)
+        );
+        console.log('✅ Presupuestos con estado válido de obra', obra.id, ':', presupuestosObra.length);
+
+        if (presupuestosObra.length === 0) {
+          throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
+        }
+
+        // Priorizar trabajos extra sobre presupuestos tradicionales
+        const trabajosExtraObra = presupuestosObra.filter(p => p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA');
+        const tradicionalesObra = presupuestosObra.filter(p => !p.esTrabajoExtra && p.tipo !== 'TRABAJO_EXTRA');
+
+        let presupuestoResumen;
+        if (trabajosExtraObra.length > 0) {
+          // Si hay trabajos extra, tomar el de menor ID (primero creado)
+          presupuestoResumen = trabajosExtraObra.sort((a, b) => a.id - b.id)[0];
+        } else {
+          // Si no hay trabajos extra, tomar el tradicional más reciente
+          presupuestoResumen = tradicionalesObra.sort((a, b) => {
+            if (a.numeroPresupuesto === b.numeroPresupuesto) {
+              return (b.version || 0) - (a.version || 0);
+            }
+            return b.id - a.id;
+          })[0];
+        }
+
+        // IMPORTANTE: Siempre buscar la versión más reciente, incluso si tenemos una en configuracionObra
+        if (presupuestoResumen && configuracionObra?.presupuestoSeleccionado &&
+            presupuestoResumen.version !== configuracionObra.presupuestoSeleccionado.version) {
+          console.log('🔄 Detectada nueva versión del presupuesto:', {
+            actual: presupuestoResumen.version,
+            configuracion: configuracionObra.presupuestoSeleccionado.version
+          });
+        }
+
+        const presupuestoId = presupuestoResumen.id;
+        const esTrabajoExtra = presupuestoResumen.esTrabajoExtra || presupuestoResumen.tipo === 'TRABAJO_EXTRA';
+
+        console.log('✅ Presupuesto seleccionado:', {
+          id: presupuestoId,
+          version: presupuestoResumen.version,
+          esTrabajoExtra: esTrabajoExtra,
+          nombre: presupuestoResumen.nombreObra || presupuestoResumen.nombre
+        });
+
+        // 🔥 OBTENER EL PRESUPUESTO COMPLETO según su tipo
+        if (esTrabajoExtra) {
+          console.log('📦 Cargando trabajo extra completo ID:', presupuestoId);
+          presupuestoActual = await api.trabajosExtra.getById(presupuestoId, empresaSeleccionada.id);
+        } else {
+          console.log('📦 Cargando presupuesto tradicional completo ID:', presupuestoId);
+          presupuestoActual = await api.presupuestosNoCliente.getById(presupuestoId, empresaSeleccionada.id);
+        }
       }
 
-      const presupuestoId = presupuestoResumen.id;
-      console.log('✅ Obteniendo presupuesto completo ID:', presupuestoId, 'versión:', presupuestoResumen.version);
-
-      // 🔥 OBTENER EL PRESUPUESTO COMPLETO PARA TENER itemsCalculadora Y OTROS COSTOS
-      const presupuestoActual = await api.presupuestosNoCliente.getById(presupuestoId, empresaSeleccionada.id);
 
       if (!presupuestoActual) {
         throw new Error('No se pudieron obtener los detalles del presupuesto ' + presupuestoId);
@@ -492,6 +635,95 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         return [];
       };
 
+      // ✅ EXTRAER CONFIGURACIÓN DE HONORARIOS Y MAYORES COSTOS ANTES DE PROCESAR
+      const fechaRaw = presupuestoActual.fechaProbableInicio;
+      const fechaFormateada = fechaRaw ? (typeof fechaRaw === 'string' && fechaRaw.includes('T') ? fechaRaw.split('T')[0] : fechaRaw) : null;
+
+      console.log('🔍 [DEBUG RAW] presupuestoActual campos:', {
+        id: presupuestoActual.id,
+        tieneHonorarios: !!presupuestoActual.honorarios,
+        tieneMayoresCostos: !!presupuestoActual.mayoresCostos,
+        honorariosOtrosCostosActivo: presupuestoActual.honorariosOtrosCostosActivo,
+        honorariosOtrosCostosValor: presupuestoActual.honorariosOtrosCostosValor,
+        mayoresCostosOtrosCostosActivo: presupuestoActual.mayoresCostosOtrosCostosActivo,
+        mayoresCostosOtrosCostosValor: presupuestoActual.mayoresCostosOtrosCostosValor,
+        mayoresCostosHonorariosActivo: presupuestoActual.mayoresCostosHonorariosActivo,
+        mayoresCostosHonorariosValor: presupuestoActual.mayoresCostosHonorariosValor,
+        todasLasPropiedades: Object.keys(presupuestoActual)
+      });
+
+      // Convertir estructura plana del backend a estructura anidada
+      const honorariosRaw = presupuestoActual.honorarios || {};
+      const honorarios = {
+        otrosCostos: {
+          activo: honorariosRaw.otrosCostosActivo ?? presupuestoActual.honorariosOtrosCostosActivo ?? false,
+          tipo: honorariosRaw.otrosCostosTipo ?? presupuestoActual.honorariosOtrosCostosTipo ?? 'porcentaje',
+          valor: Number(honorariosRaw.otrosCostosValor ?? presupuestoActual.honorariosOtrosCostosValor ?? 0)
+        },
+        jornales: {
+          activo: honorariosRaw.jornalesActivo ?? presupuestoActual.honorariosJornalesActivo ?? false,
+          tipo: honorariosRaw.jornalesTipo ?? presupuestoActual.honorariosJornalesTipo ?? 'porcentaje',
+          valor: Number(honorariosRaw.jornalesValor ?? presupuestoActual.honorariosJornalesValor ?? 0)
+        },
+        materiales: {
+          activo: honorariosRaw.materialesActivo ?? presupuestoActual.honorariosMaterialesActivo ?? false,
+          tipo: honorariosRaw.materialesTipo ?? presupuestoActual.honorariosMaterialesTipo ?? 'porcentaje',
+          valor: Number(honorariosRaw.materialesValor ?? presupuestoActual.honorariosMaterialesValor ?? 0)
+        },
+        profesionales: {
+          activo: honorariosRaw.profesionalesActivo ?? presupuestoActual.honorariosProfesionalesActivo ?? false,
+          tipo: honorariosRaw.profesionalesTipo ?? presupuestoActual.honorariosProfesionalesTipo ?? 'porcentaje',
+          valor: Number(honorariosRaw.profesionalesValor ?? presupuestoActual.honorariosProfesionalesValor ?? 0)
+        }
+      };
+
+      const mayoresCostosRaw = presupuestoActual.mayoresCostos || {};
+      const mayoresCostos = {
+        otrosCostos: {
+          activo: mayoresCostosRaw.otrosCostosActivo ?? presupuestoActual.mayoresCostosOtrosCostosActivo ?? false,
+          tipo: mayoresCostosRaw.otrosCostosTipo ?? presupuestoActual.mayoresCostosOtrosCostosTipo ?? 'porcentaje',
+          valor: Number(mayoresCostosRaw.otrosCostosValor ?? presupuestoActual.mayoresCostosOtrosCostosValor ?? 0)
+        },
+        jornales: {
+          activo: mayoresCostosRaw.jornalesActivo ?? presupuestoActual.mayoresCostosJornalesActivo ?? false,
+          tipo: mayoresCostosRaw.jornalesTipo ?? presupuestoActual.mayoresCostosJornalesTipo ?? 'porcentaje',
+          valor: Number(mayoresCostosRaw.jornalesValor ?? presupuestoActual.mayoresCostosJornalesValor ?? 0)
+        },
+        materiales: {
+          activo: mayoresCostosRaw.materialesActivo ?? presupuestoActual.mayoresCostosMaterialesActivo ?? false,
+          tipo: mayoresCostosRaw.materialesTipo ?? presupuestoActual.mayoresCostosMaterialesTipo ?? 'porcentaje',
+          valor: Number(mayoresCostosRaw.materialesValor ?? presupuestoActual.mayoresCostosMaterialesValor ?? 0)
+        },
+        profesionales: {
+          activo: mayoresCostosRaw.profesionalesActivo ?? presupuestoActual.mayoresCostosProfesionalesActivo ?? false,
+          tipo: mayoresCostosRaw.profesionalesTipo ?? presupuestoActual.mayoresCostosProfesionalesTipo ?? 'porcentaje',
+          valor: Number(mayoresCostosRaw.profesionalesValor ?? presupuestoActual.mayoresCostosProfesionalesValor ?? 0)
+        },
+        honorarios: {
+          activo: mayoresCostosRaw.honorariosActivo ?? presupuestoActual.mayoresCostosHonorariosActivo ?? false,
+          tipo: mayoresCostosRaw.honorariosTipo ?? presupuestoActual.mayoresCostosHonorariosTipo ?? 'porcentaje',
+          valor: Number(mayoresCostosRaw.honorariosValor ?? presupuestoActual.mayoresCostosHonorariosValor ?? 0)
+        }
+      };
+
+      // ✅ SETEAR PRESUPUESTO EN ESTADO ANTES DE PROCESAR (para que separarGlobalYDetalle lo use)
+      const presupuestoParaEstado = {
+        id: presupuestoId,
+        nombre: presupuestoActual.nombreObra || presupuestoActual.nombre || 'Presupuesto',
+        version: presupuestoActual.version || 1,
+        fechaProbableInicio: fechaFormateada,
+        honorarios,
+        mayoresCostos
+      };
+
+      setPresupuesto(presupuestoParaEstado);
+
+      console.log('💰 [DEBUG] Configuración de honorarios/mayores costos MAPEADA:', {
+        honorariosOtrosCostos: honorarios.otrosCostos,
+        mayoresCostosOtrosCostos: mayoresCostos.otrosCostos,
+        mayoresCostosHonorarios: mayoresCostos.honorarios
+      });
+
       // 🆕 EXTRAER RUBROS DE TODAS LAS FUENTES POSIBLES DEL PRESUPUESTO
       if (presupuestoActual.itemsCalculadora && Array.isArray(presupuestoActual.itemsCalculadora)) {
         presupuestoActual.itemsCalculadora.forEach(it => {
@@ -540,7 +772,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           ? 'presupuestoActual.otrosCostos'
           : 'presupuestoActual.otrosCostosJson';
 
-        const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosCandidatos);
+        const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosCandidatos, honorarios, mayoresCostos);
 
         console.log('🔍 [DEBUG GASTOS GLOBALES] Resultado separarGlobalYDetalle:', {
           tieneGlobal,
@@ -603,7 +835,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
         if (todosGastos.length > 0) {
           fuenteDeteccion = 'presupuestoActual.itemsCalculadora.gastosGenerales';
-          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(todosGastos);
+          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(todosGastos, honorarios, mayoresCostos);
 
           console.log('🔍 [DEBUG GASTOS GLOBALES] Resultado separarGlobalYDetalle (itemsCalculadora):', {
             tieneGlobal,
@@ -670,7 +902,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           }
 
           fuenteDeteccion = 'endpoint /gastos-generales';
-          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(gastosGeneralesData || []);
+          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(gastosGeneralesData || [], honorarios, mayoresCostos);
           if (tieneGlobal) {
             presupuestoGlobal = presupuestoGlobal || importeGlobal;
           }
@@ -725,7 +957,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               extraerRubrosDeArray(otrosCostosData);
 
               fuenteDeteccion = 'endpoint /otros-costos (respaldo)';
-              const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosData || []);
+              const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosData || [], honorarios, mayoresCostos);
               if (tieneGlobal) {
                 presupuestoGlobal = presupuestoGlobal || importeGlobal;
               }
@@ -807,36 +1039,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         console.log(`📋 Gastos Detallados: ${gastosDisponibles.length} items`);
       }
 
-      // Convertir fechaProbableInicio de ISO a formato YYYY-MM-DD
-      const fechaRaw = presupuestoActual.fechaProbableInicio;
-      const fechaFormateada = fechaRaw ? (typeof fechaRaw === 'string' && fechaRaw.includes('T') ? fechaRaw.split('T')[0] : fechaRaw) : null;
-
-      const presupuestoParaEstado = {
-        id: presupuestoId,
-        nombre: presupuestoActual.nombreObra || 'Presupuesto',
-        version: presupuestoActual.version || 1,
-        fechaProbableInicio: fechaFormateada,
-        // Agregar honorarios y mayores costos para cálculos
-        honorarios: {
-          otrosCostos: {
-            activo: presupuestoActual.honorariosOtrosCostosActivo,
-            tipo: presupuestoActual.honorariosOtrosCostosTipo,
-            valor: presupuestoActual.honorariosOtrosCostosValor
-          }
-        },
-        mayoresCostos: {
-          otrosCostos: {
-            activo: presupuestoActual.mayoresCostosOtrosCostosActivo,
-            tipo: presupuestoActual.mayoresCostosOtrosCostosTipo,
-            valor: presupuestoActual.mayoresCostosOtrosCostosValor
-          }
-        }
-      };
-
-      setPresupuesto(presupuestoParaEstado);
-      console.log('📅 Fecha probable inicio cargada en AsignarOtroCosto (ISO → YYYY-MM-DD):', fechaRaw, '→', fechaFormateada);
-      console.log('✅✅✅ [OTROS COSTOS] PRESUPUESTO GUARDADO EN ESTADO:', presupuestoParaEstado);
-      console.log('🔍🔍🔍 [OTROS COSTOS] FIN CARGA DE PRESUPUESTO 🔍🔍🔍');
+      console.log('✅ Presupuesto guardado en estado con configuración de honorarios/mayores costos');
+      console.log('🏁🏁🏁 FIN CARGA DE PRESUPUESTO Y RUBROS 🏁🏁🏁');
     } catch (error) {
       console.error('❌ Error cargando presupuesto:', error);
       setError(error.message);

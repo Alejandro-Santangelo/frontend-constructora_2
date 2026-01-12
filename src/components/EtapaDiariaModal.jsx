@@ -6,10 +6,10 @@ import SeleccionarProfesionalesModal from './SeleccionarProfesionalesModal';
 
 const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapaDiariaInicial = null, onGuardado, etapasExistentes = [] }) => {
   const { empresaSeleccionada } = useEmpresa();
-  
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
+
   const [formData, setFormData] = useState({
     fecha: '',
     descripcion: '', // 🆕 Descripción general del día
@@ -34,42 +34,52 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   const [mostrarModalSeleccionProfesionales, setMostrarModalSeleccionProfesionales] = useState(false);
 
   // ==================== CÁLCULOS INTELIGENTES ====================
-  
+
   // Calcular jornales del presupuesto
   const getJornalesPresupuesto = () => {
+    // 🔥 PRIORIDAD 1: Si viene configuracionObra, usar esos valores
+    if (configuracionObra?.diasHabiles) {
+      return configuracionObra.diasHabiles;
+    }
+
     // Intentar obtener desde presupuestoNoCliente vinculado
     if (obra?.presupuestoNoCliente?.detalles) {
       const detalles = obra.presupuestoNoCliente.detalles;
-      const itemJornales = detalles.find(d => 
-        d.item?.toLowerCase().includes('jornal') || 
+      const itemJornales = detalles.find(d =>
+        d.item?.toLowerCase().includes('jornal') ||
         d.descripcion?.toLowerCase().includes('jornal')
       );
-      
+
       if (itemJornales) {
         return parseFloat(itemJornales.cantidad) || 0;
       }
     }
-    
+
     // Fallback: buscar en presupuestos array (si existe)
     if (obra?.presupuestos?.length > 0) {
       const presupuesto = obra.presupuestos[0];
       if (presupuesto.detalles) {
-        const itemJornales = presupuesto.detalles.find(d => 
-          d.item?.toLowerCase().includes('jornal') || 
+        const itemJornales = presupuesto.detalles.find(d =>
+          d.item?.toLowerCase().includes('jornal') ||
           d.descripcion?.toLowerCase().includes('jornal')
         );
-        
+
         if (itemJornales) {
           return parseFloat(itemJornales.cantidad) || 0;
         }
       }
     }
-    
+
     return null;
   };
 
   // Calcular semanas estimadas (5 días hábiles = 1 semana)
   const getSemanas = () => {
+    // 🔥 PRIORIDAD 1: Si viene configuracionObra, usar esos valores
+    if (configuracionObra?.semanas) {
+      return configuracionObra.semanas;
+    }
+
     const jornales = getJornalesPresupuesto();
     return jornales ? Math.ceil(jornales / 5) : null;
   };
@@ -78,10 +88,10 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   const getProgreso = () => {
     const jornales = getJornalesPresupuesto();
     if (!jornales) return null;
-    
+
     const etapasTerminadas = etapasExistentes.filter(e => e.estado === 'COMPLETADA').length;
     const porcentaje = Math.round((etapasTerminadas / jornales) * 100);
-    
+
     return {
       terminadas: etapasTerminadas,
       total: jornales,
@@ -94,12 +104,12 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
     const hoy = new Date();
     let proxima = new Date(hoy);
     proxima.setDate(proxima.getDate() + 1);
-    
+
     // Saltar fin de semana
     while (proxima.getDay() === 0 || proxima.getDay() === 6) {
       proxima.setDate(proxima.getDate() + 1);
     }
-    
+
     return proxima.toISOString().split('T')[0];
   };
 
@@ -107,14 +117,14 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   const getFechasSugeridas = () => {
     const fechas = [];
     let fecha = new Date();
-    
+
     while (fechas.length < 3) {
       fecha.setDate(fecha.getDate() + 1);
-      
+
       // Solo días hábiles (lun-vie)
       if (fecha.getDay() !== 0 && fecha.getDay() !== 6) {
         const fechaStr = fecha.toISOString().split('T')[0];
-        
+
         // Evitar fechas ya registradas
         const yaRegistrada = etapasExistentes.some(e => e.fecha === fechaStr);
         if (!yaRegistrada) {
@@ -125,7 +135,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
         }
       }
     }
-    
+
     return fechas;
   };
 
@@ -133,10 +143,10 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   const getResumenSemanal = () => {
     const jornales = getJornalesPresupuesto();
     if (!jornales) return [];
-    
+
     const semanas = getSemanas();
     const resumen = [];
-    
+
     // Helper para parsear fechas evitando problemas de zona horaria
     const parsearFechaLocal = (fechaStr) => {
       if (!fechaStr) return new Date();
@@ -147,46 +157,46 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
       }
       return new Date(fechaStr);
     };
-    
+
     // Fecha de inicio de la obra (configuración o primera etapa o fecha actual)
     let fechaInicio;
-    
+
     if (configuracionObra?.fechaInicio) {
       // Usar fecha de configuración con parsing seguro
       fechaInicio = parsearFechaLocal(configuracionObra.fechaInicio);
     } else {
       // Fallback a primera etapa existente
-      const primeraEtapa = [...etapasExistentes].sort((a, b) => 
+      const primeraEtapa = [...etapasExistentes].sort((a, b) =>
         parsearFechaLocal(a.fecha) - parsearFechaLocal(b.fecha)
       )[0];
-      
-      fechaInicio = primeraEtapa 
-        ? parsearFechaLocal(primeraEtapa.fecha) 
+
+      fechaInicio = primeraEtapa
+        ? parsearFechaLocal(primeraEtapa.fecha)
         : new Date();
     }
-    
+
     // Ajustar a lunes
     const primerLunes = new Date(fechaInicio);
     while (primerLunes.getDay() !== 1) {
       primerLunes.setDate(primerLunes.getDate() - 1);
     }
-    
+
     // Generar resumen por semana
     for (let i = 0; i < semanas; i++) {
       const inicioSemana = new Date(primerLunes);
       inicioSemana.setDate(inicioSemana.getDate() + (i * 7));
-      
+
       const finSemana = new Date(inicioSemana);
       finSemana.setDate(finSemana.getDate() + 4); // Viernes
-      
+
       // Contar etapas de esta semana
       const etapasSemana = etapasExistentes.filter(e => {
         const fechaEtapa = parsearFechaLocal(e.fecha);
         return fechaEtapa >= inicioSemana && fechaEtapa <= finSemana;
       });
-      
+
       const terminadas = etapasSemana.filter(e => e.estado === 'COMPLETADA').length;
-      
+
       resumen.push({
         numero: i + 1,
         inicio: `${inicioSemana.getDate().toString().padStart(2, '0')}/${(inicioSemana.getMonth() + 1).toString().padStart(2, '0')}`,
@@ -197,7 +207,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
         estado: terminadas === 5 ? 'completa' : etapasSemana.length > 0 ? 'en-progreso' : 'pendiente'
       });
     }
-    
+
     return resumen;
   };
 
@@ -230,7 +240,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   const cargarProfesionales = async () => {
     try {
       console.log('🔍 [EtapaDiariaModal] Cargando profesionales asignados a obra:', obra?.id);
-      
+
       // Obtener profesionales asignados a esta obra específica
       const response = await fetch(
         `http://localhost:8080/api/profesionales/asignaciones/${obra.id}`,
@@ -241,23 +251,23 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
           }
         }
       );
-      
+
       if (!response.ok) {
         console.warn('⚠️ No se pudieron cargar asignaciones de profesionales');
         setProfesionalesDisponibles([]);
         return;
       }
-      
+
       const asignaciones = await response.json();
       console.log('🔍 [EtapaDiariaModal] Asignaciones recibidas:', asignaciones);
       console.log('🔍 [EtapaDiariaModal] Es array?', Array.isArray(asignaciones));
       console.log('🔍 [EtapaDiariaModal] Tipo:', typeof asignaciones);
       console.log('🔍 [EtapaDiariaModal] Keys:', Object.keys(asignaciones));
-      
+
       // Extraer profesionales únicos de las asignaciones
       const profesionalesMap = new Map();
       const asignacionesArray = Array.isArray(asignaciones) ? asignaciones : (asignaciones.data || []);
-      
+
       asignacionesArray.forEach(asignacion => {
         if (asignacion.asignacionesPorSemana) {
           asignacion.asignacionesPorSemana.forEach(semana => {
@@ -276,10 +286,10 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
           });
         }
       });
-      
+
       const profesionalesAsignados = Array.from(profesionalesMap.values());
       console.log('✅ [EtapaDiariaModal] Profesionales asignados extraídos:', profesionalesAsignados.length, profesionalesAsignados);
-      
+
       setProfesionalesDisponibles(profesionalesAsignados);
     } catch (error) {
       console.warn('Error cargando profesionales:', error);
@@ -291,11 +301,11 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
     try {
       setLoading(true);
       const data = await api.etapasDiarias.getById(etapaDiariaInicial.id, empresaSeleccionada.id);
-      
+
       // Cargar profesionales disponibles primero
       const profesionales = await api.profesionales.getAll(empresaSeleccionada.id);
       const profesionalesMap = new Map(profesionales.map(p => [p.id, p]));
-      
+
       // Mapear estados antiguos y convertir IDs de profesionales a objetos completos
       const tareasNormalizadas = (data.tareas || []).map(t => {
         // Convertir array de IDs a objetos completos
@@ -307,14 +317,14 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
               })
               .filter(Boolean) // Eliminar undefined si algún ID no se encuentra
           : [];
-        
+
         return {
           ...t,
           estado: t.estado === 'TERMINADA' ? 'COMPLETADA' : t.estado,
           profesionales: profesionalesCompletos
         };
       });
-      
+
       setFormData({
         fecha: data.fecha || '',
         descripcion: data.descripcion || '',
@@ -323,10 +333,10 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
         tareas: tareasNormalizadas,
         observaciones: data.observaciones || ''
       });
-      
+
     } catch (error) {
       console.error('Error cargando etapa diaria:', error);
-      
+
       if (error.status === 404 || error.response?.status === 404 || error.message?.includes('404')) {
         setError('⚠️ El módulo de Etapas Diarias aún no está disponible en el backend');
       } else {
@@ -362,7 +372,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   };
 
   // ==================== GESTIÓN DE TAREAS ====================
-  
+
   const handleNuevaTarea = () => {
     resetearFormTarea();
     setMostrarFormTarea(true);
@@ -419,7 +429,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   const handleCambiarEstadoTarea = (index) => {
     const tarea = formData.tareas[index];
     let nuevoEstado;
-    
+
     // Ciclo: PENDIENTE → EN_PROCESO → COMPLETADA → PENDIENTE
     if (tarea.estado === 'PENDIENTE') {
       nuevoEstado = 'EN_PROCESO';
@@ -428,7 +438,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
     } else {
       nuevoEstado = 'PENDIENTE';
     }
-    
+
     const tareasActualizadas = [...formData.tareas];
     tareasActualizadas[index] = { ...tarea, estado: nuevoEstado };
     setFormData(prev => ({ ...prev, tareas: tareasActualizadas }));
@@ -436,7 +446,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
 
   const handleAgregarProfesional = () => {
     if (!profesionalSeleccionado) return;
-    
+
     const profesional = profesionalesDisponibles.find(p => p.id === parseInt(profesionalSeleccionado));
     if (!profesional) return;
 
@@ -450,21 +460,21 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
       ...prev,
       profesionales: [...prev.profesionales, profesional]
     }));
-    
+
     setProfesionalSeleccionado('');
   };
 
   const handleConfirmarProfesionales = (profesionalesSeleccionados) => {
     // Agregar solo los profesionales que no estén ya asignados
-    const nuevosProf = profesionalesSeleccionados.filter(prof => 
+    const nuevosProf = profesionalesSeleccionados.filter(prof =>
       !nuevaTarea.profesionales.some(p => p.id === prof.id)
     );
-    
+
     setNuevaTarea(prev => ({
       ...prev,
       profesionales: [...prev.profesionales, ...nuevosProf]
     }));
-    
+
     setMostrarModalSeleccionProfesionales(false);
   };
 
@@ -478,16 +488,16 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
   // Calcular estado general del día basado en tareas
   const getEstadoGeneralDia = () => {
     if (formData.tareas.length === 0) return 'PENDIENTE';
-    
+
     const completadas = formData.tareas.filter(t => t.estado === 'COMPLETADA').length;
     const total = formData.tareas.length;
-    
+
     if (completadas === total) return 'COMPLETADA';
     if (completadas > 0) return 'EN_PROCESO';
-    
+
     const suspendidas = formData.tareas.filter(t => t.estado === 'SUSPENDIDA').length;
     if (suspendidas === total) return 'SUSPENDIDA';
-    
+
     return 'EN_PROCESO';
   };
 
@@ -496,12 +506,12 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
       setError('La fecha es obligatoria');
       return false;
     }
-    
+
     if (formData.tareas.length === 0) {
       setError('Debe agregar al menos una tarea para este día');
       return false;
     }
-    
+
     return true;
   };
 
@@ -509,7 +519,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
     if (!validarFormulario()) {
       return;
     }
-    
+
     // Validar que todos los profesionales asignados existan
     const profesionalesAsignados = new Set();
     formData.tareas.forEach(tarea => {
@@ -520,29 +530,29 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
         });
       }
     });
-    
+
     const profesionalesInvalidos = Array.from(profesionalesAsignados).filter(profId => {
       return !profesionalesDisponibles.some(p => p.id === profId);
     });
-    
+
     if (profesionalesInvalidos.length > 0) {
       setError(`⚠️ Los siguientes profesionales no existen o no están disponibles: ${profesionalesInvalidos.join(', ')}`);
       return;
     }
-    
+
     // 🔍 ALERT temporal para debug
     if (!obra || !obra.id) {
       alert(`❌ ERROR DEBUG:\n\nobra existe: ${!!obra}\nobra.id: ${obra?.id}\n\nPor favor reporta esto.`);
       setError('⚠️ Error: No se encontró el ID de la obra. Por favor, cierre y vuelva a abrir el modal.');
       return;
     }
-    
+
     try {
       setLoading(true);
       setError(null);
 
       const estadoGeneral = getEstadoGeneralDia();
-      
+
       const dataParaEnviar = {
         obraId: obra.id,
         fecha: formData.fecha,
@@ -552,49 +562,49 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
         estado: estadoGeneral,
         tareas: formData.tareas.map(tarea => {
           const tareaDTO = {};
-          
+
           // 1. Si tiene id, ponerlo PRIMERO
           if (tarea.id !== undefined && tarea.id !== null) {
             tareaDTO.id = tarea.id;
           }
-          
+
           // 2. Luego los demás campos
           tareaDTO.descripcion = tarea.descripcion;
           tareaDTO.estado = tarea.estado;
-          tareaDTO.profesionales = Array.isArray(tarea.profesionales) 
+          tareaDTO.profesionales = Array.isArray(tarea.profesionales)
             ? tarea.profesionales.map(p => typeof p === 'object' ? p.id : p)
             : [];
-          
+
           return tareaDTO;
         }),
         observaciones: formData.observaciones.trim() || null
       };
-      
+
       let resultado;
       // Solo hacer UPDATE si la etapa tiene ID (ya existe en BD)
       if (etapaDiariaInicial && etapaDiariaInicial.id) {
         resultado = await api.etapasDiarias.update(
-          etapaDiariaInicial.id, 
-          dataParaEnviar, 
+          etapaDiariaInicial.id,
+          dataParaEnviar,
           empresaSeleccionada.id
         );
       } else {
         resultado = await api.etapasDiarias.create(
-          dataParaEnviar, 
+          dataParaEnviar,
           empresaSeleccionada.id
         );
       }
-      
+
       if (onGuardado) {
         onGuardado(resultado);
       }
-      
+
       resetearFormulario();
       onClose();
-      
+
     } catch (error) {
       console.error('Error al guardar etapa diaria:', error.message);
-      
+
       // Verificar si es error relacionado al endpoint faltante
       if (error.message?.includes('No static resource') || error.message?.includes('etapas-diarias')) {
         setError('⚠️ Error al conectar con el módulo de Cronograma.\n\n' +
@@ -648,24 +658,24 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
               <i className="fas fa-calendar-check me-2"></i>
               {etapaDiariaInicial ? 'Editar' : 'Nueva'} Etapa Diaria - {obra?.nombre}
             </h5>
-            <button 
-              type="button" 
-              className="btn btn-light btn-sm ms-auto" 
+            <button
+              type="button"
+              className="btn btn-light btn-sm ms-auto"
               onClick={onClose}
               disabled={loading}
             >
               Cerrar
             </button>
           </div>
-          
+
           <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
             {error && (
               <div className="alert alert-danger alert-dismissible fade show" role="alert">
                 <i className="fas fa-exclamation-triangle me-2"></i>
                 {error}
-                <button 
-                  type="button" 
-                  className="btn-close" 
+                <button
+                  type="button"
+                  className="btn-close"
                   onClick={() => setError(null)}
                 ></button>
               </div>
@@ -706,7 +716,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                         <small className="fw-bold text-primary">{getProgreso().porcentaje}%</small>
                       </div>
                       <div className="progress" style={{ height: '20px' }}>
-                        <div 
+                        <div
                           className={`progress-bar ${getProgreso().porcentaje >= 100 ? 'bg-success' : 'bg-primary'}`}
                           style={{ width: `${getProgreso().porcentaje}%` }}
                         >
@@ -739,7 +749,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                       required
                     />
                   </div>
-                  
+
                   <div className="col-md-12 mb-3">
                     <label className="form-label">Descripción del Día *</label>
                     <input
@@ -752,7 +762,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                     />
                     <small className="text-muted">Descripción general de las actividades del día</small>
                   </div>
-                  
+
                   <div className="col-md-6 mb-3">
                     <label className="form-label">Hora de Inicio (Opcional)</label>
                     <input
@@ -762,7 +772,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                       onChange={(e) => setFormData(prev => ({ ...prev, horaInicio: e.target.value }))}
                     />
                   </div>
-                  
+
                   <div className="col-md-6 mb-3">
                     <label className="form-label">Hora de Fin (Opcional)</label>
                     <input
@@ -773,13 +783,13 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                     />
                   </div>
                 </div>
-                
+
                 {!etapaDiariaInicial && getFechasSugeridas().length > 0 && (
                   <div className="mt-2">
                     <div className="dropdown">
-                      <button 
-                        className="btn btn-outline-primary btn-sm dropdown-toggle" 
-                        type="button" 
+                      <button
+                        className="btn btn-outline-primary btn-sm dropdown-toggle"
+                        type="button"
                         data-bs-toggle="dropdown"
                       >
                         <i className="fas fa-lightbulb me-1"></i>
@@ -799,16 +809,16 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                                     const soloFecha = fechaStr.split('T')[0];
                                     const [year, month, day] = soloFecha.split('-');
                                     const fecha = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0);
-                                    return fecha.toLocaleDateString('es-AR', { 
-                                      weekday: 'long', 
-                                      day: '2-digit', 
-                                      month: '2-digit' 
+                                    return fecha.toLocaleDateString('es-AR', {
+                                      weekday: 'long',
+                                      day: '2-digit',
+                                      month: '2-digit'
                                     });
                                   }
-                                  return new Date(fechaStr + 'T00:00:00').toLocaleDateString('es-AR', { 
-                                    weekday: 'long', 
-                                    day: '2-digit', 
-                                    month: '2-digit' 
+                                  return new Date(fechaStr + 'T00:00:00').toLocaleDateString('es-AR', {
+                                    weekday: 'long',
+                                    day: '2-digit',
+                                    month: '2-digit'
                                   });
                                 })()}
                               </button>
@@ -844,7 +854,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                     <h6 className="text-primary mb-3">
                       {editandoTareaIndex !== null ? 'Editar Tarea' : 'Nueva Tarea'}
                     </h6>
-                    
+
                     <div className="mb-3">
                       <label className="form-label">Descripción *</label>
                       <input
@@ -948,7 +958,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                             <h6 className="mb-2">
                               {getEstadoBadge(tarea.estado)} {tarea.descripcion}
                             </h6>
-                            
+
                             {tarea.profesionales && tarea.profesionales.length > 0 && (
                               <div className="mb-2">
                                 <small className="text-muted">
@@ -965,7 +975,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                               </div>
                             )}
                           </div>
-                          
+
                           <div className="btn-group">
                             <button
                               type="button"
@@ -1045,10 +1055,10 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
               </div>
             </div>
           </div>
-          
+
           <div className="modal-footer">
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-secondary"
               onClick={onClose}
               disabled={loading}
@@ -1056,8 +1066,8 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
               <i className="fas fa-times me-2"></i>
               Cancelar
             </button>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-primary"
               onClick={handleGuardar}
               disabled={loading}
