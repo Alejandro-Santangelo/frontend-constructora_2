@@ -4,7 +4,7 @@
   "description": "Frontend profesional desarrollado con **Vite + React + Bootstrap** para interactuar con tu backend de manera más eficiente que Swagger UI.",
   "main": "vite.config.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "npx kill-port 3000 && vite",
     "build": "vite build",
     "preview": "vite preview"
   },

@@ -142,6 +142,7 @@ const ObrasPage = ({ showNotification }) => {
   const [obraParaVerAsignaciones, setObraParaVerAsignaciones] = React.useState(null);
   const [trabajoExtraEditar, setTrabajoExtraEditar] = React.useState(null);
   const [trabajoExtraSeleccionado, setTrabajoExtraSeleccionado] = React.useState(null);
+  const [trabajoExtraExpandido, setTrabajoExtraExpandido] = React.useState(null); // Nuevo estado
   const [obraParaTrabajosExtra, setObraParaTrabajosExtra] = React.useState(null);
   const [mostrarModalSeleccionarObraTrabajosExtra, setMostrarModalSeleccionarObraTrabajosExtra] = React.useState(false);
   const [obraSeleccionadaTrabajosExtra, setObraSeleccionadaTrabajosExtra] = React.useState(null);
@@ -1491,6 +1492,60 @@ const ObrasPage = ({ showNotification }) => {
       });
       showNotification('Error al guardar el trabajo extra: ' + (error.message || 'Error desconocido'), 'error');
       throw error; // Re-lanzar para que el modal lo maneje
+    }
+  };
+
+  // ✅ Función para cambiar estado de trabajo extra
+  const handleCambiarEstadoTrabajoExtra = async (trabajo, nuevoEstado) => {
+    try {
+      if (!window.confirm(`¿Estás seguro de cambiar el estado a ${nuevoEstado}?`)) return;
+
+      const updatedData = {
+        ...trabajo,
+        estado: nuevoEstado
+      };
+
+      // Normalizar campos para evitar errores de validación si faltan
+      if (!updatedData.nombre) updatedData.nombre = updatedData.nombreObra || 'Trabajo Extra';
+
+      await api.trabajosExtra.update(trabajo.id, updatedData, empresaId);
+      showNotification(`Estado actualizado a ${nuevoEstado}`, 'success');
+
+      // Recargar lista
+      if (obraParaTrabajosExtra) {
+        cargarTrabajosExtra(obraParaTrabajosExtra);
+      }
+    } catch (error) {
+      console.error('Error cambiando estado:', error);
+      showNotification('Error al cambiar el estado', 'error');
+    }
+  };
+
+  // ✅ Función para generar obra derivada desde trabajo extra aprobado
+  const handleGenerarObraDesdeTrabajoExtra = async (trabajo) => {
+    try {
+      if (!window.confirm('¿Desea generar una nueva OBRA a partir de este trabajo extra aprobado?')) return;
+
+      const obraData = {
+        nombre: trabajo.nombre || `Trabajo Extra #${trabajo.id} - ${obraParaTrabajosExtra?.nombre || 'Obra Padre'}`,
+        direccion: trabajo.direccionObraCalle || obraParaTrabajosExtra?.direccion || 'Dirección de obra padre',
+        idEmpresa: empresaId,
+        clienteId: trabajo.clienteId || obraParaTrabajosExtra?.clienteId,
+        estado: 'EN_EJECUCION',
+        // Referencias para trazabilidad
+        presupuestoOriginalId: trabajo.id,
+        observaciones: `Obra derivada del trabajo extra #${trabajo.id} de la obra ${obraParaTrabajosExtra?.nombre}. \n${trabajo.observaciones || ''}`
+      };
+
+      await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
+      showNotification('Obra derivada creada exitosamente', 'success');
+
+      // Recargar lista de obras principales
+      dispatch(fetchObrasPorEmpresa(empresaId));
+
+    } catch (error) {
+       console.error('Error generando obra derivada:', error);
+       showNotification('Error al generar la obra derivada', 'error');
     }
   };
 
@@ -3438,9 +3493,12 @@ const ObrasPage = ({ showNotification }) => {
                                                 semanasReales = recalcularSemanasDesdePresupuesto(presupuesto);
                                               }
 
+                                              // Calcular días hábiles aproximados basados en las semanas (5 días/semana)
+                                              const diasHabilesAprox = semanasReales * 5;
+
                                               return (
                                                 <small className="text-success">
-                                                  ✅ Configurado: {semanasReales} semanas ({diasHabiles} días hábiles)
+                                                  ✅ Configurado: {semanasReales} semanas ({diasHabilesAprox} días hábiles)
                                                   - {profesionalesAsignados} profesional{profesionalesAsignados !== 1 ? 'es' : ''} asignado{profesionalesAsignados !== 1 ? 's' : ''}
                                                 </small>
                                               );
@@ -4309,6 +4367,17 @@ const ObrasPage = ({ showNotification }) => {
         <div className="container-fluid fade-in" style={{padding: '0'}} onClick={() => setTrabajoExtraSeleccionado(null)}>
           <div className="d-flex justify-content-between align-items-center mb-3" style={{padding: '0 15px'}}>
             <div className="d-flex align-items-center gap-3">
+              <button
+                className="btn btn-outline-secondary"
+                onClick={() => {
+                  dispatch(setActiveTab('lista'));
+                  setObraParaTrabajosExtra(null);
+                }}
+                title="Volver al listado de obras"
+              >
+                <i className="fas fa-arrow-left me-2"></i>
+                Volver
+              </button>
               <h3 className="mb-0">
                 <i className="fas fa-tools me-2"></i>
                 Trabajos Extra - {obraParaTrabajosExtra?.nombre}
@@ -4336,16 +4405,18 @@ const ObrasPage = ({ showNotification }) => {
               ) : (
                 <>
                   <div className="table-responsive" style={{margin: '0'}}>
-                  <table className="table table-hover" style={{marginBottom: '0'}}>
+                  <table className="table table-striped table-hover" style={{marginBottom: '0'}}>
                     <thead className="table-light">
                       <tr>
+                        <th style={{ width: '25px', padding: '8px 4px' }} className="small"></th>
                         <th style={{width: '50px'}} className="small">Nro.</th>
-                        <th style={{width: '30px'}} className="small">Ver.</th>
-                        <th style={{width: '90px'}} className="small">Fecha</th>
-                        <th style={{width: '130px'}} className="small">Nombre Trabajo</th>
-                        <th className="small">Descripción</th>
-                        <th style={{width: '90px'}} className="small">Inicio</th>
+                        <th style={{width: '140px'}} className="small">Nombre</th>
+                        <th className="small">Dirección</th>
+                        <th style={{width: '100px'}} className="small">Contacto</th>
                         <th style={{width: '70px'}} className="small">Estado</th>
+                        <th style={{width: '100px'}} className="small">Asignaciones</th>
+                        <th style={{width: '90px'}} className="small">Inicio</th>
+                        <th style={{width: '90px'}} className="small">Fin</th>
                         <th style={{width: '110px'}} className="text-end small">Total</th>
                       </tr>
                     </thead>
@@ -4356,226 +4427,597 @@ const ObrasPage = ({ showNotification }) => {
                         const isSelected = trabajoExtraSeleccionado && rowId && trabajoExtraSeleccionado.id === rowId;
 
                         return (
-                        <tr
-                          key={rowId}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Toggle: si ya está seleccionado, deseleccionar; si no, seleccionar
-                            if (isSelected) {
-                              setTrabajoExtraSeleccionado(null);
-                            } else {
-                              setTrabajoExtraSeleccionado(row);
-                            }
-                          }}
-                          style={{
-                            cursor: 'pointer',
-                            ...(isSelected && { backgroundColor: '#cfe2ff !important' })
-                          }}
-                          className={`${
-                            isSelected
-                              ? 'table-primary'
-                              : !esEditable
-                                ? 'table-secondary opacity-75'
-                                : ''
-                          }`}
-                          title={esEditable
-                            ? `Clic para seleccionar trabajo extra ${row.numeroPresupuesto || rowId} - Editable`
-                            : `Trabajo extra ${row.numeroPresupuesto || rowId} - Solo lectura (${row.estado})`
-                          }
-                        >
-                          <td className="small">
-                            {isSelected && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
-                            {row.numeroPresupuesto || row.id || '-'}
-                          </td>
-                          <td className="small text-center">{row.numeroVersion || '1'}</td>
-                          <td className="small">{row.fechaEmision || (row.fechaCreacion ? new Date(row.fechaCreacion).toLocaleDateString('es-AR') : '-')}</td>
-                          <td className="small fw-bold text-dark">{row.nombreObra || row.nombre || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}</td>
-                          <td className="small" style={{maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
-                            {row.descripcion || row.observaciones || <span className="text-muted fst-italic">Sin descripción</span>}
-                          </td>
-                          <td className="small text-center">{row.fechaProbableInicio || <span className="text-muted">—</span>}</td>
-                          <td>
-                            <span className={`badge ${
-                              row.estado === 'BORRADOR' ? 'bg-secondary' :
-                              row.estado === 'A_ENVIAR' ? 'bg-info' :
-                              row.estado === 'ENVIADO' ? 'bg-primary' :
-                              row.estado === 'APROBADO' ? 'bg-success' :
-                              row.estado === 'MODIFICADO' ? 'bg-warning' :
-                              'bg-light text-dark'
-                            }`} style={{fontSize: '0.7em', padding: '3px 5px'}}>
-                              {row.estado === 'BORRADOR' ? (
-                                <>
-                                  <i className="fas fa-pencil-alt me-1" title="En edición"></i>
-                                  {row.estado}
-                                  <i className="fas fa-arrow-right ms-1" title="Puedes marcarlo como listo"></i>
-                                </>
-                              ) : esEditable ? (
-                                <>
-                                  <i className="fas fa-edit me-1" title="Editable"></i>
-                                  {row.estado}
-                                </>
-                              ) : (
-                                <>
-                                  <i className="fas fa-lock me-1" title="Solo lectura"></i>
-                                  {row.estado || 'BORRADOR'}
-                                </>
-                              )}
-                            </span>
-                          </td>
-                          <td className="text-end">
-                            <div>
-                              <div className="fw-bold text-primary">
+                          <React.Fragment key={rowId}>
+                            <tr
+                              onClick={(e) => {
+                                e.stopPropagation();
+
+                                // Mantener la selección para edición
+                                if (isSelected) {
+                                  setTrabajoExtraSeleccionado(null);
+                                } else {
+                                  setTrabajoExtraSeleccionado(row);
+                                }
+                              }}
+                              style={{
+                                cursor: 'pointer',
+                                ...((isSelected && { backgroundColor: '#cfe2ff !important' }))
+                              }}
+                              className={`${
+                                isSelected
+                                  ? 'table-primary'
+                                  : !esEditable
+                                      ? 'table-secondary opacity-75'
+                                      : ''
+                              }`}
+                              title="Clic para seleccionar"
+                            >
+                              <td
+                                className="small text-center align-middle"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTrabajoExtraExpandido(rowId === trabajoExtraExpandido ? null : rowId);
+                                }}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <button
+                                  className="btn btn-sm btn-primary rounded-circle p-0"
+                                  title={rowId === trabajoExtraExpandido ? "Ocultar detalles" : "Ver detalles y configuración"}
+                                  style={{
+                                    width: '30px',
+                                    height: '30px',
+                                    transition: 'all 0.3s ease'
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                                  onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTrabajoExtraExpandido(rowId === trabajoExtraExpandido ? null : rowId);
+                                  }}
+                                >
+                                  <i className={`fas fa-${rowId === trabajoExtraExpandido ? 'minus' : 'plus'} text-white`}></i>
+                                </button>
+                                {isSelected && <i className="fas fa-check-circle text-success ms-1" title="Seleccionado para editar"></i>}
+                              </td>
+                              <td className="small align-middle">{row.numeroPresupuesto || row.id || '-'}</td>
+                              <td className="small fw-bold text-dark">{row.nombreObra || row.nombre || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}</td>
+                              <td className="small text-muted">{formatearDireccionObra(obraParaTrabajosExtra)}</td>
+                              <td className="small">
+                                {(obraParaTrabajosExtra.nombreSolicitante || obraParaTrabajosExtra.telefono || obraParaTrabajosExtra.mail) ? (
+                                  <div className="d-flex flex-column" style={{ minWidth: '150px' }}>
+                                    {obraParaTrabajosExtra.nombreSolicitante && (
+                                      <small className="text-muted mb-1">
+                                        <i className="fas fa-user me-1"></i>
+                                        {obraParaTrabajosExtra.nombreSolicitante}
+                                      </small>
+                                    )}
+                                    {obraParaTrabajosExtra.telefono && (
+                                      <small>
+                                        <a href={`https://wa.me/${obraParaTrabajosExtra.telefono.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-success text-decoration-none" title="Abrir WhatsApp">
+                                          <i className="fab fa-whatsapp me-1"></i>
+                                          {obraParaTrabajosExtra.telefono}
+                                        </a>
+                                      </small>
+                                    )}
+                                  </div>
+                                ) : <small className="text-muted">-</small>}
+                              </td>
+                              <td>
+                                <span className={`badge ${
+                                  row.estado === 'BORRADOR' ? 'bg-secondary' :
+                                  row.estado === 'A_ENVIAR' ? 'bg-info' :
+                                  row.estado === 'ENVIADO' ? 'bg-primary' :
+                                  row.estado === 'APROBADO' ? 'bg-success' :
+                                  row.estado === 'MODIFICADO' ? 'bg-warning' :
+                                  'bg-light text-dark'
+                                }`} style={{ fontSize: '0.7em', padding: '3px 5px' }}>
+                                  {row.estado === 'BORRADOR' ? (
+                                    <>
+                                      <i className="fas fa-pencil-alt me-1" title="En edición"></i>
+                                      {row.estado}
+                                      <i className="fas fa-arrow-right ms-1" title="Puedes marcarlo como listo"></i>
+                                    </>
+                                  ) : esEditable ? (
+                                    <>
+                                      <i className="fas fa-edit me-1" title="Editable"></i>
+                                      {row.estado}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <i className="fas fa-lock me-1" title="Solo lectura"></i>
+                                      {row.estado || 'BORRADOR'}
+                                    </>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="small">
+                                <span className="badge bg-warning text-dark border border-warning">
+                                  <i className="fas fa-exclamation-triangle me-1"></i>
+                                  Pendiente
+                                </span>
+                              </td>
+                              <td className="small text-center">{row.fechaProbableInicio || <span className="text-muted">—</span>}</td>
+                              <td className="small text-center">
                                 {(() => {
-                                  // Calcular total igual que en presupuestos
-                                  if (!row.itemsCalculadora || row.itemsCalculadora.length === 0) {
-                                    // Fallback para trabajos extra sin itemsCalculadora
-                                    const totalProfesionales = (row.profesionales || []).reduce((sum, prof) => {
-                                      const importe = parseFloat(prof.importe) || 0;
-                                      const dias = row.dias?.length || 0;
-                                      return sum + (importe * dias);
-                                    }, 0);
+                                  const fechaInicioStr = row.fechaProbableInicio;
+                                  const tiempoEstimado = row.tiempoEstimadoTerminacion || row.plazoEjecucionDias;
 
-                                    const totalTareas = (row.tareas || []).reduce((sum, t) => {
-                                      return sum + (parseFloat(t.importe) || 0);
-                                    }, 0);
-
-                                    const totalGeneral = row.totalFinal || row.montoTotal || (totalProfesionales + totalTareas) || 0;
-
-                                    if (totalGeneral && totalGeneral > 0) {
-                                      return `$${Number(totalGeneral).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                                    }
-                                    return <span className="text-muted">Sin datos</span>;
+                                  if (!fechaInicioStr || !tiempoEstimado) {
+                                    return <span className="text-muted">—</span>;
                                   }
 
-const totalFinal = (() => {
-                                    if (!row.itemsCalculadora || row.itemsCalculadora.length === 0) return 0;
+                                  try {
+                                    // Parsear fecha, asegurando formato YYYY-MM-DD
+                                    const fechaClean = fechaInicioStr.includes('T') ? fechaInicioStr.split('T')[0] : fechaInicioStr;
+                                    const [year, month, day] = fechaClean.split('-').map(Number);
 
-// 1. Calcular Bases Agregadas (Iterando hijos para asegurar datos, con fallback a subtotales)
-                                    let totalProf = 0;
-                                    let totalMat = 0;
-                                    let totalOtros = 0; // Gastos Generales
-                                    let totalCalculadora = 0; // Items sin desglose
-                                    let totalJornales = 0;
+                                    // Validar que la fecha sea válida
+                                    if (!year || !month || !day) return <span className="text-muted">—</span>;
 
-                                    row.itemsCalculadora.forEach(item => {
-                                        // 1. Profesionales
-                                        if (item.profesionales && item.profesionales.length > 0) {
+                                    let fecha = new Date(year, month - 1, day);
+                                    let diasContados = 0;
+
+                                    // Contar días hábiles
+                                    while (diasContados < tiempoEstimado) {
+                                      const diaSemana = fecha.getDay();
+                                      // Lunes(1) a Viernes(5) y no feriado
+                                      if (diaSemana >= 1 && diaSemana <= 5 && !esFeriado(fecha)) {
+                                        diasContados++;
+                                      }
+                                      // Si no terminamos, avanzar al siguiente día natural
+                                      if (diasContados < tiempoEstimado) {
+                                        fecha.setDate(fecha.getDate() + 1);
+                                      }
+                                    }
+
+                                    return fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                                  } catch (err) {
+                                    return <span className="text-muted">—</span>;
+                                  }
+                                })()}
+                              </td>
+                              <td className="text-end">
+                                <div>
+                                  <div className="fw-bold text-primary">
+                                    {(() => {
+                                      // Calcular total igual que en presupuestos
+                                      if (!row.itemsCalculadora || row.itemsCalculadora.length === 0) {
+                                        // Fallback para trabajos extra sin itemsCalculadora
+                                        const totalProfesionales = (row.profesionales || []).reduce((sum, prof) => {
+                                          const importe = parseFloat(prof.importe) || 0;
+                                          const dias = row.dias?.length || 0;
+                                          return sum + (importe * dias);
+                                        }, 0);
+
+                                        const totalTareas = (row.tareas || []).reduce((sum, t) => {
+                                          return sum + (parseFloat(t.importe) || 0);
+                                        }, 0);
+
+                                        const totalGeneral = row.totalFinal || row.montoTotal || (totalProfesionales + totalTareas) || 0;
+
+                                        if (totalGeneral && totalGeneral > 0) {
+                                          return `$${Number(totalGeneral).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                                        }
+                                        return <span className="text-muted">Sin datos</span>;
+                                      }
+
+                                      const totalFinal = (() => {
+                                        if (!row.itemsCalculadora || row.itemsCalculadora.length === 0) return 0;
+
+                                        // 1. Calcular Bases Agregadas (Iterando hijos para asegurar datos, con fallback a subtotales)
+                                        let totalProf = 0;
+                                        let totalMat = 0;
+                                        let totalOtros = 0; // Gastos Generales
+                                        let totalCalculadora = 0; // Items sin desglose
+                                        let totalJornales = 0;
+
+                                        row.itemsCalculadora.forEach(item => {
+                                          // 1. Profesionales
+                                          if (item.profesionales && item.profesionales.length > 0) {
                                             item.profesionales.forEach(p => totalProf += Number(p.subtotal) || 0);
-                                        } else {
+                                          } else {
                                             totalProf += Number(item.subtotalManoObra) || 0;
-                                        }
+                                          }
 
-                                        // 2. Materiales
-                                        if (item.materialesLista && item.materialesLista.length > 0) {
+                                          // 2. Materiales
+                                          if (item.materialesLista && item.materialesLista.length > 0) {
                                             item.materialesLista.forEach(m => totalMat += Number(m.subtotal) || 0);
-                                        } else {
+                                          } else {
                                             totalMat += Number(item.subtotalMateriales) || 0;
-                                        }
+                                          }
 
-                                        // 3. Jornales
-                                        if (item.jornales && item.jornales.length > 0) {
+                                          // 3. Jornales
+                                          if (item.jornales && item.jornales.length > 0) {
                                             item.jornales.forEach(j => totalJornales += Number(j.subtotal) || 0);
-                                        } else {
+                                          } else {
                                             totalJornales += Number(item.subtotalJornales) || 0;
-                                        }
+                                          }
 
-                                        // 4. Gastos Generales y otros
-                                        const esGastoGeneral = item.esGastoGeneral === true ||
-                                                              (item.tipoProfesional?.toLowerCase().includes('gasto') &&
-                                                               item.tipoProfesional?.toLowerCase().includes('general'));
+                                          // 4. Gastos Generales y otros
+                                          const esGastoGeneral = item.esGastoGeneral === true ||
+                                            (item.tipoProfesional?.toLowerCase().includes('gasto') &&
+                                              item.tipoProfesional?.toLowerCase().includes('general'));
 
-                                        if (item.gastosGenerales && item.gastosGenerales.length > 0) {
+                                          if (item.gastosGenerales && item.gastosGenerales.length > 0) {
                                             item.gastosGenerales.forEach(g => totalOtros += Number(g.subtotal) || 0);
-                                        } else if (esGastoGeneral) {
+                                          } else if (esGastoGeneral) {
                                             totalOtros += Number(item.total) || 0;
-                                        } else {
+                                          } else {
                                             if (item.subtotalGastosGenerales > 0) {
-                                                totalOtros += Number(item.subtotalGastosGenerales) || 0;
+                                              totalOtros += Number(item.subtotalGastosGenerales) || 0;
                                             }
-                                        }
+                                          }
 
-                                        // 5. Calculadora / Manual (Fallbacks)
-                                        const tieneChildren = (item.profesionales?.length > 0) || (item.materialesLista?.length > 0) || (item.jornales?.length > 0) || (item.gastosGenerales?.length > 0);
-                                        const tieneSubtotals = (item.subtotalManoObra > 0) || (item.subtotalMateriales > 0) || (item.subtotalJornales > 0) || (item.subtotalGastosGenerales > 0);
+                                          // 5. Calculadora / Manual (Fallbacks)
+                                          const tieneChildren = (item.profesionales?.length > 0) || (item.materialesLista?.length > 0) || (item.jornales?.length > 0) || (item.gastosGenerales?.length > 0);
+                                          const tieneSubtotals = (item.subtotalManoObra > 0) || (item.subtotalMateriales > 0) || (item.subtotalJornales > 0) || (item.subtotalGastosGenerales > 0);
 
-                                        if (!tieneChildren && !tieneSubtotals && !esGastoGeneral) {
+                                          if (!tieneChildren && !tieneSubtotals && !esGastoGeneral) {
                                             const totalItem = Number(item.totalManual) || Number(item.total) || 0;
                                             if (totalItem > 0) {
-                                                totalCalculadora += totalItem;
+                                              totalCalculadora += totalItem;
                                             }
-                                        }
-                                    });
+                                          }
+                                        });
 
-                                    // Helpers
-                                    const getConfigHonorarios = (categoria) => {
-                                      if (row.honorarios && row.honorarios[categoria]) return row.honorarios[categoria];
-                                      const capitulizada = categoria.charAt(0).toUpperCase() + categoria.slice(1);
-                                      const activo = row[`honorarios${capitulizada}Activo`];
-                                      const valor = row[`honorarios${capitulizada}Valor`];
-                                      const tipo = row[`honorarios${capitulizada}Tipo`] || 'porcentaje';
-                                      if (activo !== undefined || valor !== undefined) return { activo: !!activo, valor, tipo };
-                                      return null;
-                                    };
+                                        // Helpers
+                                        const getConfigHonorarios = (categoria) => {
+                                          if (row.honorarios && row.honorarios[categoria]) return row.honorarios[categoria];
+                                          const capitulizada = categoria.charAt(0).toUpperCase() + categoria.slice(1);
+                                          const activo = row[`honorarios${capitulizada}Activo`];
+                                          const valor = row[`honorarios${capitulizada}Valor`];
+                                          const tipo = row[`honorarios${capitulizada}Tipo`] || 'porcentaje';
+                                          if (activo !== undefined || valor !== undefined) return { activo: !!activo, valor, tipo };
+                                          return null;
+                                        };
 
-                                    const getConfigMayoresCostos = (categoria) => {
-                                      if (row.mayoresCostos && row.mayoresCostos[categoria]) return row.mayoresCostos[categoria];
-                                      const capitulizada = categoria.charAt(0).toUpperCase() + categoria.slice(1);
-                                      const activo = row[`mayoresCostos${capitulizada}Activo`];
-                                      const valor = row[`mayoresCostos${capitulizada}Valor`];
-                                      const tipo = row[`mayoresCostos${capitulizada}Tipo`] || 'porcentaje';
-                                      if (activo !== undefined || valor !== undefined) return { activo: !!activo, valor, tipo };
-                                      return null;
-                                    };
+                                        const getConfigMayoresCostos = (categoria) => {
+                                          if (row.mayoresCostos && row.mayoresCostos[categoria]) return row.mayoresCostos[categoria];
+                                          const capitulizada = categoria.charAt(0).toUpperCase() + categoria.slice(1);
+                                          const activo = row[`mayoresCostos${capitulizada}Activo`];
+                                          const valor = row[`mayoresCostos${capitulizada}Valor`];
+                                          const tipo = row[`mayoresCostos${capitulizada}Tipo`] || 'porcentaje';
+                                          if (activo !== undefined || valor !== undefined) return { activo: !!activo, valor, tipo };
+                                          return null;
+                                        };
 
-                                    const calcularExtra = (base, config) => {
-                                        if (!config?.activo || !config?.valor) return 0;
-                                        const val = Number(config.valor);
-                                        return config.tipo === 'porcentaje' ? (base * val) / 100 : val;
-                                    };
+                                        const calcularExtra = (base, config) => {
+                                          if (!config?.activo || !config?.valor) return 0;
+                                          const val = Number(config.valor);
+                                          return config.tipo === 'porcentaje' ? (base * val) / 100 : val;
+                                        };
 
-                                    // 2. Calcular Honorarios
-                                    const honProf = calcularExtra(totalProf, getConfigHonorarios('profesionales'));
-                                    const honMat = calcularExtra(totalMat, getConfigHonorarios('materiales'));
-                                    const honOtros = calcularExtra(totalOtros, getConfigHonorarios('otrosCostos'));
-                                    const honJornales = calcularExtra(totalJornales, getConfigHonorarios('jornales'));
-                                    const honCalc = calcularExtra(totalCalculadora, getConfigHonorarios('configuracionPresupuesto'));
+                                        // 2. Calcular Honorarios
+                                        const honProf = calcularExtra(totalProf, getConfigHonorarios('profesionales'));
+                                        const honMat = calcularExtra(totalMat, getConfigHonorarios('materiales'));
+                                        const honOtros = calcularExtra(totalOtros, getConfigHonorarios('otrosCostos'));
+                                        const honJornales = calcularExtra(totalJornales, getConfigHonorarios('jornales'));
+                                        const honCalc = calcularExtra(totalCalculadora, getConfigHonorarios('configuracionPresupuesto'));
 
-                                    const totalHonorarios = honProf + honMat + honOtros + honJornales + honCalc;
+                                        const totalHonorarios = honProf + honMat + honOtros + honJornales + honCalc;
 
-                                    // 3. Calcular Mayores Costos (Sobre Bases - la misma lógica que Modal)
-                                    const mcProf = calcularExtra(totalProf, getConfigMayoresCostos('profesionales'));
-                                    const mcMat = calcularExtra(totalMat, getConfigMayoresCostos('materiales'));
-                                    const mcOtros = calcularExtra(totalOtros, getConfigMayoresCostos('otrosCostos'));
-                                    // Mayores Costos NO suele aplicar a Jornales directamente en el modal, pero si existe config lo calculamos
-                                    // El modal no parece tener `mayorCostoJornales` explícito en `calcularMayoresCostos` return,
-                                    // pero podría estar bajo 'profesionales' o 'configuracionPresupuesto' dependiendo de la implementación.
-                                    // Asumiremos que sigue la estructura estándar si existe la config.
-                                    const mcJornales = calcularExtra(totalJornales, getConfigMayoresCostos('jornales'));
-                                    const mcCalc = calcularExtra(totalCalculadora, getConfigMayoresCostos('configuracionPresupuesto'));
+                                        // 3. Calcular Mayores Costos (Sobre Bases - la misma lógica que Modal)
+                                        const mcProf = calcularExtra(totalProf, getConfigMayoresCostos('profesionales'));
+                                        const mcMat = calcularExtra(totalMat, getConfigMayoresCostos('materiales'));
+                                        const mcOtros = calcularExtra(totalOtros, getConfigMayoresCostos('otrosCostos'));
+                                        // Mayores Costos NO suele aplicar a Jornales directamente en el modal, pero si existe config lo calculamos
+                                        const mcJornales = calcularExtra(totalJornales, getConfigMayoresCostos('jornales'));
+                                        const mcCalc = calcularExtra(totalCalculadora, getConfigMayoresCostos('configuracionPresupuesto'));
 
-                                    // 4. Calcular Mayores Costos sobre Honorarios
-                                    // IMPORTANTE: El modal calcula esto sobre el TOTAL de honorarios
-                                    const mcHonorarios = calcularExtra(totalHonorarios, getConfigMayoresCostos('honorarios'));
+                                        // 4. Calcular Mayores Costos sobre Honorarios
+                                        const mcHonorarios = calcularExtra(totalHonorarios, getConfigMayoresCostos('honorarios'));
 
-                                    // 5. Total Final
-                                    return totalProf + totalMat + totalOtros + totalJornales + totalCalculadora +
+                                        // 5. Total Final
+                                        return totalProf + totalMat + totalOtros + totalJornales + totalCalculadora +
                                           totalHonorarios +
                                           mcProf + mcMat + mcOtros + mcJornales + mcCalc +
                                           mcHonorarios;
-                                  })();
+                                      })();
 
-                                  if (totalFinal && totalFinal > 0) {
-                                    return `$${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                                  }
+                                      if (totalFinal && totalFinal > 0) {
+                                        return `$${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                                      }
 
-                                  return <span className="text-muted">Sin datos</span>;
-                                })()}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
+                                      return <span className="text-muted">Sin datos</span>;
+                                    })()}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* FILA EXPANDIDA CON DETALLES DE PLANIFICACIÓN */}
+                            {trabajoExtraExpandido === rowId && (
+                              <tr className="bg-light">
+                                <td colSpan="8" className="p-0">
+                                  <div className="bg-light p-3 border-top">
+                                    <div className="mb-4 p-3 border rounded bg-white">
+                                      <div className="row align-items-center">
+                                        <div className="col-md-8">
+                                          <h6 className="text-primary mb-1">
+                                            <i className="fas fa-cog me-2"></i>
+                                            Configuración de Planificación
+                                          </h6>
+                                          <small className="text-success">
+                                            ✅ Configurado: {Math.ceil((row.tiempoEstimadoTerminacion || 0) / 5)} semanas ({row.tiempoEstimadoTerminacion || 0} días hábiles) - {(row.profesionales?.length || 0)} profesional{row.profesionales?.length !== 1 ? 'es' : ''} asignado{row.profesionales?.length !== 1 ? 's' : ''}
+                                          </small>
+                                        </div>
+                                        <div className="col-md-4">
+                                          <div className="d-flex gap-2">
+                                            <button
+                                              className="btn btn-primary btn-sm flex-grow-1"
+                                              title="Reconfigurar planificación del trabajo extra"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setTrabajoExtraEditar(row);
+                                                setMostrarModalTrabajoExtra(true);
+                                              }}
+                                            >
+                                              <i className="fas fa-calendar-plus me-1"></i>
+                                              Reconfigurar
+                                            </button>
+                                            <button
+                                              className="btn btn-sm text-white flex-grow-1"
+                                              title="Editar solo Fecha Probable de Inicio y Días Hábiles"
+                                              style={{ backgroundColor: '#FF6F00', border: 'none', fontWeight: 'bold' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setTrabajoExtraEditar({ ...row, _editarSoloFechas: true });
+                                                setMostrarModalTrabajoExtra(true);
+                                              }}
+                                            >
+                                              <i className="fas fa-calendar-edit me-1"></i>
+                                              Modificar Fechas
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="row g-3">
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-file-invoice-dollar me-2"></i>
+                                          Presupuesto Detallado
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTrabajoExtraEditar(row);
+                                            setMostrarModalTrabajoExtra(true);
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-eye me-2"></i>
+                                            Ver Detalle
+                                          </span>
+                                          <span className="badge bg-primary">1</span>
+                                        </button>
+                                      </div>
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-tasks me-2"></i>
+                                          Tareas / Items
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTrabajoExtraEditar(row);
+                                            setMostrarModalTrabajoExtra(true);
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-list-check me-2"></i>
+                                            Gestionar Items
+                                          </span>
+                                          <span className="badge bg-secondary">{(row.tareas?.length || 0)}</span>
+                                        </button>
+                                      </div>
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-users-cog me-2"></i>
+                                          Profesionales
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm w-100 d-flex justify-content-between align-items-center btn-outline-success"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTrabajoExtraEditar(row);
+                                            setMostrarModalTrabajoExtra(true);
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-user-plus me-1"></i>
+                                            Asignar Profesionales
+                                          </span>
+                                          <span className="badge bg-success d-flex align-items-center gap-1">{(row.profesionales?.length || 0)}</span>
+                                        </button>
+                                      </div>
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-box me-2"></i>
+                                          Materiales
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm w-100 d-flex justify-content-between align-items-center btn-outline-warning"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTrabajoExtraEditar(row);
+                                            setMostrarModalTrabajoExtra(true);
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-boxes me-2"></i>
+                                            Asignar Materiales
+                                          </span>
+                                          <span className="badge bg-warning text-dark">{(row.materiales?.length || 0)}</span>
+                                        </button>
+                                      </div>
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-receipt me-2"></i>
+                                          Gastos Generales
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm w-100 d-flex justify-content-between align-items-center btn-outline-danger"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTrabajoExtraEditar(row);
+                                            setMostrarModalTrabajoExtra(true);
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-dollar-sign me-2"></i>
+                                            Asignar Gastos
+                                          </span>
+                                          <span className="badge bg-danger">{(row.otrosCostos?.length || 0)}</span>
+                                        </button>
+                                      </div>
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-calendar-alt me-2"></i>
+                                          Etapas Diarias
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm btn-outline-info w-100 d-flex justify-content-between align-items-center"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (showNotification) showNotification('Funcionalidad disponible en el detalle del presupuesto', 'info');
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-calendar-plus me-2"></i>
+                                            Gestionar Etapas
+                                          </span>
+                                          <span className="badge bg-info">0</span>
+                                        </button>
+                                      </div>
+
+                                      {/* NUEVA SECCIÓN: GESTIÓN DE ESTADO Y CICLO DE VIDA */}
+                                      <div className="col-12 mt-4">
+                                        <div className="card border-primary">
+                                            <div className="card-header bg-primary text-white py-2">
+                                                <h6 className="mb-0"><i className="fas fa-tasks me-2"></i>Gestión de Ciclo de Vida</h6>
+                                            </div>
+                                            <div className="card-body bg-light p-3">
+                                                <div className="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                                                    <div className="d-flex align-items-center">
+                                                        <span className="fw-bold me-2">Estado Actual:</span>
+                                                        <span className={`badge ${
+                                                            row.estado === 'BORRADOR' ? 'bg-secondary' :
+                                                            row.estado === 'A_ENVIAR' ? 'bg-info' :
+                                                            row.estado === 'ENVIADO' ? 'bg-primary' :
+                                                            row.estado === 'APROBADO' ? 'bg-success' :
+                                                            row.estado === 'MODIFICADO' ? 'bg-warning' :
+                                                            'bg-light text-dark'
+                                                        } px-3 py-2 fs-6`}>
+                                                            {row.estado || 'BORRADOR'}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="d-flex gap-2">
+                                                        {(!row.estado || row.estado === 'BORRADOR') && (
+                                                            <button
+                                                                className="btn btn-success text-white"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleCambiarEstadoTrabajoExtra(row, 'A_ENVIAR');
+                                                                }}
+                                                            >
+                                                                <i className="fas fa-check me-2"></i>Terminar Edición
+                                                            </button>
+                                                        )}
+
+                                                        {row.estado === 'A_ENVIAR' && (
+                                                            <>
+                                                                <button
+                                                                    className="btn btn-secondary me-2"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleCambiarEstadoTrabajoExtra(row, 'BORRADOR');
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-undo me-2"></i>Volver a Borrador
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-primary"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleCambiarEstadoTrabajoExtra(row, 'ENVIADO');
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-paper-plane me-2"></i>Enviar Cliente
+                                                                </button>
+                                                            </>
+                                                        )}
+
+                                                        {row.estado === 'ENVIADO' && (
+                                                            <>
+                                                                <button
+                                                                    className="btn btn-secondary me-2"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleCambiarEstadoTrabajoExtra(row, 'A_ENVIAR');
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-undo me-2"></i>Cancelar Envío
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-success text-white"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleCambiarEstadoTrabajoExtra(row, 'APROBADO');
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-check-double me-2"></i>Aprobar Presupuesto
+                                                                </button>
+                                                            </>
+                                                        )}
+
+                                                        {row.estado === 'APROBADO' && (
+                                                            <>
+                                                                <button
+                                                                    className="btn btn-outline-secondary me-2"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleCambiarEstadoTrabajoExtra(row, 'ENVIADO');
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-undo me-2"></i>Deshacer Aprobación
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-lg btn-success shadow-sm"
+                                                                    style={{border: '2px solid #198754'}}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleGenerarObraDesdeTrabajoExtra(row);
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-building me-2"></i>Generar Obra Derivada
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         );
                       })}
+
+                      {/* FILA DE DETALLE EXPANDIBLE (FUERA DEL MAP, PERO DENTRO DE TBODY CON LÓGICA DE RENDERIZADO) */}
+                      {/* Corrección: Debe estar DENTRO del map, pero como React requiere un solo elemento padre, usaremos Fragment o Array */}
+                      {/* Al haber modificado la fila 'tr' arriba, necesitamos renderizar la fila de detalle JUSTO DESPUÉS */}
+                      {/* Como el map retorna un elemento 'tr', no podemos retornar dos 'tr' sin fragmento. */}
+                      {/* Sin embargo, la estructura anterior del map era un solo return. */}
+                      {/* VOY A REFACTORIZAR EL MAP PARA RETORNAR <> <TR/> {EXPANDIDO && <TR/>} </> */}
+
                     </tbody>
                   </table>
                 </div>

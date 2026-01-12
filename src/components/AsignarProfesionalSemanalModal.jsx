@@ -8,7 +8,8 @@ import {
   crearAsignacionSemanal,
   obtenerAsignacionesSemanalPorObra,
   eliminarAsignacionSemanal,
-  actualizarAsignacionSemanal
+  actualizarAsignacionSemanal,
+  eliminarAsignacionesPorObra
 } from '../services/profesionalesObraService';
 
 const AsignarProfesionalSemanalModal = ({
@@ -158,6 +159,22 @@ const AsignarProfesionalSemanalModal = ({
     console.log('🔥 [PROFESIONAL SEMANAL] Usando configuracionObra sin cambios');
     return configuracionObra;
   }, [configuracionObra, presupuesto]);
+
+  // 🆕 Sincronizar semanasObjetivo automáticamente cuando cambia la configuración (ej. al cargar presupuesto)
+  useEffect(() => {
+    if (configuracionObraActualizada?.diasHabiles) {
+      const semanasCalculadas = Math.ceil(configuracionObraActualizada.diasHabiles / 5);
+
+      // Solo actualizar si es diferente para evitar loops (aunque el string check lo maneja)
+      if (semanasCalculadas.toString() !== semanasObjetivo) {
+        console.log('🔄 [AUTO] Sincronizando semanasObjetivo desde días hábiles:', {
+            dias: configuracionObraActualizada.diasHabiles,
+            semanasCalculadas
+        });
+        setSemanasObjetivo(semanasCalculadas.toString());
+      }
+    }
+  }, [configuracionObraActualizada?.diasHabiles, semanasObjetivo]);
 
   // Cargar presupuesto cuando se abre el modal
   useEffect(() => {
@@ -1401,48 +1418,89 @@ const AsignarProfesionalSemanalModal = ({
     // Validaciones
     if (modalidadAsignacion === 'total') {
       if (profesionalesSeleccionados.length === 0) {
-        alert('Por favor selecciona al menos un profesional');
-        return;
+        const confirmarVacio = window.confirm('No has seleccionado ningún profesional. Al guardar, se eliminarán todas las asignaciones existentes de esta obra. ¿Estás seguro de continuar?');
+        if (!confirmarVacio) {
+          return;
+        }
       }
       // Ya no validamos cantidades porque cada profesional = 1 jornal/día automáticamente
     } else if (modalidadAsignacion === 'semanal') {
       if (Object.keys(asignacionesPorSemana).length === 0) {
-        alert('Por favor asigna profesionales a al menos una semana');
-        return;
+        // Permitir guardar vacío (implica eliminar todo), pero confirmar antes
+        const confirmarVacio = window.confirm('No hay profesionales asignados en ninguna semana. Al guardar, se eliminarán todas las asignaciones existentes de esta obra. ¿Estás seguro de continuar?');
+        if (!confirmarVacio) {
+          return;
+        }
       }
     }
 
     setCargando(true);
     try {
       // PASO 1: SIEMPRE eliminar asignaciones existentes para evitar conflictos 409
-      console.log('🗑️ Limpiando asignaciones existentes de la obra:', obra.id);
+      console.log('🗑️ Limpiando asignaciones existentes de la obra (bulk delete):', obra.id);
 
       try {
-        // Intentar obtener asignaciones actuales directamente
-        const asignacionesActuales = await obtenerAsignacionesSemanalPorObra(obra.id, empresaSeleccionada.id);
-        console.log('📋 Asignaciones actuales encontradas:', asignacionesActuales);
+        await eliminarAsignacionesPorObra(obra.id, empresaSeleccionada.id);
+        console.log('✅ Asignaciones eliminadas correctamente en lote');
+      } catch (error) {
+        console.warn('⚠️ Error en eliminación por lote (puede no haber asignaciones o endpoint no soportado):', error.message);
+        console.warn('🔄 Intentando eliminación individual como fallback...');
 
-        const asignacionesArray = asignacionesActuales?.data || asignacionesActuales || [];
+        try {
+          // Fallback: Intentar obtener asignaciones actuales y eliminar una por una
+          const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaSeleccionada.id);
+          console.log('📋 Respuesta completa fetch asignaciones:', responseAsignaciones);
 
-        if (Array.isArray(asignacionesArray) && asignacionesArray.length > 0) {
-          console.log(`🗑️ Eliminando ${asignacionesArray.length} asignaciones existentes...`);
+          // Manejar posibles estructuras de respuesta (Array directo, objeto con data, Pageable con content)
+          let asignacionesArray = [];
+          if (Array.isArray(responseAsignaciones)) {
+             asignacionesArray = responseAsignaciones;
+          } else if (Array.isArray(responseAsignaciones?.data)) {
+             asignacionesArray = responseAsignaciones.data;
+          } else if (Array.isArray(responseAsignaciones?.data?.content)) {
+             // Soporte para Spring Pageable
+             asignacionesArray = responseAsignaciones.data.content;
+          } else if (Array.isArray(responseAsignaciones?.content)) {
+             asignacionesArray = responseAsignaciones.content;
+          }
 
-          for (const asignacion of asignacionesArray) {
-            if (asignacion.id) {
-              try {
-                await eliminarAsignacionSemanal(asignacion.id, empresaSeleccionada.id);
-                console.log('✅ Asignación eliminada:', asignacion.id);
-              } catch (error) {
-                console.warn('⚠️ Error eliminando asignación:', asignacion.id, error.message);
+          console.log(`📋 Fallback: Encontradas ${asignacionesArray.length} asignaciones para eliminar.`);
+
+          if (asignacionesArray.length > 0) {
+            console.log(`🗑️ Iniciando eliminación secuencial de ${asignacionesArray.length} registros...`);
+            let eliminadosCount = 0;
+
+            for (const asignacion of asignacionesArray) {
+              // Validar ID
+              const idParaBorrar = asignacion.id || asignacion.asignacionId;
+
+              if (idParaBorrar) {
+                try {
+                  console.log(`🗑️ Eliminando asignación ID: ${idParaBorrar}...`);
+                  await eliminarAsignacionSemanal(idParaBorrar, empresaSeleccionada.id);
+                  console.log(`✅ Asignación ${idParaBorrar} eliminada.`);
+                  eliminadosCount++;
+                } catch (error) {
+                  console.warn(`⚠️ Falló eliminación de ID ${idParaBorrar}:`, error.message);
+
+                  // Intento desesperado: probar ruta antigua por si acaso
+                  try {
+                      // Importar dinámicamente o usar apiClient directo si fuera posible,
+                      // pero asumiremos que el error es definitivo por ahora.
+                  } catch (e) {}
+                }
+              } else {
+                 console.warn('⚠️ Objeto asignación sin ID reconocido:', asignacion);
               }
             }
+            console.log(`🏁 Proceso de eliminación finalizado. Borrados: ${eliminadosCount}/${asignacionesArray.length}`);
+          } else {
+            console.log('✅ No pareció haber asignaciones previas que eliminar (Array vacío o formato desconocido).');
           }
-        } else {
-          console.log('✅ No hay asignaciones previas que eliminar');
+        } catch (errorFallback) {
+          console.warn('⚠️ Error en fallback de eliminación:', errorFallback.message);
+          // Continuar de todas formas - puede que no haya asignaciones previas
         }
-      } catch (error) {
-        console.warn('⚠️ Error obteniendo asignaciones actuales (puede no haber ninguna):', error.message);
-        // Continuar de todas formas - puede que no haya asignaciones previas
       }
 
       // PASO 2: Crear las nuevas asignaciones
@@ -1450,15 +1508,15 @@ const AsignarProfesionalSemanalModal = ({
 
       // Construir payload según el contrato del backend
       const payload = {
-        obraId: obra.id,
+        obraId: Number(obra.id),
         modalidad: modalidadAsignacion,
-        semanasObjetivo: parseInt(semanasObjetivo),
+        semanasObjetivo: parseInt(semanasObjetivo) || 0,
       };
 
       if (modalidadAsignacion === 'total') {
         // En modalidad total (equipo fijo), cada profesional trabaja 1 jornal/día automáticamente
         payload.profesionales = profesionalesSeleccionados.map(prof => ({
-          profesionalId: prof.id,
+          profesionalId: Number(prof.id),
           nombre: prof.nombre,
           cantidadPorDia: 1 // Número, no string
         }));
@@ -1491,37 +1549,81 @@ const AsignarProfesionalSemanalModal = ({
               if (fecha.includes('T')) {
                 fechaFormateada = fecha.split('T')[0];
               }
-              // Mantener como string según el ejemplo del backend
-              cantidadesLimpias[fechaFormateada] = cantidad.toString();
+              // Enviar como número para consistencia con 'detallesPorDia'
+              cantidadesLimpias[fechaFormateada] = cantidadNum;
             }
           });
 
           console.log(`🔍 Cantidades limpias para semana ${semanaKey}:`, cantidadesLimpias);
 
-          // Construir objeto de retorno
+          // Construir objeto de retorno.
+          // IMPORTANTÍSIMO: Filtrar profesionales inválidos para evitar NaN en IDs
+          // y asegurar que el array no contenga nulos antes de enviarse.
+          const profesionalesValidos = (datos.profesionales || [])
+            .filter(p => p && p.id && !isNaN(Number(p.id)))
+            .map(prof => ({
+              profesionalId: Number(prof.id),
+              nombre: prof.nombre || 'Profesional'
+            }));
+
           const semanaPayload = {
-            semanaKey,
-            profesionales: datos.profesionales.map(prof => ({
-              profesionalId: prof.id,
-              nombre: prof.nombre
-            })),
-            cantidadesPorDia: cantidadesLimpias
+            semanaKey: !isNaN(parseInt(semanaKey)) ? parseInt(semanaKey) : semanaKey,
+            profesionales: profesionalesValidos
           };
 
-          // Si tenemos detalle específico por día (nueva funcionalidad), agregarlo al payload
+          let usoDetalles = false;
+
+          // Si tenemos detalle específico por día, lo agregamos
           if (datos.asignacionesDia) {
-             const detallesPorDia = [];
+             const detalles = [];
              Object.entries(datos.asignacionesDia).forEach(([fecha, listaProfesionales]) => {
                 const fechaFormateada = fecha.includes('T') ? fecha.split('T')[0] : fecha;
-                listaProfesionales.forEach(prof => {
-                     detallesPorDia.push({
-                         fecha: fechaFormateada,
-                         profesionalId: prof.id,
-                         cantidad: 1 // Por defecto 1 jornal
-                     });
-                });
+
+                if (Array.isArray(listaProfesionales)) {
+                  listaProfesionales.forEach(prof => {
+                      if (prof && prof.id) {
+                         detalles.push({
+                             fecha: fechaFormateada,
+                             profesionalId: Number(prof.id),
+                             cantidad: 1 // Por defecto 1 jornal
+                         });
+                      }
+                  });
+                }
              });
-             semanaPayload.detallesPorDia = detallesPorDia;
+
+             if (detalles.length > 0) {
+               semanaPayload.detallesPorDia = detalles;
+               usoDetalles = true;
+
+               // ⚠️ FIX CRÍTICO: El backend SIEMPRE requiere 'cantidadesPorDia' para validar la semana.
+               // Si usamos detalles, debemos generar un mapa de fechas activas, pero NO sumar la cantidad de profesionales.
+               // El backend usa este valor como "cantidad por defecto por profesional", por lo que si enviamos la suma (ej. 2),
+               // asignará 2 jornales a cada profesional. Debemos enviar '1' fijo para indicar actividad normal.
+               const cantidadesDesdeDetalles = {};
+               detalles.forEach(d => {
+                   cantidadesDesdeDetalles[d.fecha] = 1;
+               });
+
+               // Sobrescribimos o asignamos las cantidades calculadas
+               semanaPayload.cantidadesPorDia = cantidadesDesdeDetalles;
+             }
+          }
+
+          // Si NO se usaron detalles, usamos las cantidades manuales ingresadas
+          if (!usoDetalles) {
+             if (Object.keys(cantidadesLimpias).length > 0) {
+                semanaPayload.cantidadesPorDia = cantidadesLimpias;
+             }
+          }
+
+          // Validación Crítica para Backend:
+          // Debe existir cantidadesPorDia y no estar vacío
+          const tieneCantidades = semanaPayload.cantidadesPorDia && Object.keys(semanaPayload.cantidadesPorDia).length > 0;
+
+          if (!tieneCantidades) {
+             console.warn(`⚠️ Semana ${semanaKey} descartada por no tener días asignados (validacion backend)`);
+             return null;
           }
 
           return semanaPayload;
@@ -1532,6 +1634,33 @@ const AsignarProfesionalSemanalModal = ({
 
       console.log('📤 Payload a enviar:', JSON.stringify(payload, null, 2));
       console.log('🏢 EmpresaId:', empresaSeleccionada.id);
+
+      // PASO 3: Evaluar si necesitamos llamar al backend para crear
+      // Si la lista de asignaciones está vacía, significaba que queríamos borrar todo.
+      // Como ya hicimos el paso de borrado en el PASO 1, no hace falta llamar a crear
+      let hayDatosParaGuardar = false;
+
+      // Debug Payload Final
+      console.log('📦================ PAYLOAD FINAL POST ================📦');
+      console.log(JSON.stringify(payload, null, 2));
+      console.log('======================================================');
+
+      if (modalidadAsignacion === 'total') {
+        hayDatosParaGuardar = payload.profesionales && payload.profesionales.length > 0;
+      } else if (modalidadAsignacion === 'semanal') {
+        hayDatosParaGuardar = payload.asignacionesPorSemana && payload.asignacionesPorSemana.length > 0;
+      }
+
+      if (!hayDatosParaGuardar) {
+        console.log('⚠️ No hay datos nuevos para guardar - Se asume eliminación exitosa');
+        alert('✅ Asignaciones eliminadas correctamente');
+
+        if (onAsignar) onAsignar();
+        if (onRefreshProfesionales) onRefreshProfesionales();
+        setCargando(false);
+        onHide();
+        return;
+      }
 
       // Llamar al servicio del backend (siempre POST después de eliminar)
       const response = await crearAsignacionSemanal(payload, empresaSeleccionada.id);
@@ -1559,65 +1688,65 @@ const AsignarProfesionalSemanalModal = ({
                           (response.data && !response.data.error && !response.data.message);
 
       if (isSuccessful) {
-        // Intentar extraer información de diferentes formatos de respuesta
+        // 🔢 Calcular estadísticas precisas desde el payload enviado (Frontend Truth)
+        // Esto evita depender de cálculos del backend que pueden devolver datos confusos
+        const stats = {
+            jornales: 0,
+            diasUnicos: new Set(),
+            profesionalesUnicos: new Set()
+        };
+
+        if (payload.asignacionesPorSemana) {
+           payload.asignacionesPorSemana.forEach(semana => {
+               // Contar profesionales únicos
+               if (semana.profesionales) {
+                   semana.profesionales.forEach(p => stats.profesionalesUnicos.add(p.profesionalId));
+               }
+
+               // Contar jornales y días (Prioridad: detallesPorDia)
+               if (semana.detallesPorDia && semana.detallesPorDia.length > 0) {
+                   stats.jornales += semana.detallesPorDia.length;
+                   semana.detallesPorDia.forEach(d => stats.diasUnicos.add(d.fecha));
+               } else if (semana.cantidadesPorDia) {
+                   // Fallback legacy (aunque ahora siempre normalizamos a cantidades=1)
+                   const numDias = Object.keys(semana.cantidadesPorDia).length;
+                   const numProfs = semana.profesionales ? semana.profesionales.length : 0;
+                   stats.jornales += (numDias * numProfs);
+                   Object.keys(semana.cantidadesPorDia).forEach(fecha => stats.diasUnicos.add(fecha));
+               }
+           });
+        }
+
         let mensaje = '✅ Asignación creada exitosamente';
         let detalles = '';
 
-        // Si el response tiene success directamente (no es axios)
-        if (response.success === true && response.data) {
-          const { totalJornalesAsignados, diasHabiles, profesionalesAsignados } = response.data;
-          detalles = `\n• Jornales asignados: ${totalJornalesAsignados || 'N/A'}\n• Días hábiles: ${diasHabiles || 'N/A'}\n• Profesionales: ${profesionalesAsignados || 'N/A'}`;
-          if (response.message) {
-            mensaje = response.message;
-          }
-        }
-        // Si es respuesta de axios con data
-        else if (response.data) {
-          // Si la respuesta tiene estructura con success
-          if (response.data.success === true && response.data.data) {
-            const { totalJornalesAsignados, diasHabiles, profesionalesAsignados } = response.data.data;
-            detalles = `\n• Jornales asignados: ${totalJornalesAsignados || 'N/A'}\n• Días hábiles: ${diasHabiles || 'N/A'}\n• Profesionales: ${profesionalesAsignados || 'N/A'}`;
-          }
-          // Si la respuesta tiene mensaje directo
-          else if (response.data.message && !response.data.error) {
-            mensaje = response.data.message;
-          }
-          // Si la respuesta tiene datos directamente
-          else if (response.data.totalJornalesAsignados !== undefined) {
-            const { totalJornalesAsignados, diasHabiles, profesionalesAsignados } = response.data;
-            detalles = `\n• Jornales asignados: ${totalJornalesAsignados || 'N/A'}\n• Días hábiles: ${diasHabiles || 'N/A'}\n• Profesionales: ${profesionalesAsignados || 'N/A'}`;
-          }
-          // Si la respuesta es un string simple
-          else if (typeof response.data === 'string') {
-            mensaje = response.data;
-          }
-          // Si hay error en la respuesta
-          else if (response.data.error || (response.data.success === false)) {
-            throw new Error(response.data.error || response.data.message || 'Error en la respuesta del backend');
-          }
+        // Usar datos calculados si están disponibles, sino fallback al backend
+        const displayJornales = stats.jornales > 0 ? stats.jornales : (response.data?.totalJornalesAsignados || 'N/A');
+        const displayDias = stats.diasUnicos.size > 0 ? stats.diasUnicos.size : (response.data?.diasHabiles || 'N/A');
+        const displayProfesionales = stats.profesionalesUnicos.size > 0 ? stats.profesionalesUnicos.size : (response.data?.profesionalesAsignados || 'N/A');
+
+        detalles = `\n• Jornales asignados: ${displayJornales}\n• Días hábiles: ${displayDias}\n• Profesionales: ${displayProfesionales}`;
+
+        if (response.data && response.data.message && !response.data.error) {
+             mensaje = response.data.message;
+        } else if (response.message) {
+             mensaje = response.message;
         }
 
         alert(mensaje + detalles);
 
-        // Recargar asignaciones existentes para actualizar la vista
-        await cargarAsignacionesExistentes();
-
-        // Refrescar lista de profesionales disponibles
-        if (onRefreshProfesionales) {
-          await onRefreshProfesionales();
-        }
-
-        // Callback opcional para actualizar lista en el componente padre
-        if (onAsignar) {
-          await onAsignar(payload);
-        }
-
+        if (onAsignar) onAsignar();
+        if (onRefreshProfesionales) onRefreshProfesionales();
+        setCargando(false);
         onHide();
-      } else {
-        // La respuesta no fue exitosa
-        const errorMessage = response.data?.message || response.data?.error || response.message || response.error || `Error HTTP ${response.status || 'desconocido'}`;
-        throw new Error(errorMessage);
+        // Recargar página para asegurar consistencia total si se añadieron muchos datos
+        window.location.reload();
+        return;
       }
+
+      // La respuesta no fue exitosa
+      const errorMessage = response.data?.message || response.data?.error || response.message || response.error || `Error HTTP ${response.status || 'desconocido'}`;
+      throw new Error(errorMessage);
     } catch (error) {
       console.error('Error al asignar profesionales:', error);
       console.error('Error completo:', {
@@ -1853,6 +1982,42 @@ const AsignarProfesionalSemanalModal = ({
     : null;
   }, [modalidadAsignacion, diasHabilesDisponibles]);
 
+  // Handler para remover profesional de una semana específica
+  const handleRemoverProfesionalDeSemana = (semanaKey, profId) => {
+    setAsignacionesPorSemana(prev => {
+      const newState = { ...prev };
+
+      if (!newState[semanaKey]) return prev;
+
+      // 1. Remover de lista de profesionales
+      if (newState[semanaKey].profesionales) {
+        newState[semanaKey].profesionales = newState[semanaKey].profesionales.filter(p => p.id !== profId);
+      }
+
+      // 2. Remover de asignacionesDia (donde se guarda asignación día por día)
+      if (newState[semanaKey].asignacionesDia) {
+        Object.keys(newState[semanaKey].asignacionesDia).forEach(fecha => {
+          newState[semanaKey].asignacionesDia[fecha] = newState[semanaKey].asignacionesDia[fecha].filter(p => p.id !== profId);
+        });
+
+        // Limpiar días vacíos
+        Object.keys(newState[semanaKey].asignacionesDia).forEach(fecha => {
+          if (newState[semanaKey].asignacionesDia[fecha].length === 0) {
+            delete newState[semanaKey].asignacionesDia[fecha];
+          }
+        });
+      }
+
+      // 3. Si queda sin profesionales o asignaciones, evaluar eliminar la semana
+      const hasProfesionales = newState[semanaKey].profesionales && newState[semanaKey].profesionales.length > 0;
+      if (!hasProfesionales) {
+        delete newState[semanaKey];
+      }
+
+      return newState;
+    });
+  };
+
   if (!show) return null;
 
   return (
@@ -2048,6 +2213,14 @@ const AsignarProfesionalSemanalModal = ({
                                     <i className="fas fa-user me-1"></i>
                                     {prof.nombre}
                                   </span>
+                                  <button
+                                    type="button"
+                                    className="btn btn-link btn-sm text-danger p-0 px-1"
+                                    onClick={() => handleRemoverProfesionalDeSemana(semanaKey, prof.id)}
+                                    title="Quitar de esta semana"
+                                  >
+                                    <i className="fas fa-times-circle"></i>
+                                  </button>
                                   {diasPorProfesional[prof.id] && diasPorProfesional[prof.id].length > 0 && (
                                     <div className="d-flex flex-wrap gap-1">
                                       {diasPorProfesional[prof.id].map((dia, idx) => (

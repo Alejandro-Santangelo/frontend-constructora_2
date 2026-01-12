@@ -122,13 +122,30 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         ? presupuesto.fechaProbableInicio.split('T')[0]
         : presupuesto.fechaProbableInicio || configuracionObra.fechaInicio;
 
+      // Obtener días hábiles del presupuesto (tiempoEstimadoTerminacion)
       let diasHabilesPresupuesto = configuracionObra.jornalesTotales;
       if (presupuesto.tiempoEstimadoTerminacion) {
         diasHabilesPresupuesto = presupuesto.tiempoEstimadoTerminacion;
+      } else if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
+        // Fallback: calcular sumando jornales si no existe tiempoEstimadoTerminacion
+        diasHabilesPresupuesto = presupuesto.itemsCalculadora.reduce((total, rubro) => {
+          const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
+                                    rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
+                                    rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
+          if (esLegacyDuplicado) return total;
+
+          const incluir = rubro.incluirEnCalculoDias !== false;
+          if (!incluir) return total;
+
+          const jornalesRubro = rubro.jornales?.reduce((sum, j) => sum + (j.cantidad || 0), 0) || 0;
+          const profesionalesRubro = rubro.profesionales?.reduce((sum, p) => sum + (p.cantidadJornales || 0), 0) || 0;
+          return total + jornalesRubro + profesionalesRubro;
+        }, 0) || configuracionObra.jornalesTotales;
       }
 
       // 🔥 USAR días hábiles del presupuesto (fuente de verdad), NO semanasObjetivo × 5
-      const diasHabiles = presupuesto.tiempoEstimadoTerminacion || configuracionObra.diasHabiles || (configuracionObra.semanasObjetivo * 5);
+      // Prioridad: 1. Presupuesto (propiedad) -> 2. Presupuesto (calculado) -> 3. Config (dias) -> 4. Config (semanas)
+      const diasHabiles = presupuesto.tiempoEstimadoTerminacion || diasHabilesPresupuesto || configuracionObra.diasHabiles || (configuracionObra.semanasObjetivo * 5);
       const capacidadNecesaria = diasHabiles > 0 ? Math.ceil(diasHabilesPresupuesto / diasHabiles) : 0;
 
       return {
@@ -610,6 +627,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               descripcion: gasto.descripcion,
               categoria: obtenerCategoriaGasto(gasto),
               cantidadDisponible: gasto.cantidad,
+              unidadMedida: '',
               precioUnitario: gasto.precioUnitario,
               importe: gasto.subtotal,
               esDelStock: true
@@ -622,6 +640,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               descripcion: gasto.descripcion,
               categoria: obtenerCategoriaGasto(gasto),
               cantidadDisponible: gasto.cantidad,
+              unidadMedida: '',
               precioUnitario: gasto.precioUnitario,
               importe: gasto.subtotal,
               esDelStock: true
@@ -667,7 +686,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               descripcion: gasto.descripcion,
               categoria: obtenerCategoriaGasto(gasto),
               cantidadDisponible: 3,
-              unidadMedida: 'unidades',
+              unidadMedida: '',
               importe: gasto.importe,
               esDelStock: true
             }));
@@ -678,12 +697,13 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               descripcion: gasto.descripcion,
               categoria: obtenerCategoriaGasto(gasto),
               cantidadDisponible: 3,
-              unidadMedida: 'unidades',
+              unidadMedida: '',
               importe: gasto.importe,
               esDelStock: true
             }));
             modoDetectado = gastosDisponibles.length > 0 ? 'DETALLE' : null;
           }
+
         } catch (stockError) {
           console.log('⚠️ Endpoint gastos-generales no disponible, usando otros-costos como respaldo:', stockError.message);
 
@@ -2357,7 +2377,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                               >
                                    {icono} {costo.nombre} {
                                   disponibleReal !== null
-                                    ? `(${infoStock} ${costo.unidadMedida || 'unidades'} disponibles - $${importeFinal.toLocaleString('es-AR')}/unidad)`
+                                    ? `(${costo.unidadMedida ? infoStock + ' ' + costo.unidadMedida + ' disponibles - ' : ''}$${importeFinal.toLocaleString('es-AR')}/unidad)`
                                     : `($${importeFinal.toLocaleString('es-AR')}/unidad)`
                                 }
                               </option>

@@ -246,6 +246,23 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
             return numSemanas;
           }
 
+          // PRIORIDAD 4: Calcular maximo de semanas basado en las asignaciones reales (si existen)
+          if (asignaciones && asignaciones.length > 0) {
+            let maxSemanaReal = 0;
+            asignaciones.forEach(a => {
+              if (a.asignacionesPorSemana && Array.isArray(a.asignacionesPorSemana)) {
+                if (a.asignacionesPorSemana.length > maxSemanaReal) {
+                  maxSemanaReal = a.asignacionesPorSemana.length;
+                }
+              }
+            });
+
+            if (maxSemanaReal > 0) {
+              console.log(`✅ Obra "${presupuesto.nombreObra}" calculó ${maxSemanaReal} semanas desde asignaciones reales`);
+              return maxSemanaReal;
+            }
+          }
+
           console.warn(`⚠️ Obra "${presupuesto.nombreObra}" (obraId: ${obraId}) NO tiene configuración de semanas, usando 6 por defecto`);
           return 6; // Default más realista que 1
         } catch (error) {

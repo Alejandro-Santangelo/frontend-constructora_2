@@ -8027,10 +8027,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                         value={form.fechaProbableInicio || ''}
                         onChange={handleChange}
                         onBlur={async (e) => {
-                          // No guardar automáticamente en modo trabajo extra
-                          if (modoTrabajoExtra) {
-                            return;
-                          }
+                          // ✨ HABILITADO PARA TRABAJOS EXTRA TAMBIÉN
+                          // El usuario solicitó explícitamente poder configurar la planificación en Trabajos Extra
 
                           if (form.id && e.target.value !== initialData?.fechaProbableInicio) {
                             console.log('🔄 Guardando fechaProbableInicio automáticamente...');
@@ -8237,10 +8235,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                           }
 
                           // ✅ Guardar automáticamente si cambió el valor Y está en modo manual
-                          // No guardar automáticamente en modo trabajo extra
-                          if (modoTrabajoExtra) {
-                            return;
-                          }
+                          // ✨ HABILITADO PARA TRABAJOS EXTRA TAMBIÉN
+                          // El usuario solicitó explícitamente poder configurar la planificación en Trabajos Extra
 
                           if (form.calculoAutomaticoDiasHabiles !== true && form.id && e.target.value && e.target.value !== String(initialData?.tiempoEstimadoTerminacion)) {
                             console.log('🔄 Guardando tiempoEstimadoTerminacion automáticamente...');

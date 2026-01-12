@@ -3,6 +3,19 @@
   border: 2px solid #000 !important;
 }
 
+/* ========== DESHABILITAR CONTROLES SPINNER Y SCROLL EN INPUTS NUMÉRICOS ========== */
+/* Ocultar flechas (spinners) en Chrome, Safari, Edge, Opera */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Ocultar flechas en Firefox */
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
 /* ========== ESTILOS MEJORADOS PARA INPUTS Y TEXTAREAS ========== */
 /* Efectos hover y focus para inputs con estilos personalizados */
 .form-control:hover:not(:disabled) {
@@ -257,7 +270,7 @@ body {
     padding-left: 0.5rem;
     padding-right: 0.5rem;
   }
-  
+
   .table-responsive {
     font-size: 0.8rem;
   }
@@ -343,20 +356,20 @@ body {
   .capturando-pdf {
     font-size: 10pt !important;
   }
-  
+
   .capturando-pdf .card {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
-  
+
   .capturando-pdf .seccion-base-presupuesto {
     page-break-before: auto;
   }
-  
+
   .capturando-pdf h6 {
     font-size: 11pt !important;
   }
-  
+
   .capturando-pdf .small {
     font-size: 8pt !important;
   }

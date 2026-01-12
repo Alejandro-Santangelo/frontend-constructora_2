@@ -221,7 +221,7 @@ const AsignarMaterialSemanalModal = ({
                     <strong>Presupuesto Global de Materiales</strong>
                   </div>
                   <div className="fs-4 fw-bold text-success">
-                    {cantidadGlobalDisponible.toLocaleString('es-AR')} unidades
+                    $ {cantidadGlobalDisponible.toLocaleString('es-AR')}
                   </div>
                 </div>
                 <small className="text-muted d-block mt-1">
@@ -262,7 +262,7 @@ const AsignarMaterialSemanalModal = ({
                       </div>
                       <small className="d-block mt-1 text-muted">
                         Crear material sin estar en el presupuesto
-                        {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && ` (${cantidadGlobalDisponible} disponibles)`}
+                        {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && ` ($ ${cantidadGlobalDisponible.toLocaleString('es-AR')} disponibles)`}
                       </small>
                     </div>
                   )}

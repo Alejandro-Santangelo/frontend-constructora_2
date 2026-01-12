@@ -50,12 +50,12 @@ export const debugTiposProfesionales = () => apiClient.get('/api/profesionales-o
 
 // Crear asignación semanal
 export const crearAsignacionSemanal = async (data, empresaId) => {
-  const response = await apiClient.post('/api/profesionales/asignar-semanal', data, { 
-    headers: { 
-      'empresaId': empresaId.toString() 
-    } 
+  const response = await apiClient.post('/api/profesionales/asignar-semanal', data, {
+    headers: {
+      'empresaId': empresaId.toString()
+    }
   });
-  
+
   // Emitir evento para actualizar profesionales en otros componentes
   console.log('📡 [Service] Emitiendo evento PROFESIONAL_ASIGNADO');
   eventBus.emit(FINANCIAL_EVENTS.PROFESIONAL_ASIGNADO, {
@@ -63,16 +63,20 @@ export const crearAsignacionSemanal = async (data, empresaId) => {
     empresaId,
     timestamp: new Date().toISOString()
   });
-  
+
   return response;
 };
 
 // Obtener asignaciones de una obra
 export const obtenerAsignacionesSemanalPorObra = (obraId, empresaId) => {
   console.log('🔍 [Service] Obteniendo asignaciones para obra:', obraId, 'empresaId pasado:', empresaId);
-  
-  // El interceptor de apiClient ya agrega automáticamente empresaId en headers y params
-  return apiClient.get(`/api/profesionales/asignaciones/${obraId}`);
+
+  // Agregar empresaId en headers explícitamente como requiere el backend
+  return apiClient.get(`/api/profesionales/asignaciones/${obraId}`, {
+    headers: {
+      'empresaId': empresaId.toString()
+    }
+  });
 };
 
 // Actualizar asignación semanal existente
@@ -95,7 +99,7 @@ export const eliminarAsignacionSemanal = async (asignacionId, empresaId) => {
       }
     });
     console.log('✅ [Service] Asignación eliminada exitosamente:', asignacionId);
-    
+
     // Emitir evento para actualizar profesionales en otros componentes
     console.log('📡 [Service] Emitiendo evento PROFESIONAL_DESASIGNADO');
     eventBus.emit(FINANCIAL_EVENTS.PROFESIONAL_DESASIGNADO, {
@@ -103,7 +107,7 @@ export const eliminarAsignacionSemanal = async (asignacionId, empresaId) => {
       empresaId,
       timestamp: new Date().toISOString()
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ [Service] Error eliminando asignación:', {
@@ -119,11 +123,10 @@ export const eliminarAsignacionSemanal = async (asignacionId, empresaId) => {
 };
 
 // Eliminar múltiples asignaciones (por obra completa)
-export const eliminarAsignacionesPorObra = (obraId, empresaId) => {
-  console.log('🔍 [Service] Eliminando todas las asignaciones de obra:', obraId, 'empresaId:', empresaId);
-  return apiClient.delete(`/api/profesionales/asignaciones/obra/${obraId}`, {
-    headers: {
-      'empresaId': empresaId.toString()
-    }
-  });
+export const eliminarAsignacionesPorObra = async (obraId, empresaId) => {
+  console.log('🔍 [Service] Eliminando asignaciones por asignación individual (fallback seguro)...');
+  // Nota: El endpoint de borrado masivo /api/profesionales/asignaciones/obra/{id} devuelve 404/500 en este entorno.
+  // Por lo tanto, simulamos éxito para forzar al frontend a usar el fallback de borrado 1x1
+  // que ya está implementado en AsignarProfesionalSemanalModal.jsx
+  throw new Error("Endpoint Disable: Use Fallback");
 };

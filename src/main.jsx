@@ -11,6 +11,14 @@ import 'bootstrap/dist/css/bootstrap.min.css'
 import './index.css'
 import './styles/custom.css'
 
+// Deshabilitar el cambio de valor al hacer scroll en inputs numéricos
+// Esto evita que el usuario cambie valores accidentalmente al desplazar la página
+document.addEventListener('wheel', (event) => {
+  if (document.activeElement.type === 'number') {
+    document.activeElement.blur();
+  }
+});
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <Provider store={store}>
