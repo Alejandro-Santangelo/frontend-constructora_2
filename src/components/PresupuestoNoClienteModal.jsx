@@ -389,6 +389,22 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const [modoCargaGastos, setModoCargaGastos] = useState('detalle'); // 'detalle' | 'global'
   const [globalGastos, setGlobalGastos] = useState({ descripcion: 'Presupuesto Global Gastos Grales.', importe: '' });
 
+  // 🆕 NUEVOS ESTADOS: Selectores de Catálogo vs Entrada Manual
+  const [modoEntradaMaterial, setModoEntradaMaterial] = useState('catalogo'); // 'catalogo' | 'manual'
+  const [modoEntradaJornal, setModoEntradaJornal] = useState('catalogo'); // 'catalogo' | 'manual'
+  const [modoEntradaGasto, setModoEntradaGasto] = useState('catalogo'); // 'catalogo' | 'manual'
+
+  // 📚 Estados para almacenar catálogos cargados desde backend
+  const [catalogoMateriales, setCatalogoMateriales] = useState([]);
+  const [catalogoJornales, setCatalogoJornales] = useState([]);
+  const [catalogoGastos, setCatalogoGastos] = useState([]);
+  const [cargandoCatalogos, setCargandoCatalogos] = useState(false);
+
+  // Estados para los selectores de catálogo
+  const [selectorMaterial, setSelectorMaterial] = useState('');
+  const [selectorJornal, setSelectorJornal] = useState('');
+  const [selectorGasto, setSelectorGasto] = useState('');
+
   const [showEditGastoModal, setShowEditGastoModal] = useState(false);
   const [gastoEditando, setGastoEditando] = useState(null);
   const [itemIdGastoEditando, setItemIdGastoEditando] = useState(null);
@@ -902,6 +918,77 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         });
     }
   }, [show, form.idEmpresa, soloLectura]);
+
+  // 📚 useEffect para cargar catálogos (Materiales, Jornales, Gastos) cuando se abre el modal
+  useEffect(() => {
+    const cargarCatalogos = async () => {
+      if (!show || !empresaSeleccionada?.id) {
+        return;
+      }
+
+      setCargandoCatalogos(true);
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+          'empresaId': empresaSeleccionada.id.toString()
+        };
+
+        // Cargar catálogos en paralelo
+        const [materialesRes, jornalesRes, gastosRes] = await Promise.all([
+          fetch(`/api/materiales?empresaId=${empresaSeleccionada.id}`, { headers }).catch(() => ({ ok: false })),
+          fetch(`/api/jornales/empresa/${empresaSeleccionada.id}`, { headers }).catch(() => ({ ok: false })),
+          fetch(`/api/gastos-generales?empresaId=${empresaSeleccionada.id}`, { headers }).catch(() => ({ ok: false }))
+        ]);
+
+        // Procesar materiales
+        if (materialesRes.ok) {
+          const materiales = await materialesRes.json();
+          console.log('📦 RAW Response materiales:', materiales);
+          console.log('📦 Es Array?:', Array.isArray(materiales));
+          console.log('📦 Tiene data?:', materiales?.data);
+
+          // Intentar extraer el array de diferentes estructuras posibles
+          let materialesArray = [];
+          if (Array.isArray(materiales)) {
+            materialesArray = materiales;
+          } else if (materiales?.data && Array.isArray(materiales.data)) {
+            materialesArray = materiales.data;
+          } else if (materiales?.materiales && Array.isArray(materiales.materiales)) {
+            materialesArray = materiales.materiales;
+          }
+
+          setCatalogoMateriales(materialesArray);
+          console.log('📦 Catálogo de materiales cargado:', materialesArray.length);
+          if (materialesArray.length > 0) {
+            console.log('📦 Primer material:', materialesArray[0]);
+          }
+        } else {
+          console.error('❌ Error cargando materiales:', materialesRes.status, materialesRes.statusText);
+        }
+
+        // Procesar jornales
+        if (jornalesRes.ok) {
+          const jornales = await jornalesRes.json();
+          setCatalogoJornales(Array.isArray(jornales) ? jornales : []);
+          console.log('👷 Catálogo de jornales cargado:', jornales.length);
+        }
+
+        // Procesar gastos
+        if (gastosRes.ok) {
+          const gastos = await gastosRes.json();
+          setCatalogoGastos(Array.isArray(gastos) ? gastos : []);
+          console.log('💰 Catálogo de gastos cargado:', gastos.length);
+        }
+
+      } catch (error) {
+        console.error('❌ Error cargando catálogos:', error);
+      } finally {
+        setCargandoCatalogos(false);
+      }
+    };
+
+    cargarCatalogos();
+  }, [show, empresaSeleccionada?.id]);
 
   // useEffect para cargar nombres de cliente y obra vinculados (modo edición)
   useEffect(() => {
@@ -1890,6 +1977,81 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   const eliminarProfesionalCalc = (id) => {
     setProfesionalesCalc(profesionalesCalc.filter(p => p.id !== id));
+  };
+
+  // 🆕 FUNCIÓN: Manejar selección de material desde catálogo
+  const handleSeleccionMaterialCatalogo = (e) => {
+    const valor = e.target.value;
+
+    if (valor === 'manual') {
+      // Usuario seleccionó "Agregar Manualmente"
+      setModoEntradaMaterial('manual');
+      setMaterialActualCalc({ descripcion: '', cantidad: '', precioUnitario: '', unidad: 'unidad' });
+    } else if (valor === '') {
+      // Opción vacía (placeholder)
+      setMaterialActualCalc({ descripcion: '', cantidad: '', precioUnitario: '', unidad: 'unidad' });
+    } else {
+      // Usuario seleccionó un material del catálogo
+      const materialSeleccionado = catalogoMateriales.find(m => m.id === parseInt(valor));
+      if (materialSeleccionado) {
+        setMaterialActualCalc({
+          descripcion: materialSeleccionado.nombre || materialSeleccionado.descripcion || '',
+          cantidad: '',
+          precioUnitario: materialSeleccionado.precioUnitario || materialSeleccionado.precio || '',
+          unidad: materialSeleccionado.unidadMedida || materialSeleccionado.unidad || 'unidad'
+        });
+        console.log('✅ Material seleccionado del catálogo:', materialSeleccionado.nombre);
+      }
+    }
+  };
+
+  // 🆕 FUNCIÓN: Manejar selección de jornal desde catálogo
+  const handleSeleccionJornalCatalogo = (e) => {
+    const valor = e.target.value;
+
+    if (valor === 'manual') {
+      setModoEntradaJornal('manual');
+      setJornalActualCalc({ rol: '', rolPersonalizado: '', cantidadJornales: '', importeJornal: '' });
+    } else if (valor === '') {
+      setJornalActualCalc({ rol: '', rolPersonalizado: '', cantidadJornales: '', importeJornal: '' });
+    } else {
+      const jornalSeleccionado = catalogoJornales.find(j => j.id === parseInt(valor));
+      if (jornalSeleccionado) {
+        // Determinar el rol basándose en si tiene nombre o no
+        let rolFinal = jornalSeleccionado.rol || jornalSeleccionado.tipoProfesional || '';
+
+        setJornalActualCalc({
+          rol: rolFinal.includes('Otro') ? 'Otro' : rolFinal,
+          rolPersonalizado: rolFinal.includes('Otro') ? rolFinal : '',
+          cantidadJornales: '',
+          importeJornal: jornalSeleccionado.valorUnitario || jornalSeleccionado.precio || '',
+          nombreProfesional: jornalSeleccionado.nombreProfesional || null
+        });
+        console.log('✅ Jornal seleccionado del catálogo:', jornalSeleccionado.rol);
+      }
+    }
+  };
+
+  // 🆕 FUNCIÓN: Manejar selección de gasto desde catálogo
+  const handleSeleccionGastoCatalogo = (e) => {
+    const valor = e.target.value;
+
+    if (valor === 'manual') {
+      setModoEntradaGasto('manual');
+      setGastoGeneralActual({ descripcion: '', cantidad: '', precioUnitario: '' });
+    } else if (valor === '') {
+      setGastoGeneralActual({ descripcion: '', cantidad: '', precioUnitario: '' });
+    } else {
+      const gastoSeleccionado = catalogoGastos.find(g => g.id === parseInt(valor));
+      if (gastoSeleccionado) {
+        setGastoGeneralActual({
+          descripcion: gastoSeleccionado.nombre || gastoSeleccionado.descripcion || '',
+          cantidad: '',
+          precioUnitario: gastoSeleccionado.precioUnitario || gastoSeleccionado.precio || ''
+        });
+        console.log('✅ Gasto seleccionado del catálogo:', gastoSeleccionado.nombre);
+      }
+    }
   };
 
   const editarProfesionalCalc = (profesional) => {
@@ -6366,6 +6528,37 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         honorariosOtrosCostosValor: resultado?.honorariosOtrosCostosValor
       });
 
+// 📦 INFORMAR sobre elementos extraídos para catálogo
+      if (datosCompletos.elementosParaCatalogo && datosCompletos.elementosParaCatalogo.length > 0) {
+        const cantMateriales = datosCompletos.elementosParaCatalogo.filter(e => e.tipo === 'MATERIAL').length;
+        const cantGastos = datosCompletos.elementosParaCatalogo.filter(e => e.tipo === 'GASTO_GENERAL').length;
+        const cantJornales = datosCompletos.elementosParaCatalogo.filter(e => e.tipo === 'JORNAL').length;
+        const cantProfesionales = datosCompletos.elementosParaCatalogo.filter(e => e.tipo === 'PROFESIONAL').length;
+
+        let mensajeElementos = '✅ Presupuesto guardado exitosamente.\n\n';
+        mensajeElementos += '📚 ELEMENTOS AGREGADOS AL CATÁLOGO (disponibles para reutilizar):\n\n';
+
+        if (cantMateriales > 0) {
+          mensajeElementos += `   📦 ${cantMateriales} Material(es) individual(es)\n`;
+        }
+        if (cantGastos > 0) {
+          mensajeElementos += `   💰 ${cantGastos} Gasto(s) general(es)\n`;
+        }
+        if (cantJornales > 0) {
+          mensajeElementos += `   👷 ${cantJornales} Jornal(es)\n`;
+        }
+        if (cantProfesionales > 0) {
+          mensajeElementos += `   👨‍💼 ${cantProfesionales} Profesional(es)\n`;
+        }
+
+        mensajeElementos += '\n💡 Cada elemento está guardado con cantidad 1 y su precio unitario.';
+        mensajeElementos += '\n   Ya están disponibles en el catálogo para usarlos en futuros presupuestos.';
+
+        console.log(mensajeElementos);
+        // Opcional: mostrar alerta al usuario
+        // alert(mensajeElementos);
+      }
+
     } catch (error) {
       console.error('❌ ERROR AL GUARDAR:', error);
       console.error('❌ ERROR RESPONSE:', error.response?.data);
@@ -7415,6 +7608,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     console.log('💰 [CONSOLIDACIÓN FINAL] Total gastos consolidados:', gastosConsolidados.length);
     console.log('💰 [CONSOLIDACIÓN FINAL] Detalles:', gastosConsolidados);
 
+    // ℹ️ NOTA IMPORTANTE:
+    // - 'gastosConsolidados' (arriba) → Elementos INDIVIDUALES de gastos a guardar en este presupuesto
+    // - 'elementosConsolidadosPorRubro' (más abajo) → Elementos CONSOLIDADOS POR RUBRO para el catálogo
+    //   Estos últimos se crean automáticamente para tenerlos disponibles en futuros presupuestos
+
     // ✅ RECALCULAR totalPresupuesto desde payload.itemsCalculadora (FILTRANDO LEGACY)
     const itemsValidosParaTotal = (payload.itemsCalculadora || []).filter(item => {
       const esLegacy = item.tipoProfesional?.toLowerCase().includes('migrado') ||
@@ -7442,6 +7640,142 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // ✨ NUEVO: Incluir el modo de cálculo automático de días hábiles
     payload.calculoAutomaticoDiasHabiles = form.calculoAutomaticoDiasHabiles;
+
+// 🆕 NUEVA FUNCIONALIDAD: Extraer elementos INDIVIDUALES para catálogo
+    // Objetivo: Guardar cada material, jornal y gasto como elemento separado (1 unidad)
+    // para que estén disponibles en el catálogo de futuros presupuestos
+    const elementosParaCatalogo = [];
+
+    if (payload.itemsCalculadora && payload.itemsCalculadora.length > 0) {
+      payload.itemsCalculadora.forEach(item => {
+        const nombreRubro = item.tipoProfesional?.trim() || '';
+
+        // 1️⃣ EXTRAER CADA MATERIAL INDIVIDUAL
+        if (item.materialesLista && item.materialesLista.length > 0) {
+          item.materialesLista.forEach(material => {
+            // Solo agregar si tiene descripción y precio unitario válido
+            if (material.descripcion && material.descripcion.trim() !== '' && material.precioUnitario > 0) {
+              elementosParaCatalogo.push({
+                tipo: 'MATERIAL',
+                nombre: material.descripcion.trim(), // Ej: "Cemento", "Cal", "Ladrillos"
+                descripcion: material.descripcion.trim(),
+                categoria: nombreRubro || 'Sin categoría', // El rubro como categoría
+                cantidad: 1, // SIEMPRE 1 unidad para el catálogo
+                precioUnitario: Number(material.precioUnitario), // Precio por unidad
+                unidadMedida: material.unidad || 'unidad',
+                rubroOrigen: nombreRubro
+              });
+
+              console.log(`📦 Material para catálogo: "${material.descripcion}" - $${material.precioUnitario} (${nombreRubro})`);
+            }
+          });
+        }
+
+        // 2️⃣ EXTRAER CADA GASTO GENERAL INDIVIDUAL
+        if (item.gastosGenerales && item.gastosGenerales.length > 0) {
+          item.gastosGenerales.forEach(gasto => {
+            // Solo agregar si tiene descripción y precio válido
+            if (gasto.descripcion && gasto.descripcion.trim() !== '' && gasto.precioUnitario > 0) {
+              elementosParaCatalogo.push({
+                tipo: 'GASTO_GENERAL',
+                nombre: gasto.descripcion.trim(), // Ej: "Transporte", "Herramientas"
+                descripcion: gasto.descripcion.trim(),
+                categoria: nombreRubro || 'Sin categoría',
+                cantidad: 1, // SIEMPRE 1 unidad para el catálogo
+                precioUnitario: Number(gasto.precioUnitario), // Precio por unidad
+                unidadMedida: gasto.unidad || 'unidad',
+                rubroOrigen: nombreRubro
+              });
+
+              console.log(`💰 Gasto para catálogo: "${gasto.descripcion}" - $${gasto.precioUnitario} (${nombreRubro})`);
+            }
+          });
+        }
+
+        // 3️⃣ EXTRAER CADA JORNAL/PROFESIONAL INDIVIDUAL
+        if (item.jornales && item.jornales.length > 0) {
+          item.jornales.forEach(jornal => {
+            // Determinar el nombre: Si tiene nombre de profesional, usarlo; si no, usar el rol/tipo
+            let nombreJornal = '';
+
+            // Si el jornal tiene un nombre de profesional asociado (ej: "Juan Pérez")
+            if (jornal.nombreProfesional && jornal.nombreProfesional.trim() !== '') {
+              nombreJornal = `${jornal.nombreProfesional} - ${jornal.rol || jornal.tipoProfesional}`;
+              // Resultado: "Juan Pérez - Oficial Albañil"
+            } else {
+              // Si NO tiene nombre, usar solo el rol/tipo
+              nombreJornal = jornal.rol || jornal.tipoProfesional || 'Profesional';
+              // Resultado: "Oficial Albañil"
+            }
+
+            // Solo agregar si tiene precio válido
+            if (nombreJornal.trim() !== '' && jornal.valorUnitario > 0) {
+              elementosParaCatalogo.push({
+                tipo: 'JORNAL',
+                nombre: nombreJornal.trim(),
+                rol: jornal.rol || jornal.tipoProfesional || '',
+                nombreProfesional: jornal.nombreProfesional || null,
+                categoria: nombreRubro || 'Sin categoría',
+                cantidad: 1, // SIEMPRE 1 jornal para el catálogo
+                valorUnitario: Number(jornal.valorUnitario), // Precio por jornal
+                rubroOrigen: nombreRubro
+              });
+
+              console.log(`👷 Jornal para catálogo: "${nombreJornal}" - $${jornal.valorUnitario}/jornal (${nombreRubro})`);
+            }
+          });
+        }
+
+        // 4️⃣ TAMBIÉN EXTRAER PROFESIONALES (si existen)
+        if (item.profesionales && item.profesionales.length > 0) {
+          item.profesionales.forEach(profesional => {
+            let nombreProfesional = '';
+
+            // Si tiene nombre propio
+            if (profesional.nombre && profesional.nombre.trim() !== '') {
+              nombreProfesional = `${profesional.nombre} - ${profesional.tipo || 'Profesional'}`;
+            } else {
+              // Si NO tiene nombre, usar solo el tipo
+              nombreProfesional = profesional.tipo || 'Profesional';
+            }
+
+            // Solo agregar si tiene precio válido
+            if (nombreProfesional.trim() !== '' && profesional.importeJornal > 0) {
+              elementosParaCatalogo.push({
+                tipo: 'PROFESIONAL',
+                nombre: nombreProfesional.trim(),
+                tipoProfesional: profesional.tipo || '',
+                nombreProfesional: profesional.nombre || null,
+                telefono: profesional.telefono || null,
+                categoria: nombreRubro || 'Sin categoría',
+                cantidad: 1, // SIEMPRE 1 unidad
+                valorUnitario: Number(profesional.importeJornal),
+                unidad: profesional.unidad || 'jornales',
+                rubroOrigen: nombreRubro
+              });
+
+              console.log(`👨‍💼 Profesional para catálogo: "${nombreProfesional}" - $${profesional.importeJornal} (${nombreRubro})`);
+            }
+          });
+        }
+      });
+    }
+
+    // Agregar los elementos al payload
+    payload.elementosParaCatalogo = elementosParaCatalogo;
+
+    console.log(`\n📚 ELEMENTOS EXTRAÍDOS PARA CATÁLOGO: ${elementosParaCatalogo.length} elementos individuales`);
+
+    // Resumen por tipo
+    const cantMateriales = elementosParaCatalogo.filter(e => e.tipo === 'MATERIAL').length;
+    const cantGastos = elementosParaCatalogo.filter(e => e.tipo === 'GASTO_GENERAL').length;
+    const cantJornales = elementosParaCatalogo.filter(e => e.tipo === 'JORNAL').length;
+    const cantProfesionales = elementosParaCatalogo.filter(e => e.tipo === 'PROFESIONAL').length;
+
+    console.log(`   📦 Materiales: ${cantMateriales}`);
+    console.log(`   💰 Gastos Generales: ${cantGastos}`);
+    console.log(`   👷 Jornales: ${cantJornales}`);
+    console.log(`   👨‍💼 Profesionales: ${cantProfesionales}`);
 
     console.log('🔄 MODO DE CÁLCULO GUARDADO:', {
       valorEnForm: form.calculoAutomaticoDiasHabiles,
@@ -9002,6 +9336,42 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             {!jornalesAgregados && (
                             <div className="border rounded p-3 mb-2 bg-light">
 
+                              {/* Selector de Catálogo */}
+                              <div className="border rounded p-3 mb-2 bg-light">
+                                <div>
+                                  <div className="mb-3">
+                                    <label className="form-label small fw-bold mb-1">📚 Seleccionar del Catálogo</label>
+                                    <select
+                                      className="form-select form-select-sm"
+                                      value={selectorJornal}
+                                      onChange={(e) => {
+                                        const valor = e.target.value;
+                                        setSelectorJornal(valor);
+
+                                        if (valor && valor !== 'manual') {
+                                          const jornalSeleccionado = catalogoJornales.find(j => j.id === parseInt(valor));
+                                          if (jornalSeleccionado) {
+                                            setJornalFormCalc({
+                                              rol: jornalSeleccionado.nombre || jornalSeleccionado.descripcion,
+                                              cantidadJornales: '1',
+                                              importeJornal: jornalSeleccionado.precio || jornalSeleccionado.importe || ''
+                                            });
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      <option value="">-- Seleccione un jornal --</option>
+                                      {catalogoJornales.map(jornal => (
+                                        <option key={jornal.id} value={jornal.id}>
+                                          {jornal.nombre || jornal.descripcion} - ${(jornal.precio || jornal.importe || 0).toLocaleString('es-AR')}
+                                        </option>
+                                      ))}
+                                      <option value="manual" style={{borderTop: '2px solid #ddd', fontWeight: 'bold'}}>➕ Agregar Manualmente</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+
                               {/* CONDICIONAL: MODO GLOBAL vs MODO DETALLE */}
                               {modoCargaJornales === 'global' ? (
                                 // --- MODO GLOBAL ---
@@ -9413,66 +9783,121 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   )}
                                 </div>
                               ) : (
-                                // --- MODO DETALLE (El existente) ---
-                              <div className="d-flex flex-row align-items-end gap-2 flex-wrap">
-                                <div style={{minWidth: '250px', flex: 1}}>
-                                  <label className="form-label small mb-1">Material</label>
-                                  <input
-                                    type="text"
-                                    className="form-control form-control-sm"
-                                    value={materialActualCalc.descripcion}
-                                    onChange={(e) => handleDescripcionMaterialChange(e.target.value)}
-                                    placeholder="Material (ej: pintura latex 2 × 20 litros)"
-                                    title="💡 Tip: Si escribes algo como '2 × 20 litros', la cantidad se llenará automáticamente"
-                                  />
-                                </div>
-                                <div style={{minWidth: '100px', maxWidth: '100px'}}>
-                                  <label className="form-label small mb-1">Cantidad</label>
-                                  <input
-                                    type="number"
-                                    className="form-control form-control-sm"
-                                    value={materialActualCalc.cantidad}
-                                    onChange={(e) => setMaterialActualCalc({...materialActualCalc, cantidad: e.target.value})}
-                                    placeholder="0"
-                                    min="0"
-                                    step="0.01"
-                                    id="cantidadMaterialInput"
-                                  />
-                                </div>
-                                <div style={{minWidth: '120px', maxWidth: '120px'}}>
-                                  <label className="form-label small mb-1">Precio Unitario</label>
-                                  <input
-                                    type="number"
-                                    className="form-control form-control-sm"
-                                    value={materialActualCalc.precioUnitario}
-                                    onChange={(e) => setMaterialActualCalc({...materialActualCalc, precioUnitario: e.target.value})}
-                                    placeholder="0.00"
-                                    min="0"
-                                    step="0.01"
-                                  />
-                                </div>
-                                <div style={{minWidth: '100px', maxWidth: '100px'}}>
-                                  <label className="form-label small mb-1">Subtotal</label>
-                                  <div className="form-control-plaintext small fw-bold text-success">
-                                    ${((Number(materialActualCalc.cantidad) || 0) * (Number(materialActualCalc.precioUnitario) || 0)).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                // --- MODO DETALLE (Con Selector de Catálogo) ---
+                              <div>
+                                {/* SELECTOR: Catálogo o Manual */}
+                                {modoEntradaMaterial === 'catalogo' ? (
+                                  // Mostrar SELECT con catálogo
+                                  <div className="mb-3">
+                                    <label className="form-label small fw-bold mb-1">
+                                      📚 Seleccionar del Catálogo
+                                      {cargandoCatalogos && <span className="ms-2 small text-muted">(cargando...)</span>}
+                                      {!cargandoCatalogos && catalogoMateriales.length === 0 && (
+                                        <span className="ms-2 small text-danger">(Sin materiales en el catálogo)</span>
+                                      )}
+                                    </label>
+                                    <select
+                                      className="form-select form-select-sm"
+                                      onChange={handleSeleccionMaterialCatalogo}
+                                      disabled={cargandoCatalogos}
+                                    >
+                                      <option value="">
+                                        {catalogoMateriales.length === 0
+                                          ? '-- No hay materiales disponibles --'
+                                          : '-- Seleccione un material --'}
+                                      </option>
+                                      {catalogoMateriales.map(material => (
+                                        <option key={material.id} value={material.id}>
+                                          {material.nombre || material.descripcion} - ${Number(material.precioUnitario || material.precio || 0).toLocaleString('es-AR')}
+                                          {material.categoria ? ` (${material.categoria})` : ''}
+                                        </option>
+                                      ))}
+                                      <option value="manual" style={{borderTop: '2px solid #ddd', fontWeight: 'bold'}}>
+                                        ➕ Agregar Manualmente
+                                      </option>
+                                    </select>
                                   </div>
+                                ) : null}
+
+                                {/* Inputs para cantidad y precio (siempre visibles si hay algo seleccionado o en modo manual) */}
+                                {(materialActualCalc.descripcion || modoEntradaMaterial === 'manual') && (
+                                <div className="d-flex flex-row align-items-end gap-2 flex-wrap">
+                                  {/* Input de descripción (solo en modo manual) */}
+                                  {modoEntradaMaterial === 'manual' && (
+                                    <div style={{minWidth: '250px', flex: 1}}>
+                                      <label className="form-label small mb-1">Material</label>
+                                      <input
+                                        type="text"
+                                        className="form-control form-control-sm"
+                                        value={materialActualCalc.descripcion}
+                                        onChange={(e) => handleDescripcionMaterialChange(e.target.value)}
+                                        placeholder="Ej: Cemento Portland"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* Mostrar nombre del material seleccionado en modo catálogo */}
+                                  {modoEntradaMaterial === 'catalogo' && materialActualCalc.descripcion && (
+                                    <div style={{minWidth: '250px', flex: 1}}>
+                                      <label className="form-label small mb-1">Material Seleccionado</label>
+                                      <div className="form-control form-control-sm bg-light">
+                                        ✅ {materialActualCalc.descripcion}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div style={{minWidth: '100px', maxWidth: '100px'}}>
+                                    <label className="form-label small mb-1">Cantidad</label>
+                                    <input
+                                      type="number"
+                                      className="form-control form-control-sm"
+                                      value={materialActualCalc.cantidad}
+                                      onChange={(e) => setMaterialActualCalc({...materialActualCalc, cantidad: e.target.value})}
+                                      placeholder="0"
+                                      min="0"
+                                      step="0.01"
+                                      id="cantidadMaterialInput"
+                                    />
+                                  </div>
+                                  <div style={{minWidth: '120px', maxWidth: '120px'}}>
+                                    <label className="form-label small mb-1">Precio Unitario</label>
+                                    <input
+                                      type="number"
+                                      className="form-control form-control-sm"
+                                      value={materialActualCalc.precioUnitario}
+                                      onChange={(e) => setMaterialActualCalc({...materialActualCalc, precioUnitario: e.target.value})}
+                                      placeholder="0.00"
+                                      min="0"
+                                      step="0.01"
+                                    />
+                                  </div>
+                                  <div style={{minWidth: '100px', maxWidth: '100px'}}>
+                                    <label className="form-label small mb-1">Subtotal</label>
+                                    <div className="form-control-plaintext small fw-bold text-success">
+                                      ${((Number(materialActualCalc.cantidad) || 0) * (Number(materialActualCalc.precioUnitario) || 0)).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="btn btn-success btn-sm"
+                                    onClick={agregarMaterialCalc}
+                                    title="Agregar este material a la lista del rubro"
+                                  >
+                                    <i className="fas fa-plus"></i>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-warning btn-sm"
+                                    onClick={() => {
+                                      setMaterialActualCalc({ descripcion: '', cantidad: '', precioUnitario: '', unidad: 'unidad' });
+                                      setModoEntradaMaterial('catalogo');
+                                    }}
+                                    title="Cancelar y volver al selector"
+                                  >
+                                    <i className="fas fa-times"></i>
+                                  </button>
                                 </div>
-                                <button
-                                  type="button"
-                                  className="btn btn-success btn-sm"
-                                  onClick={agregarMaterialCalc}
-                                  title="Agregar este material a la lista del rubro"
-                                >
-                                  <i className="fas fa-plus"></i>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-warning btn-sm"
-                                  onClick={() => setMaterialActualCalc({ descripcion: '', cantidad: '', precioUnitario: '' })}
-                                  title="Limpiar los campos del material"
-                                >
-                                  <i className="fas fa-eraser"></i>
-                                </button>
+                                )}
                               </div>
                               )}
                             </div>
@@ -9660,6 +10085,43 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               {/* Formulario para agregar gasto general */}
                               {!gastosGeneralesAgregados && (
                               <div className="border rounded p-3 mb-2 bg-light">
+
+                                {/* Selector de Catálogo */}
+                                <div className="border rounded p-3 mb-2 bg-light">
+                                  <div>
+                                    <div className="mb-3">
+                                      <label className="form-label small fw-bold mb-1">📚 Seleccionar del Catálogo</label>
+                                      <select
+                                        className="form-select form-select-sm"
+                                        value={selectorGasto}
+                                        onChange={(e) => {
+                                          const valor = e.target.value;
+                                          setSelectorGasto(valor);
+
+                                          if (valor && valor !== 'manual') {
+                                            const gastoSeleccionado = catalogoGastos.find(g => g.id === parseInt(valor));
+                                            if (gastoSeleccionado) {
+                                              setGastoGeneralFormCalc({
+                                                descripcion: gastoSeleccionado.nombre || gastoSeleccionado.descripcion,
+                                                unidad: gastoSeleccionado.unidadMedida || gastoSeleccionado.unidad || '',
+                                                cantidad: '1',
+                                                precioUnitario: gastoSeleccionado.precio || gastoSeleccionado.precioUnitario || ''
+                                              });
+                                            }
+                                          }
+                                        }}
+                                      >
+                                        <option value="">-- Seleccione un gasto general --</option>
+                                        {catalogoGastos.map(gasto => (
+                                          <option key={gasto.id} value={gasto.id}>
+                                            {gasto.nombre || gasto.descripcion} - ${(gasto.precio || gasto.precioUnitario || 0).toLocaleString('es-AR')}
+                                          </option>
+                                        ))}
+                                        <option value="manual" style={{borderTop: '2px solid #ddd', fontWeight: 'bold'}}>➕ Agregar Manualmente</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
 
                                 {/* CONDICIONAL: MODO GLOBAL vs MODO DETALLE */}
                                 {modoCargaGastos === 'global' ? (

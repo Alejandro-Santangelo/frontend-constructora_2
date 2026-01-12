@@ -347,6 +347,15 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
 
               <button
                 className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#28a745', border: 'none', fontWeight: 'bold' }}
+                onClick={obrasControls.handleEnviarTrabajoExtra}
+                title="Seleccionar y enviar trabajo extra existente"
+              >
+                <i className="fas fa-paper-plane me-2"></i>Enviar Trabajo Extra
+              </button>
+
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
                 style={{ backgroundColor: '#6c757d', border: 'none', fontWeight: 'bold' }}
                 disabled={!obrasControls.selectedId}
                 onClick={obrasControls.handleVerPresupuestoSeleccionado}
@@ -355,28 +364,29 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 <i className="fas fa-eye me-2"></i>Ver Trabajo Seleccionado
               </button>
 
-              {/* Botón para editar solo fechas */}
+              {/* Botón para editar solo fechas (disponible para cualquier estado) */}
               {obrasControls.selectedPresupuesto && (
                 <button
                   className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
                   style={{ backgroundColor: '#FF6F00', border: 'none', fontWeight: 'bold' }}
                   onClick={obrasControls.handleEditarSoloFechas}
-                  title="Editar solo fechas sin cambiar versión ni estado"
+                  title="Editar solo Fecha Probable de Inicio y Días Hábiles (sin cambiar versión ni estado)"
                 >
                   <i className="fas fa-calendar-edit me-2"></i>Modificar Fechas
                 </button>
               )}
 
-              {/* Botón ENVIAR - Siempre visible sin importar el estado */}
-              <button
-                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
-                style={{ backgroundColor: '#2196F3', border: 'none' }}
-                disabled={!obrasControls.selectedId}
-                onClick={obrasControls.handleEnviarTrabajoExtra}
-                title="Enviar trabajo extra por WhatsApp o Email"
-              >
-                <i className="fas fa-paper-plane me-2"></i>Enviar
-              </button>
+              {/* Botón para marcar BORRADOR como listo para enviar */}
+              {obrasControls.selectedPresupuesto?.estado === 'BORRADOR' && (
+                <button
+                  className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                  style={{ backgroundColor: '#17a2b8', border: 'none' }}
+                  onClick={obrasControls.handleMarcarListoParaEnviar}
+                  title="Marcar este trabajo extra como listo para enviar"
+                >
+                  <i className="fas fa-check-circle me-2"></i>Marcar como Listo
+                </button>
+              )}
 
               {/* Separador visual */}
               <hr className="my-2" style={{ borderColor: 'rgba(255,255,255,0.2)' }} />
@@ -400,16 +410,15 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
               </button>
 
               {/* Botón aprobar trabajo extra */}
-              {(obrasControls.selectedPresupuesto?.estado === 'ENVIADO' || obrasControls.selectedPresupuesto?.estado === 'A_ENVIAR') && (
-                <button
-                  className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
-                  style={{ backgroundColor: '#00BCD4', border: 'none' }}
-                  onClick={obrasControls.handleAprobar}
-                  title="Aprobar trabajo extra"
-                >
-                  <i className="fas fa-check-double me-2"></i>✅ Aprobar Trabajo Extra
-                </button>
-              )}
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#00BCD4', border: 'none' }}
+                disabled={!obrasControls.selectedId}
+                onClick={obrasControls.handleAprobar}
+                title="Aprobar trabajo extra"
+              >
+                <i className="fas fa-check-double me-2"></i>✅ Aprobar Trabajo Extra
+              </button>
             </div>
           </div>
         )}

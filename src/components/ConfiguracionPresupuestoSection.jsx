@@ -52,13 +52,13 @@ const ConfiguracionPresupuestoSection = ({
   const [habilitarConversion, setHabilitarConversion] = useState(true);
 
   // ========== ESTADOS PARA HONORARIOS ==========
-  const [mostrarHonorarios, setMostrarHonorarios] = useState(false);
+  const [mostrarHonorarios, setMostrarHonorarios] = useState(false); // Colapsado por defecto
   const [configuracionAceptada, setConfiguracionAceptada] = useState(false);
   const [ocultarHonorariosEnPDF, setOcultarHonorariosEnPDF] = useState(true); // NUEVO: Controla si se oculta en PDF (marcado por defecto)
   const [rubroSeleccionado, setRubroSeleccionado] = useState(''); // NUEVO: Para seleccionar rubro específico
 
   // ========== ESTADOS PARA MAYORES COSTOS (CLON EXACTO DE HONORARIOS) ==========
-  const [mostrarMayoresCostos, setMostrarMayoresCostos] = useState(false);
+  const [mostrarMayoresCostos, setMostrarMayoresCostos] = useState(false); // Colapsado por defecto
   const [configuracionMayoresCostosAceptada, setConfiguracionMayoresCostosAceptada] = useState(false);
   const [ocultarMayoresCostosEnPDF, setOcultarMayoresCostosEnPDF] = useState(true); // NUEVO: Controla si se oculta en PDF (marcado por defecto)
   const [rubroMayoresCostosSeleccionado, setRubroMayoresCostosSeleccionado] = useState(''); // NUEVO: Para seleccionar rubro específico

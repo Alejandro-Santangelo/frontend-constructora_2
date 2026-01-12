@@ -614,6 +614,29 @@ const ObrasPage = ({ showNotification }) => {
             showNotification('Seleccione un trabajo extra para enviar', 'warning');
           }
         },
+        // Alias para compatibilidad con sidebar
+        handleMarcarListoParaEnviar: () => {
+          if (trabajoExtraSeleccionado) {
+            // Cambiar estado a A_ENVIAR
+            if (trabajoExtraSeleccionado.estado === 'BORRADOR') {
+              api.trabajosExtra.update(trabajoExtraSeleccionado.id, {
+                ...trabajoExtraSeleccionado,
+                estado: 'A_ENVIAR'
+              }, empresaId)
+                .then(() => {
+                  showNotification('✅ Trabajo extra marcado como "Listo para Enviar"', 'success');
+                  cargarTrabajosExtra(obraParaTrabajosExtra);
+                })
+                .catch(error => {
+                  showNotification('❌ Error al marcar trabajo extra: ' + error.message, 'error');
+                });
+            } else {
+              showNotification(`Este trabajo extra ya está en estado ${trabajoExtraSeleccionado.estado}`, 'warning');
+            }
+          } else {
+            showNotification('Seleccione un trabajo extra primero', 'warning');
+          }
+        },
         handleEnviarTrabajoExtra: () => {
           if (trabajoExtraSeleccionado) {
             // Mostrar modal de selección de envío
@@ -6055,6 +6078,23 @@ const ObrasPage = ({ showNotification }) => {
           abrirEmailDespuesDePDF={abrirEmailTrabajoExtra}
           onPDFGenerado={() => {
             console.log('✅ PDF generado para trabajo extra, cerrando modal...');
+
+            // Cambiar estado a ENVIADO si está en A_ENVIAR
+            if (trabajoExtraEditar && trabajoExtraEditar.estado === 'A_ENVIAR') {
+              api.trabajosExtra.update(trabajoExtraEditar.id_trabajo_extra || trabajoExtraEditar.id, {
+                ...trabajoExtraEditar,
+                estado: 'ENVIADO'
+              }, empresaId)
+                .then(() => {
+                  console.log('✅ Estado cambiado a ENVIADO');
+                  showNotification('✅ Trabajo extra enviado exitosamente', 'success');
+                })
+                .catch(error => {
+                  console.error('❌ Error al cambiar estado a ENVIADO:', error);
+                  showNotification('⚠️ PDF generado pero error al actualizar estado: ' + error.message, 'warning');
+                });
+            }
+
             setAutoGenerarPDFTrabajoExtra(false);
             setAbrirWhatsAppTrabajoExtra(false);
             setAbrirEmailTrabajoExtra(false);
