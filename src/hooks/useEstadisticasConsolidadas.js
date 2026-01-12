@@ -240,10 +240,150 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         totalPresupuesto += totalEstePresupuesto;
       });
 
-      console.log('✅ [useEstadisticasConsolidadas] Total Presupuesto Consolidado:', totalPresupuesto);
+      console.log('✅ [useEstadisticasConsolidadas] Total Presupuesto Consolidado (base):', totalPresupuesto);
+
+      // 🔧 Sumar trabajos extra al presupuesto total
+      let totalTrabajosExtra = 0;
+      const obraIds = presupuestosUnicos.map(p => p.obraId || p.direccionObraId).filter(Boolean);
+
+      console.log('🔍 DIAGNÓSTICO TRABAJOS EXTRA - Presupuestos únicos:', presupuestosUnicos.map(p => ({
+        id: p.id,
+        nombre: p.nombreObra,
+        obraId: p.obraId,
+        direccionObraId: p.direccionObraId,
+        usado: p.obraId || p.direccionObraId
+      })));
+      console.log('🔍 DIAGNÓSTICO TRABAJOS EXTRA - ObraIds extraídos:', obraIds);
+      console.log('🔍 DIAGNÓSTICO TRABAJOS EXTRA - Cantidad de obras:', obraIds.length);
+
+      if (obraIds.length > 0) {
+        try {
+          console.log('🔧 Cargando trabajos extra para calcular presupuesto total...');
+          const trabajosExtraPromises = obraIds.map(async (obraId) => {
+            try {
+              const response = await api.trabajosExtra.getAll(empresaId, { obraId });
+              const trabajos = Array.isArray(response) ? response : response?.data || [];
+
+              console.log(`🔍 DIAGNÓSTICO - Obra ${obraId}: Trabajos extra cargados:`, trabajos.length, trabajos.map(t => ({ id: t.id, nombre: t.nombre })));
+
+              // Cargar detalle completo de cada trabajo para obtener totalCalculado correcto
+              const trabajosConTotal = await Promise.all(trabajos.map(async (trabajo) => {
+                try {
+                  const fullResponse = await api.trabajosExtra.getById(trabajo.id, empresaId);
+                  const fullTrabajo = fullResponse.data || fullResponse;
+                  return fullTrabajo;
+                } catch (err) {
+                  return trabajo;
+                }
+              }));
+
+              const totalObra = trabajosConTotal.reduce((sum, t) => {
+                // Función auxiliar para parsear montos
+                const parseMontoLocal = (val) => {
+                  if (typeof val === 'number') return val;
+                  if (!val) return 0;
+                  let str = String(val).trim().replace(/[^0-9.,-]/g, '');
+                  if (str.includes(',')) {
+                    str = str.replace(/\./g, '').replace(',', '.');
+                  }
+                  return parseFloat(str) || 0;
+                };
+
+                // Si tiene itemsCalculadora, calcular con honorarios y MC
+                if (t.itemsCalculadora && Array.isArray(t.itemsCalculadora) && t.itemsCalculadora.length > 0) {
+                  // Calcular subtotales por categoría
+                  let subtotalJornales = 0;
+                  let subtotalMateriales = 0;
+                  let subtotalOtros = 0;
+
+                  t.itemsCalculadora.forEach((item) => {
+                    let jorItem = parseMontoLocal(item.subtotalManoObra) || 0;
+                    if (jorItem === 0 && item.jornales && Array.isArray(item.jornales)) {
+                      jorItem = item.jornales.reduce((s, j) => s + (parseMontoLocal(j.subtotal) || parseMontoLocal(j.importe) || 0), 0);
+                    }
+                    subtotalJornales += jorItem;
+                    subtotalMateriales += parseMontoLocal(item.subtotalMateriales) || 0;
+                    subtotalOtros += parseMontoLocal(item.subtotalGastosGenerales) || 0;
+                  });
+
+                  const subtotalBase = subtotalJornales + subtotalMateriales + subtotalOtros;
+
+                  // Aplicar honorarios
+                  let totalHonorarios = 0;
+                  if (t.honorarios && typeof t.honorarios === 'object') {
+                    const conf = t.honorarios;
+                    if (conf.jornalesActivo && conf.jornalesValor) {
+                      totalHonorarios += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                    }
+                    if (conf.materialesActivo && conf.materialesValor) {
+                      totalHonorarios += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                    }
+                    if (conf.otrosCostosActivo && conf.otrosCostosValor) {
+                      totalHonorarios += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                    }
+                  }
+
+                  // Aplicar mayores costos
+                  let totalMC = 0;
+                  if (t.mayoresCostos && typeof t.mayoresCostos === 'object') {
+                    const conf = t.mayoresCostos;
+                    if (conf.jornalesActivo && conf.jornalesValor) {
+                      totalMC += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                    }
+                    if (conf.materialesActivo && conf.materialesValor) {
+                      totalMC += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                    }
+                    if (conf.otrosCostosActivo && conf.otrosCostosValor) {
+                      totalMC += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                    }
+                    if (conf.honorariosActivo && conf.honorariosValor && totalHonorarios > 0) {
+                      totalMC += totalHonorarios * (parseFloat(conf.honorariosValor) / 100);
+                    }
+                  }
+
+                  return sum + subtotalBase + totalHonorarios + totalMC;
+                }
+
+                // Fallback: usar valor de BD
+                const total = parseFloat(t.totalFinal) || parseFloat(t.montoTotal) || parseFloat(t.totalCalculado) || 0;
+                return sum + total;
+              }, 0);
+
+              console.log(`🔧 Obra ${obraId}: ${trabajosConTotal.length} trabajo(s) extra = $${totalObra.toLocaleString()}`);
+              console.log(`🔍 DIAGNÓSTICO - Detalle cálculo obra ${obraId}:`, trabajosConTotal.map(t => ({
+                nombre: t.nombre,
+                itemsCalculadora: t.itemsCalculadora?.length || 0,
+                totalFinal: t.totalFinal,
+                totalCalculado: t.totalCalculado
+              })));
+              return totalObra;
+            } catch (error) {
+              console.warn(`⚠️ Error cargando trabajos extra de obra ${obraId}:`, error);
+              return 0;
+            }
+          });
+
+          const totalesPorObra = await Promise.all(trabajosExtraPromises);
+          totalTrabajosExtra = totalesPorObra.reduce((sum, total) => sum + total, 0);
+
+          console.log('✅ Total de trabajos extra:', totalTrabajosExtra.toLocaleString());
+          console.log('🔍 DIAGNÓSTICO - Total Presupuesto ANTES de sumar trabajos extra:', totalPresupuesto.toLocaleString());
+          totalPresupuesto += totalTrabajosExtra;
+          console.log('🔍 DIAGNÓSTICO - Total Presupuesto DESPUÉS de sumar trabajos extra:', totalPresupuesto.toLocaleString());
+          console.log('✅ Total Presupuesto FINAL (base + trabajos extra):', totalPresupuesto.toLocaleString());
+        } catch (error) {
+          console.warn('⚠️ Error cargando trabajos extra para presupuesto:', error);
+        }
+      } else {
+        console.warn('⚠️ DIAGNÓSTICO - No se encontraron obraIds para cargar trabajos extra. Presupuestos:', presupuestosUnicos.map(p => ({
+          id: p.id,
+          nombre: p.nombreObra,
+          obraId: p.obraId,
+          direccionObraId: p.direccionObraId
+        })));
+      }
 
       // 🆕 Obtener honorarios reales de todas las obras
-      const obraIds = presupuestosUnicos.map(p => p.obraId).filter(Boolean);
       let honorariosPorObra = {};
       if (obraIds.length > 0) {
         try {
@@ -392,20 +532,93 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
         console.log(`  💵 Total cobrado de esta obra: $${totalCobradoObra.toLocaleString()}`);
 
+        // Obtener trabajos extra de esta obra
+        let trabajosExtraObra = [];
+        try {
+          const obraId = presupuesto.obraId || presupuesto.direccionObraId;
+          if (obraId) {
+            const responseTE = await api.trabajosExtra.getAll(empresaId, { obraId });
+            const trabajos = Array.isArray(responseTE) ? responseTE : responseTE?.data || [];
+
+            trabajosExtraObra = await Promise.all(trabajos.map(async (t) => {
+              try {
+                const fullResponse = await api.trabajosExtra.getById(t.id, empresaId);
+                const fullTrabajo = fullResponse.data || fullResponse;
+
+                // Calcular total con la misma lógica de RegistrarPagoConsolidadoModal
+                let totalCalculado = 0;
+                if (fullTrabajo.itemsCalculadora && Array.isArray(fullTrabajo.itemsCalculadora) && fullTrabajo.itemsCalculadora.length > 0) {
+                  const parseMontoLocal = (val) => {
+                    if (typeof val === 'number') return val;
+                    if (!val) return 0;
+                    let str = String(val).trim().replace(/[^0-9.,-]/g, '');
+                    if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
+                    return parseFloat(str) || 0;
+                  };
+
+                  let subtotalJornales = 0, subtotalMateriales = 0, subtotalOtros = 0;
+                  fullTrabajo.itemsCalculadora.forEach((item) => {
+                    let jorItem = parseMontoLocal(item.subtotalManoObra) || 0;
+                    if (jorItem === 0 && item.jornales && Array.isArray(item.jornales)) {
+                      jorItem = item.jornales.reduce((s, j) => s + (parseMontoLocal(j.subtotal) || parseMontoLocal(j.importe) || 0), 0);
+                    }
+                    subtotalJornales += jorItem;
+                    subtotalMateriales += parseMontoLocal(item.subtotalMateriales) || 0;
+                    subtotalOtros += parseMontoLocal(item.subtotalGastosGenerales) || 0;
+                  });
+
+                  const subtotalBase = subtotalJornales + subtotalMateriales + subtotalOtros;
+                  let totalHonorarios = 0;
+                  if (fullTrabajo.honorarios && typeof fullTrabajo.honorarios === 'object') {
+                    const conf = fullTrabajo.honorarios;
+                    if (conf.jornalesActivo && conf.jornalesValor) totalHonorarios += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                    if (conf.materialesActivo && conf.materialesValor) totalHonorarios += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                    if (conf.otrosCostosActivo && conf.otrosCostosValor) totalHonorarios += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                  }
+
+                  let totalMC = 0;
+                  if (fullTrabajo.mayoresCostos && typeof fullTrabajo.mayoresCostos === 'object') {
+                    const conf = fullTrabajo.mayoresCostos;
+                    if (conf.jornalesActivo && conf.jornalesValor) totalMC += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                    if (conf.materialesActivo && conf.materialesValor) totalMC += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                    if (conf.otrosCostosActivo && conf.otrosCostosValor) totalMC += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                    if (conf.honorariosActivo && conf.honorariosValor && totalHonorarios > 0) totalMC += totalHonorarios * (parseFloat(conf.honorariosValor) / 100);
+                  }
+
+                  totalCalculado = subtotalBase + totalHonorarios + totalMC;
+                } else {
+                  totalCalculado = parseFloat(fullTrabajo.totalFinal) || parseFloat(fullTrabajo.montoTotal) || 0;
+                }
+
+                return {
+                  id: fullTrabajo.id,
+                  nombre: fullTrabajo.nombre,
+                  totalCalculado: totalCalculado
+                };
+              } catch (err) {
+                return { id: t.id, nombre: t.nombre, totalCalculado: parseFloat(t.totalFinal) || 0 };
+              }
+            }));
+          }
+        } catch (error) {
+          console.warn(`⚠️ Error cargando trabajos extra de obra ${presupuesto.obraId}:`, error);
+        }
+
         desglosePorObra.push({
           id: presupuesto.id,
-          obraId: presupuesto.obraId, // Asegurar que esté el obraId
+          obraId: presupuesto.obraId || presupuesto.direccionObraId,
           nombreObra,
           numeroPresupuesto: presupuesto.numeroPresupuesto,
           estado: presupuesto.estado,
           totalPresupuesto: totalPresupuestoObra,
-          totalHonorarios: honorariosPorObra[presupuesto.obraId] || parseFloat(presupuesto.totalHonorarios || 0), // 🆕 Usar honorarios del endpoint
-          totalCobrado: totalCobradoObra, // 🔥 Total REAL cobrado de esta obra
+          totalHonorarios: honorariosPorObra[presupuesto.obraId || presupuesto.direccionObraId] || parseFloat(presupuesto.totalHonorarios || 0),
+          totalCobrado: totalCobradoObra,
           cantidadCobros: cantidadCobrosObra,
           cobrosPendientes: cobrosPendientesObra,
           totalPagado: 0,
           cantidadPagos: 0,
-          pagosPendientes: 0
+          pagosPendientes: 0,
+          trabajosExtra: trabajosExtraObra
         });
       }
 
@@ -463,7 +676,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
       const resumenesPromises = presupuestosUnicos.map(async (presupuesto) => {
         try {
-          const obraId = presupuesto.obraId;
+          const obraId = presupuesto.obraId || presupuesto.direccionObraId;
           console.log(`  📊 Obteniendo resumen financiero de obra ${obraId}...`);
           const resumen = await api.get(`/api/v1/obras-financiero/${obraId}/resumen`, { empresaId });
           console.log(`  ✅ Obra ${obraId} (${resumen.nombreObra}):`, {
@@ -474,11 +687,12 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
           });
           return resumen;
         } catch (error) {
-          console.error(`  ❌ Error 400 obteniendo resumen de obra ${presupuesto.obraId}:`, {
+          const obraId = presupuesto.obraId || presupuesto.direccionObraId;
+          console.error(`  ❌ Error 400 obteniendo resumen de obra ${obraId}:`, {
             status: error.response?.status,
             statusText: error.response?.statusText,
             mensaje: error.response?.data,
-            url: `/api/v1/obras-financiero/${presupuesto.obraId}/resumen?empresaId=${empresaId}`,
+            url: `/api/v1/obras-financiero/${obraId}/resumen?empresaId=${empresaId}`,
             error: error
           });
           return null;
@@ -723,15 +937,17 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
       console.log('📊 [useEstadisticasConsolidadas] VALORES FINALES:', {
         totalCobradoEmpresa,
         saldoCobradoSinAsignar: saldoDisponibleEmpresa,
-        totalCobrado: totalCobradoEmpresa, // ✅ Usar el valor correcto del endpoint cobros-empresa
+        totalCobrado: totalCobradoEmpresa,
         totalPresupuesto
       });
 
+      console.log('🔍 DIAGNÓSTICO - VALOR A GUARDAR EN ESTADO totalPresupuesto:', totalPresupuesto.toLocaleString());
+
       setEstadisticas({
         totalPresupuesto,
-        totalCobrado: totalCobradoEmpresa, // ✅ Total REAL del monto_total (no suma de asignaciones)
-        totalCobradoEmpresa, // 🆕 Total cobrado a nivel empresa (mismo valor)
-        saldoCobradoSinAsignar: saldoDisponibleEmpresa, // 🆕 Saldo sin asignar
+        totalCobrado: totalCobradoEmpresa,
+        totalCobradoEmpresa,
+        saldoCobradoSinAsignar: saldoDisponibleEmpresa,
         totalAsignado,
         totalPagado,
         totalRetirado,

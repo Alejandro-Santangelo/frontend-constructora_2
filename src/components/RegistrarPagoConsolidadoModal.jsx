@@ -1145,7 +1145,9 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
 
   // 🔧 Función para cargar trabajos extra de las obras
   const cargarTrabajosExtra = async (presupuestosCompletos) => {
-    console.log('🔧 Cargando trabajos extra de las obras seleccionadas...');
+    console.log('�🚀🚀 ======= INICIO cargarTrabajosExtra ======= ');
+    console.log('🚀🚀🚀 Presupuestos recibidos:', presupuestosCompletos.length);
+    console.log('�🔧 Cargando trabajos extra de las obras seleccionadas...');
 
     try {
       const trabajosPromises = presupuestosCompletos.map(async (presupuesto) => {
@@ -1157,7 +1159,8 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
           const response = await apiService.trabajosExtra.getAll(empresaSeleccionada.id, { obraId });
           let trabajos = Array.isArray(response) ? response : response?.data || [];
 
-          console.log(`🔧 Obra ${obraId}: ${trabajos.length} trabajo(s) extra encontrado(s) en BD`);
+          console.log(`�🚀🚀 Obra ${obraId}: ${trabajos.length} trabajo(s) extra encontrado(s) en BD`);
+          console.log(`�🔧 Obra ${obraId}: ${trabajos.length} trabajo(s) extra encontrado(s) en BD`);
 
           // ⚠️ Si no hay trabajos en BD, significa que no se han creado aún
           if (trabajos.length === 0) {
@@ -1165,20 +1168,236 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
           }
 
           // Enriquecer cada trabajo con datos de la obra y resumen de pagos
-          const trabajosConPagos = await Promise.all(trabajos.map(async (trabajo) => {
-            // Calcular total de profesionales (importe × días)
+          const trabajosConPagos = await Promise.all(trabajos.map(async (trabajoBase) => {
+            let trabajo = trabajoBase;
+
+            // 🔥 Si es un presupuesto global pero faltan los itemsCalculadora, cargar detalle completo
+            if ((!trabajo.itemsCalculadora || trabajo.itemsCalculadora.length === 0) && trabajo.tipoPresupuesto === 'GLOBAL') {
+              try {
+                console.log(`🔧 Cargando detalle completo del trabajo extra ${trabajo.id} para obtener itemsCalculadora...`);
+                const fullResponse = await apiService.trabajosExtra.getById(trabajo.id, empresaSeleccionada.id);
+                const fullTrabajo = fullResponse.data || fullResponse;
+
+                if (fullTrabajo && fullTrabajo.itemsCalculadora) {
+                   trabajo = { ...trabajoBase, ...fullTrabajo };
+                   console.log(`✅ Detalle cargado: ${fullTrabajo.itemsCalculadora.length} items encontrados`);
+                }
+              } catch (err) {
+                console.warn(`⚠️ Error cargando detalle de trabajo extra ${trabajo.id}:`, err);
+              }
+            } else if (!trabajo.itemsCalculadora && !trabajo.profesionales?.length && !trabajo.tareas?.length) {
+               // Intento general de carga si parece vacío
+               try {
+                  const fullResponse = await apiService.trabajosExtra.getById(trabajo.id, empresaSeleccionada.id);
+                  const fullTrabajo = fullResponse.data || fullResponse;
+                  if (fullTrabajo) trabajo = { ...trabajoBase, ...fullTrabajo };
+               } catch (e) {
+                  // ignore
+               }
+            }
+
+            // --- 1. Calcular Total desde Items Calculadora (Lógica completa tipo Presupuesto) ---
+            let totalDesdeItems = 0;
+
+            if (trabajo.itemsCalculadora && Array.isArray(trabajo.itemsCalculadora) && trabajo.itemsCalculadora.length > 0) {
+              try {
+                const parseMontoLocal = (val) => {
+                   if (typeof val === 'number') return val;
+                   if (!val) return 0;
+                   let str = String(val).trim();
+
+                   // Sanitizar: Dejar solo números, comas, puntos y signo menos
+                   str = str.replace(/[^0-9.,-]/g, '');
+
+                   // Detectar formato local (punto miles, coma decimal)
+                   if (str.includes(',')) {
+                      str = str.replace(/\./g, ''); // Quitar puntos de miles
+                      str = str.replace(',', '.'); // Cambiar coma decimal a punto
+                   }
+
+                   return parseFloat(str) || 0;
+                };
+
+                // Calcular el Costo Directo (Suma de items)
+                const subtotalCostoDirecto = trabajo.itemsCalculadora.reduce((sum, item, idx) => {
+                  // 1. Intentar usar el subtotal pre-calculado del item si existe
+                  let itemTotal = parseMontoLocal(item.total) || parseMontoLocal(item.subtotal) || 0;
+
+                // 2. Si no hay subtotal, sumar componentes manualmente
+                if (itemTotal === 0) {
+                   let totalProf = 0;
+                   const listaProfesionales = item.profesionalesLista || item.profesionales || [];
+                   listaProfesionales.forEach(p => totalProf += (parseMontoLocal(p.subtotal) || parseMontoLocal(p.importe) || 0));
+                   // Fallback a subtotalManoObra si la lista está vacía
+                   if (totalProf === 0) totalProf = parseMontoLocal(item.subtotalManoObra);
+
+                   let totalMat = 0;
+                   const listaMateriales = item.materialesLista || item.materiales || [];
+                   listaMateriales.forEach(m => totalMat += (parseMontoLocal(m.subtotal) || parseMontoLocal(m.importe) || 0));
+                   // Fallback a subtotalMateriales
+                   if (totalMat === 0) totalMat = parseMontoLocal(item.subtotalMateriales);
+
+                   let totalOtros = 0;
+                   const listaGastos = item.gastosGenerales || [];
+                   listaGastos.forEach(g => totalOtros += (parseMontoLocal(g.subtotal) || parseMontoLocal(g.importe) || 0));
+
+                   let totalSubItems = 0;
+                   const listaSubItems = item.itemsLista || item.items || [];
+                   listaSubItems.forEach(i => totalSubItems += (parseMontoLocal(i.subtotal) || parseMontoLocal(i.importe) || 0));
+
+                   itemTotal = totalProf + totalMat + totalOtros + totalSubItems;
+                }
+
+                console.log(`   📦 Item ${idx + 1}: Total = $${itemTotal}`);
+                return sum + itemTotal;
+              }, 0);
+
+              console.log(`📊 COSTO DIRECTO (suma items): $${subtotalCostoDirecto}`);
+
+              // Aplicar Porcentajes Globales del Trabajo
+              const gastosGeneralesMonto = subtotalCostoDirecto * ((parseMontoLocal(trabajo.gastosGeneralesPorcentaje) || 0) / 100);
+              const subtotalConGastos = subtotalCostoDirecto + gastosGeneralesMonto;
+
+              const utilidadMonto = subtotalConGastos * ((parseMontoLocal(trabajo.utilidadPorcentaje) || 0) / 100);
+              const subtotalConUtilidad = subtotalConGastos + utilidadMonto;
+              console.log(`📊 Utilidad (${trabajo.utilidadPorcentaje}%): $${utilidadMonto} → Subtotal: $${subtotalConUtilidad}`);
+
+              const impuestosMonto = subtotalConUtilidad * ((parseMontoLocal(trabajo.impuestosPorcentaje) || 0) / 100);
+              console.log(`📊 Impuestos (${trabajo.impuestosPorcentaje}%): $${impuestosMonto}`);
+
+              totalDesdeItems = subtotalConUtilidad + impuestosMonto;
+              console.log(`�🚀🚀 TOTAL BASE calculado: ${totalDesdeItems}`);
+              console.log(`📊 TOTAL BASE (antes honorarios/mayores costos): $${totalDesdeItems}`);
+
+              // --- Calcular Honorarios y Mayores Costos (basados en configuración de porcentajes) ---
+              console.log(`🚀🚀🚀 Iniciando cálculo de Honorarios y Mayores Costos...`);
+              let totalHonorarios = 0;
+              let totalMayoresCostos = 0;
+
+              // Calcular subtotales por categoría para aplicar porcentajes
+              let subtotalJornales = 0;
+              let subtotalMateriales = 0;
+              let subtotalOtros = 0;
+
+              console.log(`🚀🚀🚀 Analizando ${trabajo.itemsCalculadora.length} items para subtotales por categoría...`);
+
+              trabajo.itemsCalculadora.forEach((item, itemIdx) => {
+                // Jornales: intentar subtotalManoObra primero, si es 0 sumar array jornales
+                let jorItem = parseMontoLocal(item.subtotalManoObra) || 0;
+                if (jorItem === 0 && item.jornales && Array.isArray(item.jornales)) {
+                  jorItem = item.jornales.reduce((sum, j) => sum + (parseMontoLocal(j.subtotal) || parseMontoLocal(j.importe) || 0), 0);
+                }
+
+                const matItem = parseMontoLocal(item.subtotalMateriales) || 0;
+                const gastosItem = parseMontoLocal(item.subtotalGastosGenerales) || 0;
+
+                subtotalJornales += jorItem;
+                subtotalMateriales += matItem;
+                subtotalOtros += gastosItem;
+
+                console.log(`   ✅ Item ${itemIdx + 1}: Jornales=$${jorItem}, Materiales=$${matItem}, GG=$${gastosItem}`);
+              });
+
+              console.log(`📊 SUBTOTALES POR CATEGORÍA:`);
+              console.log(`   👷 Jornales: $${subtotalJornales}`);
+              console.log(`   🧱 Materiales: $${subtotalMateriales}`);
+              console.log(`   📋 Otros Costos: $${subtotalOtros}`);
+
+              // Aplicar configuración de Honorarios
+              if (trabajo.honorarios && typeof trabajo.honorarios === 'object') {
+                const confHon = trabajo.honorarios;
+                console.log(`💼 Configuración Honorarios:`, confHon);
+
+                if (confHon.jornalesActivo && confHon.jornalesValor) {
+                  const honJornales = subtotalJornales * (parseFloat(confHon.jornalesValor) / 100);
+                  totalHonorarios += honJornales;
+                  console.log(`   👷 Honorarios Jornales (${confHon.jornalesValor}%): $${honJornales}`);
+                }
+                if (confHon.materialesActivo && confHon.materialesValor) {
+                  const honMateriales = subtotalMateriales * (parseFloat(confHon.materialesValor) / 100);
+                  totalHonorarios += honMateriales;
+                  console.log(`   🧱 Honorarios Materiales (${confHon.materialesValor}%): $${honMateriales}`);
+                }
+                if (confHon.otrosCostosActivo && confHon.otrosCostosValor) {
+                  const honOtros = subtotalOtros * (parseFloat(confHon.otrosCostosValor) / 100);
+                  totalHonorarios += honOtros;
+                  console.log(`   📋 Honorarios Otros (${confHon.otrosCostosValor}%): $${honOtros}`);
+                }
+                console.log(`💼 TOTAL HONORARIOS: $${totalHonorarios}`);
+              } else {
+                console.log(`⚠️ No hay configuración de honorarios`);
+              }
+
+              // Aplicar configuración de Mayores Costos
+              if (trabajo.mayoresCostos && typeof trabajo.mayoresCostos === 'object') {
+                const confMC = trabajo.mayoresCostos;
+                console.log(`📈 Configuración Mayores Costos:`, confMC);
+
+                // Mayores costos sobre las bases (sin honorarios)
+                if (confMC.jornalesActivo && confMC.jornalesValor) {
+                  const mcJornales = subtotalJornales * (parseFloat(confMC.jornalesValor) / 100);
+                  totalMayoresCostos += mcJornales;
+                  console.log(`   👷 MC Jornales (${confMC.jornalesValor}%): $${mcJornales}`);
+                }
+                if (confMC.materialesActivo && confMC.materialesValor) {
+                  const mcMateriales = subtotalMateriales * (parseFloat(confMC.materialesValor) / 100);
+                  totalMayoresCostos += mcMateriales;
+                  console.log(`   🧱 MC Materiales (${confMC.materialesValor}%): $${mcMateriales}`);
+                }
+                if (confMC.otrosCostosActivo && confMC.otrosCostosValor) {
+                  const mcOtros = subtotalOtros * (parseFloat(confMC.otrosCostosValor) / 100);
+                  totalMayoresCostos += mcOtros;
+                  console.log(`   📋 MC Otros (${confMC.otrosCostosValor}%): $${mcOtros}`);
+                }
+
+                // 🔥 MAYORES COSTOS SOBRE HONORARIOS (20% sobre el total de honorarios)
+                if (confMC.honorariosActivo && confMC.honorariosValor && totalHonorarios > 0) {
+                  const mcHonorarios = totalHonorarios * (parseFloat(confMC.honorariosValor) / 100);
+                  totalMayoresCostos += mcHonorarios;
+                  console.log(`   💼 MC sobre Honorarios (${confMC.honorariosValor}%): $${mcHonorarios}`);
+                }
+
+                console.log(`📈 TOTAL MAYORES COSTOS: $${totalMayoresCostos}`);
+              } else {
+                console.log(`⚠️ No hay configuración de mayores costos`);
+              }
+
+              totalDesdeItems += totalHonorarios + totalMayoresCostos;
+
+              console.log(`💰💰💰 TRABAJO "${trabajo.nombre}" (ID:${trabajo.id}) - TOTAL FINAL: $${totalDesdeItems}`);
+              console.log(`   Desglose: Costo Directo=$${subtotalCostoDirecto} + Gastos=$${gastosGeneralesMonto} + Util=$${utilidadMonto} + Imp=$${impuestosMonto} + Hon=$${totalHonorarios} + MC=$${totalMayoresCostos}`);
+
+              } catch (calcError) {
+                console.error(`🚀🚀🚀 ❌ ERROR EN CÁLCULO DE TRABAJO "${trabajo.nombre}":`, calcError);
+                console.error(`🚀🚀🚀 Stack trace:`, calcError.stack);
+              }
+            }
+
+            // --- 2. Calcular Total Simple (Fallback original) ---
             const totalProfesionales = (trabajo.profesionales || []).reduce((sum, prof) => {
               const importe = parseFloat(prof.importe) || 0;
               const dias = trabajo.dias?.length || 0;
               return sum + (importe * dias);
             }, 0);
 
-            // Calcular total de tareas
             const totalTareas = (trabajo.tareas || []).reduce((sum, tarea) => {
               return sum + (parseFloat(tarea.importe) || 0);
             }, 0);
 
-            const totalTrabajo = totalProfesionales + totalTareas;
+            const totalSimple = totalProfesionales + totalTareas;
+
+            // 🔥 SELECCIÓN DEL TOTAL FINAL
+            // Prioridad: Si hay itemsCalculadora, usar totalDesdeItems (incluso si es 0). Si no, usar BD o cálculo simple.
+            let totalTrabajo;
+            if (trabajo.itemsCalculadora && Array.isArray(trabajo.itemsCalculadora) && trabajo.itemsCalculadora.length > 0) {
+              // Hay calculadora: usar SIEMPRE el resultado del cálculo completo
+              totalTrabajo = totalDesdeItems;
+              console.log(`💰 Trabajo "${trabajo.nombre}": Usando cálculo desde itemsCalculadora = $${totalTrabajo}`);
+            } else {
+              // No hay calculadora: usar valores de BD o cálculo simple
+              totalTrabajo = parseFloat(trabajo.totalFinal) || parseFloat(trabajo.montoTotal) || totalSimple || 0;
+              console.log(`💰 Trabajo "${trabajo.nombre}": Usando valores BD/Simple = $${totalTrabajo}`);
+            }
 
             // Obtener resumen de pagos del backend
             let totalPagado = 0;
@@ -1401,6 +1620,52 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
     return costosFiltrados;
   }, [todosOtrosCostos, semanaSeleccionada]);
 
+  // 🔥 NUEVO: Filtrar/Calcular trabajos extra por la semana seleccionada (Lógica de Cuotas)
+  const trabajosExtraFiltradosPorSemana = useMemo(() => {
+    if (todosLosTrabajos.length === 0) return [];
+
+    console.log(`🔍 Calculando ${todosLosTrabajos.length} trabajos extra para semana ${semanaSeleccionada}...`);
+
+    return todosLosTrabajos.map(trabajo => {
+        // Copia del trabajo para no mutar el original
+        const trabajoDisplay = { ...trabajo };
+
+        if (semanaSeleccionada === 0) {
+            // Modo "Todas las Semanas": Mostrar totales reales sin modificar
+            return trabajoDisplay;
+        }
+
+        // Modo "Semana X": Calcular cuota proporcional
+        // Asumimos 5 días hábiles por semana si no se especifica otra cosa.
+        // Convertimos tiempoEstimadoTerminacion (que viene en días) a semanas.
+        const diasDuracion = parseInt(trabajo.tiempoEstimadoTerminacion) || 5;
+        const semanasDuracion = Math.max(1, Math.ceil(diasDuracion / 5));
+
+        const importeTotalOriginal = trabajo.totalCalculado || 0;
+        const importeCuota = importeTotalOriginal / semanasDuracion;
+
+        // Calcular saldo real restante global (Total - PagadoGlobal)
+        const saldoRealGeneral = importeTotalOriginal - (trabajo.totalPagado || 0);
+
+        // Lógica de Visualización para la Cuota:
+        // 1. "Total": Muestra el valor de la cuota semanal teórica (Importe / Semanas).
+        trabajoDisplay.totalCalculado = importeCuota;
+
+        // 2. "Saldo" (A Pagar): Es el valor de la cuota, pero no puede exceder lo que realmente falta pagar del trabajo.
+        //    Si falta pagar $200 y la cuota es $500, solo cobramos $200.
+        trabajoDisplay.saldo = Math.max(0, Math.min(importeCuota, saldoRealGeneral));
+
+        // 3. "Pagado": Ajuste visual para consistencia (Total - Saldo = Pagado).
+        //    Indica cuánto de esta "cuota teórica" ya estaría cubierto por pagos anteriores globales.
+        trabajoDisplay.totalPagado = Math.max(0, importeCuota - trabajoDisplay.saldo);
+
+        console.log(`🔧 Trabajo "${trabajo.nombre}": Duración ${diasDuracion} días (${semanasDuracion} semanas). Total Original: ${importeTotalOriginal}, Cuota Mostrada: ${importeCuota}`);
+
+        return trabajoDisplay;
+    });
+  }, [todosLosTrabajos, semanaSeleccionada]);
+
+
   const handleToggleProfesional = (prof) => {
     const uniqueId = prof.uniqueId || `${prof.presupuestoId}-${prof.profesionalId || prof.id}`;
 
@@ -1484,10 +1749,11 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
 
     // 🆕 Sumar trabajos extra
     total += trabajosExtraSeleccionados.reduce((sum, trabajoId) => {
-      const trabajo = todosLosTrabajos.find(t => t.id === trabajoId);
+      // 🔥 Usar la lista filtrada/calculada (para que tome el valor de la cuota si aplica)
+      const trabajo = trabajosExtraFiltradosPorSemana.find(t => t.id === trabajoId);
       if (trabajo) {
-        const saldoPendiente = (trabajo.totalCalculado || 0) - (trabajo.totalPagado || 0);
-        return sum + Math.max(0, saldoPendiente);
+        // Usar .saldo directamente, ya que en trabajosExtraFiltradosPorSemana el saldo ya representa lo que se va a pagar (cuota o total)
+        return sum + Math.max(0, trabajo.saldo || 0);
       }
       return sum;
     }, 0);
@@ -1684,7 +1950,8 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
 
         const resultadosTrabajos = await Promise.all(
           trabajosExtraSeleccionados.map(async (trabajoId) => {
-            const trabajo = todosLosTrabajos.find(t => t.id === trabajoId);
+            // 🔥 Usar la lista filtrada para obtener los montos calculados (cuota)
+            const trabajo = trabajosExtraFiltradosPorSemana.find(t => t.id === trabajoId);
             let pagoTrabajoExtra = null;
 
             try {
@@ -1693,10 +1960,11 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                 return { success: false, nombre: 'Desconocido', error: 'Trabajo no encontrado' };
               }
 
+              // El saldo ya viene calculado según cuota en trabajosExtraFiltradosPorSemana
               const saldoPendiente = trabajo.saldo || 0;
 
               if (saldoPendiente === 0) {
-                console.warn(`⚠️ Trabajo extra ${trabajo.nombre} ya está pagado, omitiendo...`);
+                console.warn(`⚠️ Trabajo extra ${trabajo.nombre} ya está pagado (en esta cuota o total), omitiendo...`);
                 return { success: true, nombre: trabajo.nombre, omitido: true };
               }
 
@@ -1708,7 +1976,7 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                 trabajoExtroProfesionalId: null,
                 trabajoExtraTareaId: null,
                 tipoPago: 'PAGO_GENERAL',
-                concepto: `Pago trabajo extra: ${trabajo.nombre}`,
+                concepto: `Pago trabajo extra${semanaSeleccionada > 0 ? ` (Semana ${semanaSeleccionada})` : ''}: ${trabajo.nombre}`,
                 montoBase: saldoPendiente,
                 descuentos: 0,
                 bonificaciones: 0,
@@ -1717,7 +1985,7 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                 fechaEmision: fechaPago,
                 estado: 'PAGADO',
                 metodoPago: 'TRANSFERENCIA',
-                observaciones: `Pago consolidado - ${trabajo.nombreObra}`,
+                observaciones: `Pago consolidado${semanaSeleccionada > 0 ? ` Semana ${semanaSeleccionada}` : ''} - ${trabajo.nombreObra}`,
                 usuarioCreacionId: 1 // TODO: Obtener del contexto de usuario
               };
 
@@ -2393,15 +2661,17 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                         <>
                           {/* Agrupar trabajos extra por obra */}
                           {presupuestos.map((presupuesto, presupuestoIdx) => {
-                            const trabajosObra = todosLosTrabajos.filter(
+                            // 🔥 Usar trabajosExtraFiltradosPorSemana en lugar de todosLosTrabajos
+                            const trabajosObra = trabajosExtraFiltradosPorSemana.filter(
                               t => t.presupuestoId === presupuesto.id
                             );
 
                             if (trabajosObra.length === 0) return null;
 
+                            // Nota: t.totalCalculado y t.saldo ya vienen ajustados (cuota o total)
                             const totalAPagarObra = trabajosObra.reduce((sum, t) => sum + (t.totalCalculado || 0), 0);
                             const totalPagadoObra = trabajosObra.reduce((sum, t) => sum + (t.totalPagado || 0), 0);
-                            const saldoObra = totalAPagarObra - totalPagadoObra;
+                            const saldoObra = trabajosObra.reduce((sum, t) => sum + (t.saldo || 0), 0); // Sumar saldos directos
 
                             return (
                               <div key={presupuesto.id} className="mb-4">

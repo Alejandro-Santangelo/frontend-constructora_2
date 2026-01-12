@@ -144,8 +144,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     error: errorConsolidadas
   } = useEstadisticasConsolidadas(
     empresaSeleccionada?.id,
-    0, // No necesita refreshKey, el contexto maneja la sincronización
-    modoConsolidado // solo activo en modo consolidado
+    refreshTrigger,
+    modoConsolidado
   );
 
   // 🆕 Cargar distribución real de cobros por obra
@@ -884,9 +884,106 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       console.log('🏗️ Obras agrupadas:', obrasArray.length, obrasArray.map(o => ({
         id: o.id,
         obraId: o.presupuestoCompleto?.obraId,
+        direccionObraId: o.presupuestoCompleto?.direccionObraId,
         nombre: o.nombreObra
       })));
-      setObrasDisponibles(obrasArray);
+
+      // Cargar trabajos extra para cada obra
+      console.log('🔧 Iniciando carga de trabajos extra para', obrasArray.length, 'obras');
+      const obrasConTrabajosExtra = await Promise.all(obrasArray.map(async (obra) => {
+        const obraId = obra.presupuestoCompleto?.obraId || obra.presupuestoCompleto?.direccionObraId;
+        console.log(`🔍 Obra "${obra.nombreObra}": obraId=${obraId}`);
+
+        if (!obraId) {
+          console.warn(`⚠️ Obra "${obra.nombreObra}" no tiene obraId`);
+          return {...obra, trabajosExtra: []};
+        }
+
+        try {
+          console.log(`🔄 Llamando apiService.trabajosExtra.getAll(${empresaSeleccionada.id}, { obraId: ${obraId} })`);
+          const response = await apiService.trabajosExtra.getAll(empresaSeleccionada.id, { obraId });
+          console.log(`📡 Respuesta recibida:`, response);
+          const trabajos = Array.isArray(response) ? response : response?.data || [];
+          console.log(`📦 Obra "${obra.nombreObra}": ${trabajos.length} trabajo(s) extra encontrado(s)`, trabajos);
+
+          const trabajosConTotal = await Promise.all(trabajos.map(async (trabajo) => {
+            try {
+              const fullResponse = await apiService.trabajosExtra.getById(trabajo.id, empresaSeleccionada.id);
+              const fullTrabajo = fullResponse.data || fullResponse;
+
+              let totalCalculado = 0;
+              if (fullTrabajo.itemsCalculadora && Array.isArray(fullTrabajo.itemsCalculadora) && fullTrabajo.itemsCalculadora.length > 0) {
+                const parseMontoLocal = (val) => {
+                  if (typeof val === 'number') return val;
+                  if (!val) return 0;
+                  let str = String(val).trim().replace(/[^0-9.,-]/g, '');
+                  if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
+                  return parseFloat(str) || 0;
+                };
+
+                let subtotalJornales = 0, subtotalMateriales = 0, subtotalOtros = 0;
+                fullTrabajo.itemsCalculadora.forEach((item) => {
+                  let jorItem = parseMontoLocal(item.subtotalManoObra) || 0;
+                  if (jorItem === 0 && item.jornales && Array.isArray(item.jornales)) {
+                    jorItem = item.jornales.reduce((s, j) => s + (parseMontoLocal(j.subtotal) || parseMontoLocal(j.importe) || 0), 0);
+                  }
+                  subtotalJornales += jorItem;
+                  subtotalMateriales += parseMontoLocal(item.subtotalMateriales) || 0;
+                  subtotalOtros += parseMontoLocal(item.subtotalGastosGenerales) || 0;
+                });
+
+                const subtotalBase = subtotalJornales + subtotalMateriales + subtotalOtros;
+                let totalHonorarios = 0;
+                if (fullTrabajo.honorarios && typeof fullTrabajo.honorarios === 'object') {
+                  const conf = fullTrabajo.honorarios;
+                  if (conf.jornalesActivo && conf.jornalesValor) totalHonorarios += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                  if (conf.materialesActivo && conf.materialesValor) totalHonorarios += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                  if (conf.otrosCostosActivo && conf.otrosCostosValor) totalHonorarios += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                }
+
+                let totalMC = 0;
+                if (fullTrabajo.mayoresCostos && typeof fullTrabajo.mayoresCostos === 'object') {
+                  const conf = fullTrabajo.mayoresCostos;
+                  if (conf.jornalesActivo && conf.jornalesValor) totalMC += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                  if (conf.materialesActivo && conf.materialesValor) totalMC += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                  if (conf.otrosCostosActivo && conf.otrosCostosValor) totalMC += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                  if (conf.honorariosActivo && conf.honorariosValor && totalHonorarios > 0) totalMC += totalHonorarios * (parseFloat(conf.honorariosValor) / 100);
+                }
+
+                totalCalculado = subtotalBase + totalHonorarios + totalMC;
+              } else {
+                totalCalculado = parseFloat(fullTrabajo.totalFinal) || parseFloat(fullTrabajo.montoTotal) || 0;
+              }
+
+              return {
+                id: fullTrabajo.id,
+                nombre: fullTrabajo.nombre,
+                totalCalculado: totalCalculado
+              };
+            } catch (err) {
+              return { id: trabajo.id, nombre: trabajo.nombre, totalCalculado: parseFloat(trabajo.totalFinal) || 0 };
+            }
+          }));
+
+          return {...obra, trabajosExtra: trabajosConTotal};
+        } catch (error) {
+          console.error(`❌ Error cargando trabajos extra de obra "${obra.nombreObra}" (obraId: ${obraId}):`, {
+            error: error,
+            mensaje: error.message,
+            response: error.response,
+            stack: error.stack
+          });
+          return {...obra, trabajosExtra: []};
+        }
+      }));
+
+      console.log('✅ Obras con trabajos extra cargadas:', obrasConTrabajosExtra.map(o => ({
+        nombre: o.nombreObra,
+        cantidadTrabajosExtra: o.trabajosExtra?.length || 0,
+        trabajosExtra: o.trabajosExtra?.map(t => ({nombre: t.nombre, total: t.totalCalculado}))
+      })));
+
+      setObrasDisponibles(obrasConTrabajosExtra);
       // Seleccionar todas por defecto SOLO en la primera carga
       setObrasSeleccionadas(prevSelected => {
         // Si ya hay obras seleccionadas, preservar la selección
@@ -1090,53 +1187,66 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     .filter(Boolean)
                     .join(' ');
 
+                  const presupuestoBase = obra.presupuestoCompleto?.totalPresupuestoConHonorarios
+                    ?? obra.presupuestoCompleto?.totalFinal
+                    ?? obra.presupuestoCompleto?.montoTotal
+                    ?? obra.totalPresupuestoConHonorarios
+                    ?? obra.totalFinal
+                    ?? obra.montoTotal
+                    ?? obra.totalPresupuesto
+                    ?? 0;
+
                   return (
-                    <tr
-                      key={obra.id}
-                      className={isSelected ? 'table-active' : ''}
-                      style={{cursor: 'pointer'}}
-                      onClick={() => toggleObraSeleccion(obra.id)}
-                    >
-                      <td className="text-center" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            toggleObraSeleccion(obra.id);
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <strong>{obra.nombreObra}</strong>
-                        <br />
-                        <small className="text-muted">#{obra.numeroPresupuesto}</small>
-                      </td>
-                      <td>
-                        <small>{direccion}</small>
-                      </td>
-                      <td className="text-center">
-                        <span className={`badge ${obra.estado === 'APROBADO' ? 'bg-success' : 'bg-info'}`}>
-                          {obra.estado}
-                        </span>
-                      </td>
-                      <td className="text-center">
-                        <span className="badge bg-secondary">v{obra.numeroVersion}</span>
-                      </td>
-                      <td className="text-end">
-                        <strong>{formatearMoneda(
-                          obra.presupuestoCompleto?.totalPresupuestoConHonorarios
-                          ?? obra.presupuestoCompleto?.totalFinal
-                          ?? obra.presupuestoCompleto?.montoTotal
-                          ?? obra.totalPresupuestoConHonorarios
-                          ?? obra.totalFinal
-                          ?? obra.montoTotal
-                          ?? obra.totalPresupuesto
-                          ?? 0
-                        )}</strong>
-                      </td>
-                    </tr>
+                    <React.Fragment key={obra.id}>
+                      <tr
+                        className={isSelected ? 'table-active' : ''}
+                        style={{cursor: 'pointer'}}
+                        onClick={() => toggleObraSeleccion(obra.id)}
+                      >
+                        <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            className="form-check-input"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleObraSeleccion(obra.id);
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <strong>{obra.nombreObra}</strong>
+                          <br />
+                          <small className="text-muted">#{obra.numeroPresupuesto}</small>
+                        </td>
+                        <td>
+                          <small>{direccion}</small>
+                        </td>
+                        <td className="text-center">
+                          <span className={`badge ${obra.estado === 'APROBADO' ? 'bg-success' : 'bg-info'}`}>
+                            {obra.estado}
+                          </span>
+                        </td>
+                        <td className="text-center">
+                          <span className="badge bg-secondary">v{obra.numeroVersion}</span>
+                        </td>
+                        <td className="text-end">
+                          <strong>{formatearMoneda(presupuestoBase)}</strong>
+                        </td>
+                      </tr>
+                      {obra.trabajosExtra && obra.trabajosExtra.map((trabajo, tIdx) => (
+                        <tr key={`${obra.id}-trabajo-${tIdx}`} className={isSelected ? 'table-active' : ''}>
+                          <td></td>
+                          <td colSpan="4" className="ps-4">
+                            <i className="bi bi-arrow-return-right me-2 text-muted"></i>
+                            <small><strong>Trabajo Extra: {trabajo.nombre}</strong></small>
+                          </td>
+                          <td className="text-end">
+                            <small><strong>{formatearMoneda(trabajo.totalCalculado || 0)}</strong></small>
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -1145,17 +1255,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   <td colSpan="5" className="text-end">Total Seleccionado:</td>
                   <td className="text-end text-primary">
                       {(() => {
-                        // Sumar solo presupuestos únicos por id
                         const presupuestosUnicos = new Map();
                         const debugRows = [];
+                        let totalTrabajosExtra = 0;
+
                         obrasDisponibles
                           .filter(o => obrasSeleccionadas.has(o.id))
                           .forEach(o => {
-                            // Usar SIEMPRE el id real del presupuesto vinculado
                             const idPresupuesto = o.presupuestoCompleto?.id
                               ?? o.presupuestoNoClienteId
                               ?? o.presupuestoNoCliente?.id;
-                            if (!idPresupuesto) return; // Si no hay presupuesto, no sumar
+                            if (!idPresupuesto) return;
                             if (!presupuestosUnicos.has(idPresupuesto)) {
                               const monto = (
                                 o.presupuestoCompleto?.totalPresupuestoConHonorarios
@@ -1170,14 +1280,23 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               presupuestosUnicos.set(idPresupuesto, monto);
                               debugRows.push(`${idPresupuesto}: $${monto.toLocaleString()}`);
                             }
+
+                            if (o.trabajosExtra && o.trabajosExtra.length > 0) {
+                              const totalTE = o.trabajosExtra.reduce((sum, t) => sum + (t.totalCalculado || 0), 0);
+                              totalTrabajosExtra += totalTE;
+                            }
                           });
-                        // Mostrar los ids y montos sumados para depuración
+
+                        const totalBase = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
+                        const totalConTrabajosExtra = totalBase + totalTrabajosExtra;
+
                         return (
                           <>
-                            {formatearMoneda(Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0))}
+                            {formatearMoneda(totalConTrabajosExtra)}
                             <div style={{fontSize: '0.8em', color: '#888', marginTop: 4}}>
                               <span>IDs sumados: </span>
                               {debugRows.join(' | ')}
+                              {totalTrabajosExtra > 0 && ` + TE: $${totalTrabajosExtra.toLocaleString()}`}
                             </div>
                           </>
                         );
@@ -1593,7 +1712,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <i className="bi bi-cash-stack fs-1 text-info"></i>
                             <h6 className="text-muted mt-2 mb-1">Total Presupuestado</h6>
                             <h4 className="text-info mb-0">
-                              {formatearMoneda(stats.totalPresupuesto)}
+                              {(() => {
+                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor totalPresupuesto recibido:', stats.totalPresupuesto);
+                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor formateado:', formatearMoneda(stats.totalPresupuesto));
+                                return formatearMoneda(stats.totalPresupuesto);
+                              })()}
                             </h4>
                             <small className="text-muted">De {usarSeleccionadas ? obrasSeleccionadas.size : (stats.cantidadObras || obrasDisponibles.length)} obra(s)</small>
                             <div className="mt-1">
@@ -1846,21 +1969,44 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {topObras.map((obra, index) => (
-                                        <tr key={index}>
-                                          <td>
-                                            <span className={`badge ${index === 0 ? 'bg-warning' : index === 1 ? 'bg-secondary' : index === 2 ? 'bg-info' : 'bg-light text-dark'}`}>
-                                              {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}°`}
-                                            </span>
-                                          </td>
-                                          <td className="fw-bold">{obra.nombreObra}</td>
-                                          <td className="text-end">{formatearMoneda(obra.totalPresupuesto)}</td>
-                                          <td className="text-end">{formatearMoneda(obra.totalCobrado)}</td>
-                                          <td className="text-end">{formatearMoneda(obra.totalPagado)}</td>
-                                          <td className="text-end">{formatearMoneda(obra.totalRetirado || 0)}</td>
-                                          <td className="text-end text-primary fw-bold">{formatearMoneda(obra.saldoDisponible)}</td>
-                                        </tr>
-                                      ))}
+                                      {topObras.map((obra, index) => {
+                                        const totalTrabajosExtra = obra.trabajosExtra?.reduce((sum, t) => sum + (t.totalCalculado || 0), 0) || 0;
+                                        const presupuestoConTE = obra.totalPresupuesto + totalTrabajosExtra;
+
+                                        return (
+                                          <React.Fragment key={index}>
+                                            <tr>
+                                              <td>
+                                                <span className={`badge ${index === 0 ? 'bg-warning' : index === 1 ? 'bg-secondary' : index === 2 ? 'bg-info' : 'bg-light text-dark'}`}>
+                                                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}°`}
+                                                </span>
+                                              </td>
+                                              <td className="fw-bold">{obra.nombreObra}</td>
+                                              <td className="text-end">{formatearMoneda(obra.totalPresupuesto)}</td>
+                                              <td className="text-end">{formatearMoneda(obra.totalCobrado)}</td>
+                                              <td className="text-end">{formatearMoneda(obra.totalPagado)}</td>
+                                              <td className="text-end">{formatearMoneda(obra.totalRetirado || 0)}</td>
+                                              <td className="text-end text-primary fw-bold">{formatearMoneda(obra.saldoDisponible)}</td>
+                                            </tr>
+                                            {obra.trabajosExtra && obra.trabajosExtra.map((trabajo, tIdx) => (
+                                              <tr key={`${index}-trabajo-${tIdx}`} className="table-active">
+                                                <td></td>
+                                                <td className="ps-4">
+                                                  <i className="bi bi-arrow-return-right me-2 text-muted"></i>
+                                                  <small><strong>Trabajo Extra: {trabajo.nombre}</strong></small>
+                                                </td>
+                                                <td className="text-end">
+                                                  <small><strong>{formatearMoneda(trabajo.totalCalculado || 0)}</strong></small>
+                                                </td>
+                                                <td className="text-end"><small>-</small></td>
+                                                <td className="text-end"><small>-</small></td>
+                                                <td className="text-end"><small>-</small></td>
+                                                <td className="text-end"><small>-</small></td>
+                                              </tr>
+                                            ))}
+                                          </React.Fragment>
+                                        );
+                                      })}
                                     </tbody>
                                   </table>
                                 </div>

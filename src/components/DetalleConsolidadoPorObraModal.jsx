@@ -130,55 +130,83 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     }
   };
 
-  const renderPresupuestos = () => (
-    <div className="table-responsive">
-      <table className="table table-hover table-striped">
-        <thead className="table-primary">
-          <tr>
-            <th>Obra</th>
-            <th>Estado</th>
-            <th className="text-end">Monto Presupuestado</th>
-          </tr>
-        </thead>
-        <tbody>
-          {datos.map((obra, idx) => (
-            <tr key={idx}>
-              <td>
-                <strong>{obra.nombreObra}</strong>
-                <div className="text-muted small">
-                  Presupuesto #{obra.numeroPresupuesto || 'N/A'}
-                </div>
-              </td>
-              <td>
-                <span className={`badge ${
-                  obra.estado === 'APROBADO' ? 'bg-success' :
-                  obra.estado === 'EN_EJECUCION' ? 'bg-primary' :
-                  'bg-secondary'
-                }`}>
-                  {obra.estado || 'N/A'}
-                </span>
-              </td>
+  const renderPresupuestos = () => {
+    // Calcular el total incluyendo trabajos extra
+    const totalConTrabajosExtra = datos.reduce((sum, o) => {
+      const presupuestoBase = o.totalPresupuesto || 0;
+      const trabajosExtra = (o.trabajosExtra || []).reduce((s, t) => s + (t.totalCalculado || 0), 0);
+      return sum + presupuestoBase + trabajosExtra;
+    }, 0);
+
+    return (
+      <div className="table-responsive">
+        <table className="table table-hover table-striped">
+          <thead className="table-primary">
+            <tr>
+              <th>Obra</th>
+              <th>Estado</th>
+              <th className="text-end">Monto Presupuestado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {datos.map((obra, idx) => (
+              <>
+                <tr key={idx}>
+                  <td>
+                    <strong>{obra.nombreObra}</strong>
+                    <div className="text-muted small">
+                      Presupuesto #{obra.numeroPresupuesto || 'N/A'}
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`badge ${
+                      obra.estado === 'APROBADO' ? 'bg-success' :
+                      obra.estado === 'EN_EJECUCION' ? 'bg-primary' :
+                      'bg-secondary'
+                    }`}>
+                      {obra.estado || 'N/A'}
+                    </span>
+                  </td>
+                  <td className="text-end">
+                    <strong className="text-primary">
+                      {formatearMoneda(obra.totalPresupuesto || 0)}
+                    </strong>
+                  </td>
+                </tr>
+                {/* Mostrar trabajos extra como filas adicionales */}
+                {obra.trabajosExtra && obra.trabajosExtra.length > 0 && obra.trabajosExtra.map((trabajo, tIdx) => (
+                  <tr key={`${idx}-trabajo-${tIdx}`} className="table-active">
+                    <td className="ps-4">
+                      <i className="bi bi-arrow-return-right me-2 text-muted"></i>
+                      <span className="text-muted">Trabajo Extra: {trabajo.nombre}</span>
+                    </td>
+                    <td>
+                      <span className="badge bg-info">EXTRA</span>
+                    </td>
+                    <td className="text-end">
+                      <span className="text-info">
+                        {formatearMoneda(trabajo.totalCalculado || 0)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </>
+            ))}
+          </tbody>
+          <tfoot className="table-light">
+            <tr>
+              <td colSpan="2" className="text-end"><strong>TOTAL:</strong></td>
               <td className="text-end">
-                <strong className="text-primary">
-                  {formatearMoneda(obra.totalPresupuesto || 0)}
+                <strong className="text-primary fs-5">
+                  {formatearMoneda(totalConTrabajosExtra)}
                 </strong>
               </td>
             </tr>
-          ))}
-        </tbody>
-        <tfoot className="table-light">
-          <tr>
-            <td colSpan="2" className="text-end"><strong>TOTAL:</strong></td>
-            <td className="text-end">
-              <strong className="text-primary fs-5">
-                {formatearMoneda(datos.reduce((sum, o) => sum + (o.totalPresupuesto || 0), 0))}
-              </strong>
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  );
+          </tfoot>
+        </table>
+      </div>
+    );
+  };
 
   const renderCobros = () => (
     <div className="table-responsive">
@@ -493,8 +521,12 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   );
 
   const renderSaldoPorCobrar = () => {
-    // Calcular total presupuestado
-    const totalPresupuestado = datos.reduce((sum, o) => sum + (o.totalPresupuesto || 0), 0);
+    // Calcular total presupuestado incluyendo trabajos extra
+    const totalPresupuestado = datos.reduce((sum, o) => {
+      const totalObra = o.totalPresupuesto || 0;
+      const totalTrabajosExtra = o.trabajosExtra?.reduce((s, t) => s + (t.totalCalculado || 0), 0) || 0;
+      return sum + totalObra + totalTrabajosExtra;
+    }, 0);
 
     // Usar total cobrado a la empresa (no las asignaciones a obras)
     const totalCobradoEmpresa = estadisticas?.totalCobradoEmpresa || 0;
@@ -515,16 +547,35 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
           <tbody>
             {datos.map((obra, idx) => {
               const saldo = (obra.totalPresupuesto || 0);
+              const totalTrabajosExtra = obra.trabajosExtra?.reduce((sum, t) => sum + (t.totalCalculado || 0), 0) || 0;
+              const totalObraConTrabajosExtra = saldo + totalTrabajosExtra;
+
               return (
-                <tr key={idx}>
-                  <td>
-                    <strong>{obra.nombreObra}</strong>
-                  </td>
-                  <td className="text-end">{formatearMoneda(obra.totalPresupuesto || 0)}</td>
-                  <td className="text-end">
-                    <strong className="text-warning">{formatearMoneda(saldo)}</strong>
-                  </td>
-                </tr>
+                <React.Fragment key={idx}>
+                  <tr>
+                    <td>
+                      <strong>{obra.nombreObra}</strong>
+                    </td>
+                    <td className="text-end">{formatearMoneda(obra.totalPresupuesto || 0)}</td>
+                    <td className="text-end">
+                      <strong className="text-danger">{formatearMoneda(saldo)}</strong>
+                    </td>
+                  </tr>
+                  {obra.trabajosExtra && obra.trabajosExtra.length > 0 && obra.trabajosExtra.map((trabajo, tIdx) => (
+                    <tr key={`${idx}-trabajo-${tIdx}`} className="table-active">
+                      <td className="ps-4">
+                        <i className="bi bi-arrow-return-right me-2"></i>
+                        <small><strong>Trabajo Extra: {trabajo.nombre}</strong></small>
+                      </td>
+                      <td className="text-end">
+                        <small><strong>{formatearMoneda(trabajo.totalCalculado || 0)}</strong></small>
+                      </td>
+                      <td className="text-end">
+                        <small className="text-danger"><strong>{formatearMoneda(trabajo.totalCalculado || 0)}</strong></small>
+                      </td>
+                    </tr>
+                  ))}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -535,7 +586,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                 {formatearMoneda(totalPresupuestado)}
               </td>
               <td className="text-end" rowSpan="3">
-                <strong className="text-warning fs-5">
+                <strong className="text-danger fs-5">
                   {formatearMoneda(totalSaldoPorCobrar)}
                 </strong>
               </td>
