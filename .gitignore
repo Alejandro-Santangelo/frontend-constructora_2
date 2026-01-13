@@ -24,7 +24,8 @@ pnpm-debug.log*
 Thumbs.db
 
 # Editor directories and files
-.vscode/
+# NO ignorar .vscode/ - necesario para compartir configuración de encoding
+# .vscode/
 .idea/
 *.suo
 *.ntvs

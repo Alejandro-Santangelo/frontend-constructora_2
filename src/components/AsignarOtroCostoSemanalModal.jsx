@@ -139,7 +139,7 @@ const AsignarOtroCostoSemanalModal = ({
       categoria: categoriaFinal,
       importe: importe,
       numeroSemana: numeroSemana,
-      observaciones: observaciones + (esGlobal ? ` [Gasto Semanal Global]` : ` [Gasto Semanal Detallado]`),
+      observaciones: observaciones + (esGlobal ? ` [Para toda la Semana]` : ` [Gasto Semanal Detallado]`),
       esManual: tipoAsignacion === 'IMPORTE_GLOBAL',
       esSemanal: true // Marcador para identificar que es asignación semanal completa
     };
@@ -277,21 +277,70 @@ const AsignarOtroCostoSemanalModal = ({
                   </div>
                 </>
               ) : (
-                <div className="col-md-12">
-                  <label className="form-label fw-bold">Seleccionar Item del Presupuesto *</label>
-                  <select
-                    className="form-select form-select-lg"
-                    value={costoSeleccionadoId}
-                    onChange={(e) => setCostoSeleccionadoId(e.target.value)}
-                  >
-                    <option value="">Seleccione un costo...</option>
-                    {otrosCostosDisponibles.map(costo => (
-                      <option key={costo.id} value={costo.id}>
-                        [{costo.categoria}] {costo.nombre} - Presupuestado: ${Number(costo.importe || 0).toLocaleString('es-AR')}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <>
+                  <div className="col-md-12">
+                    <label className="form-label fw-bold">Seleccionar Item del Presupuesto *</label>
+                    <select
+                      className="form-select form-select-lg"
+                      value={costoSeleccionadoId}
+                      onChange={(e) => setCostoSeleccionadoId(e.target.value)}
+                    >
+                      <option value="">Seleccione un costo...</option>
+                      {otrosCostosDisponibles.map(costo => (
+                        <option key={costo.id} value={costo.id}>
+                          [{costo.categoria}] {costo.nombre} - Presupuestado: ${Number(costo.importe || 0).toLocaleString('es-AR')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Panel informativo cuando se selecciona un item */}
+                  {costoSeleccionadoId && (() => {
+                    const costoSeleccionado = otrosCostosDisponibles.find(c => c.id.toString() === costoSeleccionadoId.toString());
+                    if (!costoSeleccionado) return null;
+
+                    const totalPresupuestado = parseFloat(costoSeleccionado.importe || 0);
+                    // Calcular ya asignado (esto debe venir de las asignaciones existentes)
+                    // Por ahora lo dejo en 0, pero deberías pasarlo como prop
+                    const yaAsignado = 0; // TODO: Calcular desde asignaciones existentes
+                    const disponible = totalPresupuestado - yaAsignado;
+
+                    return (
+                      <div className="col-12">
+                        <div className="alert alert-info border-0 shadow-sm mb-0">
+                          <div className="d-flex align-items-center mb-2">
+                            <i className="fas fa-info-circle fs-5 me-2"></i>
+                            <h6 className="mb-0 fw-bold">💰 {costoSeleccionado.nombre}</h6>
+                          </div>
+                          <div className="row g-2 small">
+                            <div className="col-4">
+                              <div className="text-muted">📋 Categoría:</div>
+                              <strong>{costoSeleccionado.categoria}</strong>
+                            </div>
+                            <div className="col-4">
+                              <div className="text-muted">💰 Presupuestado:</div>
+                              <strong>${totalPresupuestado.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                            </div>
+                            <div className="col-4">
+                              <div className="text-muted">✅ Ya asignado:</div>
+                              <strong className="text-primary">${yaAsignado.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                            </div>
+                            <div className="col-12">
+                              <div className="border-top pt-2 mt-1">
+                                <div className="d-flex justify-content-between align-items-center">
+                                  <span className="text-muted fw-bold">🟢 Disponible:</span>
+                                  <span className="fs-5 fw-bold text-success">
+                                    ${disponible.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
               )}
 
               <div className="col-md-6">

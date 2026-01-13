@@ -1493,6 +1493,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     <th className="small">Dirección</th>
                     <th style={{width: '90px'}} className="small">Inicio</th>
                     <th style={{width: '70px'}} className="small">Estado</th>
+                    <th style={{width: '80px'}} className="small">Tipo</th>
                     <th style={{width: '80px'}} className="small">Alertas</th>
                     <th style={{width: '110px'}} className="text-end small">Total</th>
                   </tr>
@@ -1625,6 +1626,103 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                             </>
                           )}
                         </span>
+                      </td>
+                      <td className="small">
+                        {(() => {
+                          // Detectar tipo usando la misma lógica que ObrasPage.jsx
+                          let tieneElementosGlobales = false;
+                          let tieneElementosEspecificos = false;
+
+                          console.log(`🔍 TABLA - Analizando presupuesto ${row.versionActiva} de ${row.nombreObra}`);
+
+                          if (row.itemsCalculadora && row.itemsCalculadora.length > 0) {
+                            row.itemsCalculadora.forEach((item, idx) => {
+                              console.log(`  📦 Item ${idx}:`, item.tipoProfesional || item.nombre);
+
+                              // Revisar jornales
+                              if (item.jornales && item.jornales.length > 0) {
+                                item.jornales.forEach(j => {
+                                  const rol = (j.rol || '').toUpperCase();
+                                  console.log(`    👷 Jornal: "${rol}"`);
+                                  if (rol.includes('PRESUPUESTO GLOBAL') || rol.includes('PARA LA OBRA')) {
+                                    console.log('      ✅ GLOBAL detectado');
+                                    tieneElementosGlobales = true;
+                                  } else if (rol && !rol.includes('PRESUPUESTO GLOBAL') && !rol.includes('PARA LA OBRA')) {
+                                    console.log('      ❌ ESPECÍFICO marcado');
+                                    tieneElementosEspecificos = true;
+                                  }
+                                });
+                              }
+
+                              // Revisar materiales
+                              if (item.materialesLista && item.materialesLista.length > 0) {
+                                item.materialesLista.forEach(m => {
+                                  const nombre = (m.nombre || m.descripcion || '').toLowerCase();
+                                  console.log(`    📦 Material: "${nombre}"`);
+                                  if (nombre.includes('para la') || nombre.includes('para el') ||
+                                      nombre.includes('presupuesto global') || nombre.includes('materiales para')) {
+                                    console.log('      ✅ GLOBAL detectado');
+                                    tieneElementosGlobales = true;
+                                  } else if (nombre && nombre !== 'sin nombre' && !nombre.includes('presupuesto global') && !nombre.includes('para la') && !nombre.includes('para el')) {
+                                    console.log('      ❌ ESPECÍFICO marcado');
+                                    tieneElementosEspecificos = true;
+                                  } else {
+                                    console.log('      ⏭️ Ignorado (sin nombre o vacío)');
+                                  }
+                                });
+                              }
+
+                              // Revisar gastos generales
+                              if (item.gastosGenerales && item.gastosGenerales.length > 0) {
+                                item.gastosGenerales.forEach(g => {
+                                  const desc = (g.descripcion || '').toLowerCase();
+                                  console.log(`    💰 Gasto: "${desc}"`);
+                                  if (desc.includes('para la') || desc.includes('para el') ||
+                                      desc.includes('presupuesto global') || (desc.includes('gastos') && desc.includes('para'))) {
+                                    console.log('      ✅ GLOBAL detectado');
+                                    tieneElementosGlobales = true;
+                                  } else if (desc && !desc.includes('presupuesto global') && !desc.includes('para la') && !desc.includes('para el')) {
+                                    console.log('      ❌ ESPECÍFICO marcado');
+                                    tieneElementosEspecificos = true;
+                                  }
+                                });
+                              }
+
+                              // Revisar otros costos
+                              if (item.otrosCostosLista && item.otrosCostosLista.length > 0) {
+                                item.otrosCostosLista.forEach(o => {
+                                  const desc = (o.descripcion || '').toLowerCase();
+                                  if (desc.includes('para la') || desc.includes('para el') ||
+                                      desc.includes('presupuesto global')) {
+                                    tieneElementosGlobales = true;
+                                  } else if (desc && !desc.includes('presupuesto global') && !desc.includes('para la') && !desc.includes('para el')) {
+                                    tieneElementosEspecificos = true;
+                                  }
+                                });
+                              }
+                            });
+                          }
+
+                          const esGlobal = tieneElementosGlobales && !tieneElementosEspecificos;
+                          console.log(`🎯 RESULTADO: tieneGlobales=${tieneElementosGlobales}, tieneEspecificos=${tieneElementosEspecificos}, esGlobal=${esGlobal}`);
+
+                          return esGlobal ? (
+                            <span className="badge bg-secondary text-white" style={{ fontSize: '0.7em' }}>
+                              <i className="fas fa-globe me-1"></i>
+                              Global
+                            </span>
+                          ) : (tieneElementosEspecificos || tieneElementosGlobales) ? (
+                            <span className="badge bg-info text-white" style={{ fontSize: '0.7em' }}>
+                              <i className="fas fa-list me-1"></i>
+                              Detallado
+                            </span>
+                          ) : (
+                            <span className="badge bg-light text-dark" style={{ fontSize: '0.7em' }}>
+                              <i className="fas fa-question me-1"></i>
+                              Sin items
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td>
                         {alertaInicio && (

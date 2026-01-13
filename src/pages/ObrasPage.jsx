@@ -4289,12 +4289,12 @@ const ObrasPage = ({ showNotification }) => {
                                           )}
                                         </td>
                                         <td>
-                                          {etapa.estado === 'COMPLETADA' ? (
-                                            <span className="badge bg-success">œ… Completada</span>
+                                                                                   {etapa.estado === 'COMPLETADA' ? (
+                                            <span className="badge bg-success">✅ Completada</span>
                                           ) : etapa.estado === 'EN_PROCESO' ? (
-                                            <span className="badge bg-primary">ðŸ”„ En Proceso</span>
+                                            <span className="badge bg-primary">🔄 En Proceso</span>
                                           ) : (
-                                            <span className="badge bg-secondary">³ Pendiente</span>
+                                            <span className="badge bg-secondary">⏳ Pendiente</span>
                                           )}
                                         </td>
                                       </tr>

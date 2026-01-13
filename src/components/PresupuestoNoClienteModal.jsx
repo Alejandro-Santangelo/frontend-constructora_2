@@ -1,4 +1,3 @@
-                     <label className="form-label fw-bold w-100 text-center mb-1" style={{color: "#000", marginBottom: 0}}>Dias Habiles para final de Obra</label>
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import ObraSelector from './ObraSelector';
@@ -9,6 +8,7 @@ import apiService from '../services/api';
 import { validarTipoItem, agregarNuevoProfesional } from '../utils/validacionProfesionalesMateriales';
 import { crearGastoGeneral } from '../services/gastosGeneralesService';
 import usePromedioHonorarios from '../hooks/usePromedioHonorarios';
+import { useDetectarModoPresupuesto, BadgeModoPresupuesto } from '../hooks/useDetectarModoPresupuesto.jsx';
 import { ROLES_PROFESIONALES, ROLES_ENUM, generarOpcionesRoles, getRolPorDefecto } from '../constants/rolesProfesionales';
 
 const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false }) => {
@@ -233,6 +233,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const [mostrarItemsIndividuales, setMostrarItemsIndividuales] = useState(false); // Estado para expandir/contraer secciones de items individuales
   const [mostrarImportarItems, setMostrarImportarItems] = useState(false); // Estado para expandir/contraer Importar Items
   const [ocultarConfiguracionEnPDF, setOcultarConfiguracionEnPDF] = useState(true); // NUEVO: Ocultar Configuración en PDF por defecto
+
+  // 🎯 Detectar modo del presupuesto usando hook reutilizable
+  const modoPresupuestoDetectado = useDetectarModoPresupuesto(safeInitial, show);
 
   const costosInicialesData = safeInitial.costoInicial || safeInitial.costosIniciales; // Soportar ambos nombres
   const [metrosCuadradosInicial, setMetrosCuadradosInicial] = useState(costosInicialesData?.metrosCuadrados || '');
@@ -6153,6 +6156,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     form.mayoresCostos
   ]);
 
+  // 🎯 Modo de presupuesto detectado con hook reutilizable (ver línea ~237)
+
   useEffect(() => {
     if (show) {
       setTimeout(() => {
@@ -8097,7 +8102,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       <div className="modal-dialog" style={{ marginTop: '150px', maxWidth: 'calc(100vw - 48px)', width: '100%' }}>
         <div className="modal-content" style={{ padding: '14px' }}>
           <div className="modal-header d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center gap-3">
+              <div className="d-flex align-items-center gap-3 flex-grow-1">
                 <h5 className="modal-title mb-0">
                   {modoTrabajoExtra ? (
                     'Trabajos Extra'
@@ -8112,6 +8117,51 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                       : (form.tipoPresupuesto === 'TRABAJOS_SEMANALES' ? 'Nuevo Trabajos Semanales' : 'Nuevo Presupuesto')
                   )}
                 </h5>
+
+                {/* 🎯 Badge de Tipo de Presupuesto */}
+                {modoTrabajoExtra && (
+                  <>
+                    <span
+                      className="badge bg-warning text-dark"
+                      style={{ fontSize: '0.85rem', padding: '6px 10px' }}
+                      title="Este es un Trabajo Extra vinculado a una obra"
+                    >
+                      <i className="fas fa-tools me-1"></i>
+                      TRABAJO EXTRA
+                    </span>
+
+                    {/* 🎯 Badge de Modo de Presupuesto (GLOBAL/DETALLE/MIXTO) */}
+                    <BadgeModoPresupuesto modo={modoPresupuestoDetectado} />
+                  </>
+                )}
+
+                {!modoTrabajoExtra && form.tipoPresupuesto === 'TRABAJOS_SEMANALES' && (
+                  <span
+                    className="badge bg-primary"
+                    style={{ fontSize: '0.85rem', padding: '6px 10px' }}
+                    title="Presupuesto con asignaciones semanales"
+                  >
+                    <i className="fas fa-calendar-week me-1"></i>
+                    SEMANAL
+                  </span>
+                )}
+
+                {!modoTrabajoExtra && form.tipoPresupuesto === 'TRADICIONAL' && (
+                  <span
+                    className="badge bg-success"
+                    style={{ fontSize: '0.85rem', padding: '6px 10px' }}
+                    title="Presupuesto tradicional completo"
+                  >
+                    <i className="fas fa-building me-1"></i>
+                    TRADICIONAL
+                  </span>
+                )}
+
+                {/* 🎯 Badge de Modo de Presupuesto para presupuestos normales */}
+                {!modoTrabajoExtra && (
+                  <BadgeModoPresupuesto modo={modoPresupuestoDetectado} />
+                )}
+
                 {!soloLectura && !modoTrabajoExtra && (
                   <div style={{minWidth: '200px'}}>
                     <select
@@ -14715,6 +14765,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   </>
 );
-}
+};
 
 export default PresupuestoNoClienteModal;

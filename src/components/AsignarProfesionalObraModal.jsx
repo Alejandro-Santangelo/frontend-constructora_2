@@ -4,7 +4,7 @@ import { useEmpresa } from '../EmpresaContext';
 /**
  * Modal para asignar profesionales del listado general a una obra específica
  * Permite seleccionar el rubro del presupuestoNoCliente y asignar jornales
- * 
+ *
  * IMPORTANTE - Especificaciones Backend (v1.0.0):
  * - empresaId: Se envía como HEADER, no como query param
  * - rubroId: Tipo STRING (no number) - ej: "rubro-1", "item-abc"
@@ -14,7 +14,7 @@ import { useEmpresa } from '../EmpresaContext';
  */
 const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa }) => {
   const { empresaSeleccionada } = useEmpresa();
-  
+
   // Estados
   const [presupuesto, setPresupuesto] = useState(null);
   const [profesionalesDisponibles, setProfesionalesDisponibles] = useState([]);
@@ -24,7 +24,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
   const [error, setError] = useState(null);
   const [obrasDelProfesional, setObrasDelProfesional] = useState([]);
   const [loadingObras, setLoadingObras] = useState(false);
-  
+
   // Formulario de nueva asignación
   const [nuevaAsignacion, setNuevaAsignacion] = useState({
     profesionalId: '',
@@ -47,7 +47,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
         empresaId: empresaSeleccionada.id,
         empresaNombre: empresaSeleccionada.nombre_empresa
       });
-      
+
       cargarPresupuestoObra();
       cargarProfesionalesDisponibles();
       cargarAsignacionesActuales();
@@ -59,7 +59,15 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     setError(null);
     try {
       console.log('🔍 Cargando presupuesto para obra:', obra.id, 'empresa:', empresaSeleccionada.id);
-      
+
+      // 🔥 SI ES UN TRABAJO EXTRA ESPECÍFICO, usar directamente el presupuesto que ya viene en obra
+      if (obra._trabajoExtraId && obra.presupuestoNoCliente) {
+        console.log('✅ Usando presupuesto de TRABAJO EXTRA específico (ya cargado):', obra._trabajoExtraId);
+        setPresupuesto(obra.presupuestoNoCliente);
+        setLoadingPresupuesto(false);
+        return;
+      }
+
       // Usar el endpoint original que funciona
       const response = await fetch(
         `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
@@ -70,22 +78,22 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
           }
         }
       );
-      
+
       console.log('📡 Response status:', response.status, response.statusText);
-      
+
       if (response.ok) {
         let data = await response.json();
-        
+
         // Si devuelve un objeto único, convertirlo a array
         if (!Array.isArray(data)) {
           data = [data];
         }
-        
+
         console.log('✅ Presupuestos cargados (RAW):', data);
         console.log('✅ Cantidad de presupuestos:', data.length);
-        
+
         let presupuestoSeleccionado = null;
-        
+
         // Si es un array, seleccionar el más apropiado
         if (Array.isArray(data) && data.length > 0) {
           console.log('🔍 Analizando presupuestos:', data.map(p => ({
@@ -95,28 +103,28 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
             estado: p.estado,
             tiempoEstimado: p.tiempoEstimadoTerminacion
           })));
-          
+
           // 🎯 LÓGICA DEFINITIVA: Agrupar por numeroPresupuesto y filtrar solo estados válidos
           // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO
           const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO'];
-          
+
           const porNumero = {};
           data.forEach(p => {
             const num = p.numeroPresupuesto;
             if (!porNumero[num]) porNumero[num] = [];
             porNumero[num].push(p);
           });
-          
+
           console.log('📊 Presupuestos agrupados por número:', Object.keys(porNumero).map(num => ({
             numeroPresupuesto: num,
             versiones: porNumero[num].map(p => ({ id: p.id, version: p.numeroVersion || p.version, estado: p.estado }))
           })));
-          
+
           // Para cada grupo, seleccionar solo la versión con estado válido más reciente
           const presupuestosValidos = [];
           Object.values(porNumero).forEach(versiones => {
             const validos = versiones.filter(p => ESTADOS_VALIDOS.includes(p.estado));
-            
+
             if (validos.length > 0) {
               // Ordenar por versión descendente y tomar el primero
               validos.sort((a, b) => {
@@ -127,10 +135,10 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
               presupuestosValidos.push(validos[0]);
             }
           });
-          
+
           if (presupuestosValidos.length > 0) {
             presupuestoSeleccionado = presupuestosValidos[0];
-            
+
             console.log('✅ Presupuesto válido seleccionado:', {
               id: presupuestoSeleccionado.id,
               numeroPresupuesto: presupuestoSeleccionado.numeroPresupuesto,
@@ -143,7 +151,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
             console.warn('⚠️ No se encontraron presupuestos válidos para esta obra');
             throw new Error('No hay presupuestos válidos (APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO) vinculados a esta obra');
           }
-          
+
           setPresupuesto(presupuestoSeleccionado);
         } else if (!Array.isArray(data)) {
           // Si no es array, es un objeto directo
@@ -169,7 +177,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
   const cargarProfesionalesDisponibles = async () => {
     try {
       console.log('👥 Cargando profesionales para empresa:', empresaSeleccionada.id);
-      
+
       const response = await fetch(
         `http://localhost:8080/api/profesionales`,
         {
@@ -179,9 +187,9 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
           }
         }
       );
-      
+
       console.log('📡 Profesionales response status:', response.status);
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Profesionales cargados:', data.length || data.resultado?.length || 0);
@@ -198,7 +206,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
   const cargarAsignacionesActuales = async () => {
     try {
       console.log('📋 Cargando asignaciones para obra:', obra.id, 'empresa:', empresaSeleccionada.id);
-      
+
       // 1. Obtener ASIGNACIONES POR OBRA COMPLETA
       const response = await fetch(
         `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
@@ -209,15 +217,15 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
           }
         }
       );
-      
+
       console.log('📡 Asignaciones por obra response status:', response.status);
-      
+
       let dataObra = [];
       if (response.ok) {
         dataObra = await response.json();
         console.log('✅ Asignaciones por obra cargadas:', dataObra.length || 0);
       }
-      
+
       // 2. Obtener ASIGNACIONES SEMANALES
       let dataSemanal = [];
       try {
@@ -228,14 +236,14 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       } catch (error) {
         console.warn('⚠️ No se pudieron cargar asignaciones semanales:', error);
       }
-      
+
       // 3. COMBINAR AMBOS TIPOS DE ASIGNACIONES
       const todasLasAsignaciones = [...dataObra, ...dataSemanal];
       console.log('✅ Total asignaciones combinadas:', todasLasAsignaciones.length);
-      
+
       const data = todasLasAsignaciones;
       console.log('📡 Asignaciones response status:', response.status);
-        
+
         // Log detallado de cada asignación para verificar estructura de IDs
         if (data && data.length > 0) {
           console.log('🔍 Estructura completa de primera asignación:', JSON.stringify(data[0], null, 2));
@@ -250,7 +258,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
             });
           });
         }
-        
+
         setAsignaciones(data || []);
       } else {
         const errorText = await response.text();
@@ -276,7 +284,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     // Obtener TODAS las asignaciones del profesional desde obrasDelProfesional
     // que incluye asignaciones de todas las obras, no solo la actual
     const todasLasAsignaciones = obrasDelProfesional || [];
-    
+
     if (todasLasAsignaciones.length === 0) {
       return { disponible: true, conflictos: [] };
     }
@@ -294,12 +302,12 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
 
       // Verificar solapamiento de fechas
       let hayConflicto = false;
-      
+
       // Si hay fechas de inicio y fin en ambas asignaciones
       if (inicio && fin && asigInicio && asigFin) {
         // Hay conflicto si los rangos se solapan
         hayConflicto = (inicio <= asigFin && fin >= asigInicio);
-      } 
+      }
       // Si solo hay fecha de inicio en la nueva asignación
       else if (inicio && !fin) {
         if (asigFin) {
@@ -337,15 +345,15 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       conflictos
     };
   };
-    
+
     // Total de jornales del profesional
     const jornalesTotales = profesional.dias;
-    
+
     // Jornales ya asignados en TODAS las asignaciones
     const jornalesAsignados = asignaciones
       .filter(a => a.profesionalId === profesional.id && a.tipoAsignacion === 'JORNAL')
       .reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
-    
+
     return jornalesTotales - jornalesAsignados;
   };
   */
@@ -363,7 +371,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
         validacionPaso: contexto.jornal?.cantidad >= payload.cantidadJornales
       }
     };
-    
+
     console.group('🚨 REPORTE DE DIAGNÓSTICO - ERROR DEL BACKEND');
     console.error('📋 Información completa:', reporte);
     console.error('⚠️ El backend reporta:', errorData);
@@ -371,18 +379,18 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     console.log('📤 Payload enviado:', payload);
     console.log('🔍 Contexto completo:', contexto);
     console.groupEnd();
-    
+
     return reporte;
   };
 
   // Calcular jornales disponibles por rubro (para mostrar en UI)
   const calcularJornalesDisponibles = (rubro) => {
     if (!rubro.cantidadJornales) return 0;
-    
+
     const jornalesAsignados = asignaciones
       .filter(a => String(a.rubroId) === String(rubro.id) && a.tipoAsignacion === 'JORNAL')
       .reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
-    
+
     return rubro.cantidadJornales - jornalesAsignados;
   };
 
@@ -392,11 +400,11 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       setObrasDelProfesional([]);
       return;
     }
-    
+
     setLoadingObras(true);
     try {
       console.log('🔍 Cargando obras del profesional:', profesionalId);
-      
+
       const response = await fetch(
         `http://localhost:8080/api/profesionales-obras/profesional/${profesionalId}`,
         {
@@ -406,7 +414,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
           }
         }
       );
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Obras del profesional cargadas:', data);
@@ -472,13 +480,13 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       nuevaAsignacion.fechaInicio,
       nuevaAsignacion.fechaFin
     );
-    
+
     if (!disponibilidad.disponible) {
       const profesional = profesionalesDisponibles.find(p => p.id === Number(nuevaAsignacion.profesionalId));
       alert(
         `⚠️ CONFLICTO DE ASIGNACIÓN\n\n` +
         `El profesional ${profesional?.nombre || 'seleccionado'} ya está asignado en otras obras durante las fechas seleccionadas:\n\n` +
-        disponibilidad.conflictos.map((c, idx) => 
+        disponibilidad.conflictos.map((c, idx) =>
           `${idx + 1}. ${c.obraNombre}\n` +
           `   ${c.fechaDesde ? `Desde: ${new Date(c.fechaDesde).toLocaleDateString('es-AR')}` : ''}\n` +
           `   ${c.fechaHasta ? `Hasta: ${new Date(c.fechaHasta).toLocaleDateString('es-AR')}` : ''}`
@@ -492,19 +500,19 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     // VALIDACIÓN DEFINITIVA: Verificar jornales disponibles en el presupuesto
     if (nuevaAsignacion.tipoAsignacion === 'JORNAL' && nuevaAsignacion.cantidadJornales) {
       const rubro = presupuesto.itemsCalculadora?.find(r => String(r.id) === String(nuevaAsignacion.rubroId));
-      
+
       if (rubro) {
         const jornal = rubro.jornales?.find(j => String(j.id) === String(nuevaAsignacion.itemId));
-        
+
         if (jornal) {
           // Calcular jornales ya asignados de este item
           const jornalesAsignados = asignaciones
             .filter(a => String(a.itemId) === String(jornal.id) && a.tipoAsignacion === 'JORNAL')
             .reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
-          
+
           const jornalesDisponibles = (jornal.cantidad || 0) - jornalesAsignados;
           const cantidadSolicitada = Number(nuevaAsignacion.cantidadJornales);
-          
+
           if (cantidadSolicitada > jornalesDisponibles) {
             alert(`⚠️ No hay suficientes jornales disponibles en el presupuesto.\n\n` +
                   `Jornal: ${jornal.rol}\n` +
@@ -536,7 +544,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
 
     // Validar que el profesional exista
     const profesional = profesionalesDisponibles.find(p => p.id === Number(nuevaAsignacion.profesionalId));
-    
+
     if (!profesional) {
       alert('⚠️ No se encontró el profesional seleccionado');
       return;
@@ -549,23 +557,23 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     try {
       // Obtener datos del profesional y rubro seleccionados
       const profesional = profesionalesDisponibles.find(p => p.id === Number(nuevaAsignacion.profesionalId));
-      
+
       // Buscar el rubro en itemsCalculadora
       const rubro = presupuesto.itemsCalculadora?.find(r => String(r.id) === String(nuevaAsignacion.rubroId));
-      
+
       if (!rubro) {
         alert('⚠️ No se pudo encontrar el rubro seleccionado en el presupuesto');
         setLoading(false);
         return;
       }
-      
+
       // Obtener el nombre del rubro (tipoProfesional)
       const rubroNombre = rubro.tipoProfesional || `Rubro ${nuevaAsignacion.rubroId}`;
-      
+
       // Buscar información del jornal o profesional para enviar datos completos al backend
       const jornal = rubro.jornales?.find(j => String(j.id) === String(nuevaAsignacion.itemId));
       const profesionalItem = rubro.profesionales?.find(p => String(p.id) === String(nuevaAsignacion.itemId));
-      
+
       // Preparar payload según especificaciones del backend
       const payload = {
         profesionalId: Number(nuevaAsignacion.profesionalId),
@@ -581,7 +589,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
         fechaFin: nuevaAsignacion.fechaFin || null,
         observaciones: nuevaAsignacion.observaciones || null
       };
-      
+
       console.log('📤 Creando asignación con payload completo:', {
         url: `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
         headers: {
@@ -608,12 +616,12 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
           jornalesDisponiblesEnPresupuesto: jornal ? jornal.cantidad : 'N/A'
         }
       });
-      
+
       const response = await fetch(
         `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
         {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'empresaId': empresaSeleccionada.id.toString()
           },
@@ -628,7 +636,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
         console.log('✅ Asignación creada:', data);
         alert('✅ Profesional asignado exitosamente');
         await cargarAsignacionesActuales();
-        
+
         // Resetear formulario
         setNuevaAsignacion({
           profesionalId: '',
@@ -641,10 +649,10 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
           fechaFin: '',
           observaciones: ''
         });
-        
+
         // Limpiar también las obras del profesional
         setObrasDelProfesional([]);
-        
+
         if (onAsignacionExitosa) {
           onAsignacionExitosa();
         }
@@ -657,9 +665,9 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
         } catch {
           errorMessage = await response.text();
         }
-        
+
         console.error('❌ Error del servidor:', response.status, errorMessage);
-        
+
         // Manejo de errores según especificación del backend
         if (response.status === 400) {
           // Error de validación (jornales insuficientes, profesional inactivo, etc.)
@@ -692,7 +700,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     if (!confirm('¿Está seguro de eliminar esta asignación?')) return;
 
     const url = `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales/${asignacionId}`;
-    
+
     console.log('🗑️ Eliminando asignación:', {
       asignacionId,
       obraId: obra.id,
@@ -702,7 +710,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
 
     setLoading(true);
     try {
-      const response = await fetch(url, { 
+      const response = await fetch(url, {
         method: 'DELETE',
         headers: {
           'empresaId': empresaSeleccionada.id.toString(),
@@ -715,15 +723,15 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       if (response.ok) {
         console.log('✅ Asignación eliminada exitosamente');
         alert('✅ Asignación eliminada exitosamente');
-        
+
         // Recargar asignaciones
         await cargarAsignacionesActuales();
-        
+
         // Si hay un profesional seleccionado, recargar sus obras para actualizar disponibilidad
         if (nuevaAsignacion.profesionalId) {
           await cargarObrasDelProfesional(nuevaAsignacion.profesionalId);
         }
-        
+
         // Notificar al componente padre
         if (onAsignacionExitosa) {
           onAsignacionExitosa();
@@ -737,9 +745,9 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
         } catch {
           errorMessage = await response.text();
         }
-        
+
         console.error('❌ Error al eliminar:', response.status, errorMessage);
-        
+
         if (response.status === 404) {
           alert('⚠️ Asignación no encontrada.\n\n' + errorMessage);
         } else if (response.status === 400) {
@@ -831,7 +839,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                 {/* 🆕 ANÁLISIS DE IMPACTO EN TIEMPO DE OBRA */}
                 {presupuesto.tiempoEstimadoTerminacion ? (
                   <div className="card mb-4 border-primary" style={{ boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                    <div className="card-header bg-gradient" style={{ 
+                    <div className="card-header bg-gradient" style={{
                       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                       color: 'white'
                     }}>
@@ -845,16 +853,16 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                         // 🏗️ PARA EL CÁLCULO DE DÍAS: Solo rubros marcados con incluirEnCalculoDias = true
                         const jornalesPlanificados = presupuesto.itemsCalculadora?.reduce((total, rubro) => {
                           // ✅ FILTRAR rubros duplicados/legacy
-                          const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') || 
+                          const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
                                                     rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
                                                     rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
-                          
+
                           if (esLegacyDuplicado) return total;
-                          
+
                           // Por defecto incluir si no está definido (retrocompatibilidad)
                           const incluir = rubro.incluirEnCalculoDias !== false;
                           if (!incluir) return total;
-                          
+
                           const jornalesRubro = rubro.jornales?.reduce((sum, j) => sum + (j.cantidad || 0), 0) || 0;
                           const profesionalesRubro = rubro.profesionales?.reduce((sum, p) => sum + (p.cantidadJornales || 0), 0) || 0;
                           return total + jornalesRubro + profesionalesRubro;
@@ -863,7 +871,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                         // Jornales asignados de los rubros incluidos en cálculo
                         // Obtener lista de rubros que están marcados para incluir
                         const rubrosIncluidos = presupuesto.itemsCalculadora?.filter(rubro => {
-                          const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') || 
+                          const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
                                                     rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
                                                     rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
                           if (esLegacyDuplicado) return false;
@@ -881,10 +889,10 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                         // cantidadJornales en asignación = cantidad de profesionales de ese rol
                         // Cada profesional aporta 1 jornal/día de capacidad
                         // Días necesarios = Jornales totales / Capacidad diaria
-                        
+
                         const capacidadDiaria = jornalesAsignados; // Cada unidad en cantidadJornales = 1 profesional = 1 jornal/día
                         const diasEstimadosOriginal = Number(presupuesto.tiempoEstimadoTerminacion) || 0;
-                        
+
                         // Si no hay asignaciones, mostrar advertencia
                         if (capacidadDiaria === 0) {
                           return (
@@ -902,7 +910,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                                   <hr />
                                   <p className="mb-0 text-info">
                                     <i className="fas fa-info-circle me-2"></i>
-                                    Los días reales dependerán de cuántos profesionales asignes. 
+                                    Los días reales dependerán de cuántos profesionales asignes.
                                     Más profesionales = menos días para terminar la obra.
                                   </p>
                                 </div>
@@ -915,19 +923,19 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                         // Jornales totales = trabajo total a realizar (del presupuesto)
                         // Capacidad diaria = suma de profesionales asignados (cada prof. = 1 jornal/día)
                         // Días reales = Jornales totales ÷ Capacidad diaria
-                        
+
                         const diasRealesEstimados = Math.ceil(jornalesPlanificados / capacidadDiaria);
                         const diferenciaDias = diasRealesEstimados - diasEstimadosOriginal;
                         const porcentajeCapacidad = (capacidadDiaria / (jornalesPlanificados / diasEstimadosOriginal) * 100);
 
                         // Determinar tipo de alerta
                         let alertType, alertIcon, alertMessage, alertTitle, solucionSugerida;
-                        
+
                         if (diasRealesEstimados > diasEstimadosOriginal) {
                           // Poca capacidad = más días
                           const capacidadNecesaria = Math.ceil(jornalesPlanificados / diasEstimadosOriginal);
                           const profesionalesFaltantes = capacidadNecesaria - capacidadDiaria;
-                          
+
                           alertType = 'danger';
                           alertIcon = '🚨';
                           alertTitle = 'ATENCIÓN: Necesitas más profesionales';
@@ -938,7 +946,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                                 <i className="fas fa-lightbulb me-2"></i>
                                 💡 Solución para cumplir el plazo de {diasEstimadosOriginal} días hábiles:
                               </h6>
-                              
+
                               {/* Trabajo total */}
                               <div className="bg-info bg-opacity-10 p-3 rounded border border-info mb-3">
                                 <h6 className="text-info mb-2">
@@ -1016,7 +1024,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
 
                         return (
                           <>
-                            <div className={`alert alert-${alertType} mb-3`} style={{ 
+                            <div className={`alert alert-${alertType} mb-3`} style={{
                               border: `2px solid var(--bs-${alertType})`,
                               boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                             }}>
@@ -1157,7 +1165,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                   <div className="card-body">
                     {presupuesto.itemsCalculadora?.filter(rubro => {
                       // Filtrar rubros duplicados/legacy
-                      const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') || 
+                      const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
                                                 rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
                                                 rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
                       return !esLegacyDuplicado;
@@ -1168,7 +1176,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                         .reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
                       const asignadosJornales = asignaciones.filter(a => a.rubroId === rubro.id && a.tipoAsignacion === 'JORNAL')
                         .reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
-                      
+
                       return (
                         <div key={idx} className="mb-3 pb-3 border-bottom">
                           <h6 className="text-primary mb-2">📋 {rubro.tipoProfesional}</h6>
@@ -1178,14 +1186,14 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                                 <div className="alert alert-light mb-2">
                                   <strong>👤 Profesionales:</strong>
                                   {rubro.profesionales.map((prof, pIdx) => {
-                                    const asignados = asignaciones.filter(a => 
+                                    const asignados = asignaciones.filter(a =>
                                       a.itemId === prof.id && a.tipoAsignacion === 'HONORARIO'
                                     ).reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
                                     const disponibles = (prof.cantidadJornales || 0) - asignados;
-                                    
+
                                     return (
                                       <div key={pIdx} className="ms-3 mt-1">
-                                        • {prof.tipo}: 
+                                        • {prof.tipo}:
                                         <span className="badge bg-info ms-2">{prof.cantidadJornales || 0} totales</span>
                                         <span className="badge bg-danger ms-1">{asignados} asignados</span>
                                         <span className={`badge ms-1 ${disponibles > 0 ? 'bg-success' : 'bg-secondary'}`}>
@@ -1202,14 +1210,14 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                                 <div className="alert alert-light mb-2">
                                   <strong>📅 Jornales:</strong>
                                   {rubro.jornales.map((jornal, jIdx) => {
-                                    const asignados = asignaciones.filter(a => 
+                                    const asignados = asignaciones.filter(a =>
                                       a.itemId === jornal.id && a.tipoAsignacion === 'JORNAL'
                                     ).reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
                                     const disponibles = (jornal.cantidad || 0) - asignados;
-                                    
+
                                     return (
                                       <div key={jIdx} className="ms-3 mt-1">
-                                        • {jornal.rol}: 
+                                        • {jornal.rol}:
                                         <span className="badge bg-info ms-2">{jornal.cantidad || 0} totales</span>
                                         <span className="badge bg-danger ms-1">{asignados} asignados</span>
                                         <span className={`badge ms-1 ${disponibles > 0 ? 'bg-success' : 'bg-secondary'}`}>
@@ -1279,19 +1287,19 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
 
                             return tiposOrdenados.map(tipo => {
                               const config = ordenCategorias[tipo] || { color: '#6c757d', emoji: '👷' };
-                              const profesionales = profesionalesPorTipo[tipo].sort((a, b) => 
+                              const profesionales = profesionalesPorTipo[tipo].sort((a, b) =>
                                 a.nombre.localeCompare(b.nombre)
                               );
 
                               return (
-                                <optgroup 
-                                  key={tipo} 
+                                <optgroup
+                                  key={tipo}
                                   label={`${config.emoji} ${tipo} (${profesionales.length})`}
                                   style={{ backgroundColor: config.color + '20', fontWeight: 'bold' }}
                                 >
                                   {profesionales.map(prof => {
                                     const obras = prof.cantidadObrasAsignadas || 0;
-                                    
+
                                     // Verificar disponibilidad por fechas
                                     const disponibilidad = verificarDisponibilidadPorFechas(
                                       prof.id,
@@ -1300,17 +1308,17 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                                     );
                                     // Si tiene obras asignadas O conflictos de fechas, no está disponible
                                     const noDisponible = !disponibilidad.disponible || obras > 0;
-                                    
+
                                     let labelDisponibilidad;
                                     if (noDisponible) {
                                       labelDisponibilidad = '🚫 Ya tiene obra asignada';
                                     } else {
                                       labelDisponibilidad = '✅ Disponible';
                                     }
-                                    
+
                                     return (
-                                      <option 
-                                        key={prof.id} 
+                                      <option
+                                        key={prof.id}
                                         value={prof.id}
                                         disabled={noDisponible}
                                         style={{ color: noDisponible ? '#dc3545' : 'inherit' }}
@@ -1336,7 +1344,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                               nuevaAsignacion.fechaFin
                             );
                             const noDisponible = !disponibilidad.disponible;
-                            
+
                             return (
                               <div className={`alert ${noDisponible ? 'alert-danger' : 'alert-info'} mb-0`}>
                                 <div className="d-flex align-items-start">
@@ -1418,7 +1426,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                           <option value="">Seleccionar rubro...</option>
                           {presupuesto.itemsCalculadora?.filter(rubro => {
                             // Filtrar rubros duplicados/legacy
-                            const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') || 
+                            const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
                                                       rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
                                                       rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
                             return !esLegacyDuplicado;
@@ -1457,8 +1465,8 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                         <input
                           type="text"
                           className="form-control"
-                          value={nuevaAsignacion.tipoAsignacion ? 
-                            (nuevaAsignacion.tipoAsignacion === 'HONORARIO' ? '👤 Profesional (Honorarios)' : '📅 Jornal (Mano de Obra)') 
+                          value={nuevaAsignacion.tipoAsignacion ?
+                            (nuevaAsignacion.tipoAsignacion === 'HONORARIO' ? '👤 Profesional (Honorarios)' : '📅 Jornal (Mano de Obra)')
                             : 'Seleccione un item del rubro'}
                           disabled
                           readOnly
@@ -1640,7 +1648,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
                               .reduce((sum, a) => sum + (a.cantidadJornales || 0), 0);
                             const disponibles = rubro.cantidadJornales - asignados;
                             const porcentaje = (asignados / rubro.cantidadJornales * 100).toFixed(1);
-                            
+
                             return (
                               <tr key={idx}>
                                 <td><strong>{rubro.tipoProfesional}</strong></td>
@@ -1696,27 +1704,27 @@ const styles = `
     padding: 8px 4px;
     margin: 4px 0;
   }
-  
+
   .select-profesionales-agrupado option {
     padding: 6px 12px;
     font-weight: normal;
   }
-  
+
   .select-profesionales-agrupado optgroup[label*="Albañil"] {
     background-color: rgba(139, 69, 19, 0.15);
     color: #654321;
   }
-  
+
   .select-profesionales-agrupado optgroup[label*="Pintor"] {
     background-color: rgba(65, 105, 225, 0.15);
     color: #1e3a8a;
   }
-  
+
   .select-profesionales-agrupado optgroup[label*="Plomero"] {
     background-color: rgba(32, 178, 170, 0.15);
     color: #0f5e5a;
   }
-  
+
   .select-profesionales-agrupado optgroup[label*="Electricista"] {
     background-color: rgba(255, 215, 0, 0.15);
     color: #855f00;

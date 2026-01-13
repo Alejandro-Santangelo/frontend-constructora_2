@@ -1,11 +1,11 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import DetalleSemanalMaterialesModal from './DetalleSemanalMaterialesModal';
 import AsignarMaterialSemanalModal from './AsignarMaterialSemanalModal';
 
 /**
- * Modal para asignar materiales del presupuestoNoCliente a una obra especÃ­fica
- * Organiza la asignaciÃ³n por jornales y semanas para facilitar la planificaciÃ³n
+ * Modal para asignar materiales del presupuestoNoCliente a una obra específica
+ * Organiza la asignación por jornales y semanas para facilitar la planificación
  */
 const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, configuracionObra = null }) => {
   const { empresaSeleccionada } = useEmpresa();
@@ -27,20 +27,20 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
   const [semanaSeleccionada, setSemanaSeleccionada] = useState(null);
   const [asignacionesPorDia, setAsignacionesPorDia] = useState({});
 
-  // Estados para asignaciÃ³n semanal completa
+  // Estados para asignación semanal completa
   const [mostrarAsignacionSemanal, setMostrarAsignacionSemanal] = useState(false);
   const [semanaAsignacionCompleta, setSemanaAsignacionCompleta] = useState(null);
 
-  // Estado para formulario de asignaciÃ³n individual
+  // Estado para formulario de asignación individual
   const [mostrarFormularioIndividual, setMostrarFormularioIndividual] = useState(false);
 
-  // Formulario de nueva asignaciÃ³n
+  // Formulario de nueva asignación
   const [nuevaAsignacion, setNuevaAsignacion] = useState({
     tipoAsignacion: '', // 'CANTIDAD_GLOBAL' | 'ELEMENTO_DETALLADO'
     materialId: '', // ID del material del presupuesto
     cantidad: '',
     precioUnitario: '',
-    fechaAsignacion: '', // VacÃ­o por defecto, se configura al abrir modal
+    fechaAsignacion: '', // Vacío por defecto, se configura al abrir modal
     observaciones: '',
     esManual: false
   });
@@ -51,7 +51,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     unidadCustom: ''
   });
 
-  const unidadesMedida = ['un', 'kg', 'm', 'mÂ²', 'mÂ³', 'l', 'bolsa', 'otro'];
+  const unidadesMedida = ['un', 'kg', 'm', 'm²', 'm³', 'l', 'bolsa', 'otro'];
 
   const tieneItemsDetallados = materialesDisponibles.length > 0;
   // Siempre permitir manual (como en Gastos), para mantener paridad
@@ -72,7 +72,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return nuevoMaterialManual.unidad;
   };
 
-  // ðŸ”¥ Crear configuraciÃ³n actualizada con fechaProbableInicio y jornales del presupuesto
+  // ðŸ”¥ Crear configuración actualizada con fechaProbableInicio y jornales del presupuesto
   const configuracionObraActualizada = useMemo(() => {
     if (!configuracionObra) return null;
 
@@ -86,7 +86,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         diasHabilesPresupuesto = presupuesto.tiempoEstimadoTerminacion;
       }
 
-      // ðŸ”¥ USAR dÃ­as hÃ¡biles del presupuesto (fuente de verdad), NO semanasObjetivo Ã— 5
+      // ðŸ”¥ USAR días hábiles del presupuesto (fuente de verdad), NO semanasObjetivo × 5
       const diasHabiles = presupuesto.tiempoEstimadoTerminacion || configuracionObra.diasHabiles || (configuracionObra.semanasObjetivo * 5);
       const capacidadNecesaria = diasHabiles > 0 ? Math.ceil(diasHabilesPresupuesto / diasHabiles) : 0;
 
@@ -121,7 +121,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       cargarAsignacionesActuales();
     } else if (!show) {
       // Limpiar estado cuando se cierra para forzar recarga fresca
-      console.log('ðŸ§¹ Limpiando estado del modal (cerrado)');
+      console.log('🧹 Limpiando estado del modal (cerrado)');
       setPresupuesto(null);
       setMaterialesDisponibles([]);
     }
@@ -203,12 +203,12 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
       console.log('📦 Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
       console.log('📦 Trabajos extra normalizados:', trabajosExtraNormalizados.length, trabajosExtraNormalizados);
-      console.log('ðŸ“¦ Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
+      console.log('📦 Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
 
-      // Estados vÃ¡lidos para obras vinculadas (MODIFICADO NO se incluye)
+      // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
       const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
 
-      // Filtrar por obraId Y estado vÃ¡lido
+      // Filtrar por obraId Y estado válido
       const presupuestosObra = (todosPresupuestos || []).filter(p =>
   (Number(p.obraId) === Number(obraIdReal) || Number(p.idObra) === Number(obraIdReal)) && estadosValidos.includes(p.estado)
 );
@@ -217,22 +217,37 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
       }
 
-      // Priorizar trabajos extra sobre presupuestos tradicionales
-      const trabajosExtraObra = presupuestosObra.filter(p => p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA');
-      const tradicionalesObra = presupuestosObra.filter(p => !p.esTrabajoExtra && p.tipo !== 'TRABAJO_EXTRA');
+      // 🔥 SI EL MODAL FUE ABIERTO DESDE UN TRABAJO EXTRA ESPECÍFICO, USAR SOLO ESE
+      const trabajoExtraIdEspecifico = obra._trabajoExtraId;
 
       let presupuestoActual;
-      if (trabajosExtraObra.length > 0) {
-        presupuestoActual = trabajosExtraObra.sort((a, b) => a.id - b.id)[0];
-        console.log('✅ Seleccionando TRABAJO EXTRA:', presupuestoActual.id);
+      if (trabajoExtraIdEspecifico) {
+        // Buscar el trabajo extra específico que se clickeó
+        presupuestoActual = presupuestosObra.find(p =>
+          (p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA') && p.id === trabajoExtraIdEspecifico
+        );
+
+        if (!presupuestoActual) {
+          throw new Error(`No se encontró el trabajo extra con ID ${trabajoExtraIdEspecifico}`);
+        }
+        console.log('✅ Usando TRABAJO EXTRA ESPECÍFICO clickeado:', presupuestoActual.id, presupuestoActual.nombre);
       } else {
-        presupuestoActual = tradicionalesObra.sort((a, b) => {
-          if (a.numeroPresupuesto === b.numeroPresupuesto) {
-            return (b.version || 0) - (a.version || 0);
-          }
-          return b.id - a.id;
-        })[0];
-        console.log('✅ Seleccionando PRESUPUESTO TRADICIONAL:', presupuestoActual.id);
+        // Lógica original: priorizar trabajos extra sobre presupuestos tradicionales
+        const trabajosExtraObra = presupuestosObra.filter(p => p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA');
+        const tradicionalesObra = presupuestosObra.filter(p => !p.esTrabajoExtra && p.tipo !== 'TRABAJO_EXTRA');
+
+        if (trabajosExtraObra.length > 0) {
+          presupuestoActual = trabajosExtraObra.sort((a, b) => b.id - a.id)[0]; // Más reciente primero
+          console.log('✅ Seleccionando TRABAJO EXTRA más reciente:', presupuestoActual.id);
+        } else {
+          presupuestoActual = tradicionalesObra.sort((a, b) => {
+            if (a.numeroPresupuesto === b.numeroPresupuesto) {
+              return (b.version || 0) - (a.version || 0);
+            }
+            return b.id - a.id;
+          })[0];
+          console.log('✅ Seleccionando PRESUPUESTO TRADICIONAL:', presupuestoActual.id);
+        }
       }
 
       console.log('🎯 Presupuesto con estado válido seleccionado:', {
@@ -249,15 +264,12 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       console.log('�🚨🚨 PRESUPUESTO SELECCIONADO COMPLETO:', JSON.stringify(presupuestoActual, null, 2));
       console.log('📅 fechaProbableInicio en presupuestoActual (lista):', presupuestoActual.fechaProbableInicio);
 
-      // 🔥 OPTIMIZACIÓN: Si el trabajo extra ya tiene itemsCalculadora, NO consultarlo de nuevo
+      // 🔥 SIEMPRE RECARGAR para tener datos frescos (evita mostrar presupuestos editados con valores viejos)
       let presupuestoData;
-      if (esTrabajoExtra && presupuestoActual.itemsCalculadora && presupuestoActual.itemsCalculadora.length > 0) {
-        console.log('✅ Trabajo extra YA TIENE itemsCalculadora, usando directamente');
-        presupuestoData = presupuestoActual;
-      } else {
-        // Construir URL según el tipo de presupuesto
-        const presupuestoUrl = esTrabajoExtra
-          ? `http://localhost:8080/api/v1/trabajos-extra/${presupuestoId}?_t=${timestamp}`
+
+      // Construir URL según el tipo de presupuesto
+      const presupuestoUrl = esTrabajoExtra
+        ? `http://localhost:8080/api/v1/trabajos-extra/${presupuestoId}?_t=${timestamp}`
           : `http://localhost:8080/api/presupuestos-no-cliente/${presupuestoId}?empresaId=${empresaSeleccionada.id}&_t=${timestamp}`;
 
         console.log('🌐🌐🌐 URL A CONSULTAR:', presupuestoUrl);
@@ -275,8 +287,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         }
 
         presupuestoData = await presupuestoResponse.json();
-      }
-      console.log('ðŸ“¦ presupuestoData completo recibido:', presupuestoData);
+
+      console.log('📦 presupuestoData completo recibido:', presupuestoData);
       console.log('ðŸ“… fechaProbableInicio en presupuestoData (completo):', presupuestoData.fechaProbableInicio);
 
       // Extraer materiales de itemsCalculadora
@@ -285,6 +297,22 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
       if (presupuestoData.itemsCalculadora && Array.isArray(presupuestoData.itemsCalculadora)) {
         presupuestoData.itemsCalculadora.forEach((item) => {
+          // 🆕 DETECTAR MODO GLOBAL: Si el item tiene campo "materiales" o "subtotalMateriales" > 0
+          // sin materialesLista o con materialesLista vacío, es modo GLOBAL
+          const tieneMontoGlobalMateriales = (item.materiales || item.subtotalMateriales || 0) > 0;
+          const tieneMaterialesDetallados = item.materialesLista && Array.isArray(item.materialesLista) && item.materialesLista.length > 0;
+
+          if (tieneMontoGlobalMateriales && !tieneMaterialesDetallados) {
+            // Modo GLOBAL puro: hay un monto pero no hay detalles
+            const montoGlobal = item.materiales || item.subtotalMateriales || 0;
+            montoGlobalDetectadoEnItems += montoGlobal;
+            console.log('🌍 [MODO GLOBAL] Detectado en item:', {
+              rubro: item.tipoProfesional,
+              montoGlobal: montoGlobal,
+              tieneDetalles: false
+            });
+          }
+
           if (item.materialesLista && Array.isArray(item.materialesLista)) {
             item.materialesLista.forEach(mat => {
               // Filtrar materiales que son placeholders del presupuesto global
@@ -299,7 +327,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                  console.log('🌍 [DETECTADO] Item Global en materiales:', { id: mat.id, importe: importeItem });
               }
 
-              // Solo agregar materiales especÃ­ficos, NO los placeholders globales
+              // Solo agregar materiales específicos, NO los placeholders globales
               if (!esGlobalPlaceholder) {
                 // Calcular precio unitario: subtotal / cantidad
                 const precioCalculado = mat.cantidad > 0 ? (mat.subtotal || 0) / mat.cantidad : 0;
@@ -312,7 +340,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                   precioUnitario: precioCalculado,
                   cantidadDisponible: mat.cantidad || 0,
                   estadoStock: mat.cantidad > 0 ? 'DISPONIBLE' : 'AGOTADO',
-                  rubro: item.tipoProfesional || 'Sin categorÃ­a' // Usar tipoProfesional del item
+                  rubro: item.tipoProfesional || 'Sin categoría' // Usar tipoProfesional del item
                 });
               }
             });
@@ -320,17 +348,22 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         });
       }
 
-      console.log('âœ… Materiales cargados:', todosMateriales.length);
-      console.log('ðŸ“¦ Primer material de ejemplo:', todosMateriales[0]); // Ver estructura final
+      console.log('✅ Materiales cargados:', todosMateriales.length);
+      console.log('📦 Primer material de ejemplo:', todosMateriales[0]); // Ver estructura final
       setMaterialesDisponibles(todosMateriales);
 
       // Calcular modo presupuesto y cantidad global disponible
-      let totalMateriales = presupuestoData.presupuestoGeneral?.totalMateriales || 0;
+      // 🔥 CORRECCIÓN: Leer totalMateriales desde múltiples ubicaciones posibles
+      let totalMateriales =
+        presupuestoData.presupuestoGeneral?.totalMateriales ||  // 1. presupuestoGeneral.totalMateriales
+        presupuestoData.totalMateriales ||                       // 2. totalMateriales en raíz (trabajos extra)
+        0;
+
       const tieneItemsDetallados = todosMateriales.length > 0;
 
       // 🔥 CORRECCIÓN: Si totalMateriales es 0, buscar si venía en un item global de la calculadora
       if (totalMateriales === 0 && montoGlobalDetectadoEnItems > 0) {
-        console.log('⚠️ [Materiales] Usando monto de item global detectedo: $' + montoGlobalDetectadoEnItems);
+        console.log('⚠️ [Materiales] Usando monto de item global detectado: $' + montoGlobalDetectadoEnItems);
         totalMateriales = montoGlobalDetectadoEnItems;
 
         // Parche visual
@@ -401,19 +434,31 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         presupuestoGeneral: presupuestoData.presupuestoGeneral // 🔥 CRUCIAL: Guardar datos económicos
       };
 
-      setPresupuesto(presupuestoParaEstado);
-      console.log('ðŸ“… Fecha probable inicio cargada (ISO â†’ YYYY-MM-DD):', fechaRaw, 'â†’', fechaFormateada);
-      console.log('âœ…âœ…âœ… PRESUPUESTO GUARDADO EN ESTADO:', presupuestoParaEstado);
-      console.log('ðŸ”ðŸ”ðŸ” FIN CARGA DE PRESUPUESTO ðŸ”ðŸ”ðŸ”');
+            setPresupuesto(presupuestoParaEstado);
+      console.log('📅 Fecha probable inicio cargada (ISO → YYYY-MM-DD):', fechaRaw, '→', fechaFormateada);
+      console.log('✅✅✅ PRESUPUESTO GUARDADO EN ESTADO:', presupuestoParaEstado);
+
+      // 🆕 LOG CLARO DEL MODO DETECTADO
+      console.log('═══════════════════════════════════════');
+      console.log('   MODO DE PRESUPUESTO DETECTADO');
+      console.log('═══════════════════════════════════════');
+      console.log('Modo:', modoPresupuesto);
+      console.log('Total Materiales:', totalMateriales);
+      console.log('Items Detallados:', tieneItemsDetallados);
+      console.log('Cantidad Items:', todosMateriales.length);
+      console.log('Importe Disponible:', importeGlobalDisponible);
+      console.log('═══════════════════════════════════════');
+
+      console.log('🔍🔍🔍 FIN CARGA DE PRESUPUESTO 🔍🔍🔍');
     } catch (error) {
-      console.error('âŒ Error cargando presupuesto:', error);
+      console.error('❌ Error cargando presupuesto:', error);
       setError(error.message);
     } finally {
       setLoadingPresupuesto(false);
     }
   };
 
-  // FunciÃ³n para calcular stock real disponible desde asignaciones en BD
+  // Función para calcular stock real disponible desde asignaciones en BD
   const calcularStockDisponible = (materialId) => {
     // Sumar todas las cantidades asignadas de este material desde BD
     const totalAsignado = asignaciones
@@ -429,7 +474,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return Math.max(0, disponibleReal); // No puede ser negativo
   };
 
-  // FunciÃ³n para obtener estado de stock actualizado
+  // Función para obtener estado de stock actualizado
   const getEstadoStockActualizado = (materialId) => {
     const disponibleReal = calcularStockDisponible(materialId);
 
@@ -438,14 +483,14 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return 'DISPONIBLE';
   };
 
-  // FunciÃ³n para obtener la fecha de asignaciÃ³n real basada en fecha probable inicio
+  // Función para obtener la fecha de asignación real basada en fecha probable inicio
   const obtenerFechaAsignacionReal = () => {
     // Usar fechaProbableInicio del presupuesto cargado (reactivo)
     if (presupuesto?.fechaProbableInicio) {
       console.log('ðŸ“… obtenerFechaAsignacionReal - usando presupuesto.fechaProbableInicio:', presupuesto.fechaProbableInicio);
       return presupuesto.fechaProbableInicio;
     }
-    // Fallback: intentar obtener del DOM si no estÃ¡ en presupuesto
+    // Fallback: intentar obtener del DOM si no está en presupuesto
     const inputFecha = document.querySelector('input[name="fechaProbableInicio"]');
     const fechaFallback = inputFecha?.value || new Date().toISOString().split('T')[0];
     console.log('âš ï¸ obtenerFechaAsignacionReal - usando fallback:', fechaFallback);
@@ -484,7 +529,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     }
   };
 
-  // FunciÃ³n para validar stock antes de asignar
+  // Función para validar stock antes de asignar
   const validarStockAntes = () => {
     const material = materialesDisponibles.find(m => m.id.toString() === nuevaAsignacion.materialId.toString());
     if (!material) {
@@ -509,13 +554,13 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
   const handleAsignarMaterial = async () => {
     if (!nuevaAsignacion.tipoAsignacion) {
-      alert('Por favor seleccione el tipo de asignaciÃ³n');
+      alert('Por favor seleccione el tipo de asignación');
       return;
     }
 
     const cantidadNum = parseFloat(nuevaAsignacion.cantidad) || 0;
     if (cantidadNum <= 0) {
-      alert('Por favor ingrese una cantidad vÃ¡lida');
+      alert('Por favor ingrese una cantidad válida');
       return;
     }
 
@@ -528,7 +573,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       }
     }
 
-    // Calcular nÃºmero de semana desde fecha de asignaciÃ³n
+    // Calcular número de semana desde fecha de asignación
     let numeroSemana = null;
     if (nuevaAsignacion.fechaAsignacion && presupuesto?.fechaProbableInicio) {
       const fechaAsignacion = new Date(nuevaAsignacion.fechaAsignacion + 'T12:00:00');
@@ -543,7 +588,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
     try {
       if (nuevaAsignacion.tipoAsignacion === 'CANTIDAD_GLOBAL') {
-        throw new Error('Los materiales manuales aÃºn no estÃ¡n soportados. El backend requiere que el material estÃ© en el presupuesto (material_calculadora). Use solo materiales del presupuesto por ahora.');
+        throw new Error('Los materiales manuales aún no están soportados. El backend requiere que el material esté en el presupuesto (material_calculadora). Use solo materiales del presupuesto por ahora.');
       }
 
       // ELEMENTO_DETALLADO
@@ -585,7 +630,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       if (onAsignacionExitosa) onAsignacionExitosa();
       setForceUpdate(prev => prev + 1);
 
-      alert('âœ… Material asignado exitosamente');
+      alert('✅ Material asignado exitosamente');
     } catch (error) {
       console.error('âŒ Error al asignar material:', error);
       setError(error.message);
@@ -595,7 +640,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     }
   };
 
-  // Nueva funciÃ³n: manejar asignaciones semanales mÃºltiples
+  // Nueva función: manejar asignaciones semanales múltiples
   const handleAsignacionSemanalCompleta = async (asignacionesSemana) => {
     if (!asignacionesSemana || asignacionesSemana.length === 0) {
       console.log('âš ï¸ No hay asignaciones para procesar');
@@ -606,19 +651,19 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     setError(null);
 
     try {
-      console.log('ðŸ“¤ [AsignacionSemanal] Procesando asignaciones:', asignacionesSemana.length);
-      console.log('ðŸ“¤ [AsignacionSemanal] Tipo asignaciones:', asignacionesSemana[0]?.esManual ? 'GLOBALES' : 'PRESUPUESTO');
+      console.log('📤 [AsignacionSemanal] Procesando asignaciones:', asignacionesSemana.length);
+      console.log('📤 [AsignacionSemanal] Tipo asignaciones:', asignacionesSemana[0]?.esManual ? 'GLOBALES' : 'PRESUPUESTO');
 
       // Separar asignaciones globales de las del presupuesto
       const asignacionesGlobales = asignacionesSemana.filter(a => a.esManual);
       const asignacionesPresupuesto = asignacionesSemana.filter(a => !a.esManual);
 
-      console.log('ðŸ“Š [AsignacionSemanal] Globales:', asignacionesGlobales.length, 'Presupuesto:', asignacionesPresupuesto.length);
+      console.log('📊 [AsignacionSemanal] Globales:', asignacionesGlobales.length, 'Presupuesto:', asignacionesPresupuesto.length);
 
-      // Procesar asignaciones GLOBALES (crear material en catÃ¡logo + asignar a obra)
+      // Procesar asignaciones GLOBALES (crear material en catálogo + asignar a obra)
       const resultados = [];
       if (asignacionesGlobales.length > 0) {
-        console.log('âœ… [AsignacionSemanal] Materiales globales - Backend soporta');
+        console.log('✅ [AsignacionSemanal] Materiales globales - Backend soporta');
         console.log('ðŸ“ Asignando materiales globales directamente a BD...');
 
         const { asignarMaterial } = await import('../services/obraMaterialService');
@@ -637,13 +682,13 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
             await asignarMaterial(obra.id, datosAsignacion, empresaSeleccionada.id);
             resultados.push(asig);
-            console.log('âœ… Material global asignado:', asig.nombreMaterial);
+            console.log('✅ Material global asignado:', asig.nombreMaterial);
           } catch (error) {
             console.error('âŒ Error asignando material global:', error);
           }
         }
 
-        console.log(`âœ… ${asignacionesGlobales.length} materiales globales guardados en BD`);
+        console.log(`✅ ${asignacionesGlobales.length} materiales globales guardados en BD`);
       }
 
       // Procesar asignaciones del presupuesto con el backend
@@ -700,7 +745,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
   };
 
   const handleEliminarAsignacion = async (asignacionId) => {
-    if (!confirm('Â¿EstÃ¡ seguro de eliminar esta asignaciÃ³n?')) {
+    if (!confirm('¿Está seguro de eliminar esta asignación?')) {
       return;
     }
 
@@ -716,7 +761,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         await cargarAsignacionesActuales();
         if (onAsignacionExitosa) onAsignacionExitosa();
         setForceUpdate(prev => prev + 1);
-        alert('âœ… AsignaciÃ³n eliminada exitosamente');
+        alert('✅ Asignación eliminada exitosamente');
         return;
       }
 
@@ -726,10 +771,10 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       await cargarAsignacionesActuales();
       if (onAsignacionExitosa) onAsignacionExitosa();
       setForceUpdate(prev => prev + 1);
-      alert('âœ… AsignaciÃ³n eliminada exitosamente');
+      alert('✅ Asignación eliminada exitosamente');
     } catch (error) {
       console.error('âŒ [handleEliminar] Error:', error);
-      alert(`Error eliminando asignaciÃ³n: ${error.message}`);
+      alert(`Error eliminando asignación: ${error.message}`);
     }
   };
 
@@ -738,12 +783,12 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     setSemanaSeleccionada(numeroSemana);
     setMostrarDetalleSemana(true);
 
-    // Calcular dÃ­as hÃ¡biles de la semana
+    // Calcular días hábiles de la semana
     const diasSemana = calcularDiasHabilesSemana(numeroSemana);
     console.log(`ðŸ“… Abriendo detalle semana ${numeroSemana}:`, diasSemana);
   };
 
-  // Nueva funciÃ³n: abrir formulario con fecha especÃ­fica
+  // Nueva función: abrir formulario con fecha específica
   const abrirAsignacionParaDia = (fechaStr) => {
     setNuevaAsignacion({
       tipoAsignacion: '',
@@ -762,21 +807,21 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     setMostrarFormularioIndividual(true); // Abrir formulario individual
   };
 
-  // Nueva funciÃ³n: abrir modal de asignaciÃ³n semanal completa
+  // Nueva función: abrir modal de asignación semanal completa
   const abrirAsignacionSemanal = (numeroSemana) => {
     setSemanaAsignacionCompleta(numeroSemana);
     setMostrarDetalleSemana(false); // Cerrar detalle si estaba abierto
     setMostrarAsignacionSemanal(true);
   };
 
-  // FunciÃ³n para manejar envÃ­o del formulario individual
+  // Función para manejar envío del formulario individual
   const handleSubmit = async (e) => {
     e.preventDefault();
     await handleAsignarMaterial();
-    setMostrarFormularioIndividual(false); // Cerrar formulario tras Ã©xito
+    setMostrarFormularioIndividual(false); // Cerrar formulario tras éxito
   };
 
-  // FunciÃ³n para verificar si una fecha es feriado en Argentina
+  // Función para verificar si una fecha es feriado en Argentina
   const esFeriadoFn = (fecha) => {
     const year = fecha.getFullYear();
     const mes = fecha.getMonth() + 1;
@@ -790,7 +835,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
     if (feriadosFijos.includes(mesdia)) return true;
 
-    // CÃ¡lculo de Pascua
+    // Cálculo de Pascua
     const a = year % 19;
     const b = Math.floor(year / 100);
     const c = year % 100;
@@ -830,7 +875,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       return true;
     }
 
-    // Feriados puente por aÃ±o
+    // Feriados puente por año
     if (year === 2025 && ['04-18', '05-02', '06-16', '10-13', '11-24'].includes(mesdia)) return true;
     if (year === 2026 && ['02-16', '02-17', '03-23', '06-15', '10-12', '11-23'].includes(mesdia)) return true;
     if (year === 2027 && ['02-08', '02-09', '03-25', '03-26', '05-24', '06-21', '10-11', '11-22'].includes(mesdia)) return true;
@@ -839,7 +884,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return false;
   };
 
-  // Calcular array de dÃ­as hÃ¡biles reales (excluyendo fines de semana y feriados)
+  // Calcular array de días hábiles reales (excluyendo fines de semana y feriados)
   const calcularDiasHabiles = (inicio, cantidadDias) => {
     const dias = [];
     let diasAgregados = 0;
@@ -861,7 +906,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return dias;
   };
 
-  // Calcular dÃ­as hÃ¡biles disponibles segÃºn diasHabiles (semanasObjetivo * 5)
+  // Calcular días hábiles disponibles según diasHabiles (semanasObjetivo * 5)
   const diasHabilesDisponibles = useMemo(() => {
     if (!configuracionObraActualizada?.fechaInicio || !configuracionObraActualizada?.diasHabiles) return [];
 
@@ -872,7 +917,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return calcularDiasHabiles(fechaInicio, configuracionObraActualizada.diasHabiles);
   }, [configuracionObraActualizada?.fechaInicio, configuracionObraActualizada?.diasHabiles]);
 
-  // Calcular semanas necesarias basÃ¡ndose en dÃ­as hÃ¡biles reales
+  // Calcular semanas necesarias basándose en días hábiles reales
   const semanas = useMemo(() => {
     if (!configuracionObraActualizada?.fechaInicio || diasHabilesDisponibles.length === 0) return [];
 
@@ -888,7 +933,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     const diasHastaLunes = diaSemana === 0 ? -6 : 1 - diaSemana;
     primerLunes.setDate(primerLunes.getDate() + diasHastaLunes);
 
-    // El Ãºltimo dÃ­a hÃ¡bil determina hasta dÃ³nde generar semanas
+    // El último día hábil determina hasta dónde generar semanas
     const ultimoDiaHabil = diasHabilesDisponibles[diasHabilesDisponibles.length - 1];
     if (!ultimoDiaHabil) return [];
 
@@ -898,7 +943,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     while (fechaActual <= ultimoDiaHabil) {
       const diasSemana = [];
 
-      // Generar los 7 dÃ­as de la semana (Lunes a Domingo)
+      // Generar los 7 días de la semana (Lunes a Domingo)
       for (let i = 0; i < 7; i++) {
         const fecha = new Date(fechaActual);
         fecha.setDate(fechaActual.getDate() + i);
@@ -919,7 +964,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         });
       }
 
-      // Solo agregar la semana si tiene al menos un dÃ­a hÃ¡bil
+      // Solo agregar la semana si tiene al menos un día hábil
       const tieneHabiles = diasSemana.some(d => d.esHabil);
       if (tieneHabiles) {
         semanasPorProyecto.push({
@@ -934,7 +979,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       fechaActual.setDate(fechaActual.getDate() + 7);
     }
 
-    console.log(`ðŸ“Š [MATERIALES] ${semanasPorProyecto.length} semanas necesarias para ${configuracionObraActualizada.diasHabiles} dÃ­as hÃ¡biles objetivo`);
+    console.log(`📊 [MATERIALES] ${semanasPorProyecto.length} semanas necesarias para ${configuracionObraActualizada.diasHabiles} días hábiles objetivo`);
     return semanasPorProyecto;
   }, [configuracionObraActualizada?.fechaInicio, diasHabilesDisponibles]);
 
@@ -943,7 +988,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     const fechaInicioAUsar = presupuesto?.fechaProbableInicio || configuracionObra?.fechaInicio;
 
     if (!fechaInicioAUsar || !numeroSemana || numeroSemana < 1) {
-      console.warn('âš ï¸ ParÃ¡metros invÃ¡lidos para calcular dÃ­as hÃ¡biles:', { fechaInicio: fechaInicioAUsar, numeroSemana });
+      console.warn('âš ï¸ Parámetros inválidos para calcular días hábiles:', { fechaInicio: fechaInicioAUsar, numeroSemana });
       return [];
     }
 
@@ -962,9 +1007,9 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       const fechaInicio = parsearFechaLocal(fechaInicioAUsar);
       console.log('ðŸ“… Calculando semana', numeroSemana, 'con fechaInicio:', fechaInicioAUsar, '(desde presupuesto:', !!presupuesto?.fechaProbableInicio, ')');
 
-      // Validar que fechaInicio es vÃ¡lida
+      // Validar que fechaInicio es válida
       if (isNaN(fechaInicio.getTime())) {
-        console.error('âŒ Fecha de inicio invÃ¡lida:', fechaInicioAUsar);
+        console.error('âŒ Fecha de inicio inválida:', fechaInicioAUsar);
         return [];
       }
 
@@ -974,32 +1019,32 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       const diasHastaPrimerLunes = diaSemanaInicio === 0 ? -6 : 1 - diaSemanaInicio;
       primerLunes.setDate(primerLunes.getDate() + diasHastaPrimerLunes);
 
-      // Validar que primerLunes es vÃ¡lida
+      // Validar que primerLunes es válida
       if (isNaN(primerLunes.getTime())) {
-        console.error('âŒ Primer lunes invÃ¡lido:', primerLunes);
+        console.error('âŒ Primer lunes inválido:', primerLunes);
         return [];
       }
 
-      // Para la semana solicitada, calcular su lunes sumando semanas completas (7 dÃ­as)
+      // Para la semana solicitada, calcular su lunes sumando semanas completas (7 días)
       const inicioSemana = new Date(primerLunes.getTime());
       inicioSemana.setDate(primerLunes.getDate() + ((numeroSemana - 1) * 7));
 
-      // Validar que inicioSemana es vÃ¡lida
+      // Validar que inicioSemana es válida
       if (isNaN(inicioSemana.getTime())) {
-        console.error('âŒ Fecha de inicio de semana invÃ¡lida:', inicioSemana);
+        console.error('âŒ Fecha de inicio de semana inválida:', inicioSemana);
         return [];
       }
 
       // Generar lunes a viernes, filtrando feriados
-      const nombresDias = ['Lunes', 'Martes', 'MiÃ©rcoles', 'Jueves', 'Viernes', 'SÃ¡bado', 'Domingo'];
+      const nombresDias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
       const diasHabiles = [];
       for (let i = 0; i < 5; i++) {
         const dia = new Date(inicioSemana.getTime()); // Usar getTime() para clonar correctamente
         dia.setDate(inicioSemana.getDate() + i);
 
-        // Validar cada dÃ­a antes de aÃ±adirlo
+        // Validar cada día antes de añadirlo
         if (isNaN(dia.getTime())) {
-          console.error(`âŒ DÃ­a ${i} invÃ¡lido:`, dia);
+          console.error(`âŒ Día ${i} inválido:`, dia);
           continue;
         }
 
@@ -1008,7 +1053,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
         // Solo agregar si NO es feriado
         if (!esFeriado) {
-          // Obtener el dÃ­a de la semana real (0=Domingo, 1=Lunes, etc.)
+          // Obtener el día de la semana real (0=Domingo, 1=Lunes, etc.)
           const diaSemana = dia.getDay();
           // Ajustar para que Lunes=0, Martes=1, etc.
           const indiceDia = diaSemana === 0 ? 6 : diaSemana - 1;
@@ -1022,11 +1067,11 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         }
       }
 
-      console.log(`ðŸ“… DÃ­as hÃ¡biles calculados para semana ${numeroSemana}:`, diasHabiles);
+      console.log(`ðŸ“… Días hábiles calculados para semana ${numeroSemana}:`, diasHabiles);
       return diasHabiles;
 
     } catch (error) {
-      console.error('âŒ Error calculando dÃ­as hÃ¡biles de semana:', error);
+      console.error('âŒ Error calculando días hábiles de semana:', error);
       return [];
     }
 
@@ -1077,12 +1122,13 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
             ) : !presupuesto ? (
               <div className="alert alert-warning">
                 <i className="fas fa-exclamation-triangle me-2"></i>
-                No se encontrÃ³ un presupuesto para esta obra
+                No se encontró un presupuesto para esta obra
               </div>
             ) : (
               <>
-                {/* 🆕 Información del modo de presupuesto */}
-                <div className="alert alert-info mb-3">
+                {console.log('🎨 RENDERIZANDO SECCIÓN MODO PRESUPUESTO - Modo:', modoPresupuesto, 'Presupuesto:', !!presupuesto)}
+                {/* ℹ️ Información del modo de presupuesto */}
+                <div className="alert alert-info mb-3" style={{border: '3px solid red'}}>
                   <div className="d-flex justify-content-between align-items-center">
                     <div>
                       <strong>
@@ -1187,8 +1233,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                       <div className="alert alert-light mt-2 mb-0">
                         <small className="text-muted">
                           <i className="fas fa-lightbulb me-1"></i>
-                          <strong>Sugerencia:</strong> Los materiales se pueden distribuir por semana segÃºn las etapas de construcciÃ³n.
-                          Considere el cronograma de trabajo y las necesidades especÃ­ficas de cada fase.
+                          <strong>Sugerencia:</strong> Los materiales se pueden distribuir por semana según las etapas de construcción.
+                          Considere el cronograma de trabajo y las necesidades específicas de cada fase.
                         </small>
                       </div>
                     </div>
@@ -1202,7 +1248,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                   </div>
                 )}
 
-                {/* AsignaciÃ³n por planificaciÃ³n semanal - se realiza desde las tarjetas de semanas */}
+                {/* Asignación por planificación semanal - se realiza desde las tarjetas de semanas */}
 
                 {/* Lista de asignaciones actuales - MOSTRAR SIEMPRE si hay asignaciones */}
                 {(materialesDisponibles.length > 0 || asignaciones.length > 0) && (
@@ -1258,7 +1304,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                                       <button
                                         className="btn btn-sm btn-outline-danger"
                                         onClick={() => handleEliminarAsignacion(asignacion.id)}
-                                        title="Eliminar asignaciÃ³n"
+                                        title="Eliminar asignación"
                                       >
                                         <i className="fas fa-trash"></i>
                                       </button>
@@ -1287,7 +1333,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
               Cerrar
             </button>
 
-            {/* BotÃ³n de consolidaciÃ³n */}
+            {/* Botón de consolidación */}
             <button
               type="button"
               className="btn btn-success"
@@ -1314,7 +1360,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       onAsignarParaTodaLaSemana={abrirAsignacionSemanal}
     />
 
-    {/* Formulario de AsignaciÃ³n Individual */}
+    {/* Formulario de Asignación Individual */}
     {mostrarFormularioIndividual && (
       <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1060}}>
         <div className="modal-dialog">
@@ -1332,11 +1378,11 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
             </div>
             <div className="modal-body">
               <form onSubmit={handleSubmit}>
-                {/* Selector de Tipo de AsignaciÃ³n */}
+                {/* Selector de Tipo de Asignación */}
                 <div className="mb-3">
                   <label className="form-label">
                     <i className="fas fa-filter me-1"></i>
-                    Tipo de AsignaciÃ³n
+                    Tipo de Asignación
                   </label>
                   <select
                     className="form-select"
@@ -1363,13 +1409,13 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
                     {permiteManual && (
                       <option value="CANTIDAD_GLOBAL">
-                        ðŸ“¦ Cantidad Global (Material manual)
+                        📦 Cantidad Global (Material manual)
                       </option>
                     )}
 
                     {tieneItemsDetallados && (
                       <option value="ELEMENTO_DETALLADO">
-                        ðŸ“‹ Elemento del Presupuesto Detallado ({materialesDisponibles.length} items)
+                        📋 Elemento del Presupuesto Detallado ({materialesDisponibles.length} items)
                       </option>
                     )}
                   </select>
@@ -1377,13 +1423,13 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                   {nuevaAsignacion.tipoAsignacion === 'CANTIDAD_GLOBAL' && (
                     <small className="text-muted d-block mt-1">
                       <i className="fas fa-info-circle me-1"></i>
-                      CrearÃ¡s un material manual (no requiere estar en el presupuesto).
+                      Crearás un material manual (no requiere estar en el presupuesto).
                     </small>
                   )}
                   {nuevaAsignacion.tipoAsignacion === 'ELEMENTO_DETALLADO' && (
                     <small className="text-muted d-block mt-1">
                       <i className="fas fa-info-circle me-1"></i>
-                      SeleccionarÃ¡s un material especÃ­fico del presupuesto (valida stock).
+                      Seleccionarás un material específico del presupuesto (valida stock).
                     </small>
                   )}
                 </div>
@@ -1432,7 +1478,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                           className="form-control mt-2"
                           value={nuevoMaterialManual.unidadCustom || ''}
                           onChange={(e) => setNuevoMaterialManual({ ...nuevoMaterialManual, unidadCustom: e.target.value })}
-                          placeholder="EscribÃ­ la unidad..."
+                          placeholder="Escribí la unidad..."
                           required
                         />
                       )}
@@ -1456,11 +1502,11 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                           const disponibleReal = calcularStockDisponible(material.id);
                           const stockOriginal = material.cantidadDisponible || 0;
                           const estadoReal = getEstadoStockActualizado(material.id);
-                          const icono = {
-                            DISPONIBLE: 'ðŸŸ¢',
-                            STOCK_BAJO: 'ðŸŸ¡',
-                            AGOTADO: 'ðŸ”´'
-                          }[estadoReal] || 'âšª';
+                                                  const icono = {
+                            DISPONIBLE: '🟢',
+                            STOCK_BAJO: '🟡',
+                            AGOTADO: '🔴'
+                          }[estadoReal] || '⚪';
 
                           const infoStock = disponibleReal !== stockOriginal
                             ? `${disponibleReal}/${stockOriginal}`
@@ -1485,24 +1531,74 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
                       const disponibleReal = calcularStockDisponible(materialSeleccionado.id);
                       const estadoReal = getEstadoStockActualizado(materialSeleccionado.id);
+                      const stockOriginal = materialSeleccionado.cantidadDisponible || 0;
+                      const yaAsignado = stockOriginal - disponibleReal;
+                      const precioUnitario = materialSeleccionado.precioUnitario || 0;
+                      const totalPresupuestado = stockOriginal * precioUnitario;
+                      const totalAsignado = yaAsignado * precioUnitario;
+                      const totalDisponible = disponibleReal * precioUnitario;
 
-                      if (estadoReal === 'STOCK_BAJO') {
-                        return (
-                          <div className="alert alert-warning d-flex align-items-center mb-3">
-                            <i className="fas fa-exclamation-triangle me-2"></i>
-                            âš ï¸ Stock bajo: Solo quedan {disponibleReal} unidades
+                      return (
+                        <>
+                          {/* Panel informativo de disponibilidad */}
+                          <div className="alert alert-info border-0 shadow-sm mb-3">
+                            <div className="d-flex align-items-center mb-2">
+                              <i className="fas fa-info-circle fs-5 me-2"></i>
+                              <h6 className="mb-0 fw-bold">📦 {materialSeleccionado.nombre}</h6>
+                            </div>
+                            <div className="row g-2 small">
+                              <div className="col-6">
+                                <div className="d-flex justify-content-between">
+                                  <span className="text-muted">💰 Presupuestado:</span>
+                                  <strong>{stockOriginal} {materialSeleccionado.unidad}</strong>
+                                </div>
+                                <div className="d-flex justify-content-between">
+                                  <span className="text-muted">💵 Valor total:</span>
+                                  <strong>${totalPresupuestado.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                                </div>
+                              </div>
+                              <div className="col-6">
+                                <div className="d-flex justify-content-between">
+                                  <span className="text-muted">✅ Ya asignado:</span>
+                                  <strong className="text-primary">{yaAsignado} {materialSeleccionado.unidad}</strong>
+                                </div>
+                                <div className="d-flex justify-content-between">
+                                  <span className="text-muted">💵 Asignado:</span>
+                                  <strong className="text-primary">${totalAsignado.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                                </div>
+                              </div>
+                              <div className="col-12">
+                                <div className="border-top pt-2 mt-1">
+                                  <div className="d-flex justify-content-between align-items-center">
+                                    <span className="text-muted fw-bold">🟢 Disponible:</span>
+                                    <span className={`fs-5 fw-bold ${estadoReal === 'AGOTADO' ? 'text-danger' : estadoReal === 'STOCK_BAJO' ? 'text-warning' : 'text-success'}`}>
+                                      {disponibleReal} {materialSeleccionado.unidad}
+                                    </span>
+                                  </div>
+                                  <div className="d-flex justify-content-between">
+                                    <span className="text-muted">💵 Valor disponible:</span>
+                                    <strong className="text-success">${totalDisponible.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        );
-                      }
-                      if (estadoReal === 'AGOTADO') {
-                        return (
-                          <div className="alert alert-danger d-flex align-items-center mb-3">
-                            <i className="fas fa-times-circle me-2"></i>
-                            ðŸš« Material agotado
-                          </div>
-                        );
-                      }
-                      return null;
+
+                          {/* Alertas de stock */}
+                          {estadoReal === 'STOCK_BAJO' && (
+                            <div className="alert alert-warning d-flex align-items-center mb-3">
+                              <i className="fas fa-exclamation-triangle me-2"></i>
+                              ⚠️ Stock bajo: Solo quedan {disponibleReal} {materialSeleccionado.unidad}
+                            </div>
+                          )}
+                          {estadoReal === 'AGOTADO' && (
+                            <div className="alert alert-danger d-flex align-items-center mb-3">
+                              <i className="fas fa-times-circle me-2"></i>
+                              🚫 Material agotado - No hay stock disponible
+                            </div>
+                          )}
+                        </>
+                      );
                     })()}
                   </>
                 )}
@@ -1543,7 +1639,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                 )}
 
                 <div className="mb-3">
-                  <label className="form-label">Fecha de AsignaciÃ³n</label>
+                  <label className="form-label">Fecha de Asignación</label>
                   <input
                     type="date"
                     className="form-control"
@@ -1591,7 +1687,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       </div>
     )}
 
-    {/* Modal de AsignaciÃ³n Semanal Completa */}
+    {/* Modal de Asignación Semanal Completa */}
     {mostrarAsignacionSemanal && semanaAsignacionCompleta && (
       <AsignarMaterialSemanalModal
         show={mostrarAsignacionSemanal}

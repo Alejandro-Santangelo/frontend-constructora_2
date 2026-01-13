@@ -4,11 +4,36 @@ Frontend profesional desarrollado con **Vite + React + Bootstrap** para la gesti
 
 ## ⚡ Inicio Rápido
 
+### 🆕 Primer Setup (Nuevos Desarrolladores)
+
+```bash
+# 1. Clonar el repositorio
+git clone <url-del-repo>
+
+# 2. Instalar dependencias
+npm install
+
+# 3. Configurar entorno de desarrollo (IMPORTANTE)
+npm run setup
+
+# 4. Iniciar desarrollo
+npm run dev
+```
+
+**El script `npm run setup` configura automáticamente:**
+- ✅ VS Code con UTF-8 como encoding predeterminado
+- ✅ Git con normalización de líneas
+- ✅ Extensiones necesarias (EditorConfig, ESLint, etc.)
+- ✅ Verificación de archivos del proyecto
+
+📖 **Más información:** Ver [SETUP-README.md](./SETUP-README.md)
+
 ### 🆕 ¿Primera vez? (Base de datos vacía)
 Lee la [**Guía de Inicio Rápido (QUICK-START.md)**](./QUICK-START.md) para crear tu primera empresa en 3 pasos.
 
 ### 📚 Documentación Completa
 - [⚡ Quick Start](./QUICK-START.md) - Inicio rápido en 3 pasos
+- [🔧 Setup del Entorno](./SETUP-README.md) - Configuración automática para desarrolladores
 - [📖 Inicializar Base de Datos](./INICIALIZAR-BASE-DATOS.md) - Guía paso a paso detallada
 - [🏢 Solución Multi-Tenant](./SOLUCION-MULTI-TENANT.md) - Diagramas y arquitectura
 - [💾 Script SQL](./init-database.sql) - Inicialización directa en base de datos

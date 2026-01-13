@@ -435,23 +435,70 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       let presupuestoActual = null;
       let presupuestoId = null; // ✅ Definir aquí para todos los casos
 
-      // ✅ SI YA VIENE EL PRESUPUESTO COMPLETO (trabajo extra pre-cargado), USARLO
-      if (obra.presupuestoNoCliente && obra.presupuestoNoCliente.itemsCalculadora) {
-        console.log('✅ Presupuesto completo ya cargado (trabajo extra):', {
-          id: obra.presupuestoNoCliente.id,
-          items: obra.presupuestoNoCliente.itemsCalculadora?.length || 0
-        });
-        presupuestoActual = obra.presupuestoNoCliente;
-        presupuestoId = obra.presupuestoNoCliente.id; // ✅ Asignar ID
-      }
-      // ✅ SI ES TRABAJO EXTRA SIN PRESUPUESTO, CARGAR SU PRESUPUESTO
-      else if (obra._esTrabajoExtra) {
+      // 🔥 SIEMPRE RECARGAR para tener datos frescos (evita mostrar presupuestos editados con valores viejos)
+      if (obra._esTrabajoExtra) {
         console.log('✅ Trabajo Extra detectado - cargando datos del trabajo extra ID:', obra.id);
 
         // Cargar el trabajo extra completo (que incluye todos los datos del presupuesto)
         try {
           presupuestoActual = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
           presupuestoId = presupuestoActual.id; // ✅ Asignar ID
+
+          // 🚨🚨🚨 LOG CRÍTICO DEL PRESUPUESTO COMPLETO 🚨🚨🚨
+          console.log('═══════════════════════════════════════');
+          console.log('🔍 TRABAJO EXTRA CARGADO COMPLETO');
+          console.log('═══════════════════════════════════════');
+          console.log('ID:', presupuestoActual.id);
+          console.log('Nombre:', presupuestoActual.nombreObra || presupuestoActual.nombre);
+          console.log('Tiempo estimado:', presupuestoActual.tiempoEstimadoTerminacion, 'semanas');
+          console.log('Items Calculadora:', presupuestoActual.itemsCalculadora?.length || 0);
+          console.log('Otros Costos array:', presupuestoActual.otrosCostos?.length || 0);
+          console.log('Otros Costos JSON:', presupuestoActual.otrosCostosJson ? 'presente' : 'ausente');
+          console.log('OBJETO COMPLETO RAW DEL BACKEND:', JSON.stringify(presupuestoActual, null, 2));
+
+          // 🔍 VERIFICAR ITEMS CALCULADORA CON GASTOS GENERALES
+          if (presupuestoActual.itemsCalculadora && presupuestoActual.itemsCalculadora.length > 0) {
+            console.log('═══════════════════════════════════════');
+            console.log('📋 ITEMS CALCULADORA DETALLADOS');
+            console.log('═══════════════════════════════════════');
+            presupuestoActual.itemsCalculadora.forEach((item, idx) => {
+              console.log(`\n${idx + 1}. ITEM: ${item.tipoProfesional}`);
+              console.log(`   ├─ Total item: $${item.total?.toLocaleString('es-AR')}`);
+              console.log(`   ├─ Subtotal gastos generales: $${item.subtotalGastosGenerales?.toLocaleString('es-AR')}`);
+
+              if (item.gastosGenerales && item.gastosGenerales.length > 0) {
+                console.log(`   ├─ Gastos generales (${item.gastosGenerales.length}):`);
+                item.gastosGenerales.forEach((gasto, gIdx) => {
+                  console.log(`   │  ${gIdx + 1}. ${gasto.descripcion}`);
+                  console.log(`   │     ├─ cantidad: ${gasto.cantidad}`);
+                  console.log(`   │     ├─ precioUnitario: $${gasto.precioUnitario?.toLocaleString('es-AR')}`);
+                  console.log(`   │     ├─ subtotal: $${gasto.subtotal?.toLocaleString('es-AR')}`);
+                  console.log(`   │     ├─ importe: $${gasto.importe?.toLocaleString('es-AR')}`);
+                  console.log(`   │     └─ Cálculo: ${gasto.cantidad} × $${gasto.precioUnitario?.toLocaleString('es-AR')} = $${(gasto.cantidad * gasto.precioUnitario)?.toLocaleString('es-AR')}`);
+                });
+              } else {
+                console.log(`   └─ Sin gastos generales`);
+              }
+            });
+            console.log('═══════════════════════════════════════');
+          }
+
+          if (presupuestoActual.otrosCostos && presupuestoActual.otrosCostos.length > 0) {
+            console.log('═══════════════════════════════════════');
+            console.log('💰 OTROS COSTOS EN EL PRESUPUESTO');
+            console.log('═══════════════════════════════════════');
+            presupuestoActual.otrosCostos.forEach((gasto, idx) => {
+              console.log(`${idx + 1}. ${gasto.descripcion}`);
+              console.log(`   ├─ cantidad: ${gasto.cantidad}`);
+              console.log(`   ├─ precioUnitario: $${gasto.precioUnitario?.toLocaleString('es-AR')}`);
+              console.log(`   ├─ importe: $${gasto.importe?.toLocaleString('es-AR')}`);
+              console.log(`   ├─ subtotal: $${gasto.subtotal?.toLocaleString('es-AR')}`);
+              console.log(`   ├─ Cálculo: ${gasto.cantidad} × $${gasto.precioUnitario?.toLocaleString('es-AR')} = $${(gasto.cantidad * gasto.precioUnitario)?.toLocaleString('es-AR')}`);
+              console.log(`   └─ Objeto completo:`, JSON.stringify(gasto, null, 2));
+            });
+            console.log('═══════════════════════════════════════');
+          }
+
           console.log('✅ Trabajo extra cargado:', {
             id: presupuestoActual.id,
             nombre: presupuestoActual.nombreObra || presupuestoActual.nombre,
@@ -497,22 +544,39 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
         }
 
-        // Priorizar trabajos extra sobre presupuestos tradicionales
-        const trabajosExtraObra = presupuestosObra.filter(p => p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA');
-        const tradicionalesObra = presupuestosObra.filter(p => !p.esTrabajoExtra && p.tipo !== 'TRABAJO_EXTRA');
+        // 🔥 SI EL MODAL FUE ABIERTO DESDE UN TRABAJO EXTRA ESPECÍFICO, USAR SOLO ESE
+        const trabajoExtraIdEspecifico = obra._trabajoExtraId;
 
         let presupuestoResumen;
-        if (trabajosExtraObra.length > 0) {
-          // Si hay trabajos extra, tomar el de menor ID (primero creado)
-          presupuestoResumen = trabajosExtraObra.sort((a, b) => a.id - b.id)[0];
+        if (trabajoExtraIdEspecifico) {
+          // Buscar el trabajo extra específico que se clickeó
+          presupuestoResumen = presupuestosObra.find(p =>
+            (p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA') && p.id === trabajoExtraIdEspecifico
+          );
+
+          if (!presupuestoResumen) {
+            throw new Error(`No se encontró el trabajo extra con ID ${trabajoExtraIdEspecifico}`);
+          }
+          console.log('✅ Usando TRABAJO EXTRA ESPECÍFICO clickeado:', presupuestoResumen.id, presupuestoResumen.nombre);
         } else {
-          // Si no hay trabajos extra, tomar el tradicional más reciente
-          presupuestoResumen = tradicionalesObra.sort((a, b) => {
-            if (a.numeroPresupuesto === b.numeroPresupuesto) {
-              return (b.version || 0) - (a.version || 0);
-            }
-            return b.id - a.id;
-          })[0];
+          // Lógica original: priorizar trabajos extra sobre presupuestos tradicionales
+          const trabajosExtraObra = presupuestosObra.filter(p => p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA');
+          const tradicionalesObra = presupuestosObra.filter(p => !p.esTrabajoExtra && p.tipo !== 'TRABAJO_EXTRA');
+
+          if (trabajosExtraObra.length > 0) {
+            // Si hay trabajos extra, tomar el más reciente
+            presupuestoResumen = trabajosExtraObra.sort((a, b) => b.id - a.id)[0];
+            console.log('✅ Seleccionando TRABAJO EXTRA más reciente:', presupuestoResumen.id);
+          } else {
+            // Si no hay trabajos extra, tomar el tradicional más reciente
+            presupuestoResumen = tradicionalesObra.sort((a, b) => {
+              if (a.numeroPresupuesto === b.numeroPresupuesto) {
+                return (b.version || 0) - (a.version || 0);
+              }
+              return b.id - a.id;
+            })[0];
+            console.log('✅ Seleccionando PRESUPUESTO TRADICIONAL:', presupuestoResumen.id);
+          }
         }
 
         // IMPORTANTE: Siempre buscar la versión más reciente, incluso si tenemos una en configuracionObra
@@ -766,6 +830,23 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         estructuraCompleta: otrosCostosCandidatos
       });
 
+      // 🚨🚨🚨 LOG CRÍTICO: ANÁLISIS DE IMPORTES 🚨🚨🚨
+      if (otrosCostosCandidatos.length > 0) {
+        console.log('═══════════════════════════════════════');
+        console.log('🔍 IMPORTES RECIBIDOS DEL PRESUPUESTO');
+        console.log('═══════════════════════════════════════');
+        otrosCostosCandidatos.forEach((gasto, idx) => {
+          console.log(`Item ${idx + 1}: ${gasto.descripcion}`);
+          console.log(`  ├─ importe: $${gasto.importe?.toLocaleString('es-AR')}`);
+          console.log(`  ├─ subtotal: $${gasto.subtotal?.toLocaleString('es-AR')}`);
+          console.log(`  ├─ cantidad: ${gasto.cantidad}`);
+          console.log(`  ├─ precioUnitario: $${gasto.precioUnitario?.toLocaleString('es-AR')}`);
+          console.log(`  ├─ Todas las propiedades:`, Object.keys(gasto));
+          console.log(`  └─ Objeto completo:`, gasto);
+        });
+        console.log('═══════════════════════════════════════');
+      }
+
       if (otrosCostosCandidatos.length > 0) {
         extraerRubrosDeArray(otrosCostosCandidatos);
         fuenteDeteccion = (otrosCostosDesdeProp.length > 0)
@@ -802,16 +883,34 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           }));
         } else {
           modoDetectado = 'DETALLE';
-          gastosDisponibles = otrosCostosCandidatos.map(gasto => ({
-            id: gasto.id,
-            nombre: gasto.descripcion,
-            descripcion: gasto.descripcion,
-            categoria: obtenerCategoriaGasto(gasto),
-            cantidadDisponible: gasto.cantidad ?? null,
-            precioUnitario: gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe,
-            importe: gasto.subtotal || gasto.importe,
-            esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
-          }));
+          gastosDisponibles = otrosCostosCandidatos.map(gasto => {
+            const importeFinal = gasto.subtotal || gasto.importe;
+            console.log('═══════════════════════════════════════');
+            console.log(`🔍 MAPEANDO GASTO DISPONIBLE: ${gasto.descripcion}`);
+            console.log('═══════════════════════════════════════');
+            console.log('📥 Datos RAW del backend:');
+            console.log('   ├─ gasto.importe:', gasto.importe);
+            console.log('   ├─ gasto.subtotal:', gasto.subtotal);
+            console.log('   ├─ gasto.precioUnitario:', gasto.precioUnitario);
+            console.log('   ├─ gasto.cantidad:', gasto.cantidad);
+            console.log('   └─ gasto objeto completo:', gasto);
+            console.log('📤 Valores calculados para UI:');
+            console.log('   ├─ importeFinal (subtotal || importe):', importeFinal);
+            console.log('   ├─ precioUnitario calculado:', gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe);
+            console.log('   └─ Cálculo manual: cantidad × precioUnitario =', gasto.cantidad, '×', gasto.precioUnitario, '=', (gasto.cantidad * gasto.precioUnitario));
+            console.log('═══════════════════════════════════════');
+
+            return {
+              id: gasto.id,
+              nombre: gasto.descripcion,
+              descripcion: gasto.descripcion,
+              categoria: obtenerCategoriaGasto(gasto),
+              cantidadDisponible: gasto.cantidad ?? null,
+              precioUnitario: gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe,
+              importe: importeFinal,
+              esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
+            };
+          });
         }
       }
 
@@ -899,6 +998,23 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               importe: gastosGeneralesData[0].importe,
               todasLasPropiedades: Object.keys(gastosGeneralesData[0])
             });
+
+            // 🚨 LOG EXHAUSTIVO PARA DETECTAR DIVISION POR SEMANAS 🚨
+            console.log('═══════════════════════════════════════');
+            console.log('   🔍 ANÁLISIS DE IMPORTE RECIBIDO');
+            console.log('═══════════════════════════════════════');
+            gastosGeneralesData.forEach((gasto, index) => {
+              console.log(`Item ${index + 1}:`);
+              console.log(`  - Descripción: ${gasto.descripcion}`);
+              console.log(`  - Importe en el objeto: $${gasto.importe?.toLocaleString('es-AR')}`);
+              console.log(`  - Subtotal (si existe): $${gasto.subtotal?.toLocaleString('es-AR')}`);
+              console.log(`  - Cantidad (si existe): ${gasto.cantidad}`);
+              console.log(`  - Importe original (si existe): $${gasto.importeOriginal?.toLocaleString('es-AR')}`);
+              console.log(`  - Importe total (si existe): $${gasto.importeTotal?.toLocaleString('es-AR')}`);
+              console.log(`  - Semanas (si existe): ${gasto.semanas || gasto.cantidadSemanas}`);
+              console.log(`  - Props del objeto:`, Object.keys(gasto));
+            });
+            console.log('═══════════════════════════════════════');
           }
 
           fuenteDeteccion = 'endpoint /gastos-generales';
@@ -1021,9 +1137,36 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       if (modoFinal === 'GLOBAL') {
         setOtrosCostosDisponibles([]);
         console.log('🌍 MODO GLOBAL - Lista de gastos disponibles: VACÍA (crear manual)');
+        console.log('═══════════════════════════════════════');
+        console.log('📊 RESUMEN FINAL - MODO GLOBAL');
+        console.log('═══════════════════════════════════════');
+        console.log('Presupuesto Global:', presupuestoGlobal);
+        console.log('Usuario creará gastos manualmente');
+        console.log('═══════════════════════════════════════');
       } else {
+        console.log('═══════════════════════════════════════');
+        console.log('🚨🚨🚨 GASTOS DISPONIBLES FINALES 🚨🚨🚨');
+        console.log('═══════════════════════════════════════');
+        console.log('Modo detectado:', modoFinal);
+        console.log('Fuente de datos:', fuenteDeteccion);
+        console.log('Total de gastos disponibles:', gastosDisponibles.length);
+        console.log('\n📋 DETALLE DE CADA GASTO:');
+        gastosDisponibles.forEach((g, idx) => {
+          console.log(`\n${idx + 1}. ${g.nombre || g.descripcion}`);
+          console.log('   ├─ ID:', g.id);
+          console.log('   ├─ Importe:', g.importe);
+          console.log('   ├─ Importe formateado: $' + g.importe?.toLocaleString('es-AR'));
+          console.log('   ├─ Precio unitario:', g.precioUnitario);
+          console.log('   ├─ Cantidad disponible:', g.cantidadDisponible);
+          console.log('   ├─ Es del stock:', g.esDelStock);
+          console.log('   └─ Categoría:', g.categoria);
+        });
+        console.log('\n═══════════════════════════════════════');
+        console.log('🎯 ESTOS SON LOS VALORES QUE VERÁ EL USUARIO EN LA UI');
+        console.log('═══════════════════════════════════════\n');
+
         setOtrosCostosDisponibles(gastosDisponibles);
-        console.log('📋 MODO DETALLE - Gastos disponibles:', gastosDisponibles.length);
+        console.log('✅ Estado actualizado - Gastos disponibles:', gastosDisponibles.length);
       }
 
       setPresupuestoGlobalTotal(presupuestoGlobal);
@@ -1946,10 +2089,35 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         <div className="modal-content">
           {/* Header */}
           <div className="modal-header bg-warning text-dark">
-            <h5 className="modal-title">
-              <i className="fas fa-dollar-sign me-2"></i>
-              Asignar Otros Costos / Gastos Generales - {obra?.nombre}
-            </h5>
+            <div className="d-flex align-items-center gap-3 flex-grow-1">
+              <h5 className="modal-title mb-0">
+                <i className="fas fa-dollar-sign me-2"></i>
+                Asignar Otros Costos / Gastos Generales - {obra?.nombre}
+              </h5>
+
+              {/* 🎯 Badge de Modo de Presupuesto */}
+              {modoPresupuesto && (
+                <span
+                  className={`badge text-white ${
+                    modoPresupuesto === 'GLOBAL' ? 'bg-secondary' :
+                    modoPresupuesto === 'MIXTO' ? 'bg-warning text-dark' :
+                    'bg-info'
+                  }`}
+                  style={{ fontSize: '0.7em' }}
+                  title={
+                    modoPresupuesto === 'GLOBAL'
+                      ? 'Presupuesto con importe total único - El usuario asigna montos manualmente'
+                      : modoPresupuesto === 'MIXTO'
+                        ? 'Presupuesto combinado - Tiene importe global + items de detalle'
+                        : 'Presupuesto con items individuales - El usuario selecciona de una lista'
+                  }
+                >
+                  {modoPresupuesto === 'GLOBAL' && <><i className="fas fa-globe me-1"></i>Global</>}
+                  {modoPresupuesto === 'MIXTO' && <><i className="fas fa-random me-1"></i>Mixto</>}
+                  {modoPresupuesto === 'DETALLE' && <><i className="fas fa-list me-1"></i>Detallado</>}
+                </span>
+              )}
+            </div>
             <button
               type="button"
               className="btn-close"
@@ -1980,61 +2148,77 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
               </div>
             ) : (
               <>
-                {/* 🆕 Información del modo de presupuesto */}
-                <div className="alert alert-info mb-3">
-                  <div className="d-flex justify-content-between align-items-center">
-                    <div>
-                      <strong>
-                        <i className="fas fa-info-circle me-2"></i>
-                        Modo de Presupuesto: {
-                          modoPresupuesto === 'GLOBAL'
-                            ? '🌍 Global'
-                            : (modoPresupuesto === 'MIXTO' ? '🧩 Mixto' : '📋 Detallado')
-                        }
-                      </strong>
-                    </div>
-                    {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && (
-                      <div className="text-end">
-                        <div>
-                          <small className="text-muted">Presupuesto Total:</small>{' '}
-                          <strong className="text-primary">
+                {/* 📊 Información del presupuesto según modo */}
+                {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && (
+                  <div className="alert alert-success mb-3">
+                    <div className="row align-items-center">
+                      <div className="col-md-6">
+                        <h6 className="mb-1">
+                          <i className="fas fa-wallet me-2"></i>
+                          Presupuesto Disponible
+                        </h6>
+                        <p className="mb-0 text-muted small">
+                          {modoPresupuesto === 'GLOBAL'
+                            ? 'Asigna montos libremente dentro del presupuesto total'
+                            : 'Combina presupuesto global + items específicos'}
+                        </p>
+                      </div>
+                      <div className="col-md-6 text-md-end">
+                        <div className="mb-1">
+                          <small className="text-muted">Total Presupuestado:</small>{' '}
+                          <strong className="text-primary fs-5">
                             ${presupuestoGlobalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </strong>
                         </div>
                         <div>
-                          <small className="text-muted">Disponible:</small>{' '}
-                          <strong className={presupuestoGlobalDisponible <= 0 ? 'text-danger' : 'text-success'}>
+                          <small className="text-muted">Disponible para asignar:</small>{' '}
+                          <strong className={`fs-5 ${presupuestoGlobalDisponible <= 0 ? 'text-danger' : 'text-success'}`}>
                             ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </strong>
                         </div>
                       </div>
-                    )}
+                    </div>
                   </div>
-                  {debugDeteccionPresupuesto && (
-                    <div className="mt-2">
-                      <small className="text-muted">
-                        <strong>Debug:</strong> fuente={debugDeteccionPresupuesto.fuenteDeteccion || 'N/A'} | detalle={debugDeteccionPresupuesto.itemsDetalle} | global=${Number(debugDeteccionPresupuesto.presupuestoGlobal || 0).toLocaleString('es-AR')} | rubros={debugDeteccionPresupuesto.rubrosDetectados ?? 0}
-                         | <button className="btn btn-link btn-sm p-0 text-warning ms-2" onClick={() => {
-                            if(confirm('¿Limpiar localStorage temporal de gastos?')) {
-                              localStorage.removeItem(`asignaciones_locales_costos_${obra.id}`);
-                              cargarAsignacionesActuales();
-                              alert('🧹 localStorage temporal limpiado');
-                            }
-                         }}>🧹 Limpiar Temp</button>
-                        {(debugDeteccionPresupuesto.rubrosEjemplo && debugDeteccionPresupuesto.rubrosEjemplo.length > 0)
-                          ? ` | ej: ${debugDeteccionPresupuesto.rubrosEjemplo.join(', ')}`
-                          : ''}
-                      </small>
-                    </div>
-                  )}
-                  {modoPresupuesto === 'DETALLE' && (
-                    <div className="mt-2">
-                      <small className="text-muted">
-                        💡 <strong>Modo Detalle:</strong> Selecciona gastos específicos del presupuesto para asignar a la obra.
-                      </small>
-                    </div>
-                  )}
-                </div>
+                )}
+
+                {modoPresupuesto === 'DETALLE' && (
+                  <div className="alert alert-info mb-3">
+                    <h6 className="mb-1">
+                      <i className="fas fa-list-ul me-2"></i>
+                      Presupuesto Detallado
+                    </h6>
+                    <p className="mb-0 text-muted small">
+                      Selecciona items específicos de la lista de gastos disponibles del presupuesto
+                    </p>
+                  </div>
+                )}
+
+                {/* Debug info (colapsable) */}
+                {debugDeteccionPresupuesto && (
+                  <div className="mt-2">
+                    <small className="text-muted">
+                      <strong>Debug:</strong> fuente={debugDeteccionPresupuesto.fuenteDeteccion || 'N/A'} | detalle={debugDeteccionPresupuesto.itemsDetalle} | global=${Number(debugDeteccionPresupuesto.presupuestoGlobal || 0).toLocaleString('es-AR')} | rubros={debugDeteccionPresupuesto.rubrosDetectados ?? 0}
+                       | <button className="btn btn-link btn-sm p-0 text-warning ms-2" onClick={() => {
+                          if(confirm('¿Limpiar localStorage temporal de gastos?')) {
+                            localStorage.removeItem(`asignaciones_locales_costos_${obra.id}`);
+                            cargarAsignacionesActuales();
+                            alert('🧹 localStorage temporal limpiado');
+                          }
+                       }}>🧹 Limpiar Temp</button>
+                      {(debugDeteccionPresupuesto.rubrosEjemplo && debugDeteccionPresupuesto.rubrosEjemplo.length > 0)
+                        ? ` | ej: ${debugDeteccionPresupuesto.rubrosEjemplo.join(', ')}`
+                        : ''}
+                    </small>
+                  </div>
+                )}
+
+                {modoPresupuesto === 'DETALLE' && (
+                  <div className="mt-2">
+                    <small className="text-muted">
+                      💡 <strong>Modo Detalle:</strong> Selecciona gastos específicos del presupuesto para asignar a la obra.
+                    </small>
+                  </div>
+                )}
 
                 {/* Distribución semanal estimada - solo si hay configuración */}
                 {configuracionObra && configuracionObra.semanasObjetivo && (

@@ -179,7 +179,7 @@ const AsignarMaterialSemanalModal = ({
         ? (parseFloat(nuevoMaterialManual.precioUnitario) || 0)
         : (materialSeleccionado?.precioUnitario || 0),
       numeroSemana,
-      observaciones: observaciones + (tipoAsignacion === 'CANTIDAD_GLOBAL' ? ' [Material Semanal Global]' : ' [Material Semanal Detallado]'),
+      observaciones: observaciones + (tipoAsignacion === 'CANTIDAD_GLOBAL' ? ' [Para toda la Semana]' : ' [Material Semanal Detallado]'),
       esManual: tipoAsignacion === 'CANTIDAD_GLOBAL',
       esSemanal: true
     };

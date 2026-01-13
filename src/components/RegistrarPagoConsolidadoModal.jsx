@@ -1626,7 +1626,25 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
 
     console.log(`🔍 Calculando ${todosLosTrabajos.length} trabajos extra para semana ${semanaSeleccionada}...`);
 
-    return todosLosTrabajos.map(trabajo => {
+    return todosLosTrabajos
+      .filter(trabajo => {
+        // Si es "Todas las Semanas", mostrar todos
+        if (semanaSeleccionada === 0) return true;
+
+        // Si es una semana específica, verificar si el trabajo está activo en esa semana
+        const diasDuracion = parseInt(trabajo.tiempoEstimadoTerminacion) || 5;
+        const semanasDuracion = Math.max(1, Math.ceil(diasDuracion / 5));
+
+        // Solo mostrar si la semana seleccionada está dentro de la duración del trabajo
+        const debeMotrar = semanaSeleccionada <= semanasDuracion;
+
+        if (!debeMotrar) {
+          console.log(`🚫 Trabajo "${trabajo.nombre}": Duración ${semanasDuracion} semanas - NO se muestra en semana ${semanaSeleccionada}`);
+        }
+
+        return debeMotrar;
+      })
+      .map(trabajo => {
         // Copia del trabajo para no mutar el original
         const trabajoDisplay = { ...trabajo };
 
@@ -2729,9 +2747,10 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                         </thead>
                                         <tbody>
                                           {trabajosObra.map((trabajo) => {
-                                            const totalTrabajo = calcularTotalTrabajo(trabajo);
+                                            // 🔥 Usar directamente los valores del trabajo (ya ajustados por semana en useMemo)
+                                            const totalTrabajo = trabajo.totalCalculado || 0;
                                             const totalPagado = trabajo.totalPagado || 0;
-                                            const saldo = totalTrabajo - totalPagado;
+                                            const saldo = trabajo.saldo || 0; // Ya calculado en useMemo considerando cuotas semanales
                                             const porcentajePagado = totalTrabajo > 0 ? (totalPagado / totalTrabajo) * 100 : 0;
                                             const estaSeleccionado = trabajosExtraSeleccionados.includes(trabajo.id);
                                             const estaPagado = saldo <= 0;
@@ -2745,6 +2764,16 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                                         <div className="fw-bold">
                                                           {trabajo.nombre}
                                                         </div>
+                                                        {/* Mostrar info de división por semana si aplica */}
+                                                        {semanaSeleccionada > 0 && (() => {
+                                                          const diasDuracion = parseInt(trabajo.tiempoEstimadoTerminacion) || 5;
+                                                          const semanasDuracion = Math.max(1, Math.ceil(diasDuracion / 5));
+                                                          return (
+                                                            <small className="text-success">
+                                                              ✅ Configurado: {semanasDuracion} semanas ({diasDuracion} días hábiles) - {(trabajo.profesionales?.length || 0)} profesional{trabajo.profesionales?.length !== 1 ? 'es' : ''} asignado{trabajo.profesionales?.length !== 1 ? 's' : ''}
+                                                            </small>
+                                                          );
+                                                        })()}
                                                         {trabajo.observaciones && (
                                                           <small className="text-muted d-block mt-1">
                                                             {trabajo.observaciones}
