@@ -14,6 +14,7 @@ const FunctionalDashboard = ({ showNotification }) => {
     clientes: 0,
     obras: 0,
     profesionales: 0,
+    profesionalesPorObra: 0, // Nuevo: separar las asignaciones de profesionales
     obrasActivas: 0,
     materialesStock: 0,
     gastosGenerales: 0,
@@ -63,9 +64,8 @@ const FunctionalDashboard = ({ showNotification }) => {
           apiService.empresas.getAll(),
           apiService.clientes.getAllSimple(empresaId),
           apiService.obras.getAll(empresaId), // Cambiado de getActivas a getAll
-          // IMPORTANTE: Para la tarjeta "Profesionales por Obra", usamos la API correcta (asignaciones),
-          // no la lista maestra de profesionales.
-          apiService.profesionalesObra.getAll(empresaId),
+          apiService.profesionales.getAll(empresaId), // Catálogo general de profesionales
+          apiService.profesionalesObra.getAll(empresaId), // Asignaciones de profesionales a obras
           apiService.materiales.getAll(empresaId),
           apiService.gastosGenerales.getAll(empresaId),
           // Temporalmente comentados hasta implementar en backend
@@ -80,6 +80,7 @@ const FunctionalDashboard = ({ showNotification }) => {
           clientes: 0,
           obras: 0,
           profesionales: 0,
+          profesionalesPorObra: 0,
           obrasActivas: 0,
           materialesStock: 0,
           gastosGenerales: 0,
@@ -89,7 +90,7 @@ const FunctionalDashboard = ({ showNotification }) => {
           transaccionesFinancieras: 0
         };
 
-        const [empresasRes, clientesRes, obrasRes, profRes, matRes, gastosRes, presupRes] = results;
+        const [empresasRes, clientesRes, obrasRes, profGeneralRes, profObraRes, matRes, gastosRes, presupRes] = results;
 
         // Empresas - viene directo como array desde /api/empresas/simple
         let empresasCount = defaults.empresas;
@@ -121,14 +122,25 @@ const FunctionalDashboard = ({ showNotification }) => {
           else if (val?.totalElements) obrasCount = val.totalElements;
         }
 
-        // Profesionales
+        // Profesionales (catálogo general)
         let profCount = defaults.profesionales;
-        if (profRes.status === 'fulfilled') {
-          const val = profRes.value;
-          if (Array.isArray(val)) profCount = val.length;
-          else if (val?.datos && Array.isArray(val.datos)) profCount = val.datos.length;
-          else if (val?.content && Array.isArray(val.content)) profCount = val.content.length;
-          else if (val?.totalElements) profCount = val.totalElements;
+        if (profGeneralRes.status === 'fulfilled') {
+          const val = profGeneralRes.value;
+          // Extraer array correctamente (mismo método que ProfesionalesPage)
+          const profArray = Array.isArray(val) ? val : (val?.data || val?.resultado || []);
+          profCount = profArray.length;
+          console.log('📊 FunctionalDashboard - Profesionales (catálogo):', profCount);
+        }
+
+        // Profesionales por Obra (asignaciones)
+        let profObraCount = defaults.profesionalesPorObra;
+        if (profObraRes.status === 'fulfilled') {
+          const val = profObraRes.value;
+          if (Array.isArray(val)) profObraCount = val.length;
+          else if (val?.datos && Array.isArray(val.datos)) profObraCount = val.datos.length;
+          else if (val?.content && Array.isArray(val.content)) profObraCount = val.content.length;
+          else if (val?.totalElements) profObraCount = val.totalElements;
+          console.log('📊 FunctionalDashboard - Profesionales por Obra (asignaciones):', profObraCount);
         }
 
         // Materiales
@@ -190,6 +202,7 @@ const FunctionalDashboard = ({ showNotification }) => {
           clientes: clientesCount,
           obras: obrasCount,
           profesionales: profCount,
+          profesionalesPorObra: profObraCount,
           obrasActivas: obrasCount, // aproximación
           materialesStock: materialesCount,
           gastosGenerales: gastosGeneralesCount,
@@ -344,7 +357,7 @@ const FunctionalDashboard = ({ showNotification }) => {
     },
     {
       title: 'Profesionales por Obra',
-      value: stats.profesionales,
+      value: stats.profesionalesPorObra,
       icon: 'fas fa-users-cog',
       color: 'primary',
       link: '/profesionales-obra',
