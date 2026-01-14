@@ -461,9 +461,15 @@ const ProfesionalesPage = ({ showNotification }) => {
         ...formData,
         nombre: formData.nombre && formData.nombre.trim() !== '' ? formData.nombre : formData.tipoProfesional,
         // Enviar ambos campos para compatibilidad con el backend
-        honorario_dia: honorarioValor,
-        valorHoraDefault: honorarioValor
+        honorarioDia: honorarioValor,
+        valorHoraDefault: honorarioValor,
+        empresaId: empresaId
       };
+
+      // Eliminar campos que no debe enviar
+      delete dataToSend.honorario_dia;
+      delete dataToSend.idEmpresa;
+      delete dataToSend.fecha_creacion;
 
       const response = await fetch('http://localhost:8080/api/profesionales', {
         method: 'POST',

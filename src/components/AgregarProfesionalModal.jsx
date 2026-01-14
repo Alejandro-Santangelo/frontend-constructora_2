@@ -24,6 +24,8 @@ const AgregarProfesionalModal = ({ show, onHide, empresaId, onProfesionalCreado 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    console.log('🏢 EmpresaId recibido en modal:', empresaId);
+
     if (!formData.rubro || !formData.tipoProfesional || !formData.costoJornal) {
       alert('Por favor complete los campos obligatorios: Rubro, Tipo de Profesional y Costo Jornal');
       return;
@@ -39,7 +41,8 @@ const AgregarProfesionalModal = ({ show, onHide, empresaId, onProfesionalCreado 
 
       const payload = {
         tipoProfesional: formData.tipoProfesional,
-        costoJornal: parseFloat(formData.costoJornal),
+        valorHoraDefault: parseFloat(formData.costoJornal),
+        honorarioDia: parseFloat(formData.costoJornal),
         telefono: formData.telefono || '',
         email: formData.email || '',
         empresaId: empresaId,
@@ -59,14 +62,17 @@ const AgregarProfesionalModal = ({ show, onHide, empresaId, onProfesionalCreado 
       }
 
       console.log('🔍 Creando profesional con payload:', JSON.stringify(payload, null, 2));
+      console.log('🔗 URL completa:', `http://localhost:8080/api/profesionales`);
 
-      const response = await fetch('http://localhost:8080/api/profesionales', {
+      const response = await fetch(`http://localhost:8080/api/profesionales`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       });
+
+      console.log('📡 Response status:', response.status);
 
       if (response.ok) {
         const profesionalCreado = await response.json();
@@ -90,10 +96,11 @@ const AgregarProfesionalModal = ({ show, onHide, empresaId, onProfesionalCreado 
         onHide();
       } else {
         const error = await response.text();
+        console.error('❌ Error del servidor:', error);
         alert('❌ Error al guardar: ' + error);
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error('❌ Error completo:', error);
       alert('❌ Error al crear profesional: ' + error.message);
     } finally {
       setGuardando(false);
