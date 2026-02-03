@@ -90,7 +90,7 @@ apiClient.interceptors.request.use(
       // Headers específicos para el backend Spring Boot (solo para JSON)
       config.headers['Content-Type'] = 'application/json; charset=UTF-8';
       config.headers['Accept'] = 'application/json; charset=UTF-8';
-      config.headers['Accept-Charset'] = 'UTF-8';
+      // Accept-Charset removido - es un header prohibido que el navegador controla automáticamente
     } else {
       // Para FormData, dejar que el navegador establezca el Content-Type con el boundary
       delete config.headers['Content-Type'];

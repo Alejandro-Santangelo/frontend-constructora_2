@@ -2764,9 +2764,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       return;
     }
 
+    const nombreRubro = tipoProfesionalCalc.trim();
+
     const rubroVacio = {
       id: Date.now(),
-      tipoProfesional: tipoProfesionalCalc.trim(),
+      tipoProfesional: nombreRubro,
       profesionales: [],
       materialesLista: [],
       cantidadJornales: null,
@@ -2783,9 +2785,40 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     };
 
     setItemsCalculadora([...itemsCalculadora, rubroVacio]);
-    setRubroCreado(true);
 
-    alert(`✅ Rubro "${tipoProfesionalCalc}" creado. Puede editarlo después para agregar profesionales y materiales.`);
+    // ✅ Limpiar todos los campos después de crear el rubro
+    setTipoProfesionalCalc('');
+    setCantidadJornalesCalc('');
+    setImporteJornalCalc('');
+    setImporteMaterialesCalc('');
+    setTotalManualCalc('');
+    setDescripcionCalc('');
+    setObservacionesCalc('');
+    setDescripcionMateriales('');
+    setObservacionesMateriales('');
+    setDescripcionTotalManual('');
+    setObservacionesTotalManual('');
+    setDescripcionProfesionales('');
+    setObservacionesProfesionales('');
+    setDescripcionGastosGenerales('');
+    setObservacionesGastosGenerales('');
+
+    setProfesionalesCalc([]);
+    setMaterialesCalc([]);
+    setGastosGeneralesCalc([]);
+    setJornalesCalc([]);
+
+    setProfesionalActualCalc({ tipo: '', nombre: '', telefono: '', unidad: 'jornales', cantidadJornales: '', importeJornal: '' });
+    setMaterialActualCalc({ descripcion: '', cantidad: '', precioUnitario: '', unidad: 'unidad' });
+    setGastoGeneralActual({ descripcion: '', cantidad: '', precioUnitario: '' });
+
+    setProfesionalesAgregados(false);
+    setMaterialesAgregados(false);
+    setGastosGeneralesAgregados(false);
+    setJornalesAgregados(false);
+    setRubroCreado(false);
+
+    alert(`✅ Rubro "${nombreRubro}" creado exitosamente. Los campos se han limpiado para crear un nuevo rubro.`);
 
   };
 
