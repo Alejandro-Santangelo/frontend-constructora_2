@@ -32,16 +32,16 @@ const EmpresasPage = ({ showNotification }) => {
 
   // Botones de acción cuando hay una empresa seleccionada
   const selectedItemActions = selectedEmpresa ? [
-    { 
-      id: 'editar', 
-      label: 'Editar Empresa', 
+    {
+      id: 'editar',
+      label: 'Editar Empresa',
       icon: 'fas fa-edit',
       color: '#fd7e14',
       onClick: () => setEmpresaParaEditar(selectedEmpresa)
     },
-    { 
-      id: 'ver-estado', 
-      label: 'Ver Estado', 
+    {
+      id: 'ver-estado',
+      label: 'Ver Estado',
       icon: 'fas fa-info-circle',
       color: '#6f42c1',
       onClick: () => verificarEstado(selectedEmpresa.id)
@@ -218,7 +218,7 @@ const EmpresasPage = ({ showNotification }) => {
         },
         body: JSON.stringify(formData)
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         showNotification('Empresa creada exitosamente', 'success');
@@ -252,7 +252,7 @@ const EmpresasPage = ({ showNotification }) => {
         },
         body: JSON.stringify(data)
       });
-      
+
       if (response.ok) {
         showNotification('Empresa actualizada exitosamente', 'success');
         loadEmpresas();
@@ -273,7 +273,7 @@ const EmpresasPage = ({ showNotification }) => {
       const response = await fetch(`http://localhost:8080/api/empresas/${encodeURIComponent(id)}`, {
         method: 'DELETE'
       });
-      
+
       if (response.ok) {
         const message = await response.text();
         showNotification(message, 'success');
@@ -333,9 +333,9 @@ const EmpresasPage = ({ showNotification }) => {
                             const empresaId = empresa.id;
                             const selectedId = selectedEmpresa?.id;
                             const isSelected = selectedEmpresa && empresaId && selectedId && empresaId === selectedId;
-                            
+
                             return (
-                              <tr 
+                              <tr
                                 key={empresaId}
                                 onClick={() => {
                                   // Toggle: si ya está seleccionado, deseleccionar; si no, seleccionar
@@ -397,8 +397,8 @@ const EmpresasPage = ({ showNotification }) => {
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && buscarEmpresa()}
                     />
-                    <button 
-                      className="btn btn-primary" 
+                    <button
+                      className="btn btn-primary"
                       onClick={buscarEmpresa}
                       disabled={loading}
                     >
@@ -437,7 +437,7 @@ const EmpresasPage = ({ showNotification }) => {
                       <p><strong>CUIT:</strong> {searchResult.cuit}</p>
                       <p><strong>Email:</strong> {searchResult.email}</p>
                       <p><strong>Dirección:</strong> {searchResult.direccionFiscal}</p>
-                      <p><strong>Estado:</strong> 
+                      <p><strong>Estado:</strong>
                         <span className={`badge ms-1 ${searchResult.activa ? 'bg-success' : 'bg-danger'}`}>
                           {searchResult.activa ? 'Activa' : 'Inactiva'}
                         </span>
@@ -560,8 +560,8 @@ const EmpresasPage = ({ showNotification }) => {
                     </div>
 
                     <div className="d-grid">
-                      <button 
-                        type="submit" 
+                      <button
+                        type="submit"
                         className="btn btn-primary"
                         disabled={loading || (cuitValidation.disponible === false)}
                       >
@@ -718,8 +718,8 @@ const EmpresasPage = ({ showNotification }) => {
       </div>
 
       {/* Contenido principal */}
-      <div 
-        className="flex-grow-1 p-4" 
+      <div
+        className="flex-grow-1 p-4"
         style={{ backgroundColor: '#f8f9fa' }}
         onClick={() => setSelectedEmpresa(null)}
       >
@@ -741,8 +741,8 @@ const EmpresasPage = ({ showNotification }) => {
                 <div className="modal-content">
                   <div className="modal-header">
                     <h5 className="modal-title">Editar Empresa</h5>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       className="btn-close"
                       onClick={() => setEmpresaParaEditar(null)}
                     ></button>
@@ -821,8 +821,8 @@ const EmpresasPage = ({ showNotification }) => {
                         </label>
                       </div>
                       <div className="d-flex justify-content-end">
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           className="btn btn-secondary me-2"
                           onClick={() => setEmpresaParaEditar(null)}
                         >
