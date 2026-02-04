@@ -35,16 +35,16 @@ const EstadoPresupuestoBadge = ({ obraId, estadoObra }) => {
       }
 
       let presupuestoData = await response.json();
-      
+
       // Si no es array, convertir a array
       if (!Array.isArray(presupuestoData)) {
         presupuestoData = [presupuestoData];
       }
-      
+
       // Agrupar por numeroPresupuesto y seleccionar solo estados válidos
       // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO
       const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO'];
-      
+
       let presupuesto = null;
       if (Array.isArray(presupuestoData) && presupuestoData.length > 0) {
         const porNumero = {};
@@ -53,11 +53,11 @@ const EstadoPresupuestoBadge = ({ obraId, estadoObra }) => {
           if (!porNumero[num]) porNumero[num] = [];
           porNumero[num].push(p);
         });
-        
+
         const presupuestosValidos = [];
         Object.values(porNumero).forEach(versiones => {
           const validos = versiones.filter(p => ESTADOS_VALIDOS.includes(p.estado));
-          
+
           if (validos.length > 0) {
             validos.sort((a, b) => {
               const vA = a.numeroVersion || a.version || 0;
@@ -67,7 +67,7 @@ const EstadoPresupuestoBadge = ({ obraId, estadoObra }) => {
             presupuestosValidos.push(validos[0]);
           }
         });
-        
+
         presupuesto = presupuestosValidos.length > 0 ? presupuestosValidos[0] : null;
       }
 
@@ -115,18 +115,21 @@ const EstadoPresupuestoBadge = ({ obraId, estadoObra }) => {
         'OBRA_A_CONFIRMAR': { label: 'Obra a confirmar', class: 'bg-warning text-dark' },
         'MODIFICADO': { label: 'Modificado', class: 'bg-warning' },
         'EN_EJECUCION': { label: 'En ejecución', class: 'bg-info' },
-        'TERMINADO': { label: 'Terminado', class: 'bg-dark' }
+        'TERMINADO': { label: 'Terminado', class: 'bg-dark' },
+        'CANCELADO': { label: 'Cancelado', class: 'bg-danger' },
+        'SUSPENDIDO': { label: 'Suspendido', class: 'bg-warning' },
+        'INACTIVA': { label: 'Inactiva', class: 'bg-secondary' }
       };
-      
+
       const estadoInfo = mapeoEstados[estadoObra] || { label: estadoObra, class: 'bg-secondary' };
-      
+
       return (
         <span className={`badge ${estadoInfo.class}`}>
           {estadoInfo.label}
         </span>
       );
     }
-    
+
     return (
       <span className="badge bg-warning text-dark">
         Sin presupuesto APROBADO

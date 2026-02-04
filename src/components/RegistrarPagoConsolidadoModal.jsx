@@ -2770,7 +2770,7 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                                           const semanasDuracion = Math.max(1, Math.ceil(diasDuracion / 5));
                                                           return (
                                                             <small className="text-success">
-                                                              ✅ Configurado: {semanasDuracion} semanas ({diasDuracion} días hábiles) - {(trabajo.profesionales?.length || 0)} profesional{trabajo.profesionales?.length !== 1 ? 'es' : ''} asignado{trabajo.profesionales?.length !== 1 ? 's' : ''}
+                                                              ✅ Configurado: {semanasDuracion} semanas ({diasDuracion} días) - {(trabajo.profesionales?.length || 0)} profesional{trabajo.profesionales?.length !== 1 ? 'es' : ''} asignado{trabajo.profesionales?.length !== 1 ? 's' : ''}
                                                             </small>
                                                           );
                                                         })()}

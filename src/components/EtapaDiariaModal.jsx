@@ -928,7 +928,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
                         onClick={handleGuardarTarea}
                       >
                         <i className="fas fa-check me-2"></i>
-                        {editandoTareaIndex !== null ? 'Actualizar' : 'Agregar'} Tarea
+                        {editandoTareaIndex !== null ? 'Actualizar esta' : 'Agregar esta'} Tarea
                       </button>
                       <button
                         type="button"

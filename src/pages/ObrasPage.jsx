@@ -3424,7 +3424,14 @@ const ObrasPage = ({ showNotification }) => {
                           </tr>
                         </thead>
                         <tbody>
-                          {obras.map(obra => {
+                          {[...obras]
+                            .sort((a, b) => {
+                              // Obras CANCELADO al final
+                              if (a.estado === 'CANCELADO' && b.estado !== 'CANCELADO') return 1;
+                              if (a.estado !== 'CANCELADO' && b.estado === 'CANCELADO') return -1;
+                              return 0; // Mantener orden original para las demás
+                            })
+                            .map(obra => {
                             const obraId = obra.id;
                             const isSelected = selectedObraId && obraId && selectedObraId === obraId;
 

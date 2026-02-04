@@ -91,6 +91,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     clienteId: safeInitial.clienteId || null, // ✨ Nuevo: ID del cliente seleccionado
     nombreObraManual: safeInitial.nombreObraManual || safeInitial.nombreObra || '',
     obraSeleccionadaParaCopiar: null, // ✨ Flag para distinguir si se seleccionó obra (sin vincular, solo copiar datos)
+
+    // 🆕 Modos de carga (global/detalle) - Persistencia de UI
+    modoCargaJornales: safeInitial.modoCargaJornales || 'detalle',
+    modoCargaMateriales: safeInitial.modoCargaMateriales || 'detalle',
+    modoCargaGastos: safeInitial.modoCargaGastos || 'detalle',
   }));
 
   // Estado para guardar el valor protegido del nombre de obra
@@ -782,6 +787,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       clienteId: safeData.clienteId || safeData.idCliente || safeData.cliente_id || null,
       nombreObraManual: safeData.nombreObraManual || safeData.nombreObra || safeData.nombre_obra || '',
       obraSeleccionadaParaCopiar: null,
+
+      // 🆕 Modos de carga (global/detalle) - Persistencia de UI
+      modoCargaJornales: safeData.modoCargaJornales || 'detalle',
+      modoCargaMateriales: safeData.modoCargaMateriales || 'detalle',
+      modoCargaGastos: safeData.modoCargaGastos || 'detalle',
     });
 
     // Colapsar secciones automáticamente si ya tienen items agregados (modo edición)
@@ -818,11 +828,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           importe: jornalesUnicos[0].importeJornal || jornalesUnicos[0].valorUnitario || jornalesUnicos[0].subtotal
         });
       } else {
-        setModoCargaJornales('detalle');
+        // ✅ Respetar modo guardado en BD o usar detalle por defecto
+        const modoGuardado = safeData.modoCargaJornales || 'detalle';
+        setModoCargaJornales(modoGuardado);
       }
     } else {
       setJornalesCalc([]);
-      setModoCargaJornales('detalle');
+      // ✅ Respetar modo guardado en BD o usar detalle por defecto
+      const modoGuardado = safeData.modoCargaJornales || 'detalle';
+      setModoCargaJornales(modoGuardado);
     }
 
     // 2. MATERIALES
@@ -847,11 +861,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           importe: mat.precioUnitario || mat.precio || mat.subtotal || ''
         });
       } else {
-        setModoCargaMateriales('detalle');
+        // ✅ Respetar modo guardado en BD o usar detalle por defecto
+        const modoGuardado = safeData.modoCargaMateriales || 'detalle';
+        setModoCargaMateriales(modoGuardado);
       }
     } else {
       setMaterialesCalc([]);
-      setModoCargaMateriales('detalle');
+      // ✅ Respetar modo guardado en BD o usar detalle por defecto
+      const modoGuardado = safeData.modoCargaMateriales || 'detalle';
+      setModoCargaMateriales(modoGuardado);
     }
 
     // 3. GASTOS GENERALES (Otros Costos)
@@ -875,11 +893,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           importe: gasto.precioUnitario || gasto.precio || gasto.subtotal || ''
         });
       } else {
-        setModoCargaGastos('detalle');
+        // ✅ Respetar modo guardado en BD o usar detalle por defecto
+        const modoGuardado = safeData.modoCargaGastos || 'detalle';
+        setModoCargaGastos(modoGuardado);
       }
     } else {
       setGastosGeneralesCalc([]);
-      setModoCargaGastos('detalle');
+      // ✅ Respetar modo guardado en BD o usar detalle por defecto
+      const modoGuardado = safeData.modoCargaGastos || 'detalle';
+      setModoCargaGastos(modoGuardado);
     }
 
 
@@ -1414,6 +1436,24 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       }, 100);
     }
   }, [initialData]); // Ejecutar cuando cambian los datos iniciales
+
+  // 🆕 useEffect para sincronizar modoCargaJornales con el formulario
+  useEffect(() => {
+    if (estaGuardandoRef.current || estaCargandoInicialRef.current) return;
+    setForm(prev => ({ ...prev, modoCargaJornales }));
+  }, [modoCargaJornales]);
+
+  // 🆕 useEffect para sincronizar modoCargaMateriales con el formulario
+  useEffect(() => {
+    if (estaGuardandoRef.current || estaCargandoInicialRef.current) return;
+    setForm(prev => ({ ...prev, modoCargaMateriales }));
+  }, [modoCargaMateriales]);
+
+  // 🆕 useEffect para sincronizar modoCargaGastos con el formulario
+  useEffect(() => {
+    if (estaGuardandoRef.current || estaCargandoInicialRef.current) return;
+    setForm(prev => ({ ...prev, modoCargaGastos }));
+  }, [modoCargaGastos]);
 
   // useEffect para hacer scroll automático a la sección de exportación cuando viene desde "Enviar" (WhatsApp o Email)
   useEffect(() => {
@@ -6859,8 +6899,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     payload.materialesList = payload.materiales.map(m => ({
       tipoMaterial: m.tipoMaterial || '',
+      nombre: m.nombre || m.tipoMaterial || 'Material sin nombre', // ✅ CRÍTICO: campo obligatorio en BD
       cantidad: Number(m.cantidad) || 0,
-      precioUnitario: Number(m.precioUnitario) || 0
+      precioUnitario: Number(m.precioUnitario) || 0,
+      unidad: m.unidad || m.unidadMedida || 'unidad' // ✅ CRÍTICO: campo obligatorio en BD
     }));
     delete payload.materiales; // Eliminar el campo antiguo
 
@@ -7084,6 +7126,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
 
     payload.empresaNombre = payload.nombreEmpresa || empresaSeleccionada?.nombreEmpresa || 'Sin empresa';
+
+    // 🆕 PERSISTENCIA DE MODOS DE CARGA (para mantener UI al reabrir)
+    payload.modoCargaJornales = modoCargaJornales;
+    payload.modoCargaMateriales = modoCargaMateriales;
+    payload.modoCargaGastos = modoCargaGastos;
 
     if (form.honorarios) {
       const honorariosConfig = form.honorarios;
@@ -7643,16 +7690,37 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               presupuestoNoClienteId: esTrabajoExtra ? null : (payload.id || null)
             };
           }),
-          materialesLista: (item.materialesLista || []).map(material => ({
-            // ✅ Al editar trabajos extra, NO enviar IDs para evitar conflictos 409
-            id: esTrabajoExtra && payload.id ? null : (material.id && material.id < 1000000 ? material.id : null),
-            descripcion: material.descripcion,
-            cantidad: Number(material.cantidad ?? 0),
-            precioUnitario: Number(material.precioUnitario ?? 0),
-            subtotal: Number(material.subtotal ?? material.total ?? 0),
-            sinCantidad: Boolean(material.sinCantidad ?? false),
-            sinPrecio: Boolean(material.sinPrecio ?? false)
-          })),
+          materialesLista: (item.materialesLista || []).map(material => {
+            // 🔍 Detectar material global por flag o patrón de descripción
+            let esGlobalDetectado = false;
+
+            if (material.esGlobal === undefined || material.esGlobal === null || material.esGlobal === false) {
+              const desc = (material.descripcion || '').toLowerCase();
+              esGlobalDetectado = desc.includes('presupuesto global') ||
+                                  desc.includes('materiales global') ||
+                                  desc.includes('global materiales');
+
+              if (esGlobalDetectado) {
+                console.log('🔥 [MAPEO GUARDADO] Detectado material global:', material.descripcion);
+              }
+            } else {
+              esGlobalDetectado = material.esGlobal;
+            }
+
+            return {
+              // ✅ Al editar trabajos extra, NO enviar IDs para evitar conflictos 409
+              id: esTrabajoExtra && payload.id ? null : (material.id && material.id < 1000000 ? material.id : null),
+              nombre: material.nombre || material.descripcion || 'Material sin nombre', // ✅ CRÍTICO: campo obligatorio en BD
+              descripcion: material.descripcion || material.nombre,
+              cantidad: Number(material.cantidad ?? 0),
+              precioUnitario: Number(material.precioUnitario ?? 0),
+              subtotal: Number(material.subtotal ?? material.total ?? 0),
+              sinCantidad: Boolean(material.sinCantidad ?? false),
+              sinPrecio: Boolean(material.sinPrecio ?? false),
+              esGlobal: Boolean(esGlobalDetectado),
+              unidad: esGlobalDetectado ? 'global' : (material.unidad || material.unidadMedida || 'unidad') // ✅ CRÍTICO: campo obligatorio en BD
+            };
+          }),
           gastosGenerales: (item.gastosGenerales || []).map(gasto => {
             // � WORKAROUND: Detectar gasto global por patrón de descripción
             let esGlobalDetectado = false;

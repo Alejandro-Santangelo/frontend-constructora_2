@@ -150,8 +150,8 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
           </thead>
           <tbody>
             {datos.map((obra, idx) => (
-              <>
-                <tr key={idx}>
+              <React.Fragment key={idx}>
+                <tr>
                   <td>
                     <strong>{obra.nombreObra}</strong>
                     <div className="text-muted small">
@@ -190,7 +190,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                     </td>
                   </tr>
                 ))}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
           <tfoot className="table-light">
