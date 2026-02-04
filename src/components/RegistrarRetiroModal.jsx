@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
-import { 
-  registrarRetiro, 
-  obtenerSaldoDisponible, 
+import {
+  registrarRetiro,
+  obtenerSaldoDisponible,
   formatearMoneda,
-  TIPOS_RETIRO 
+  TIPOS_RETIRO
 } from '../services/retirosPersonalesService';
 import { useEstadisticasConsolidadas } from '../hooks/useEstadisticasConsolidadas';
 import api from '../services/api';
@@ -17,7 +17,7 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
     empresaSeleccionada?.id,
     refreshTrigger
   );
-  
+
   const [formData, setFormData] = useState({
     monto: '',
     fechaRetiro: new Date().toISOString().split('T')[0],
@@ -32,15 +32,15 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
-  
+
   // Obras disponibles para retirar
   const [obrasDisponibles, setObrasDisponibles] = useState([]);
   const [totalHonorariosPresupuestados, setTotalHonorariosPresupuestados] = useState(0);
-  
+
   // Calcular saldo disponible CORRECTO: totalCobrado - totalPagado - totalRetirado
-  const saldoDisponibleReal = estadisticasConsolidadas 
-    ? (estadisticasConsolidadas.totalCobradoEmpresa || estadisticasConsolidadas.totalCobrado || 0) 
-      - (estadisticasConsolidadas.totalPagado || 0) 
+  const saldoDisponibleReal = estadisticasConsolidadas
+    ? (estadisticasConsolidadas.totalCobradoEmpresa || estadisticasConsolidadas.totalCobrado || 0)
+      - (estadisticasConsolidadas.totalPagado || 0)
       - (estadisticasConsolidadas.totalRetirado || 0)
     : 0;
 
@@ -61,21 +61,25 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
   // Cargar obras desde el desglose del hook cuando cambian las estadísticas
   useEffect(() => {
     if (estadisticasConsolidadas?.desglosePorObra) {
+      console.log('📋 [RegistrarRetiroModal] Desglose recibido:', estadisticasConsolidadas.desglosePorObra);
+
       const obrasFormateadas = estadisticasConsolidadas.desglosePorObra.map(obra => ({
         obraId: obra.obraId,
         presupuestoNoClienteId: obra.id,
         direccion: obra.nombreObra,
-        totalHonorarios: parseFloat(obra.totalHonorarios || 0),
+        totalHonorarios: parseFloat(obra.totalHonorarios || 0), // Ya incluye trabajos extra
         totalCobrado: parseFloat(obra.totalCobrado || 0),
         totalPagado: parseFloat(obra.totalPagado || 0),
         totalRetirado: parseFloat(obra.totalRetirado || 0),
-        saldoDisponible: parseFloat(obra.saldoDisponible || 0)
+        saldoDisponible: parseFloat(obra.saldoDisponible || 0),
+        trabajosExtra: obra.trabajosExtra || [] // Mantener referencia para otros usos
       }));
-      
+
       setObrasDisponibles(obrasFormateadas);
-      
-      // Calcular total de honorarios
+
+      // Calcular total de honorarios (ya incluye trabajos extra desde el hook)
       const totalHonorarios = obrasFormateadas.reduce((sum, o) => sum + o.totalHonorarios, 0);
+      console.log('💰 [RegistrarRetiroModal] Total honorarios calculado:', totalHonorarios.toLocaleString());
       setTotalHonorariosPresupuestados(totalHonorarios);
     }
   }, [estadisticasConsolidadas]);
@@ -109,20 +113,20 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    
+
     // Si cambia el origen del retiro, resetear obraId
     if (name === 'origenRetiro') {
-      setFormData(prev => ({ 
-        ...prev, 
+      setFormData(prev => ({
+        ...prev,
         [name]: value,
         obraId: null // Resetear obra seleccionada
       }));
-    } 
+    }
     // Si selecciona una obra, convertir el ID a número
     else if (name === 'obraId') {
-      setFormData(prev => ({ 
-        ...prev, 
-        [name]: value ? parseInt(value, 10) : null 
+      setFormData(prev => ({
+        ...prev,
+        [name]: value ? parseInt(value, 10) : null
       }));
     }
     // Otros campos
@@ -196,12 +200,12 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
         obraId: formData.origenRetiro === 'OBRA' ? formData.obraId : null
       });
 
-      const mensajeOrigen = formData.origenRetiro === 'OBRA' 
-        ? ` de la obra "${obraSeleccionada?.direccion}"` 
+      const mensajeOrigen = formData.origenRetiro === 'OBRA'
+        ? ` de la obra "${obraSeleccionada?.direccion}"`
         : ' del saldo general';
-      
+
       setSuccessMessage(`✅ Retiro registrado exitosamente por ${formatearMoneda(montoNum)}${mensajeOrigen}`);
-      
+
       if (onSuccess) {
         onSuccess({
           mensaje: `Retiro registrado por ${formatearMoneda(montoNum)}`,
@@ -307,8 +311,8 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                       {formatearMoneda(saldoDisponibleReal)}
                     </div>
                   </div>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="btn btn-sm btn-outline-secondary"
                     onClick={() => setRefreshTrigger(prev => prev + 1)}
                     disabled={loadingEstadisticas}
@@ -364,7 +368,7 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                   <label className="form-label fw-bold">
                     Origen del Retiro <span className="text-danger">*</span>
                   </label>
-                  
+
                   {loadingEstadisticas ? (
                     <div className="alert alert-info">
                       <i className="bi bi-hourglass-split me-2"></i>
@@ -398,8 +402,8 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                           onChange={handleChange}
                           disabled={loading || obrasDisponibles.length === 0}
                         />
-                        <label 
-                          className={`btn ${obrasDisponibles.length === 0 ? 'btn-outline-secondary' : 'btn-outline-success'}`} 
+                        <label
+                          className={`btn ${obrasDisponibles.length === 0 ? 'btn-outline-secondary' : 'btn-outline-success'}`}
                           htmlFor="origenObra"
                         >
                           <i className="bi bi-building me-2"></i>
@@ -454,36 +458,36 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                               {obraSeleccionada.direccion}
                             </strong>
                           </div>
-                          
+
                           <div className="col-md-4">
                             <small className="text-muted d-block">💼 Honorarios Presupuestados</small>
                             <strong className="text-primary fs-6">
                               {formatearMoneda(obraSeleccionada.totalHonorarios)}
                             </strong>
                           </div>
-                          
+
                           <div className="col-md-4">
                             <small className="text-muted d-block">💰 Saldo Disponible</small>
                             <strong className={obraSeleccionada.saldoDisponible > 0 ? 'text-success fs-6' : 'text-danger fs-6'}>
                               {formatearMoneda(obraSeleccionada.saldoDisponible)}
                             </strong>
                           </div>
-                          
+
                           <div className="col-md-4">
                             <small className="text-muted d-block">📊 Relación</small>
                             <strong className={
-                              obraSeleccionada.totalHonorarios > 0 
+                              obraSeleccionada.totalHonorarios > 0
                                 ? (obraSeleccionada.saldoDisponible >= obraSeleccionada.totalHonorarios ? 'text-success' : 'text-warning')
                                 : 'text-muted'
                             }>
-                              {obraSeleccionada.totalHonorarios > 0 
+                              {obraSeleccionada.totalHonorarios > 0
                                 ? `${((obraSeleccionada.saldoDisponible / obraSeleccionada.totalHonorarios) * 100).toFixed(0)}%`
                                 : 'N/A'
                               }
                             </strong>
                           </div>
                         </div>
-                        
+
                         {obraSeleccionada.saldoDisponible <= 0 && (
                           <div className="alert alert-danger mt-2 mb-0 py-1">
                             <small>
@@ -492,7 +496,7 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                             </small>
                           </div>
                         )}
-                        
+
                         {obraSeleccionada.totalHonorarios > 0 && obraSeleccionada.saldoDisponible > 0 && obraSeleccionada.saldoDisponible < obraSeleccionada.totalHonorarios && (
                           <div className="alert alert-warning mt-2 mb-0 py-1">
                             <small>
@@ -501,7 +505,7 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                             </small>
                           </div>
                         )}
-                        
+
                         {obraSeleccionada.totalHonorarios > 0 && obraSeleccionada.saldoDisponible >= obraSeleccionada.totalHonorarios && (
                           <div className="alert alert-success mt-2 mb-0 py-1">
                             <small>
@@ -618,20 +622,20 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
 
               {/* Botones */}
               <div className="d-flex justify-content-end gap-2 mt-4">
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
+                <button
+                  type="button"
+                  className="btn btn-secondary"
                   onClick={onHide}
                   disabled={loading}
                 >
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="btn btn-success"
                   disabled={
-                    loading || 
-                    loadingEstadisticas || 
+                    loading ||
+                    loadingEstadisticas ||
                     (formData.origenRetiro === 'GENERAL' && saldoDisponibleReal <= 0) ||
                     (formData.origenRetiro === 'OBRA' && (!formData.obraId || saldoObraSeleccionada <= 0))
                   }

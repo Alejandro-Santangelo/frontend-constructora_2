@@ -328,21 +328,59 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
       parseFloat(d.monto) > 0
     );
 
-    const totalMonto = obrasConMonto.reduce((sum, d) => sum + parseFloat(d.monto), 0);
-    const totalPorcentaje = obrasConMonto.reduce((sum, d) => sum + parseFloat(d.porcentaje), 0);
+    let totalMonto = 0;
+
+    // Para cada obra, si tiene distribución por items, sumar los items; si no, sumar el monto de la obra
+    obrasConMonto.forEach(d => {
+      const obraId = d.obra.presupuestoNoClienteId;
+      const distObra = distribucionPorObra[obraId];
+      const estaExpandida = obrasExpandidas.includes(obraId);
+
+      if (estaExpandida && distObra) {
+        // Si está expandida, sumar los items distribuidos
+        const totalItems = parseFloat(distObra.profesionales?.monto || 0) +
+                          parseFloat(distObra.materiales?.monto || 0) +
+                          parseFloat(distObra.gastosGenerales?.monto || 0) +
+                          parseFloat(distObra.trabajosExtra?.monto || 0);
+        totalMonto += totalItems;
+      } else {
+        // Si no está expandida, usar el monto de la obra
+        totalMonto += parseFloat(d.monto);
+      }
+    });
+
+    const disponible = parseFloat(cobroSeleccionado?.montoDisponible || cobroSeleccionado?.disponible || 1);
+    const totalPorcentaje = (totalMonto / disponible) * 100;
 
     return { totalMonto, totalPorcentaje };
-  }, [distribucion, obrasSeleccionadas]);
+  }, [distribucion, obrasSeleccionadas, distribucionPorObra, obrasExpandidas, cobroSeleccionado]);
 
   const calcularTotales = useCallback(() => totales, [totales]);
 
   const toggleObraExpandida = useCallback((presupuestoId) => {
-    setObrasExpandidas(prev =>
-      prev.includes(presupuestoId)
-        ? prev.filter(id => id !== presupuestoId)
-        : [...prev, presupuestoId]
-    );
-  }, []);
+    setObrasExpandidas(prev => {
+      const estaExpandida = prev.includes(presupuestoId);
+
+      if (estaExpandida) {
+        // Si se está colapsando, remover de la lista
+        return prev.filter(id => id !== presupuestoId);
+      } else {
+        // Si se está expandiendo, inicializar distribución si no existe
+        if (!distribucionPorObra[presupuestoId]) {
+          setDistribucionPorObra(prevDist => ({
+            ...prevDist,
+            [presupuestoId]: {
+              profesionales: { monto: 0, porcentaje: 0 },
+              materiales: { monto: 0, porcentaje: 0 },
+              gastosGenerales: { monto: 0, porcentaje: 0 },
+              trabajosExtra: { monto: 0, porcentaje: 0 }
+            }
+          }));
+        }
+        return [...prev, presupuestoId];
+      }
+    });
+  }, [distribucionPorObra]);
 
   const handleCambiarTipoDistribucionObra = (obraId, tipo) => {
     setTipoDistribucionPorObra(prev => ({
@@ -1040,6 +1078,49 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
                                                     </div>
                                                   </div>
                                                 </div>
+                                              </div>
+
+                                              {/* Indicador visual del total distribuido */}
+                                              <div className="mt-3 p-2 bg-light rounded">
+                                                <div className="d-flex justify-content-between align-items-center">
+                                                  <span className="fw-bold">Total distribuido:</span>
+                                                  <span className="fw-bold">{formatearMoneda(
+                                                    (distObra?.profesionales?.monto || 0) +
+                                                    (distObra?.materiales?.monto || 0) +
+                                                    (distObra?.gastosGenerales?.monto || 0) +
+                                                    (distObra?.trabajosExtra?.monto || 0)
+                                                  )}</span>
+                                                </div>
+                                                {(() => {
+                                                  const totalDistribuido = (distObra?.profesionales?.monto || 0) +
+                                                    (distObra?.materiales?.monto || 0) +
+                                                    (distObra?.gastosGenerales?.monto || 0) +
+                                                    (distObra?.trabajosExtra?.monto || 0);
+                                                  const falta = d.monto - totalDistribuido;
+
+                                                  if (Math.abs(falta) < 0.01) {
+                                                    return (
+                                                      <div className="text-success mt-1">
+                                                        <i className="bi bi-check-circle-fill me-1"></i>
+                                                        Distribución completa
+                                                      </div>
+                                                    );
+                                                  } else if (falta > 0) {
+                                                    return (
+                                                      <div className="text-danger mt-1">
+                                                        <i className="bi bi-exclamation-circle-fill me-1"></i>
+                                                        Falta: {formatearMoneda(falta)}
+                                                      </div>
+                                                    );
+                                                  } else {
+                                                    return (
+                                                      <div className="text-warning mt-1">
+                                                        <i className="bi bi-exclamation-triangle-fill me-1"></i>
+                                                        Excede: {formatearMoneda(Math.abs(falta))}
+                                                      </div>
+                                                    );
+                                                  }
+                                                })()}
                                               </div>
                                             </div>
                                           </td>

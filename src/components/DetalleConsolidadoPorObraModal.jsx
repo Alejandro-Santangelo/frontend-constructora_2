@@ -121,6 +121,8 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
         return renderPagos();
       case 'saldoPorCobrar':
         return renderSaldoPorCobrar();
+      case 'saldoDisponible':
+        return renderSaldoDisponible();
       case 'balanceNeto':
         return renderBalanceNeto();
       case 'deficit':
@@ -684,6 +686,76 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
           </tfoot>
         </table>
       </div>
+    );
+  };
+
+  const renderSaldoDisponible = () => {
+    const totalCobrado = estadisticas?.totalCobradoEmpresa || estadisticas?.totalCobrado || 0;
+    const totalAsignado = datos.reduce((sum, o) => sum + (o.totalCobrado || 0), 0);
+    const saldoDisponible = totalCobrado - totalAsignado;
+
+    return (
+      <>
+        <div className="alert alert-info mb-3">
+          <div className="row">
+            <div className="col-md-4 text-center border-end">
+              <div className="mb-1"><strong>Total Cobrado (Empresa)</strong></div>
+              <div className="fs-4 text-success fw-bold">{formatearMoneda(totalCobrado)}</div>
+            </div>
+            <div className="col-md-4 text-center border-end">
+              <div className="mb-1"><strong>Total Asignado a Obras</strong></div>
+              <div className="fs-4 text-primary fw-bold">{formatearMoneda(totalAsignado)}</div>
+            </div>
+            <div className="col-md-4 text-center">
+              <div className="mb-1"><strong>Saldo Disponible</strong></div>
+              <div className={`fs-4 fw-bold ${saldoDisponible >= 0 ? 'text-success' : 'text-danger'}`}>
+                {formatearMoneda(saldoDisponible)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="table-responsive">
+          <table className="table table-hover table-striped">
+            <thead className="table-success">
+              <tr>
+                <th>Obra</th>
+                <th className="text-end">Monto Asignado</th>
+                <th className="text-end">% del Total Cobrado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {datos.map((obra, idx) => {
+                const porcentaje = totalCobrado > 0 ? ((obra.totalCobrado || 0) / totalCobrado * 100) : 0;
+                return (
+                  <tr key={idx}>
+                    <td><strong>{obra.nombreObra}</strong></td>
+                    <td className="text-end text-primary">{formatearMoneda(obra.totalCobrado || 0)}</td>
+                    <td className="text-end">{porcentaje.toFixed(2)}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot className="table-light">
+              <tr>
+                <td className="text-end"><strong>TOTAL ASIGNADO:</strong></td>
+                <td className="text-end text-primary fw-bold">{formatearMoneda(totalAsignado)}</td>
+                <td className="text-end fw-bold">
+                  {totalCobrado > 0 ? ((totalAsignado / totalCobrado * 100).toFixed(2)) : 0}%
+                </td>
+              </tr>
+              <tr className="table-success">
+                <td className="text-end"><strong>SALDO DISPONIBLE:</strong></td>
+                <td className="text-end fw-bold fs-5" colSpan="2">
+                  <span className={saldoDisponible >= 0 ? 'text-success' : 'text-danger'}>
+                    {formatearMoneda(saldoDisponible)}
+                  </span>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </>
     );
   };
 

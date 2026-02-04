@@ -1835,29 +1835,27 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         <div className="col-md-3 mb-3 mb-md-0">
                           <div
                             className="border rounded p-3 bg-light"
-                            onClick={() => abrirDesglose('balanceNeto', '📊 Desglose de Balance Neto por Obra')}
+                            onClick={() => abrirDesglose('saldoDisponible', '💰 Desglose de Saldo Disponible')}
                             style={{cursor: 'pointer'}}
                           >
                             <i className="bi bi-piggy-bank fs-1 text-primary"></i>
-                            <h6 className="text-muted mt-2 mb-1">Saldo disponible de lo ya Asignado</h6>
+                            <h6 className="text-muted mt-2 mb-1">Total disponible de lo ya cobrado</h6>
                             <h4 className="mb-0 text-primary">
                               {(() => {
-                                // Validar que desglosePorObra tenga datos completos
-                                const desglose = stats.desglosePorObra;
-                                const datosCompletos = desglose && desglose.length > 0 &&
-                                  desglose.every(o => o.totalPagado !== undefined && o.totalRetirado !== undefined);
-
-                                if (loading || !datosCompletos) {
+                                // Total cobrado menos total distribuido a ítems
+                                if (loading) {
                                   return <span className="spinner-border spinner-border-sm" role="status"></span>;
                                 }
 
-                                const saldoFinal = desglose.reduce((sum, o) =>
-                                  sum + ((o.totalCobrado || 0) - (o.totalPagado || 0) - (o.totalRetirado || 0)), 0
-                                );
-                                return formatearMoneda(saldoFinal);
+// Calcular: Total Cobrado - Total Asignado a obras
+                                const totalCobrado = stats.totalCobradoEmpresa || stats.totalCobrado || 0;
+                                const totalAsignado = stats.totalAsignado || 0;
+                                const saldoDisponible = totalCobrado - totalAsignado;
+
+                                return formatearMoneda(saldoDisponible);
                               })()}
                             </h4>
-                            <small className="text-muted">Cobrado - Pagado - Retirado</small>
+                            <small className="text-muted">Cobrado - Asignado</small>
                             <div className="mt-1">
                               <small className="text-primary"><i className="bi bi-hand-index"></i></small>
                             </div>

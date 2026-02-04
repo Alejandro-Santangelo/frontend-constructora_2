@@ -9,7 +9,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
   const [desgloseTipo, setDesgloseTipo] = useState('');
   const [desgloseTitulo, setDesgloseTitulo] = useState('');
   const [showDistribucionCobros, setShowDistribucionCobros] = useState(false);
-  
+
   const {
     estadisticas,
     loading,
@@ -86,7 +86,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                 {/* Primera fila: 4 tarjetas principales */}
                 <div className="row text-center mb-3">
                   <div className="col-md-3 mb-3 mb-md-0">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-light"
                       onClick={() => abrirDesglose('presupuestos', '📋 Desglose de Presupuestos por Obra')}
                       style={{cursor: 'pointer'}}
@@ -101,7 +101,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     </div>
                   </div>
                   <div className="col-md-3 mb-3 mb-md-0">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-light"
                       onClick={() => abrirDesglose('cobros', '💵 Desglose de Cobros por Obra')}
                       style={{cursor: 'pointer'}}
@@ -116,7 +116,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     </div>
                   </div>
                   <div className="col-md-3 mb-3 mb-md-0">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-light"
                       onClick={() => abrirDesglose('pagos', '💸 Desglose de Pagos por Obra')}
                       style={{cursor: 'pointer'}}
@@ -131,7 +131,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     </div>
                   </div>
                   <div className="col-md-3 mb-3 mb-md-0">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-light"
                       style={{cursor: 'pointer'}}
                     >
@@ -149,7 +149,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                 {/* Segunda fila: 4 tarjetas de balance */}
                 <div className="row text-center">
                   <div className="col-md-3 mb-3 mb-md-0">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-light"
                       onClick={() => abrirDesglose('saldoPorCobrar', '⏳ Desglose de Saldo por Cobrar por Obra')}
                       style={{cursor: 'pointer'}}
@@ -172,7 +172,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     </div>
                   </div>
                   <div className="col-md-3 mb-3 mb-md-0">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-light"
                       onClick={() => setShowDistribucionCobros(true)}
                       style={{cursor: 'pointer'}}
@@ -180,7 +180,11 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                       <i className="bi bi-bank fs-1 text-info"></i>
                       <h6 className="text-muted mt-2 mb-1">Saldo disponible del Total Cobrado y Asignaciones por Ítems</h6>
                       <h4 className="text-info mb-0">
-                        {formatearMoneda(estadisticas.saldoCobradoSinAsignar || 0)}
+                        {(() => {
+                          const totalCobrado = estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0;
+                          const totalAsignado = estadisticas.totalAsignado || 0;
+                          return formatearMoneda(totalCobrado - totalAsignado);
+                        })()}
                       </h4>
                       <small className="text-muted">
                         Cobrado sin asignar a rubros
@@ -191,38 +195,35 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     </div>
                   </div>
                   <div className="col-md-3 mb-3 mb-md-0">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-light"
-                      onClick={() => abrirDesglose('balanceNeto', '📊 Desglose de Balance Neto por Obra')}
+                      onClick={() => abrirDesglose('saldoDisponible', '💰 Desglose de Saldo Disponible')}
                       style={{cursor: 'pointer'}}
                     >
                       <i className="bi bi-piggy-bank fs-1 text-primary"></i>
-                      <h6 className="text-muted mt-2 mb-1">Saldo disponible de lo ya Asignado</h6>
+                      <h6 className="text-muted mt-2 mb-1">Total disponible de lo ya cobrado</h6>
                       <h4 className="mb-0 text-primary">
                         {(() => {
-                          // Validar que desglosePorObra tenga datos completos
-                          const desglose = estadisticas.desglosePorObra;
-                          const datosCompletos = desglose && desglose.length > 0 && 
-                            desglose.every(o => o.totalPagado !== undefined && o.totalRetirado !== undefined);
-                          
-                          if (loading || !datosCompletos) {
+                          // Total cobrado menos total asignado a obras
+                          if (loading) {
                             return <span className="spinner-border spinner-border-sm" role="status"></span>;
                           }
-                          
-                          const saldoFinal = desglose.reduce((sum, o) => 
-                            sum + ((o.totalCobrado || 0) - (o.totalPagado || 0) - (o.totalRetirado || 0)), 0
-                          );
-                          return formatearMoneda(saldoFinal);
+
+                          // Calcular: Total Cobrado - Total Asignado a obras
+                          const totalCobrado = estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0;
+                          const totalAsignado = estadisticas.totalAsignado || 0;
+                          const saldoDisponible = totalCobrado - totalAsignado;
+                          return formatearMoneda(saldoDisponible);
                         })()}
                       </h4>
-                      <small className="text-muted">Cobrado - Pagado - Retirado</small>
+                      <small className="text-muted">Cobrado - Asignado</small>
                       <div className="mt-1">
                         <small className="text-primary"><i className="bi bi-hand-index"></i></small>
                       </div>
                     </div>
                   </div>
                   <div className="col-md-3">
-                    <div 
+                    <div
                       className="border rounded p-3 bg-danger bg-opacity-10"
                       onClick={() => abrirDesglose('deficit', '⚠️ Desglose de Déficit por Obra')}
                       style={{cursor: 'pointer'}}

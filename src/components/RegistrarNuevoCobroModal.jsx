@@ -212,18 +212,68 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
       parseFloat(d.monto) > 0
     );
 
-    const totalMonto = obrasConMonto.reduce((sum, d) => sum + parseFloat(d.monto), 0);
-    const totalPorcentaje = obrasConMonto.reduce((sum, d) => sum + parseFloat(d.porcentaje), 0);
+    let totalMonto = 0;
+
+    // Para cada obra, si tiene distribución por items, sumar los items; si no, sumar el monto de la obra
+    obrasConMonto.forEach(d => {
+      const obraId = d.obra.presupuestoNoClienteId;
+      const distObra = distribucionPorObra[obraId];
+      const estaExpandida = obrasExpandidas.includes(obraId);
+
+      console.log('🔍 DEBUG calcularTotales:', {
+        obraId,
+        estaExpandida,
+        tieneDistObra: !!distObra,
+        distObra: distObra,
+        montoObra: d.monto
+      });
+
+      if (estaExpandida && distObra) {
+        // Si está expandida, sumar los items distribuidos
+        const totalItems = parseFloat(distObra.profesionales?.monto || 0) +
+                          parseFloat(distObra.materiales?.monto || 0) +
+                          parseFloat(distObra.gastosGenerales?.monto || 0) +
+                          parseFloat(distObra.trabajosExtra?.monto || 0);
+        console.log('✅ Obra expandida - sumando items:', totalItems);
+        totalMonto += totalItems;
+      } else {
+        // Si no está expandida, usar el monto de la obra
+        console.log('⚠️ Obra NO expandida - sumando monto completo:', d.monto);
+        totalMonto += parseFloat(d.monto);
+      }
+    });
+
+    const montoTotalCobro = parseFloat(formData.montoTotal) || 1;
+    const totalPorcentaje = (totalMonto / montoTotalCobro) * 100;
+
+    console.log('💰 TOTAL CALCULADO:', { totalMonto, totalPorcentaje });
 
     return { totalMonto, totalPorcentaje };
   };
 
   const toggleObraExpandida = (presupuestoId) => {
-    setObrasExpandidas(prev =>
-      prev.includes(presupuestoId)
-        ? prev.filter(id => id !== presupuestoId)
-        : [...prev, presupuestoId]
-    );
+    setObrasExpandidas(prev => {
+      const estaExpandida = prev.includes(presupuestoId);
+
+      if (estaExpandida) {
+        // Si se está colapsando, remover de la lista
+        return prev.filter(id => id !== presupuestoId);
+      } else {
+        // Si se está expandiendo, inicializar distribución si no existe
+        if (!distribucionPorObra[presupuestoId]) {
+          setDistribucionPorObra(prevDist => ({
+            ...prevDist,
+            [presupuestoId]: {
+              profesionales: { monto: 0, porcentaje: 0 },
+              materiales: { monto: 0, porcentaje: 0 },
+              gastosGenerales: { monto: 0, porcentaje: 0 },
+              trabajosExtra: { monto: 0, porcentaje: 0 }
+            }
+          }));
+        }
+        return [...prev, presupuestoId];
+      }
+    });
   };
 
   const handleCambiarTipoDistribucionObra = (obraId, tipo) => {
@@ -913,6 +963,39 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                         </div>
                                                       </div>
                                                     </div>
+                                                  </div>
+
+                                                  {/* Total distribuido */}
+                                                  <div className="mt-2 pt-2 border-top">
+                                                    <small className="text-muted">
+                                                      <strong>Total distribuido:</strong>{' '}
+                                                      {(() => {
+                                                        const montoObra = parseFloat(d.monto) || 0;
+                                                        const totalDist = parseFloat(distObra?.profesionales?.monto || 0) +
+                                                                        parseFloat(distObra?.materiales?.monto || 0) +
+                                                                        parseFloat(distObra?.gastosGenerales?.monto || 0) +
+                                                                        parseFloat(distObra?.trabajosExtra?.monto || 0);
+                                                        const diferencia = montoObra - totalDist;
+                                                        const colorClass = Math.abs(diferencia) < 0.01 ? 'text-success' : 'text-danger';
+                                                        return (
+                                                          <>
+                                                            <span className={colorClass}>
+                                                              {formatearMoneda(totalDist)}
+                                                            </span>
+                                                            {Math.abs(diferencia) >= 0.01 && (
+                                                              <span className="text-danger ms-2">
+                                                                (Falta: {formatearMoneda(diferencia)})
+                                                              </span>
+                                                            )}
+                                                            {Math.abs(diferencia) < 0.01 && (
+                                                              <span className="text-success ms-2">
+                                                                <i className="bi bi-check-circle-fill"></i> Completo
+                                                              </span>
+                                                            )}
+                                                          </>
+                                                        );
+                                                      })()}
+                                                    </small>
                                                   </div>
                                                 </div>
                                               </td>

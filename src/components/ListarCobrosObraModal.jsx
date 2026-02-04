@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  listarCobrosPorObra, 
-  marcarComoCobrado, 
-  anularCobro, 
+import {
+  listarCobrosPorObra,
+  marcarComoCobrado,
+  anularCobro,
   eliminarCobro,
   obtenerTotalCobrado,
   obtenerTotalPendiente,
-  formatearMoneda, 
+  formatearMoneda,
   formatearFecha,
   obtenerEstadoCobro,
   estaVencido
@@ -53,24 +53,24 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
     setError(null);
     try {
       console.log('🔵 DIAGNOSTICO_MODAL 🔵 Iniciando carga');
-      
+
       // 1. Cargar TODAS las obras primero
       let obrasACargar = [];
       try {
         const response = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
-        let presupuestos = Array.isArray(response) ? response : 
+        let presupuestos = Array.isArray(response) ? response :
                           response?.datos || response?.content || response?.data || [];
-        
+
         console.log('🔵 DIAGNOSTICO_MODAL presupuestos obtenidos:', presupuestos.length);
-        
+
         // Filtrar solo APROBADO y EN_EJECUCION
-        presupuestos = presupuestos.filter(p => 
+        presupuestos = presupuestos.filter(p =>
           p.estado === 'APROBADO' || p.estado === 'EN_EJECUCION'
         );
-        
+
         console.log('🔵 DIAGNOSTICO_MODAL presupuestos filtrados:', presupuestos.length);
         console.log('🔵 DIAGNOSTICO_MODAL primer presupuesto completo:', presupuestos[0]);
-        
+
         // Agrupar por obra y tomar última versión
         const obrasPorNombre = {};
         presupuestos.forEach(p => {
@@ -88,13 +88,94 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
             };
           }
         });
-        
+
         obrasACargar = Object.values(obrasPorNombre);
         console.log('🔵 DIAGNOSTICO_MODAL obras agrupadas:', obrasACargar.length);
+
+        // 🆕 Cargar trabajos extra para cada obra
+        const obrasConTrabajosExtra = await Promise.all(obrasACargar.map(async (obra) => {
+          try {
+            const obraId = obra.obraId || presupuestos.find(p => p.id === obra.id)?.obraId;
+            if (obraId) {
+              const responseTE = await api.trabajosExtra.getAll(empresaSeleccionada.id, { obraId });
+              const trabajos = Array.isArray(responseTE) ? responseTE : responseTE?.data || [];
+
+              // Obtener detalles completos de cada trabajo extra
+              const trabajosCompletos = await Promise.all(trabajos.map(async (t) => {
+                try {
+                  const fullResponse = await api.trabajosExtra.getById(t.id, empresaSeleccionada.id);
+                  const fullTrabajo = fullResponse.data || fullResponse;
+
+                  // Calcular total con la misma lógica que useEstadisticasConsolidadas
+                  let totalCalculado = 0;
+                  if (fullTrabajo.itemsCalculadora && Array.isArray(fullTrabajo.itemsCalculadora) && fullTrabajo.itemsCalculadora.length > 0) {
+                    const parseMontoLocal = (val) => {
+                      if (typeof val === 'number') return val;
+                      if (!val) return 0;
+                      let str = String(val).trim().replace(/[^0-9.,-]/g, '');
+                      if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
+                      return parseFloat(str) || 0;
+                    };
+
+                    let subtotalJornales = 0, subtotalMateriales = 0, subtotalOtros = 0;
+                    fullTrabajo.itemsCalculadora.forEach((item) => {
+                      let jorItem = parseMontoLocal(item.subtotalManoObra) || 0;
+                      if (jorItem === 0 && item.jornales && Array.isArray(item.jornales)) {
+                        jorItem = item.jornales.reduce((s, j) => s + (parseMontoLocal(j.subtotal) || parseMontoLocal(j.importe) || 0), 0);
+                      }
+                      subtotalJornales += jorItem;
+                      subtotalMateriales += parseMontoLocal(item.subtotalMateriales) || 0;
+                      subtotalOtros += parseMontoLocal(item.subtotalGastosGenerales) || 0;
+                    });
+
+                    const subtotalBase = subtotalJornales + subtotalMateriales + subtotalOtros;
+                    let totalHonorarios = 0;
+                    if (fullTrabajo.honorarios && typeof fullTrabajo.honorarios === 'object') {
+                      const conf = fullTrabajo.honorarios;
+                      if (conf.jornalesActivo && conf.jornalesValor) totalHonorarios += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                      if (conf.materialesActivo && conf.materialesValor) totalHonorarios += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                      if (conf.otrosCostosActivo && conf.otrosCostosValor) totalHonorarios += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                    }
+
+                    let totalMC = 0;
+                    if (fullTrabajo.mayoresCostos && typeof fullTrabajo.mayoresCostos === 'object') {
+                      const conf = fullTrabajo.mayoresCostos;
+                      if (conf.jornalesActivo && conf.jornalesValor) totalMC += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
+                      if (conf.materialesActivo && conf.materialesValor) totalMC += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
+                      if (conf.otrosCostosActivo && conf.otrosCostosValor) totalMC += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
+                      if (conf.honorariosActivo && conf.honorariosValor && totalHonorarios > 0) totalMC += totalHonorarios * (parseFloat(conf.honorariosValor) / 100);
+                    }
+
+                    totalCalculado = subtotalBase + totalHonorarios + totalMC;
+                  } else {
+                    totalCalculado = parseFloat(fullTrabajo.totalFinal) || parseFloat(fullTrabajo.montoTotal) || 0;
+                  }
+
+                  return {
+                    id: fullTrabajo.id,
+                    nombre: fullTrabajo.nombre,
+                    totalCalculado: totalCalculado
+                  };
+                } catch (err) {
+                  return { id: t.id, nombre: t.nombre, totalCalculado: parseFloat(t.totalFinal) || 0 };
+                }
+              }));
+
+              return { ...obra, trabajosExtra: trabajosCompletos };
+            }
+            return obra;
+          } catch (error) {
+            console.warn(`⚠️ Error cargando trabajos extra de obra ${obra.nombreObra}:`, error);
+            return obra;
+          }
+        }));
+
+        obrasACargar = obrasConTrabajosExtra;
         obrasACargar.forEach((obra, idx) => {
-          console.log(`🔵 DIAGNOSTICO_MODAL obra ${idx}: ${obra.nombreObra} - totalPresupuesto:`, obra.totalPresupuesto);
+          const totalTE = obra.trabajosExtra?.reduce((sum, te) => sum + (te.totalCalculado || 0), 0) || 0;
+          console.log(`🔵 DIAGNOSTICO_MODAL obra ${idx}: ${obra.nombreObra} - base: ${obra.totalPresupuesto} + TE: ${totalTE} = ${obra.totalPresupuesto + totalTE}`);
         });
-        
+
         // Si hay selección parcial, filtrar
         if (haySeleccionParcial && obrasSeleccionadas && obrasSeleccionadas.size > 0) {
           const idsSeleccionados = Array.from(obrasSeleccionadas);
@@ -104,9 +185,9 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
       } catch (error) {
         console.error('Error cargando obras:', error);
       }
-      
+
       // 2. Cargar cobros directos de cada obra
-      const promesasCobros = obrasACargar.map(obra => 
+      const promesasCobros = obrasACargar.map(obra =>
         listarCobrosPorObra({
           presupuestoNoClienteId: obra.id,
           calle: obra.direccionObraCalle,
@@ -122,11 +203,11 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
             return { obra, cobros: [] };
           })
       );
-      
+
       const resultados = await Promise.all(promesasCobros);
-      
+
       console.log('🔵 DIAGNOSTICO_MODAL resultados de cobros por obra:', resultados);
-      
+
       // Combinar todos los cobros
       let cobrosObra = [];
       resultados.forEach(({ obra, cobros }) => {
@@ -137,19 +218,19 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         }));
         cobrosObra = [...cobrosObra, ...cobrosEnriquecidos];
       });
-      
+
       console.log(`📦 Total cobros directos de obra: ${cobrosObra.length}`);
-      
+
       // 3. Cargar cobros a la empresa (Gisel, etc.)
       let cobrosEmpresa = [];
       let totalCobradoEmpresa = 0;
       try {
         const { listarCobrosEmpresa, obtenerResumenCobrosEmpresa } = await import('../services/cobrosEmpresaService');
-        
+
         // Obtener total
         const resumen = await obtenerResumenCobrosEmpresa(empresaSeleccionada.id);
         totalCobradoEmpresa = parseFloat(resumen?.totalCobrado || 0);
-        
+
         // Obtener lista de cobros
         const cobrosEmp = await listarCobrosEmpresa(empresaSeleccionada.id);
         cobrosEmpresa = (Array.isArray(cobrosEmp) ? cobrosEmp : []).map(c => ({
@@ -158,20 +239,20 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
           tipo: 'EMPRESA',
           nombreObra: `Cobro a ${empresaSeleccionada.razonSocial || 'Empresa'}`
         }));
-        
+
         console.log('💰 Total cobrado empresa:', totalCobradoEmpresa);
         console.log('💰 Cobros empresa individuales:', cobrosEmpresa.length);
       } catch (error) {
         console.warn('⚠️ Error obteniendo cobros empresa:', error.message);
         totalCobradoEmpresa = 0;
       }
-      
+
       // 4. Cargar asignaciones de cobros empresa a las obras seleccionadas
       let totalAsignacionesObras = 0;
       try {
         const { obtenerDistribucionPorObra } = await import('../services/cobrosEmpresaService');
         const distribucion = await obtenerDistribucionPorObra(empresaSeleccionada.id);
-        
+
         if (distribucion && Array.isArray(distribucion)) {
           const idsObras = obrasACargar.map(o => o.id);
           distribucion.forEach(dist => {
@@ -184,10 +265,10 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
       } catch (error) {
         console.warn('⚠️ Error cargando distribución cobros empresa:', error.message);
       }
-      
+
       // 5. Combinar cobros de obra + cobros empresa
       const todosCobros = [...cobrosObra, ...cobrosEmpresa];
-      
+
       // Cargar asignaciones de ítems para cada cobro
       console.log('📊 Cargando asignaciones de ítems...');
       const cobrosConAsignaciones = await Promise.all(
@@ -201,7 +282,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                 asignaciones: [] // Los cobros empresa no tienen distribución por ítems
               };
             }
-            
+
             // Para cobros de obra, sí hay asignaciones por ítems
             const asignaciones = await obtenerAsignacionesDeCobro(cobro.id, empresaSeleccionada.id);
             return {
@@ -217,37 +298,48 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
           }
         })
       );
-      
+
       setCobros(cobrosConAsignaciones);
-      
+
       // 5. Calcular totales
       // Total Cobrado = el TOTAL COBRADO a la empresa (no las asignaciones)
       const totalCobradoCalculado = totalCobradoEmpresa;
-      
+
       const totalPresupuestoCalculado = obrasACargar.reduce((sum, obra) => {
-        const presupuesto = parseFloat(
-          obra.totalPresupuesto || 
+        let presupuesto = parseFloat(
+          obra.totalPresupuesto ||
           obra.totalFinal ||
-          obra.totalPresupuestoConHonorarios || 
+          obra.totalPresupuestoConHonorarios ||
           obra.presupuestoCompleto?.totalFinal ||
-          obra.presupuestoCompleto?.totalPresupuestoConHonorarios || 
-          obra.presupuestoCompleto?.montoTotal || 
+          obra.presupuestoCompleto?.totalPresupuestoConHonorarios ||
+          obra.presupuestoCompleto?.montoTotal ||
           0
         );
-        console.log(`🔵 DIAGNOSTICO_MODAL sumando obra ${obra.nombreObra}:`, presupuesto);
+
+        // 🆕 Sumar trabajos extra si existen
+        if (obra.trabajosExtra && Array.isArray(obra.trabajosExtra)) {
+          const totalTrabajosExtra = obra.trabajosExtra.reduce((sum, te) => {
+            return sum + (parseFloat(te.totalCalculado) || parseFloat(te.totalFinal) || 0);
+          }, 0);
+          presupuesto += totalTrabajosExtra;
+          console.log(`🔵 DIAGNOSTICO_MODAL obra ${obra.nombreObra} - base: ${obra.totalPresupuesto} + trabajos extra: ${totalTrabajosExtra} = ${presupuesto}`);
+        } else {
+          console.log(`🔵 DIAGNOSTICO_MODAL sumando obra ${obra.nombreObra}:`, presupuesto);
+        }
+
         return sum + presupuesto;
       }, 0);
-      
+
       console.log('🔵 DIAGNOSTICO_MODAL totalPresupuestoCalculado final:', totalPresupuestoCalculado);
       console.log('🔵 DIAGNOSTICO_MODAL totalCobradoCalculado final:', totalCobradoCalculado);
-      
+
       const pendienteCalculado = totalPresupuestoCalculado - totalCobradoCalculado;
       console.log('🔵 DIAGNOSTICO_MODAL pendienteCalculado final:', pendienteCalculado);
-      
+
       setTotalCobrado(totalCobradoCalculado);
       setTotalPendiente(pendienteCalculado > 0 ? pendienteCalculado : 0);
       setTotalPresupuesto(totalPresupuestoCalculado);
-      
+
       console.log('💰 Resumen:', {
         obras: obrasACargar.length,
         cobrosDirectos: cobrosObra.length,
@@ -256,9 +348,9 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         totalPresupuesto: totalPresupuestoCalculado,
         pendiente: pendienteCalculado
       });
-      
+
       console.log(`✅ Cargados ${cobrosConAsignaciones.length} cobros`);
-      
+
       // Log del resultado final
       console.log('📋 Cobros finales:', cobrosConAsignaciones);
     } catch (err) {
@@ -296,31 +388,31 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         setLoading(false);
         return;
       }
-      
+
       // Cargar el presupuesto para obtener el total
       const presupuestoResponse = await api.presupuestosNoCliente.getById(
-        direccionSeleccionada.presupuestoNoClienteId, 
+        direccionSeleccionada.presupuestoNoClienteId,
         empresaSeleccionada.id
       );
-      
+
       const presupuesto = presupuestoResponse?.datos || presupuestoResponse?.data || presupuestoResponse;
       const totalPpto = presupuesto?.totalPresupuestoConHonorarios || presupuesto?.totalPresupuesto || 0;
-      
+
       setTotalPresupuesto(totalPpto);
-      
+
       // Cargar cobros
       const data = await listarCobrosPorObra(direccionSeleccionada, empresaSeleccionada.id);
       const cobrosArray = Array.isArray(data) ? data : [];
       setCobros(cobrosArray);
-      
+
       // Calcular total cobrado (solo cobros en estado COBRADO)
       const cobrado = cobrosArray
         .filter(c => c.estado === 'COBRADO')
         .reduce((sum, c) => sum + (parseFloat(c.monto) || 0), 0);
-      
+
       // Total pendiente = Total del presupuesto - Total cobrado
       const pendiente = totalPpto - cobrado;
-      
+
       setTotalCobrado(cobrado);
       setTotalPendiente(pendiente);
     } catch (err) {
@@ -352,7 +444,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
 
     try {
       await marcarComoCobrado(cobroId, null, empresaSeleccionada.id);
-      
+
       // 📡 Notificar al contexto centralizado
       const cobro = cobros.find(c => c.id === cobroId);
       if (cobro) {
@@ -361,13 +453,13 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
           cobroId
         });
       }
-      
+
       if (onSuccess) {
         onSuccess({
           mensaje: '✅ Cobro marcado como cobrado exitosamente'
         });
       }
-      
+
       if (modoConsolidado) {
         cargarCobrosConsolidados();
       } else {
@@ -381,12 +473,12 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
 
   const handleAnular = async (cobroId) => {
     const cobro = cobros.find(c => c.id === cobroId);
-    
+
     if (!cobro) {
       alert('❌ Cobro no encontrado');
       return;
     }
-    
+
     const motivo = prompt('Ingrese el motivo de anulación:');
     if (!motivo) return;
 
@@ -401,19 +493,19 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         await anularCobro(cobroId, motivo, empresaSeleccionada.id);
         console.log('✅ Cobro obra anulado:', cobroId);
       }
-      
+
       // 📡 Notificar al contexto centralizado
       eventBus.emit(FINANCIAL_EVENTS.COBRO_ELIMINADO, {
         presupuestoId: cobro.presupuestoNoClienteId,
         cobroId
       });
-      
+
       if (onSuccess) {
         onSuccess({
           mensaje: '⚠️ Cobro anulado exitosamente'
         });
       }
-      
+
       if (modoConsolidado) {
         cargarCobrosConsolidados();
       } else {
@@ -427,12 +519,12 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
 
   const handleEliminar = async (cobroId) => {
     const cobro = cobros.find(c => c.id === cobroId);
-    
+
     if (!cobro) {
       alert('❌ Cobro no encontrado');
       return;
     }
-    
+
     const confirmar = window.confirm('⚠️ ¿Está seguro de eliminar este cobro? Esta acción no se puede deshacer.');
     if (!confirmar) return;
 
@@ -449,19 +541,19 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         await eliminarCobro(cobroId, empresaSeleccionada.id);
         console.log('✅ Cobro obra eliminado:', cobroId);
       }
-      
+
       // 📡 Notificar al contexto centralizado
       eventBus.emit(FINANCIAL_EVENTS.COBRO_ELIMINADO, {
         presupuestoId: cobro.presupuestoNoClienteId,
         cobroId
       });
-      
+
       if (onSuccess) {
         onSuccess({
           mensaje: '🗑️ Cobro eliminado exitosamente'
         });
       }
-      
+
       if (modoConsolidado) {
         cargarCobrosConsolidados();
       } else {
@@ -469,7 +561,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
       }
     } catch (err) {
       console.error('Error eliminando cobro:', err);
-      
+
       // Mostrar mensaje específico del backend
       const mensaje = err?.response?.data?.message || err?.message || 'Error desconocido al eliminar el cobro';
       alert(`❌ Error al eliminar cobro:\n\n${mensaje}`);
@@ -497,7 +589,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
   // 🎯 Renderizar información de ítems asignados al cobro
   const renderizarItemsAsignados = (cobro) => {
     const items = [];
-    
+
     // Si es cobro de empresa, mostrar texto diferente
     if (cobro.tipo === 'EMPRESA') {
       return (
@@ -509,7 +601,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         </div>
       );
     }
-    
+
     // Verificar si hay asignaciones (solo para cobros de obra)
     if (!cobro.asignaciones || cobro.asignaciones.length === 0) {
       return (
@@ -521,7 +613,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         </div>
       );
     }
-    
+
     // Sumar montos de todas las asignaciones activas
     const totales = {
       profesionales: 0,
@@ -529,7 +621,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
       gastosGenerales: 0,
       trabajosExtra: 0
     };
-    
+
     cobro.asignaciones
       .filter(a => a.estado === 'ACTIVA')
       .forEach(asig => {
@@ -546,7 +638,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
           totales.trabajosExtra += parseFloat(asig.montoTrabajosExtra);
         }
       });
-    
+
     // Renderizar los totales
     if (totales.profesionales > 0) {
       items.push(
@@ -580,7 +672,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         </div>
       );
     }
-    
+
     // Si no hay distribución por ítems, mostrar "General"
     if (items.length === 0) {
       return (
@@ -592,7 +684,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         </div>
       );
     }
-    
+
     return <div className="small">{items}</div>;
   };
 
@@ -676,25 +768,25 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                 <div className="mb-3">
                   <label className="form-label fw-bold">Filtrar por Estado:</label>
                   <div className="btn-group" role="group">
-                    <button 
+                    <button
                       className={`btn ${filtroEstado === 'TODOS' ? 'btn-primary' : 'btn-outline-primary'}`}
                       onClick={() => setFiltroEstado('TODOS')}
                     >
                       Todos ({cobros.length})
                     </button>
-                    <button 
+                    <button
                       className={`btn ${filtroEstado === 'PENDIENTE' ? 'btn-warning' : 'btn-outline-warning'}`}
                       onClick={() => setFiltroEstado('PENDIENTE')}
                     >
                       Pendientes ({cobros.filter(c => c.estado === 'PENDIENTE').length})
                     </button>
-                    <button 
+                    <button
                       className={`btn ${filtroEstado === 'COBRADO' ? 'btn-success' : 'btn-outline-success'}`}
                       onClick={() => setFiltroEstado('COBRADO')}
                     >
                       Cobrados ({cobros.filter(c => c.estado === 'COBRADO').length})
                     </button>
-                    <button 
+                    <button
                       className={`btn ${filtroEstado === 'VENCIDO' ? 'btn-danger' : 'btn-outline-danger'}`}
                       onClick={() => setFiltroEstado('VENCIDO')}
                     >
@@ -740,7 +832,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                                 {cobrosObra.map(cobro => {
                                   const estadoInfo = obtenerEstadoCobro(cobro);
                                   const vencido = estaVencido(cobro);
-                                  
+
                                   return (
                                     <tr key={cobro.id} className={vencido ? 'table-danger' : ''}>
                                       <td><small className="text-muted">↳</small></td>
@@ -810,7 +902,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                           cobrosFiltrados.map(cobro => {
                             const estadoInfo = obtenerEstadoCobro(cobro);
                             const vencido = estaVencido(cobro);
-                            
+
                             return (
                               <tr key={cobro.id} className={vencido ? 'table-danger' : ''}>
                                 <td>{formatearFecha(cobro.fechaEmision)}</td>
