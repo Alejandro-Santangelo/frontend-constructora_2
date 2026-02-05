@@ -28,6 +28,16 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   const safeInitial = initialData || {};
 
+  const normalizeModoCarga = (valor, defaultMode) => {
+    if (valor === undefined || valor === null || valor === '') return defaultMode;
+    if (typeof valor === 'string') {
+      const normal = valor.toLowerCase();
+      if (normal === 'global' || normal === 'detalle') return normal;
+    }
+    if (typeof valor === 'boolean') return valor ? 'global' : 'detalle';
+    return defaultMode;
+  };
+
   const soloLectura = safeInitial._soloLectura === true;
   const editarSoloFechas = safeInitial._editarSoloFechas === true;
 
@@ -93,9 +103,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     obraSeleccionadaParaCopiar: null, // ✨ Flag para distinguir si se seleccionó obra (sin vincular, solo copiar datos)
 
     // 🆕 Modos de carga (global/detalle) - Persistencia de UI
-    modoCargaJornales: safeInitial.modoCargaJornales || 'detalle',
-    modoCargaMateriales: safeInitial.modoCargaMateriales || 'detalle',
-    modoCargaGastos: safeInitial.modoCargaGastos || 'detalle',
+    modoCargaJornales: normalizeModoCarga(safeInitial.modoCargaJornales, safeInitial.id ? 'detalle' : 'global'),
+    modoCargaMateriales: normalizeModoCarga(safeInitial.modoCargaMateriales, safeInitial.id ? 'detalle' : 'global'),
+    modoCargaGastos: normalizeModoCarga(safeInitial.modoCargaGastos, safeInitial.id ? 'detalle' : 'global'),
   }));
 
   // Estado para guardar el valor protegido del nombre de obra
@@ -388,13 +398,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const [itemIdJornalEditando, setItemIdJornalEditando] = useState(null);
 
   // ✨ NUEVOS ESTADOS: Modos de Carga (Detalle vs Global)
-  const [modoCargaJornales, setModoCargaJornales] = useState('detalle'); // 'detalle' | 'global'
+  const [modoCargaJornales, setModoCargaJornales] = useState(normalizeModoCarga(safeInitial.modoCargaJornales, safeInitial.id ? 'detalle' : 'global')); // 'detalle' | 'global'
   const [globalJornales, setGlobalJornales] = useState({ descripcion: 'Presupuesto Global Mano de Obra', importe: '' });
 
-  const [modoCargaMateriales, setModoCargaMateriales] = useState('detalle'); // 'detalle' | 'global'
+  const [modoCargaMateriales, setModoCargaMateriales] = useState(normalizeModoCarga(safeInitial.modoCargaMateriales, safeInitial.id ? 'detalle' : 'global')); // 'detalle' | 'global'
   const [globalMateriales, setGlobalMateriales] = useState({ descripcion: 'Presupuesto Global Materiales', importe: '' });
 
-  const [modoCargaGastos, setModoCargaGastos] = useState('detalle'); // 'detalle' | 'global'
+  const [modoCargaGastos, setModoCargaGastos] = useState(normalizeModoCarga(safeInitial.modoCargaGastos, safeInitial.id ? 'detalle' : 'global')); // 'detalle' | 'global'
   const [globalGastos, setGlobalGastos] = useState({ descripcion: 'Presupuesto Global Gastos Grales.', importe: '' });
 
   // 🆕 NUEVOS ESTADOS: Selectores de Catálogo vs Entrada Manual
@@ -789,9 +799,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       obraSeleccionadaParaCopiar: null,
 
       // 🆕 Modos de carga (global/detalle) - Persistencia de UI
-      modoCargaJornales: safeData.modoCargaJornales || 'detalle',
-      modoCargaMateriales: safeData.modoCargaMateriales || 'detalle',
-      modoCargaGastos: safeData.modoCargaGastos || 'detalle',
+      modoCargaJornales: normalizeModoCarga(safeData.modoCargaJornales, safeData.id ? 'detalle' : 'global'),
+      modoCargaMateriales: normalizeModoCarga(safeData.modoCargaMateriales, safeData.id ? 'detalle' : 'global'),
+      modoCargaGastos: normalizeModoCarga(safeData.modoCargaGastos, safeData.id ? 'detalle' : 'global'),
     });
 
     // Colapsar secciones automáticamente si ya tienen items agregados (modo edición)
@@ -828,14 +838,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           importe: jornalesUnicos[0].importeJornal || jornalesUnicos[0].valorUnitario || jornalesUnicos[0].subtotal
         });
       } else {
-        // ✅ Respetar modo guardado en BD o usar detalle por defecto
-        const modoGuardado = safeData.modoCargaJornales || 'detalle';
+        // ✅ Respetar modo guardado en BD o usar global solo en nuevos
+        const modoGuardado = normalizeModoCarga(safeData.modoCargaJornales, safeData.id ? 'detalle' : 'global');
         setModoCargaJornales(modoGuardado);
       }
     } else {
       setJornalesCalc([]);
-      // ✅ Respetar modo guardado en BD o usar detalle por defecto
-      const modoGuardado = safeData.modoCargaJornales || 'detalle';
+      // ✅ Respetar modo guardado en BD o usar global solo en nuevos
+      const modoGuardado = normalizeModoCarga(safeData.modoCargaJornales, safeData.id ? 'detalle' : 'global');
       setModoCargaJornales(modoGuardado);
     }
 
@@ -862,13 +872,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         });
       } else {
         // ✅ Respetar modo guardado en BD o usar detalle por defecto
-        const modoGuardado = safeData.modoCargaMateriales || 'detalle';
+        const modoGuardado = normalizeModoCarga(safeData.modoCargaMateriales, safeData.id ? 'detalle' : 'global');
         setModoCargaMateriales(modoGuardado);
       }
     } else {
       setMaterialesCalc([]);
       // ✅ Respetar modo guardado en BD o usar detalle por defecto
-      const modoGuardado = safeData.modoCargaMateriales || 'detalle';
+      const modoGuardado = normalizeModoCarga(safeData.modoCargaMateriales, safeData.id ? 'detalle' : 'global');
       setModoCargaMateriales(modoGuardado);
     }
 
@@ -894,13 +904,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         });
       } else {
         // ✅ Respetar modo guardado en BD o usar detalle por defecto
-        const modoGuardado = safeData.modoCargaGastos || 'detalle';
+        const modoGuardado = normalizeModoCarga(safeData.modoCargaGastos, safeData.id ? 'detalle' : 'global');
         setModoCargaGastos(modoGuardado);
       }
     } else {
       setGastosGeneralesCalc([]);
       // ✅ Respetar modo guardado en BD o usar detalle por defecto
-      const modoGuardado = safeData.modoCargaGastos || 'detalle';
+      const modoGuardado = normalizeModoCarga(safeData.modoCargaGastos, safeData.id ? 'detalle' : 'global');
       setModoCargaGastos(modoGuardado);
     }
 
@@ -6596,7 +6606,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       const datosParaActualizar = {
         id: form.id,
         fechaProbableInicio: form.fechaProbableInicio,
-        tiempoEstimadoTerminacion: form.tiempoEstimadoTerminacion,
+        tiempoEstimadoTerminacion: Number(form.tiempoEstimadoTerminacion) || 0,
         calculoAutomaticoDiasHabiles: form.calculoAutomaticoDiasHabiles ?? false, // ✨ Incluir modo de cálculo, por defecto MANUAL
         _editarSoloFechas: true, // Flag para indicar que solo se actualizan fechas
         _preservarEstado: true,   // Flag para preservar el estado actual
@@ -6812,6 +6822,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   const prepararDatosParaEnvio = () => {
     const payload = { ...form, idEmpresa: form.idEmpresa || empresaSeleccionada?.id || null };
+
+    // ✅ Normalizar tiempoEstimadoTerminacion según modo (manual/automático)
+    if (form.calculoAutomaticoDiasHabiles === true) {
+      const { total } = calcularDiasHabilesAutomatico();
+      payload.tiempoEstimadoTerminacion = total || 0;
+    } else {
+      payload.tiempoEstimadoTerminacion = Number(form.tiempoEstimadoTerminacion) || 0;
+    }
 
     // 🔍 DEBUG: Verificar fechaProbableInicio antes de procesar
     console.log('🔍 PREPARAR DATOS - fechaProbableInicio en form:', form.fechaProbableInicio);
@@ -8336,6 +8354,58 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   </div>
                 </div>
 
+                {/* Nombre de la obra - ANTES de Vincular a Cliente */}
+                <div className="col-12 mb-3">
+                  <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 6}}>Nombre de la obra
+                    <input
+                      type="text"
+                      name="nombreObraManual"
+                      className="form-control mt-1"
+                      placeholder="Ingrese el nombre de la obra"
+                      value={form.nombreObraManual || ''}
+                      style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
+                      onChange={e => {
+                        const nuevoValor = e.target.value;
+                        // Proteger el valor inicial SOLO si NO es un presupuesto semanal
+                        // Los presupuestos semanales crean obra nueva, así que el nombre es libre
+                        if (form.tipoPresupuesto !== 'TRABAJOS_SEMANALES' && nombreObraProtegido && !nuevoValor.startsWith(nombreObraProtegido)) {
+                          // Si intenta borrar parte del texto protegido, restaurarlo
+                          return;
+                        }
+
+                        // ✅ UX MEJORADA: Si escribe nombre de obra y calle/altura están vacíos, autocompletar
+                        const actualizacion = { nombreObraManual: nuevoValor };
+                        if (nuevoValor.trim() !== '') {
+                          if (!form.direccionObraCalle || String(form.direccionObraCalle).trim() === '') {
+                            actualizacion.direccionObraCalle = 'Calle genérica';
+                          }
+                          if (!form.direccionObraAltura || String(form.direccionObraAltura).trim() === '') {
+                            actualizacion.direccionObraAltura = 'S/N';
+                          }
+                        }
+
+                        setForm(f => ({ ...f, ...actualizacion }));
+
+                        // Limpiar errores de calle/altura si se autocompletaron
+                        if (actualizacion.direccionObraCalle || actualizacion.direccionObraAltura) {
+                          setErrors(prev => {
+                            const newErrors = { ...prev };
+                            delete newErrors.direccionObraCalle;
+                            delete newErrors.direccionObraAltura;
+                            return newErrors;
+                          });
+                        }
+                      }}
+                      disabled={soloLectura}
+                    />
+                    {nombreObraProtegido && form.tipoPresupuesto !== 'TRABAJOS_SEMANALES' && (
+                      <small className="text-muted d-block mt-1">
+                        💡 Puedes agregar texto adicional, pero no borrar: "{nombreObraProtegido}"
+                      </small>
+                    )}
+                  </label>
+                </div>
+
                 {/* Primera fila: 5 columnas iguales, agregando Nombre de obra */}
                 <div className="col-12">
                   {/* Primera fila: Nombre de obra (ancho completo) */}
@@ -8497,56 +8567,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               )}
                           </>
                           )}
-
-                          {/* Siempre mostrar campo para nombre manual de obra (fuera del condicional) */}
-                          <label className="form-label fw-bold w-100 mt-2" style={{color: "#000", marginBottom: 6}}>Nombre de la obra
-                            <input
-                              type="text"
-                              name="nombreObraManual"
-                              className="form-control mt-1"
-                              placeholder="Ingrese el nombre de la obra"
-                              value={form.nombreObraManual || ''}
-                              style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
-                              onChange={e => {
-                                const nuevoValor = e.target.value;
-                                // Proteger el valor inicial SOLO si NO es un presupuesto semanal
-                                // Los presupuestos semanales crean obra nueva, así que el nombre es libre
-                                if (form.tipoPresupuesto !== 'TRABAJOS_SEMANALES' && nombreObraProtegido && !nuevoValor.startsWith(nombreObraProtegido)) {
-                                  // Si intenta borrar parte del texto protegido, restaurarlo
-                                  return;
-                                }
-
-                                // ✅ UX MEJORADA: Si escribe nombre de obra y calle/altura están vacíos, autocompletar
-                                const actualizacion = { nombreObraManual: nuevoValor };
-                                if (nuevoValor.trim() !== '') {
-                                  if (!form.direccionObraCalle || String(form.direccionObraCalle).trim() === '') {
-                                    actualizacion.direccionObraCalle = 'Calle genérica';
-                                  }
-                                  if (!form.direccionObraAltura || String(form.direccionObraAltura).trim() === '') {
-                                    actualizacion.direccionObraAltura = 'S/N';
-                                  }
-                                }
-
-                                setForm(f => ({ ...f, ...actualizacion }));
-
-                                // Limpiar errores de calle/altura si se autocompletaron
-                                if (actualizacion.direccionObraCalle || actualizacion.direccionObraAltura) {
-                                  setErrors(prev => {
-                                    const newErrors = { ...prev };
-                                    delete newErrors.direccionObraCalle;
-                                    delete newErrors.direccionObraAltura;
-                                    return newErrors;
-                                  });
-                                }
-                              }}
-                              disabled={soloLectura}
-                            />
-                            {nombreObraProtegido && form.tipoPresupuesto !== 'TRABAJOS_SEMANALES' && (
-                              <small className="text-muted d-block mt-1">
-                                💡 Puedes agregar texto adicional, pero no borrar: "{nombreObraProtegido}"
-                              </small>
-                            )}
-                          </label>
                     </div>
                   </div>
 
@@ -13856,7 +13876,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 </div>
                                 <div className="mt-2">
                                   <small className="text-muted">
-                                    (Incluye todos los rubros: mano de obra, materiales, jornales, honorarios y mayores costos. No se duplica ningún valor)
+                                    Incluye todos los rubros: mano de obra, materiales, jornales, honorarios.
                                   </small>
                                 </div>
                               </div>

@@ -10,31 +10,32 @@ import apiService from '../services/api';
  */
 const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto, onFiltrosGuardados, onResultadosFiltrados }) => {
   const { empresaSeleccionada } = useEmpresa();
-  
+
   // Ref para auto-scroll a resultados
   const resultadosRef = useRef(null);
-  
+
   const [form, setForm] = useState({
-    // 📍 Dirección de Obra (6 campos: Barrio, Calle, Altura, Torre, Piso, Departamento)
+    // 📍 Dirección de Obra (7 campos: Nombre, Barrio, Calle, Altura, Torre, Piso, Departamento)
+    nombreObra: '',
     direccionObraBarrio: '',
     direccionObraCalle: '',
     direccionObraAltura: '',
     direccionObraTorre: '',
     direccionObraPiso: '',
     direccionObraDepartamento: '',
-    
+
     // � Datos del Solicitante (4 campos según backend)
     nombreSolicitante: '',
     telefono: '',
     mail: '',
     direccionParticular: '',
-    
+
     // 🏢 Datos del Presupuesto (4 campos según backend)
     numeroPresupuesto: '',
     estado: '',
     numeroVersion: '',
     descripcion: '',
-    
+
     // 📅 Fechas (8 campos según backend)
     fechaEmisionDesde: '',
     fechaEmisionHasta: '',
@@ -44,7 +45,7 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
     fechaProbableInicioHasta: '',
     vencimientoDesde: '',
     vencimientoHasta: '',
-    
+
     // 💰 Montos (6 campos según backend)
     totalGeneralMinimo: '',
     totalGeneralMaximo: '',
@@ -52,12 +53,12 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
     totalProfesionalesMaximo: '',
     totalMaterialesMinimo: '',
     totalMaterialesMaximo: '',
-    
+
     // � Configuración (2 campos según backend)
     tipoProfesionalPresupuesto: '',
     modoPresupuesto: ''
   });
-  
+
   const [resultados, setResultados] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -70,10 +71,10 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
 
   const handleBuscar = async (e) => {
     e.preventDefault();
-    
+
     // Construir objeto de filtros solo con campos completados
     const filtros = {};
-    
+
     // 📍 Dirección de Obra (7 campos)
     if (form.nombreObra.trim()) filtros.nombreObra = form.nombreObra.trim();
     if (form.direccionObraBarrio.trim()) filtros.direccionObraBarrio = form.direccionObraBarrio.trim();
@@ -82,19 +83,19 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
     if (form.direccionObraTorre.trim()) filtros.direccionObraTorre = form.direccionObraTorre.trim();
     if (form.direccionObraPiso.trim()) filtros.direccionObraPiso = form.direccionObraPiso.trim();
     if (form.direccionObraDepartamento.trim()) filtros.direccionObraDepartamento = form.direccionObraDepartamento.trim();
-    
+
     // 👤 Datos del Solicitante (4 campos)
     if (form.nombreSolicitante.trim()) filtros.nombreSolicitante = form.nombreSolicitante.trim();
     if (form.telefono.trim()) filtros.telefono = form.telefono.trim();
     if (form.mail.trim()) filtros.mail = form.mail.trim();
     if (form.direccionParticular.trim()) filtros.direccionParticular = form.direccionParticular.trim();
-    
+
     // 🏢 Datos del Presupuesto (4 campos)
     if (form.numeroPresupuesto.trim()) filtros.numeroPresupuesto = Number(form.numeroPresupuesto.trim());
     if (form.estado.trim()) filtros.estado = form.estado.trim();
     if (form.numeroVersion.trim()) filtros.numeroVersion = Number(form.numeroVersion.trim());
     if (form.descripcion.trim()) filtros.descripcion = form.descripcion.trim();
-    
+
     // 📅 Fechas (8 campos)
     if (form.fechaEmisionDesde) filtros.fechaEmisionDesde = form.fechaEmisionDesde;
     if (form.fechaEmisionHasta) filtros.fechaEmisionHasta = form.fechaEmisionHasta;
@@ -104,7 +105,7 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
     if (form.fechaProbableInicioHasta) filtros.fechaProbableInicioHasta = form.fechaProbableInicioHasta;
     if (form.vencimientoDesde) filtros.vencimientoDesde = form.vencimientoDesde;
     if (form.vencimientoHasta) filtros.vencimientoHasta = form.vencimientoHasta;
-    
+
     // 💰 Montos (6 campos)
     if (form.totalGeneralMinimo) filtros.totalGeneralMinimo = Number(form.totalGeneralMinimo);
     if (form.totalGeneralMaximo) filtros.totalGeneralMaximo = Number(form.totalGeneralMaximo);
@@ -112,11 +113,11 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
     if (form.totalProfesionalesMaximo) filtros.totalProfesionalesMaximo = Number(form.totalProfesionalesMaximo);
     if (form.totalMaterialesMinimo) filtros.totalMaterialesMinimo = Number(form.totalMaterialesMinimo);
     if (form.totalMaterialesMaximo) filtros.totalMaterialesMaximo = Number(form.totalMaterialesMaximo);
-    
+
     // 🔧 Configuración (2 campos)
     if (form.tipoProfesionalPresupuesto.trim()) filtros.tipoProfesionalPresupuesto = form.tipoProfesionalPresupuesto.trim();
     if (form.modoPresupuesto.trim()) filtros.modoPresupuesto = form.modoPresupuesto.trim();
-    
+
     // Validar que al menos un filtro esté completo
     if (Object.keys(filtros).length === 0) {
       setError('Debe completar al menos un campo de búsqueda');
@@ -131,15 +132,15 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
     try {
       console.log('🔍 Búsqueda específica con filtros:', filtros);
       console.log('📤 Enviando búsqueda avanzada con empresaId:', empresaSeleccionada?.id);
-      
+
       // Usar búsqueda avanzada del backend si está disponible
       const response = await apiService.presupuestosNoCliente.busquedaAvanzada(
         filtros,
         empresaSeleccionada?.id
       );
-      
+
       console.log('✅ Presupuestos obtenidos:', response);
-      
+
       // Extraer datos según estructura de respuesta del backend
       let resultadosBusqueda = [];
       if (Array.isArray(response)) {
@@ -151,25 +152,25 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
       } else if (response?.data && Array.isArray(response.data)) {
         resultadosBusqueda = response.data;
       }
-      
+
       console.log(`✅ Resultados de búsqueda: ${resultadosBusqueda.length}`);
-      
+
       if (resultadosBusqueda.length === 0) {
         console.warn('⚠️ No se encontraron presupuestos con los filtros:', filtros);
         console.warn('💡 Intenta buscar con menos filtros o verifica que existan presupuestos APROBADOS');
       }
-      
+
       setResultados(resultadosBusqueda);
       setSearched(true);
-      
+
       // NO hacer scroll automático - dejar al usuario en el formulario
-      
+
       // Devolver los resultados para uso externo
       return resultadosBusqueda;
-      
+
     } catch (err) {
       console.error('❌ Error en búsqueda específica:', err);
-      
+
       // Error específico si el método no está implementado
       if (err.response?.data?.mensaje?.includes('no implementado')) {
         setError(
@@ -193,30 +194,30 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
     // Guardar los filtros actuales en localStorage
     try {
       const filtrosGuardar = {};
-      
+
       // Solo guardar campos con valor
       Object.keys(form).forEach(key => {
         if (form[key] && form[key].toString().trim() !== '') {
           filtrosGuardar[key] = form[key];
         }
       });
-      
+
       if (Object.keys(filtrosGuardar).length === 0) {
         alert('⚠️ No hay filtros para guardar. Complete al menos un campo.');
         return;
       }
-      
+
       localStorage.setItem('presupuestos_filtros_por_defecto', JSON.stringify(filtrosGuardar));
       alert('✅ Filtros guardados como configuración por defecto.\n\nLa próxima vez que abra esta página, se aplicarán automáticamente estos filtros.');
-      
+
       // Notificar al componente padre que se guardaron filtros
       if (onFiltrosGuardados) {
         onFiltrosGuardados(filtrosGuardar);
       }
-      
+
       // Cerrar modal
       onClose();
-      
+
     } catch (error) {
       console.error('Error guardando filtros por defecto:', error);
       alert('❌ Error al guardar los filtros');
@@ -241,19 +242,19 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
       direccionObraTorre: '',
       direccionObraPiso: '',
       direccionObraDepartamento: '',
-      
+
       // 👤 Datos del Solicitante
       nombreSolicitante: '',
       telefono: '',
       mail: '',
       direccionParticular: '',
-      
+
       // 🏢 Datos del Presupuesto
       numeroPresupuesto: '',
       estado: '',
       numeroVersion: '',
       descripcion: '',
-      
+
       // 📅 Fechas
       fechaEmisionDesde: '',
       fechaEmisionHasta: '',
@@ -263,7 +264,7 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
       fechaProbableInicioHasta: '',
       vencimientoDesde: '',
       vencimientoHasta: '',
-      
+
       // 💰 Montos
       totalGeneralMinimo: '',
       totalGeneralMaximo: '',
@@ -271,7 +272,7 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
       totalProfesionalesMaximo: '',
       totalMaterialesMinimo: '',
       totalMaterialesMaximo: '',
-      
+
       // � Configuración
       tipoProfesionalPresupuesto: '',
       modoPresupuesto: ''
@@ -301,9 +302,9 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
               <i className="bi bi-funnel-fill me-2"></i>
               Búsqueda Específica de Presupuestos
             </h5>
-            <button 
-              type="button" 
-              className="btn-close btn-close-white" 
+            <button
+              type="button"
+              className="btn-close btn-close-white"
               onClick={onClose}
               disabled={searching}
             ></button>
@@ -886,7 +887,7 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
                   <i className="bi bi-list-check me-2"></i>
                   Resultados encontrados: {resultados.length}
                 </h6>
-                
+
                 <div className="table-responsive">
                   <table className="table table-hover table-striped">
                     <thead className="table-dark">
@@ -955,9 +956,9 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
 
           {/* Footer */}
           <div className="modal-footer">
-            <button 
-              type="button" 
-              className="btn btn-secondary" 
+            <button
+              type="button"
+              className="btn btn-secondary"
               onClick={onClose}
               disabled={searching}
             >

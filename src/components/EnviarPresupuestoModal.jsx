@@ -3238,7 +3238,7 @@ Saludos.`;
                                 </div>
                                 <div className="mt-2">
                                   <small className="text-muted">
-                                    (Incluye todos los rubros: mano de obra, materiales, jornales, honorarios y mayores costos. No se duplica ningún valor)
+                                    Incluye todos los rubros: mano de obra, materiales, jornales, honorarios.
                                   </small>
                                 </div>
                               </div>

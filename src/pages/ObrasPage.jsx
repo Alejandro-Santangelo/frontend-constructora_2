@@ -313,8 +313,8 @@ const ObrasPage = ({ showNotification }) => {
       if (!obras || obras.length === 0 || !empresaId) return;
 
       try {
-        // Obtener todos los presupuestos de la empresa
-        const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId);
+        // Obtener todos los presupuestos de la empresa CON CACHE BUST
+        const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId, { _t: Date.now() });
 
         // Crear objeto con presupuestos indexados por obraId
         const presupuestosPorObra = {};
@@ -322,6 +322,7 @@ const ObrasPage = ({ showNotification }) => {
           const obraId = presupuesto.obraId || presupuesto.idObra;
           if (obraId) {
             presupuestosPorObra[obraId] = presupuesto;
+            console.log(`📦 Presupuesto obra ${obraId}: ${presupuesto.tiempoEstimadoTerminacion} días`);
           }
         });
 
@@ -351,6 +352,37 @@ const ObrasPage = ({ showNotification }) => {
         });
     }
   }, [selectedObraId, empresaId]);
+
+  // 🔄 Refrescar presupuesto de la obra seleccionada para usar días hábiles actuales
+  useEffect(() => {
+    if (!obraParaEtapasDiarias?.id || !obraParaEtapasDiarias?.presupuestoNoCliente?.id || !empresaId) return;
+
+    let activo = true;
+
+    const refrescarPresupuesto = async () => {
+      try {
+        const presupuestoActualizado = await api.presupuestosNoCliente.getById(
+          obraParaEtapasDiarias.presupuestoNoCliente.id,
+          empresaId
+        );
+
+        if (!activo || !presupuestoActualizado) return;
+
+        setPresupuestosObras(prev => ({
+          ...prev,
+          [obraParaEtapasDiarias.id]: presupuestoActualizado
+        }));
+      } catch (error) {
+        console.warn('⚠️ No se pudo refrescar presupuesto de la obra seleccionada:', error);
+      }
+    };
+
+    refrescarPresupuesto();
+
+    return () => {
+      activo = false;
+    };
+  }, [obraParaEtapasDiarias?.id, obraParaEtapasDiarias?.presupuestoNoCliente?.id, empresaId]);
 
   // Cargar configuraciones para todas las obras visibles
   // TEMPORALMENTE DESHABILITADO - causaba bucle infinito
@@ -2005,13 +2037,15 @@ const ObrasPage = ({ showNotification }) => {
       ? obra.configuracionPlanificacion
       : obtenerConfiguracionObra(obra.id);
 
-    // PRIORIZAR configuración de la obra sobre tiempoEstimadoTerminacion del presupuesto
+    // 🔥 PRIORIZAR presupuesto sobre configuración vieja
     let totalJornales;
 
-    if (configuracion && configuracion.diasHabiles > 0) {
+    if (obra.presupuestoNoCliente?.tiempoEstimadoTerminacion > 0) {
+      totalJornales = parseInt(obra.presupuestoNoCliente.tiempoEstimadoTerminacion);
+    } else if (configuracion && configuracion.diasHabiles > 0) {
       totalJornales = parseInt(configuracion.diasHabiles);
     } else {
-      totalJornales = parseInt(obra.presupuestoNoCliente.tiempoEstimadoTerminacion) || jornalesPresupuesto || 0;
+      totalJornales = jornalesPresupuesto || 0;
     }
 
     if (totalJornales === 0) {
@@ -3616,7 +3650,7 @@ const ObrasPage = ({ showNotification }) => {
 
                                               return (
                                                 <small className="text-success">
-                                                  ✅ Configurado: {semanasReales} semanas ({diasHabilesAprox} días hábiles)
+                                                  ✅ Configurado: {semanasReales} semanas ({diasHabilesAprox} días)
                                                   - {profesionalesAsignados} profesional{profesionalesAsignados !== 1 ? 'es' : ''} asignado{profesionalesAsignados !== 1 ? 's' : ''}
                                                 </small>
                                               );
@@ -4951,7 +4985,7 @@ const ObrasPage = ({ showNotification }) => {
                                             Configuración de Planificación
                                           </h6>
                                           <small className="text-success">
-                                            ✅ Configurado: {Math.ceil((row.tiempoEstimadoTerminacion || 0) / 5)} semanas ({row.tiempoEstimadoTerminacion || 0} días hábiles) - {(row.profesionales?.length || 0)} profesional{row.profesionales?.length !== 1 ? 'es' : ''} asignado{row.profesionales?.length !== 1 ? 's' : ''}
+                                            ✅ Configurado: {Math.ceil((row.tiempoEstimadoTerminacion || 0) / 5)} semanas ({row.tiempoEstimadoTerminacion || 0} días) - {(row.profesionales?.length || 0)} profesional{row.profesionales?.length !== 1 ? 'es' : ''} asignado{row.profesionales?.length !== 1 ? 's' : ''}
                                           </small>
                                         </div>
                                         <div className="col-md-4">
@@ -5551,23 +5585,29 @@ const ObrasPage = ({ showNotification }) => {
                         <div className="col-3">
                           <h5>
                             {(() => {
-                              // ✅ USAR CONFIGURACIÓN DE LA OBRA si existe
+                              // ✅ PRIORIDAD: 1. Presupuesto (fuente de verdad)
+                              const tiempoEstimado = presupuestoActualizado?.tiempoEstimadoTerminacion;
+                              if (tiempoEstimado) {
+                                console.log('✅ Usando días del presupuesto:', tiempoEstimado);
+                                return tiempoEstimado;
+                              }
+
+                              // 2. Configuración de la obra (si no hay presupuesto)
                               const configuracion = obtenerConfiguracionObra(obraParaEtapasDiarias.id);
                               if (configuracion?.diasHabiles) {
+                                console.log('✅ Usando días de configuración:', configuracion.diasHabiles);
                                 return configuracion.diasHabiles;
                               }
 
-                              // Fallback: usar tiempoEstimadoTerminacion del backend
-                              const tiempoEstimado = presupuestoActualizado?.tiempoEstimadoTerminacion;
-                              if (tiempoEstimado) return tiempoEstimado;
-
-                              // Último fallback: sumar jornales
+                              // 3. Último fallback: sumar jornales
                               const items = presupuestoActualizado?.itemsCalculadora ||
                                            presupuestoActualizado?.detalles || [];
-                              return items.reduce((sum, item) => sum + (parseInt(item.cantidadJornales) || 0), 0);
+                              const suma = items.reduce((sum, item) => sum + (parseInt(item.cantidadJornales) || 0), 0);
+                              console.log('🔍 RESUMEN - suma jornales:', suma);
+                              return suma;
                             })()}
                           </h5>
-                          <small>Días Hábiles</small>
+                          <small>Días</small>
                         </div>
                         <div className="col-3">
                           <h5>
