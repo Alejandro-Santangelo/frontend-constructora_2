@@ -11,7 +11,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
   const [etapasSemana, setEtapasSemana] = useState([]);
   const [diasSemana, setDiasSemana] = useState([]);
   const [loading, setLoading] = useState(false);
-  
+
   // Helper para parsear fechas evitando problemas de zona horaria
   const parsearFechaLocal = (fechaStr) => {
     if (!fechaStr) return new Date();
@@ -22,28 +22,29 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
     }
     return new Date(fechaStr);
   };
-  
-  // Obtener datos del presupuesto - memoizados para evitar recreaciones
+
+  // Obtener datos de planificación - priorizar configuración de planificación
   const { fechaInicio, diasHabiles, totalSemanas } = useMemo(() => {
+    const config = obra?.configuracionPlanificacion;
     const presupuesto = obra?.presupuestoNoCliente;
-    const fechaInicio = presupuesto?.fechaProbableInicio;
-    const diasHabiles = presupuesto?.tiempoEstimadoTerminacion || 0;
+    const fechaInicio = config?.fechaInicio || presupuesto?.fechaProbableInicio;
+    const diasHabiles = config?.diasHabiles || presupuesto?.tiempoEstimadoTerminacion || 0;
     return {
       fechaInicio,
       diasHabiles,
       totalSemanas: Math.ceil(diasHabiles / 5)
     };
-  }, [obra?.id]); // Solo depende del ID, no del objeto completo
-  
+  }, [obra?.id, obra?.configuracionPlanificacion]); // Solo depende del ID, no del objeto completo
+
   // Funciones de cálculo de semanas - NO usar useCallback para evitar dependencias circulares
   const calcularSemanaActual = (offset = 0) => {
     const hoy = new Date();
     const diaSemana = hoy.getDay();
     const diasHastaLunes = diaSemana === 0 ? -6 : -(diaSemana - 1);
-    
+
     const lunes = new Date(hoy);
     lunes.setDate(hoy.getDate() + diasHastaLunes + (offset * 7));
-    
+
     const dias = [];
     for (let i = 0; i < 5; i++) {
       const dia = new Date(lunes);
@@ -56,26 +57,26 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
         anio: dia.getFullYear()
       });
     }
-    
+
     return dias;
   };
-  
+
   const calcularSemanaObra = (numeroSemana) => {
     if (!fechaInicio) {
       // Si no hay fecha de inicio, usar fecha actual
       return calcularSemanaActual(0);
     }
-    
+
     const fechaInicioDate = parsearFechaLocal(fechaInicio);
     const dias = [];
-    
+
     // Calcular el lunes de la semana específica
     let diasContados = 0;
     let fechaActual = new Date(fechaInicioDate);
-    
+
     // Avanzar al inicio de la semana solicitada (semanas de 5 días hábiles)
     const diasAAvanzar = numeroSemana * 5;
-    
+
     while (diasContados < diasAAvanzar) {
       fechaActual.setDate(fechaActual.getDate() + 1);
       const diaSemana = fechaActual.getDay();
@@ -84,7 +85,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
         diasContados++;
       }
     }
-    
+
     // Generar los 5 días de la semana
     for (let i = 0; i < 5; i++) {
       // Avanzar hasta encontrar el siguiente día hábil
@@ -95,7 +96,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
         }
         fechaActual.setDate(fechaActual.getDate() + 1);
       }
-      
+
       dias.push({
         fecha: fechaActual.toISOString().split('T')[0],
         diaNombre: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'][i],
@@ -103,21 +104,21 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
         mes: fechaActual.toLocaleString('es-ES', { month: 'long' }),
         anio: fechaActual.getFullYear()
       });
-      
+
       // Avanzar al siguiente día hábil
       fechaActual.setDate(fechaActual.getDate() + 1);
     }
-    
+
     return dias;
   };
 
   const determinarEstado = (etapa, fecha) => {
     if (!etapa) return 'sin-planificar';
-    
+
     const hoy = new Date().toISOString().split('T')[0];
     const fechaDiaObj = parsearFechaLocal(fecha);
     const fechaDia = fechaDiaObj.toISOString().split('T')[0];
-    
+
     if (fechaDia > hoy) return 'planeado';
     if (fechaDia === hoy) return 'en-curso';
     return 'completado';
@@ -125,7 +126,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
 
   const cargarEtapasSemana = useCallback(async () => {
     if (!obra || !empresaSeleccionada) return;
-    
+
     setLoading(true);
     try {
       // Calcular los días de la semana actual basándose en el presupuesto
@@ -145,7 +146,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
       }
 
       const todasLasEtapas = await response.json();
-      
+
       // Crear un mapa de etapas por fecha SOLO para esta semana
       const etapasPorFecha = new Map();
       if (Array.isArray(todasLasEtapas)) {
@@ -155,7 +156,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
           }
         });
       }
-      
+
       // Mapear cada día de la semana con su etapa correspondiente
       const etapasConDatos = nuevasDias.map(dia => {
         const etapa = etapasPorFecha.get(dia.fecha);
@@ -217,25 +218,25 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
       setSemanaActual(0);
       return;
     }
-    
+
     const hoy = new Date();
     const inicio = parsearFechaLocal(fechaInicio);
-    
+
     if (hoy < inicio) {
       setSemanaActual(0);
       return;
     }
-    
+
     let diasTranscurridos = 0;
     let fechaActual = new Date(inicio);
-    
+
     while (fechaActual < hoy && diasTranscurridos < diasHabiles) {
       if (fechaActual.getDay() !== 0 && fechaActual.getDay() !== 6) {
         diasTranscurridos++;
       }
       fechaActual.setDate(fechaActual.getDate() + 1);
     }
-    
+
     const semanaCalculada = Math.floor(diasTranscurridos / 5);
     setSemanaActual(Math.min(semanaCalculada, totalSemanas - 1));
   };
@@ -275,7 +276,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
     const numeroSemana = semanaActual + 1;
     const diasInicio = (semanaActual * 5) + 1;
     const diasFin = Math.min((semanaActual * 5) + 5, diasHabiles);
-    
+
     return `Semana ${numeroSemana} de ${totalSemanas} (Días ${diasInicio}-${diasFin} de ${diasHabiles})`;
   };
 
@@ -303,21 +304,21 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
               <small className="text-muted">{obtenerTituloProgreso()}</small>
             </div>
             <div className="btn-group">
-              <button 
-                className="btn btn-sm btn-outline-primary" 
+              <button
+                className="btn btn-sm btn-outline-primary"
                 onClick={() => cambiarSemana(-1)}
                 disabled={semanaActual === 0}
               >
                 <i className="fas fa-chevron-left"></i> Anterior
               </button>
-              <button 
-                className="btn btn-sm btn-outline-primary" 
+              <button
+                className="btn btn-sm btn-outline-primary"
                 onClick={irASemanaActual}
               >
                 Hoy
               </button>
-              <button 
-                className="btn btn-sm btn-outline-primary" 
+              <button
+                className="btn btn-sm btn-outline-primary"
                 onClick={() => cambiarSemana(1)}
                 disabled={semanaActual >= totalSemanas - 1}
               >
@@ -367,7 +368,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
 
           return (
             <div key={dia.fecha} className="col-md-2-4 col-sm-6">
-              <div 
+              <div
                 className={`card h-100 ${etapaDia.estado === 'en-curso' ? 'border-warning border-2' : ''}`}
                 style={{ cursor: 'pointer', transition: 'all 0.2s' }}
                 onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
@@ -429,7 +430,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
                   )}
                 </div>
                 <div className="card-footer bg-transparent border-0 pt-0">
-                  <button 
+                  <button
                     className="btn btn-sm btn-outline-primary w-100"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -450,7 +451,7 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
           flex: 0 0 20%;
           max-width: 20%;
         }
-        
+
         @media (max-width: 768px) {
           .col-md-2-4 {
             flex: 0 0 50%;
@@ -464,6 +465,6 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
 
 // Memoizar componente para evitar re-renders innecesarios cuando las props no cambian
 export default React.memo(VistaSemanalEtapas, (prevProps, nextProps) => {
-  return prevProps.obra?.id === nextProps.obra?.id && 
+  return prevProps.obra?.id === nextProps.obra?.id &&
          prevProps.onVerDetalleDia === nextProps.onVerDetalleDia;
 });

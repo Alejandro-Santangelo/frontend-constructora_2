@@ -92,20 +92,25 @@ const ObrasPage = ({ showNotification }) => {
   const [nuevoEstadoSeleccionado, setNuevoEstadoSeleccionado] = React.useState('');
 
   // ==================== CONFIGURACIÓN GLOBAL DE OBRA ====================
-  const [mostrarModalConfiguracionObra, setMostrarModalConfiguracionObra] = React.useState(false);
-  const [obraParaConfigurar, setObraParaConfigurar] = React.useState(null);
-  const [configuracionObra, setConfiguracionObra] = React.useState({
-    semanasObjetivo: '',
-    diasHabiles: 0,
-    capacidadNecesaria: 0,
-    jornalesTotales: 0,
-    fechaInicio: null,
-    fechaFinEstimada: null,
-    presupuestoSeleccionado: null
-  });
+    const [mostrarModalConfiguracionObra, setMostrarModalConfiguracionObra] = React.useState(false);
+    const [obraParaConfigurar, setObraParaConfigurar] = React.useState(null);
+    // Estado global de planificación por obra
+    const [configuracionesPlanificacion, setConfiguracionesPlanificacion] = React.useState({});
+    // Estado para advertencias en el modal de configuración
+    const [advertenciaConfiguracionObra, setAdvertenciaConfiguracionObra] = React.useState(null);
+    // Estado local para edición actual
+    const [configuracionObra, setConfiguracionObra] = React.useState({
+      semanasObjetivo: '',
+      diasHabiles: 0,
+      capacidadNecesaria: 0,
+      fechaInicio: '',
+      fechaFinEstimada: null,
+      jornalesTotales: 0,
+      presupuestoSeleccionado: null
+    });
 
-  // Estado para forzar re-render cuando cambia configuración desde BD
-  const [configCargada, setConfigCargada] = React.useState(0);
+    // Estado para forzar re-render cuando cambia configuración desde BD
+    const [configCargada, setConfigCargada] = React.useState(0);
 
   // Estado para modal de asignar profesionales
   const [mostrarModalAsignarProfesionalesSemanal, setMostrarModalAsignarProfesionalesSemanal] = React.useState(false);
@@ -318,11 +323,14 @@ const ObrasPage = ({ showNotification }) => {
 
         // Crear objeto con presupuestos indexados por obraId
         const presupuestosPorObra = {};
+        // Para cada obra, guardar el presupuesto con la versión más alta
         todosPresupuestos.forEach(presupuesto => {
           const obraId = presupuesto.obraId || presupuesto.idObra;
           if (obraId) {
-            presupuestosPorObra[obraId] = presupuesto;
-            console.log(`📦 Presupuesto obra ${obraId}: ${presupuesto.tiempoEstimadoTerminacion} días`);
+            if (!presupuestosPorObra[obraId] || (presupuesto.numeroVersion > (presupuestosPorObra[obraId].numeroVersion || 0))) {
+              presupuestosPorObra[obraId] = presupuesto;
+              console.log(`📦 Presupuesto obra ${obraId}: versión ${presupuesto.numeroVersion}, ${presupuesto.tiempoEstimadoTerminacion} días`);
+            }
           }
         });
 
@@ -1820,17 +1828,8 @@ const ObrasPage = ({ showNotification }) => {
 
   // Helper para obtener configuración de obra desde localStorage (sincrónico)
   const obtenerConfiguracionObra = (obraId) => {
-    const configGuardada = localStorage.getItem(`configuracionObra_${obraId}`);
-    if (!configGuardada) return null;
-
-    try {
-      const config = JSON.parse(configGuardada);
-      return config;
-    } catch (error) {
-      console.error('Error parsing configuración:', error);
-      localStorage.removeItem(`configuracionObra_${obraId}`);
-      return null;
-    }
+    // Eliminar localStorage: solo retornar null (será reemplazado por estado global en el siguiente paso)
+    return null;
   };
 
   // Helper ASYNC para cargar configuración desde BD y sincronizar con localStorage
@@ -2009,28 +2008,24 @@ const ObrasPage = ({ showNotification }) => {
   // Generar calendario automático basado en jornales del presupuesto
   const generarCalendarioAutomatico = (obra) => {
 
-    //  €¢ USAR itemsCalculadora en lugar de detalles
+
+    // USAR itemsCalculadora en lugar de detalles, pero permitir continuar si no existen
     const items = obra?.presupuestoNoCliente?.itemsCalculadora || obra?.presupuestoNoCliente?.detalles;
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      console.warn(' No hay items en el presupuesto');
-      console.warn(' Verificar estructura del presupuesto en el backend');
-      return [];
+    // Mostrar info de items si existen
+    if (items && Array.isArray(items) && items.length > 0) {
+      console.log(' DEBUG - Buscando jornales en presupuesto');
+      console.log('📋 Items del presupuesto:', items);
+      console.log('📋 Cantidad de items:', items.length);
+      items.forEach((item, index) => {
+        console.log(`  ${index + 1}. Tipo: "${item.tipoProfesional}" | cantidadJornales: ${item.cantidadJornales} | descripción: "${item.descripcion}"`);
+      });
     }
 
-    console.log(' DEBUG - Buscando jornales en presupuesto');
-    console.log('📋 Items del presupuesto:', items);
-    console.log('📋 Cantidad de items:', items.length);
-
-    // Mostrar todos los items para ver qué nombres tienen
-    items.forEach((item, index) => {
-      console.log(`  ${index + 1}. Tipo: "${item.tipoProfesional}" | cantidadJornales: ${item.cantidadJornales} | descripción: "${item.descripcion}"`);
-    });
-
-    //  €¢ Sumar TODOS los jornales de todos los items (para referencia, pero NO se usa para calendario)
-    const jornalesPresupuesto = items.reduce((sum, item) => sum + (parseInt(item.cantidadJornales) || 0), 0);
-
-    console.log('  Jornales del presupuesto:', jornalesPresupuesto);
+    // Sumar TODOS los jornales de todos los items (para referencia, pero NO se usa para calendario)
+    const jornalesPresupuesto = items && Array.isArray(items)
+      ? items.reduce((sum, item) => sum + (parseInt(item.cantidadJornales) || 0), 0)
+      : 0;
 
     // Verificar si existe configuración de la obra
     const configuracion = obra._esTrabajoExtra && obra.configuracionPlanificacion
@@ -2048,8 +2043,9 @@ const ObrasPage = ({ showNotification }) => {
       totalJornales = jornalesPresupuesto || 0;
     }
 
-    if (totalJornales === 0) {
-      console.warn(' El total de días hábiles es 0');
+    // Permitir generación si hay fecha probable de inicio y días hábiles > 0
+    if (!obra.presupuestoNoCliente?.fechaProbableInicio || totalJornales === 0) {
+      console.warn(' Faltan datos mínimos para generar etapas automáticas (fecha probable de inicio o días hábiles)');
       return [];
     }
 
@@ -2323,11 +2319,11 @@ const ObrasPage = ({ showNotification }) => {
       const obraIdReal = obra._obraOriginalId || obra.obraId || obra.id;
       console.log('🔍 [cargarEtapasDiarias] obra.id:', obra.id, '| obraIdReal:', obraIdReal, '| esTrabajoExtra:', obra._esTrabajoExtra);
 
-      // Primero verificar si hay presupuesto en el cache
+      // Siempre buscar el presupuesto de mayor versión (ya sea en cache o backend)
+      let presupuestoMayorVersion = null;
       if (presupuestosObras[obraIdReal]) {
-        obraCompleta.presupuestoNoCliente = presupuestosObras[obraIdReal];
+        presupuestoMayorVersion = presupuestosObras[obraIdReal];
       } else {
-        // Si no está en cache, cargar del backend
         try {
           const response = await fetch(`/api/presupuestos-no-cliente/por-obra/${obraIdReal}`, {
             headers: {
@@ -2335,35 +2331,16 @@ const ObrasPage = ({ showNotification }) => {
               'Content-Type': 'application/json'
             }
           });
-
           if (response.ok) {
             let presupuestos = await response.json();
-
-            // Convertir a array si no lo es
-            if (!Array.isArray(presupuestos)) {
-              presupuestos = [presupuestos];
-            }
-
-            console.log('📋 Presupuestos encontrados:', presupuestos);
-
-            // Buscar el presupuesto APROBADO más reciente
-            const presupuestoAprobado = presupuestos
-              .filter(p => p.estado === 'APROBADO')
-              .sort((a, b) => b.version - a.version)[0];
-
-            if (presupuestoAprobado) {
-              console.log(' Presupuesto APROBADO encontrado:', presupuestoAprobado);
-              obraCompleta.presupuestoNoCliente = presupuestoAprobado;
-              // Actualizar el cache
-              setPresupuestosObras(prev => ({...prev, [obra.id]: presupuestoAprobado}));
-            } else {
-              console.warn(' ⚠️ No se encontró presupuesto APROBADO, usando el más reciente');
-              // Si no hay aprobado, usar el más reciente
-              const masReciente = presupuestos.sort((a, b) => b.version - a.version)[0];
-              if (masReciente) {
-                obraCompleta.presupuestoNoCliente = masReciente;
-                setPresupuestosObras(prev => ({...prev, [obra.id]: masReciente}));
-              }
+            if (!Array.isArray(presupuestos)) presupuestos = [presupuestos];
+            // Buscar el de mayor versión
+            presupuestoMayorVersion = presupuestos.reduce((max, curr) =>
+              (curr.numeroVersion > (max?.numeroVersion || 0) ? curr : max), presupuestos[0]
+            );
+            if (presupuestoMayorVersion) {
+              obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
+              setPresupuestosObras(prev => ({...prev, [obra.id]: presupuestoMayorVersion}));
             }
           } else {
             console.warn(' ⚠️ No se pudo cargar presupuesto (HTTP', response.status, ')');
@@ -2371,6 +2348,9 @@ const ObrasPage = ({ showNotification }) => {
         } catch (errorPresupuesto) {
           console.warn(' ⚠️ Error cargando presupuesto de la obra:', errorPresupuesto);
         }
+      }
+      if (presupuestoMayorVersion) {
+        obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
       }
 
       const data = await api.etapasDiarias.getAll(empresaSeleccionada.id, { obraId: obra.id });
@@ -3143,19 +3123,40 @@ const ObrasPage = ({ showNotification }) => {
 
     console.log('🚀 Modal abierto, comenzando cálculos...');
 
+
     try {
-      // Buscar presupuesto vinculado
+      // Buscar todos los presupuestos de la obra y elegir el de mayor versión
       const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
       console.log('🔍 TODOS LOS PRESUPUESTOS:', todosPresupuestos);
 
-      const presupuestoVinculado = (todosPresupuestos || []).find(p =>
+      // Filtrar solo los de la obra
+      const presupuestosObra = (todosPresupuestos || []).filter(p =>
         p.obraId === obra.id || p.idObra === obra.id
       );
 
-      console.log('🔍 PRESUPUESTO VINCULADO ENCONTRADO:', presupuestoVinculado);
+      // Elegir el de mayor versión
+      let presupuestoVinculado = null;
+      if (presupuestosObra.length > 0) {
+        presupuestoVinculado = presupuestosObra.reduce((max, curr) =>
+          (curr.numeroVersion > (max?.numeroVersion || 0) ? curr : max), presupuestosObra[0]
+        );
+      }
+
+      console.log('🔍 PRESUPUESTO VINCULADO (mayor versión):', presupuestoVinculado);
       console.log('🔍 Obra ID buscada:', obra.id);
 
       if (presupuestoVinculado) {
+        // ✅ VALIDACIÓN IMPORTANTE: El presupuesto DEBE tener fecha y días estimados
+        // Ahora solo mostramos advertencia, no cerramos el modal
+        let advertenciaConfig = null;
+        if (!presupuestoVinculado.fechaProbableInicio) {
+          advertenciaConfig = '⚠️ El presupuesto no tiene fecha probable de inicio configurada. Por favor, complétala para poder guardar la configuración.';
+        } else if (!presupuestoVinculado.tiempoEstimadoTerminacion || presupuestoVinculado.tiempoEstimadoTerminacion <= 0) {
+          advertenciaConfig = '⚠️ El presupuesto no tiene tiempo estimado de terminación configurado. Por favor, complétalo para poder guardar la configuración.';
+        }
+        // Guardar advertencia en el estado para mostrarla en el modal
+        setAdvertenciaConfiguracionObra(advertenciaConfig);
+
         // 🆕 Calcular semanas automáticamente basándose en tiempoEstimadoTerminacion
         let semanasCalculadas = 0;
         let fechaInicio = null;
@@ -3166,30 +3167,21 @@ const ObrasPage = ({ showNotification }) => {
         if (presupuestoVinculado.tiempoEstimadoTerminacion) {
           console.log('✅ Hay tiempoEstimadoTerminacion, calculando semanas...');
 
-          // Si hay fechaProbableInicio, intentar cálculo preciso con feriados
-          if (presupuestoVinculado.fechaProbableInicio) {
-            console.log('✅ Hay fechaProbableInicio, cálculo preciso con feriados');
-            fechaInicio = parsearFechaLocal(presupuestoVinculado.fechaProbableInicio);
-            try {
-              semanasCalculadas = calcularSemanasParaDiasHabiles(
-                fechaInicio,
-                presupuestoVinculado.tiempoEstimadoTerminacion
-              );
-              console.log('✅ Semanas calculadas con feriados:', semanasCalculadas);
-            } catch (error) {
-              console.warn('⚠️ Error al calcular semanas con feriados, usando cálculo simple:', error);
-              semanasCalculadas = convertirDiasHabilesASemanasSimple(
-                presupuestoVinculado.tiempoEstimadoTerminacion
-              );
-              console.log('✅ Semanas calculadas simple (fallback):', semanasCalculadas);
-            }
-          } else {
-            // Sin fechaProbableInicio, usar cálculo simple directamente
-            console.log('⚠️ No hay fechaProbableInicio, usando cálculo simple');
+          // Con fechaProbableInicio validada, hacer cálculo preciso con feriados
+          console.log('✅ Hay fechaProbableInicio, cálculo preciso con feriados');
+          fechaInicio = parsearFechaLocal(presupuestoVinculado.fechaProbableInicio);
+          try {
+            semanasCalculadas = calcularSemanasParaDiasHabiles(
+              fechaInicio,
+              presupuestoVinculado.tiempoEstimadoTerminacion
+            );
+            console.log('✅ Semanas calculadas con feriados:', semanasCalculadas);
+          } catch (error) {
+            console.warn('⚠️ Error al calcular semanas con feriados, usando cálculo simple:', error);
             semanasCalculadas = convertirDiasHabilesASemanasSimple(
               presupuestoVinculado.tiempoEstimadoTerminacion
             );
-            console.log('✅ Semanas calculadas simple:', semanasCalculadas);
+            console.log('✅ Semanas calculadas simple (fallback):', semanasCalculadas);
           }
         } else {
           console.warn('⚠️ No hay tiempoEstimadoTerminacion');
@@ -3242,6 +3234,7 @@ const ObrasPage = ({ showNotification }) => {
         console.log('✅ setConfiguracionObra ejecutado con semanasObjetivo:', semanasCalculadas > 0 ? semanasCalculadas.toString() : '');
       } else {
         // Fallback si no hay presupuesto vinculado
+        showNotification('⚠️ No se encontró un presupuesto vinculado a esta obra', 'warning');
         setConfiguracionObra({
           jornalesTotales: 30,
           fechaInicio: new Date(),
@@ -3255,6 +3248,7 @@ const ObrasPage = ({ showNotification }) => {
 
     } catch (error) {
       console.error('Error:', error);
+      showNotification('❌ Error al intentar cargar la configuración: ' + error.message, 'error');
       setConfiguracionObra({
         jornalesTotales: 30,
         fechaInicio: new Date(),
@@ -3268,6 +3262,17 @@ const ObrasPage = ({ showNotification }) => {
   };
 
   const handleGuardarConfiguracionObra = () => {
+    // ✅ VALIDACIÓN: Verificar que el presupuesto tiene fechas configuradas
+    if (!configuracionObra.presupuestoSeleccionado?.fechaProbableInicio) {
+      showNotification('❌ El presupuesto debe tener una fecha probable de inicio configurada', 'error');
+      return;
+    }
+
+    if (!configuracionObra.diasHabiles || configuracionObra.diasHabiles <= 0) {
+      showNotification('❌ El presupuesto debe tener días hábiles configurados (tiempoEstimadoTerminacion)', 'error');
+      return;
+    }
+
     if (!configuracionObra.semanasObjetivo || configuracionObra.semanasObjetivo <= 0) {
       showNotification('Por favor ingresa un número de semanas válido', 'warning');
       return;
@@ -3344,8 +3349,18 @@ const ObrasPage = ({ showNotification }) => {
 
     setConfiguracionObra(nuevaConfiguracion);
 
-    // Guardar en localStorage para persistencia
-    localStorage.setItem(`configuracionObra_${obraParaConfigurar.id}`, JSON.stringify(nuevaConfiguracion));
+    // Actualizar la obra seleccionada para etapas diarias (si existe)
+    if (obraParaEtapasDiarias) {
+      setObraParaEtapasDiarias(prev => ({
+        ...prev,
+        configuracionPlanificacion: nuevaConfiguracion
+      }));
+      // Actualizar el estado global de configuraciones
+      setConfiguracionesPlanificacion(prev => ({
+        ...prev,
+        [obraParaEtapasDiarias.id]: nuevaConfiguracion
+      }));
+    }
 
     // Forzar regeneración del calendario
     setCalendarioVersion(v => {
@@ -3633,15 +3648,16 @@ const ObrasPage = ({ showNotification }) => {
                                           {(() => {
                                             const config = obtenerConfiguracionObra(obra.id);
                                             const profesionalesAsignados = contarProfesionalesAsignados(obra.id)?.count || 0;
+                                            const presupuesto = presupuestosObras[obra.id] || obra.presupuestoNoCliente;
 
-                                            if (config) {
+                                            // ✅ VALIDAR: Solo mostrar configuración si el presupuesto tiene fechas
+                                            if (config && presupuesto?.fechaProbableInicio && presupuesto?.tiempoEstimadoTerminacion) {
                                               // 🔥 CALCULAR SEMANAS desde presupuesto usando función centralizada
-                                              const diasHabiles = config.diasHabiles || 0;
-                                              const presupuesto = presupuestosObras[obra.id] || obra.presupuestoNoCliente;
+                                              const diasHabiles = config.diasHabiles || presupuesto.tiempoEstimadoTerminacion || 0;
 
                                               let semanasReales = config.semanasObjetivo; // Fallback
 
-                                              if (diasHabiles > 0 && presupuesto?.fechaProbableInicio) {
+                                              if (diasHabiles > 0) {
                                                 semanasReales = recalcularSemanasDesdePresupuesto(presupuesto);
                                               }
 
@@ -3652,6 +3668,15 @@ const ObrasPage = ({ showNotification }) => {
                                                 <small className="text-success">
                                                   ✅ Configurado: {semanasReales} semanas ({diasHabilesAprox} días)
                                                   - {profesionalesAsignados} profesional{profesionalesAsignados !== 1 ? 'es' : ''} asignado{profesionalesAsignados !== 1 ? 's' : ''}
+                                                </small>
+                                              );
+                                            }
+
+                                            // ⚠️ Si no tiene fechas, mostrar advertencia clara
+                                            if (config && presupuesto && !presupuesto?.fechaProbableInicio) {
+                                              return (
+                                                <small className="text-danger">
+                                                  ⚠️ El presupuesto no tiene fecha probable de inicio configurada
                                                 </small>
                                               );
                                             }
@@ -4984,9 +5009,15 @@ const ObrasPage = ({ showNotification }) => {
                                             <i className="fas fa-cog me-2"></i>
                                             Configuración de Planificación
                                           </h6>
-                                          <small className="text-success">
-                                            ✅ Configurado: {Math.ceil((row.tiempoEstimadoTerminacion || 0) / 5)} semanas ({row.tiempoEstimadoTerminacion || 0} días) - {(row.profesionales?.length || 0)} profesional{row.profesionales?.length !== 1 ? 'es' : ''} asignado{row.profesionales?.length !== 1 ? 's' : ''}
-                                          </small>
+                                          {row?.fechaProbableInicio && row?.tiempoEstimadoTerminacion ? (
+                                            <small className="text-success">
+                                              ✅ Configurado: {Math.ceil((row.tiempoEstimadoTerminacion || 0) / 5)} semanas ({row.tiempoEstimadoTerminacion || 0} días) - {(row.profesionales?.length || 0)} profesional{row.profesionales?.length !== 1 ? 'es' : ''} asignado{row.profesionales?.length !== 1 ? 's' : ''}
+                                            </small>
+                                          ) : (
+                                            <small className="text-danger">
+                                              ⚠️ No hay fecha probable de inicio configurada
+                                            </small>
+                                          )}
                                         </div>
                                         <div className="col-md-4">
                                           <div className="d-flex gap-2">
@@ -6267,6 +6298,31 @@ const ObrasPage = ({ showNotification }) => {
           onSave={async (presupuesto) => {
             console.log('💾 Presupuesto guardado desde modal edición:', presupuesto);
 
+            // Si es un presupuesto APROBADO y tiene obraId, buscar la versión anterior y marcarla como MODIFICADO
+            if (
+              presupuesto &&
+              (presupuesto.estado === 'APROBADO' || presupuesto.estado === 'EN_EJECUCIÓN' || presupuesto.estado === 'EN_EJECUCION') &&
+              presupuesto.obraId &&
+              (presupuesto.numeroVersion || presupuesto.version) > 1
+            ) {
+              try {
+                // Buscar la versión anterior en el estado local
+                const versionesObra = Object.values(presupuestosObras).filter(
+                  p => (p.obraId === presupuesto.obraId || p.idObra === presupuesto.obraId)
+                );
+                const versionActual = presupuesto.numeroVersion || presupuesto.version;
+                const anterior = versionesObra.find(
+                  p => (p.numeroVersion || p.version) === versionActual - 1
+                );
+                if (anterior && anterior.id) {
+                  console.log('🔄 Marcando versión anterior como MODIFICADO:', anterior.id);
+                  await api.presupuestosNoCliente.actualizarEstado(anterior.id, 'MODIFICADO', empresaId);
+                }
+              } catch (err) {
+                console.warn('⚠️ No se pudo marcar la versión anterior como MODIFICADO:', err);
+              }
+            }
+
             try {
               // ✅ CASO ESPECIAL: Edición solo de fechas (cualquier estado)
               if (presupuesto._editarSoloFechas === true) {
@@ -6851,13 +6907,28 @@ const ObrasPage = ({ showNotification }) => {
                     </label>
                     <input
                       type="number"
-                      className="form-control"
+                      className="form-control mb-2"
                       min="1"
                       placeholder="Ej: 8 semanas"
                       value={configuracionObra.semanasObjetivo}
                       onChange={(e) => setConfiguracionObra(prev => ({
                         ...prev,
                         semanasObjetivo: e.target.value
+                      }))}
+                    />
+                    <label className="form-label mt-2">
+                      <i className="fas fa-calendar-day me-2"></i>
+                      ¿Cuántos días hábiles necesitas?
+                    </label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      min="1"
+                      placeholder="Ej: 20 días hábiles"
+                      value={configuracionObra.diasHabiles}
+                      onChange={(e) => setConfiguracionObra(prev => ({
+                        ...prev,
+                        diasHabiles: e.target.value
                       }))}
                     />
                     <small className="text-muted form-text">
@@ -6879,12 +6950,7 @@ const ObrasPage = ({ showNotification }) => {
                       </label>
                       <div className="bg-light p-3 rounded">
                         <div className="row text-center">
-                          <div className="col-12 mb-2">
-                            <div className="h5 text-primary mb-0">
-                              {configuracionObra.capacidadNecesaria || Math.ceil(configuracionObra.jornalesTotales / (parseInt(configuracionObra.semanasObjetivo) * 5))}
-                            </div>
-                            <small className="text-muted">Jornales/día necesarios</small>
-                          </div>
+                          {/* Eliminado: Jornales/día necesarios */}
                           <div className="col-6">
                             <div className="h6 text-info mb-0">{configuracionObra.diasHabiles || 0}</div>
                             <small className="text-muted">Días hábiles</small>
