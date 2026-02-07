@@ -172,13 +172,34 @@ const ConfiguracionPresupuestoSection = ({
     jornales: {
       ...defaultsMayoresCostos.jornales,
       ...(mayoresCostos?.jornales || {}),
+      activo: (mayoresCostos?.jornales?.activo === false) ? false : true, // ✅ true por defecto, false solo si está explícito
       porRol: { ...defaultsMayoresCostos.jornales.porRol, ...(mayoresCostos?.jornales?.porRol || {}) }
     },
-    profesionales: { ...defaultsMayoresCostos.profesionales, ...(mayoresCostos?.profesionales || {}) },
-    materiales: { ...defaultsMayoresCostos.materiales, ...(mayoresCostos?.materiales || {}) },
-    otrosCostos: { ...defaultsMayoresCostos.otrosCostos, ...(mayoresCostos?.otrosCostos || {}) },
-    configuracionPresupuesto: { ...defaultsMayoresCostos.configuracionPresupuesto, ...(mayoresCostos?.configuracionPresupuesto || {}) },
-    honorarios: { ...defaultsMayoresCostos.honorarios, ...(mayoresCostos?.honorarios || {}) }
+    profesionales: {
+      ...defaultsMayoresCostos.profesionales,
+      ...(mayoresCostos?.profesionales || {}),
+      activo: (mayoresCostos?.profesionales?.activo === false) ? false : true // ✅ true por defecto
+    },
+    materiales: {
+      ...defaultsMayoresCostos.materiales,
+      ...(mayoresCostos?.materiales || {}),
+      activo: (mayoresCostos?.materiales?.activo === false) ? false : true // ✅ true por defecto
+    },
+    otrosCostos: {
+      ...defaultsMayoresCostos.otrosCostos,
+      ...(mayoresCostos?.otrosCostos || {}),
+      activo: (mayoresCostos?.otrosCostos?.activo === false) ? false : true // ✅ true por defecto
+    },
+    configuracionPresupuesto: {
+      ...defaultsMayoresCostos.configuracionPresupuesto,
+      ...(mayoresCostos?.configuracionPresupuesto || {}),
+      activo: (mayoresCostos?.configuracionPresupuesto?.activo === false) ? false : true // ✅ true por defecto
+    },
+    honorarios: {
+      ...defaultsMayoresCostos.honorarios,
+      ...(mayoresCostos?.honorarios || {}),
+      activo: (mayoresCostos?.honorarios?.activo === false) ? false : true // ✅ true por defecto
+    }
   };
 
   // Función para actualizar honorarios (usa callback si existe, sino no hace nada)
@@ -3789,7 +3810,7 @@ const ConfiguracionPresupuestoSection = ({
                               <input
                                 className="form-check-input"
                                 type="checkbox"
-                                checked={mayoresCostosActual.jornales?.activo !== false}
+                                checked={mayoresCostosActual.jornales?.activo ?? true}
                                 onChange={(e) => {
                                   const nuevoMayoresCostos = {
                                     ...mayoresCostosActual,

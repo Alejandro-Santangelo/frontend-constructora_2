@@ -1,4 +1,5 @@
 import React from 'react';
+import { esDiaHabil, esFeriado } from '../utils/feriadosArgentina';
 
 const DetalleSemanalGastosModal = ({
   show,
@@ -28,55 +29,19 @@ const DetalleSemanalGastosModal = ({
 
     const fechaInicio = parsearFechaLocal(configuracionObra.fechaInicio);
 
-    // Lista de feriados argentinos
-    const feriadosArgentinos = [
-      '2025-01-01', // Año Nuevo
-      '2025-03-24', // Día Nacional de la Memoria
-      '2025-03-25', // Día Nacional de la Memoria
-      '2025-04-02', // Día del Veterano
-      '2025-04-18', // Viernes Santo
-      '2025-05-01', // Día del Trabajador
-      '2025-05-25', // Revolución de Mayo
-      '2025-06-20', // Día de la Bandera
-      '2025-07-09', // Día de la Independencia
-      '2025-08-17', // Paso a la Inmortalidad del General San Martín
-      '2025-10-12', // Día del Respeto a la Diversidad Cultural
-      '2025-11-20', // Día de la Soberanía Nacional
-      '2025-12-08', // Inmaculada Concepción
-      '2025-12-25', // Navidad
-    ];
-
     const esFinDeSemana = (fecha) => {
       const dia = fecha.getDay();
       return dia === 0 || dia === 6; // Domingo o sábado
     };
 
-    const esFeriado = (fecha) => {
-      const fechaStr = fecha.toISOString().split('T')[0];
-      return feriadosArgentinos.includes(fechaStr);
-    };
+    // Calcular el lunes base del proyecto y avanzar por semanas calendario
+    const primerLunes = new Date(fechaInicio);
+    const diaSemanaInicio = primerLunes.getDay();
+    const diasHastaLunes = diaSemanaInicio === 0 ? -6 : 1 - diaSemanaInicio;
+    primerLunes.setDate(primerLunes.getDate() + diasHastaLunes);
 
-    // Calcular el primer día de esta semana del proyecto (basado en días hábiles)
-    const diasHabilesTranscurridos = (numeroSemana - 1) * 5; // 5 días hábiles por semana
-    let fechaActual = new Date(fechaInicio);
-    let contadorDiasHabiles = 0;
-
-    // Avanzar hasta llegar al primer día de la semana deseada
-    while (contadorDiasHabiles < diasHabilesTranscurridos) {
-      if (!esFinDeSemana(fechaActual) && !esFeriado(fechaActual)) {
-        contadorDiasHabiles++;
-      }
-      if (contadorDiasHabiles < diasHabilesTranscurridos) {
-        fechaActual.setDate(fechaActual.getDate() + 1);
-      }
-    }
-
-    // Retroceder al lunes de la semana para mostrar contexto completo
-    const primerDiaHabilSemana = new Date(fechaActual);
-    const diaSemanaActual = fechaActual.getDay();
-    const diasHastaLunes = diaSemanaActual === 0 ? -6 : 1 - diaSemanaActual;
-    const fechaLunes = new Date(fechaActual);
-    fechaLunes.setDate(fechaActual.getDate() + diasHastaLunes);
+    const fechaLunes = new Date(primerLunes);
+    fechaLunes.setDate(primerLunes.getDate() + ((numeroSemana - 1) * 7));
 
     // Normalizar fechas para comparación (eliminar hora)
     const fechaInicioNormalizada = new Date(fechaInicio);
@@ -91,7 +56,7 @@ const DetalleSemanalGastosModal = ({
       dia.setDate(fechaLunes.getDate() + i);
       dia.setHours(0, 0, 0, 0);
 
-      const esHabil = !esFinDeSemana(dia) && !esFeriado(dia);
+      const esHabil = esDiaHabil(dia);
       // Comparar con fecha de inicio del proyecto, no con primer día hábil de la semana
       const esDiaDelProyecto = dia >= fechaInicioNormalizada;
       const esInteractivo = esHabil && esDiaDelProyecto;

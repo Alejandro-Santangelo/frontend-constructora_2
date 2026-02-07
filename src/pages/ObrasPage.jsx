@@ -1828,7 +1828,24 @@ const ObrasPage = ({ showNotification }) => {
 
   // Helper para obtener configuración de obra desde localStorage (sincrónico)
   const obtenerConfiguracionObra = (obraId) => {
-    // Eliminar localStorage: solo retornar null (será reemplazado por estado global en el siguiente paso)
+    // ✅ REPARADO: Verificar si la obra está configurada (tiene presupuesto con tiempoEstimadoTerminacion)
+    const presupuestoObra = presupuestosObras[obraId];
+
+    // Una obra está configurada si tiene presupuesto con tiempoEstimadoTerminacion definido
+    if (presupuestoObra?.tiempoEstimadoTerminacion && parseInt(presupuestoObra.tiempoEstimadoTerminacion) > 0) {
+      return presupuestoObra; // Retornar el presupuesto como configuración
+    }
+
+    // Fallback: verificar si hay configuración guardada en localStorage (de llamadas anteriores)
+    try {
+      const configGuardada = localStorage.getItem(`configuracionObra_${obraId}`);
+      if (configGuardada) {
+        return JSON.parse(configGuardada);
+      }
+    } catch (err) {
+      console.warn(`⚠️ Error leyendo configuración de obra ${obraId} desde localStorage:`, err);
+    }
+
     return null;
   };
 

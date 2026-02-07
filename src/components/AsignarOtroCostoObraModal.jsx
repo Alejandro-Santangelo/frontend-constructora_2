@@ -3,6 +3,7 @@ import { useEmpresa } from '../EmpresaContext';
 import DetalleSemanalGastosModal from './DetalleSemanalGastosModal';
 import AsignarOtroCostoSemanalModal from './AsignarOtroCostoSemanalModal';
 import api from '../services/api';
+import { calcularSemanasParaDiasHabiles, esDiaHabil } from '../utils/feriadosArgentina';
 
 /**
  * Modal para asignar otros costos/gastos generales del presupuestoNoCliente a una obra específica
@@ -114,16 +115,26 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
   };
 
   // 🔥 Crear configuración actualizada con fechaProbableInicio y jornales del presupuesto
+  // ✅ GARANTIZAR SIEMPRE: fechaInicio y diasHabiles para mostrar tarjetas de semanas
   const configuracionObraActualizada = useMemo(() => {
-    if (!configuracionObra) return null;
+    if (!configuracionObra && !presupuesto) return null;
 
-    if (presupuesto) {
-      const fechaActualizada = presupuesto.fechaProbableInicio?.includes('T')
+    const baseConfig = configuracionObra || {};
+    let fechaInicio = null;
+    let diasHabiles = null;
+    let diasHabilesPresupuesto = 0;
+
+    // Obtener fechaInicio (prioridad: presupuesto -> configuracionObra)
+    if (presupuesto?.fechaProbableInicio) {
+      fechaInicio = presupuesto.fechaProbableInicio.includes('T')
         ? presupuesto.fechaProbableInicio.split('T')[0]
-        : presupuesto.fechaProbableInicio || configuracionObra.fechaInicio;
+        : presupuesto.fechaProbableInicio;
+    } else {
+      fechaInicio = baseConfig.fechaInicio || baseConfig.fechaProbableInicio;
+    }
 
-      // Obtener días hábiles del presupuesto (tiempoEstimadoTerminacion)
-      let diasHabilesPresupuesto = configuracionObra.jornalesTotales;
+    // Obtener días hábiles (prioridad: presupuesto -> configuracionObra)
+    if (presupuesto) {
       if (presupuesto.tiempoEstimadoTerminacion) {
         diasHabilesPresupuesto = presupuesto.tiempoEstimadoTerminacion;
       } else if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
@@ -140,25 +151,30 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           const jornalesRubro = rubro.jornales?.reduce((sum, j) => sum + (j.cantidad || 0), 0) || 0;
           const profesionalesRubro = rubro.profesionales?.reduce((sum, p) => sum + (p.cantidadJornales || 0), 0) || 0;
           return total + jornalesRubro + profesionalesRubro;
-        }, 0) || configuracionObra.jornalesTotales;
+        }, 0) || baseConfig.jornalesTotales;
+      } else {
+        diasHabilesPresupuesto = baseConfig.jornalesTotales || 0;
       }
-
-      // 🔥 USAR días hábiles del presupuesto (fuente de verdad), NO semanasObjetivo × 5
-      // Prioridad: 1. Presupuesto (propiedad) -> 2. Presupuesto (calculado) -> 3. Config (dias) -> 4. Config (semanas)
-      const diasHabiles = presupuesto.tiempoEstimadoTerminacion || diasHabilesPresupuesto || configuracionObra.diasHabiles || (configuracionObra.semanasObjetivo * 5);
-      const capacidadNecesaria = diasHabiles > 0 ? Math.ceil(diasHabilesPresupuesto / diasHabiles) : 0;
-
-      return {
-        ...configuracionObra,
-        fechaInicio: fechaActualizada,
-        jornalesTotales: diasHabilesPresupuesto,
-        diasHabiles,
-        capacidadNecesaria,
-        presupuestoSeleccionado: presupuesto
-      };
+    } else {
+      diasHabilesPresupuesto = baseConfig.tiempoEstimadoTerminacion || baseConfig.jornalesTotales || 0;
     }
 
-    return configuracionObra;
+    // 🔥 USAR días hábiles del presupuesto (fuente de verdad), NO semanasObjetivo × 5
+    // Prioridad: 1. Presupuesto (propiedad) -> 2. Presupuesto (calculado) -> 3. Config (dias) -> 4. Config (semanas)
+    const semanasObjetivo = Number(baseConfig.semanasObjetivo);
+    const diasDesdeSemanas = Number.isFinite(semanasObjetivo) ? semanasObjetivo * 5 : null;
+    diasHabiles = presupuesto?.tiempoEstimadoTerminacion || diasHabilesPresupuesto || baseConfig.diasHabiles || diasDesdeSemanas;
+    const capacidadNecesaria = diasHabiles > 0 ? Math.ceil(diasHabilesPresupuesto / diasHabiles) : 0;
+
+    return {
+      ...baseConfig,
+      fechaInicio: fechaInicio || baseConfig.fechaInicio,
+      jornalesTotales: diasHabilesPresupuesto,
+      diasHabiles,
+      capacidadNecesaria,
+      semanasObjetivo: baseConfig.semanasObjetivo || presupuesto?.semanasObjetivo || null,
+      presupuestoSeleccionado: presupuesto || null
+    };
   }, [configuracionObra, presupuesto]);
 
   // Cargar presupuesto de la obra
@@ -617,9 +633,34 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       console.log('📅 fechaProbableInicio en presupuestoActual:', presupuestoActual.fechaProbableInicio);
 
       // 🆕 DETECTAR MODO DEL PRESUPUESTO (GLOBAL vs DETALLE)
+      // ✅ PASO 1: CALCULAR PRESUPUESTO GLOBAL SUMANDO TODOS LOS GASTOS GENERALES DE TODOS LOS RUBROS
+      console.log('═══════════════════════════════════════');
+      console.log('💰 CALCULANDO PRESUPUESTO GLOBAL - Suma de todos los gastos generales');
+      console.log('═══════════════════════════════════════');
+
+      let presupuestoGlobal = 0;
+      let totalGastosEncontrados = 0;
+
+      if (presupuestoActual.itemsCalculadora && Array.isArray(presupuestoActual.itemsCalculadora)) {
+        presupuestoActual.itemsCalculadora.forEach((rubro) => {
+          console.log(`\nRUBRO: ${rubro.tipoProfesional}`);
+
+          if (rubro.gastosGenerales && Array.isArray(rubro.gastosGenerales)) {
+            rubro.gastosGenerales.forEach((gasto) => {
+              const importe = Number(gasto.importe || gasto.subtotal || 0);
+              presupuestoGlobal += importe;
+              totalGastosEncontrados++;
+              console.log(`  ├─ ${gasto.descripcion}: $${importe.toLocaleString('es-AR')}`);
+            });
+          }
+        });
+      }
+
+      console.log(`\n✅ TOTAL CALCULADO: $${presupuestoGlobal.toLocaleString('es-AR')} (${totalGastosEncontrados} items)`);
+      console.log('═══════════════════════════════════════\n');
+
       let gastosDisponibles = [];
       let modoDetectado = null;
-      let presupuestoGlobal = 0;
       let fuenteDeteccion = null;
 
       const rubrosMap = new Map();
@@ -776,6 +817,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         nombre: presupuestoActual.nombreObra || presupuestoActual.nombre || 'Presupuesto',
         version: presupuestoActual.version || 1,
         fechaProbableInicio: fechaFormateada,
+        tiempoEstimadoTerminacion: presupuestoActual.tiempoEstimadoTerminacion,
         honorarios,
         mayoresCostos
       };
@@ -1809,165 +1851,23 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     setMostrarFormularioIndividual(false); // Cerrar formulario tras éxito
   };
 
-  // Función para verificar si una fecha es feriado en Argentina
-  const esFeriadoFn = (fecha) => {
-    const year = fecha.getFullYear();
-    const mes = fecha.getMonth() + 1;
-    const dia = fecha.getDate();
-    const mesdia = `${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-
-    const feriadosFijos = [
-      '01-01', '03-24', '04-02', '05-01', '05-25', '06-20',
-      '07-09', '12-08', '12-25'
-    ];
-
-    if (feriadosFijos.includes(mesdia)) return true;
-
-    // Cálculo de Pascua
-    const a = year % 19;
-    const b = Math.floor(year / 100);
-    const c = year % 100;
-    const d = Math.floor(b / 4);
-    const e = b % 4;
-    const f = Math.floor((b + 8) / 25);
-    const g = Math.floor((b - f + 1) / 3);
-    const h = (19 * a + b - d - g + 15) % 30;
-    const i = Math.floor(c / 4);
-    const k = c % 4;
-    const l = (32 + 2 * e + 2 * i - h - k) % 7;
-    const m = Math.floor((a + 11 * h + 22 * l) / 451);
-    const month = Math.floor((h + l - 7 * m + 114) / 31);
-    const day = ((h + l - 7 * m + 114) % 31) + 1;
-    const pascua = new Date(year, month - 1, day);
-
-    const carnavalLunes = new Date(pascua);
-    carnavalLunes.setDate(pascua.getDate() - 48);
-    const carnavalMartes = new Date(pascua);
-    carnavalMartes.setDate(pascua.getDate() - 47);
-    const juevesSanto = new Date(pascua);
-    juevesSanto.setDate(pascua.getDate() - 3);
-    const viernesSanto = new Date(pascua);
-    viernesSanto.setDate(pascua.getDate() - 2);
-
-    const compararFecha = (f1, f2) => {
-      return f1 && f2 &&
-             f1.getFullYear() === f2.getFullYear() &&
-             f1.getMonth() === f2.getMonth() &&
-             f1.getDate() === f2.getDate();
-    };
-
-    if (compararFecha(fecha, carnavalLunes) ||
-        compararFecha(fecha, carnavalMartes) ||
-        compararFecha(fecha, juevesSanto) ||
-        compararFecha(fecha, viernesSanto)) {
-      return true;
-    }
-
-    // Feriados puente por año
-    if (year === 2025 && ['04-18', '05-02', '06-16', '10-13', '11-24'].includes(mesdia)) return true;
-    if (year === 2026 && ['02-16', '02-17', '03-23', '06-15', '10-12', '11-23'].includes(mesdia)) return true;
-    if (year === 2027 && ['02-08', '02-09', '03-25', '03-26', '05-24', '06-21', '10-11', '11-22'].includes(mesdia)) return true;
-    if (year === 2028 && ['02-28', '02-29', '04-13', '04-14', '05-26', '06-19', '10-09', '11-20'].includes(mesdia)) return true;
-
-    return false;
-  };
-
-  // Calcular array de días hábiles reales (excluyendo fines de semana y feriados)
-  const calcularDiasHabiles = (inicio, cantidadDias) => {
-    const dias = [];
-    let diasAgregados = 0;
-    let fechaActual = new Date(inicio);
-
-    while (diasAgregados < cantidadDias) {
-      const diaSemana = fechaActual.getDay();
-      const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
-      const esFeriado = esFeriadoFn(fechaActual);
-
-      if (!esFinDeSemana && !esFeriado) {
-        dias.push(new Date(fechaActual));
-        diasAgregados++;
-      }
-
-      fechaActual.setDate(fechaActual.getDate() + 1);
-    }
-
-    return dias;
-  };
-
-  // Calcular días hábiles disponibles según diasHabiles (semanasObjetivo * 5)
-  const diasHabilesDisponibles = useMemo(() => {
+  // Calcular semanas necesarias basándose en días hábiles reales (misma lógica que Configuración)
+  const semanas = useMemo(() => {
     if (!configuracionObraActualizada?.fechaInicio || !configuracionObraActualizada?.diasHabiles) return [];
 
-    const fechaInicio = configuracionObraActualizada.fechaInicio.includes('-')
-      ? new Date(configuracionObraActualizada.fechaInicio.split('T')[0] + 'T12:00:00')
-      : new Date(configuracionObraActualizada.fechaInicio);
+    const diasHabiles = Number(configuracionObraActualizada.diasHabiles);
+    if (!Number.isFinite(diasHabiles) || diasHabiles <= 0) return [];
 
-    return calcularDiasHabiles(fechaInicio, configuracionObraActualizada.diasHabiles);
+    const fechaInicio = parsearFechaLocal(configuracionObraActualizada.fechaInicio);
+    if (!fechaInicio || isNaN(fechaInicio.getTime())) return [];
+
+    const totalSemanas = calcularSemanasParaDiasHabiles(fechaInicio, diasHabiles);
+    if (!totalSemanas || totalSemanas <= 0) return [];
+
+    return Array.from({ length: totalSemanas }, (_, idx) => ({
+      numeroSemana: idx + 1
+    }));
   }, [configuracionObraActualizada?.fechaInicio, configuracionObraActualizada?.diasHabiles]);
-
-  // Calcular semanas necesarias basándose en días hábiles reales
-  const semanas = useMemo(() => {
-    if (!configuracionObraActualizada?.fechaInicio || diasHabilesDisponibles.length === 0) return [];
-
-    const fechaInicio = configuracionObraActualizada.fechaInicio.includes('-')
-      ? new Date(configuracionObraActualizada.fechaInicio.split('T')[0] + 'T12:00:00')
-      : new Date(configuracionObraActualizada.fechaInicio);
-
-    const semanasPorProyecto = [];
-
-    // Encontrar el lunes de la semana de inicio
-    const primerLunes = new Date(fechaInicio);
-    const diaSemana = primerLunes.getDay();
-    const diasHastaLunes = diaSemana === 0 ? -6 : 1 - diaSemana;
-    primerLunes.setDate(primerLunes.getDate() + diasHastaLunes);
-
-    // El último día hábil determina hasta dónde generar semanas
-    const ultimoDiaHabil = diasHabilesDisponibles[diasHabilesDisponibles.length - 1];
-    if (!ultimoDiaHabil) return [];
-
-    let fechaActual = new Date(primerLunes);
-    let numeroSemana = 1;
-
-    while (fechaActual <= ultimoDiaHabil) {
-      const diasSemana = [];
-
-      // Generar los 7 días de la semana (Lunes a Domingo)
-      for (let i = 0; i < 7; i++) {
-        const fecha = new Date(fechaActual);
-        fecha.setDate(fechaActual.getDate() + i);
-        fecha.setHours(0, 0, 0, 0);
-
-        const esFinDeSemana = fecha.getDay() === 0 || fecha.getDay() === 6;
-        const esFeriado = esFeriadoFn(fecha);
-
-        const fechaInicioNormalizada = new Date(fechaInicio);
-        fechaInicioNormalizada.setHours(0, 0, 0, 0);
-
-        const esAntesDeInicio = fecha < fechaInicioNormalizada;
-        const esDespuesDelFinal = ultimoDiaHabil && fecha > ultimoDiaHabil;
-
-        diasSemana.push({
-          fecha: new Date(fecha),
-          esHabil: !esFinDeSemana && !esFeriado && !esAntesDeInicio && !esDespuesDelFinal
-        });
-      }
-
-      // Solo agregar la semana si tiene al menos un día hábil
-      const tieneHabiles = diasSemana.some(d => d.esHabil);
-      if (tieneHabiles) {
-        semanasPorProyecto.push({
-          numeroSemana: numeroSemana,
-          diasHabiles: diasSemana.filter(d => d.esHabil).length
-        });
-        numeroSemana++;
-      }
-
-      fechaActual.setDate(fechaActual.getDate() + 7);
-    }
-
-    console.log(`💰 [OTROS COSTOS] ${semanasPorProyecto.length} semanas necesarias para ${configuracionObraActualizada.diasHabiles} días hábiles objetivo`);
-    return semanasPorProyecto;
-  }, [configuracionObraActualizada?.fechaInicio, diasHabilesDisponibles]);
 
   const calcularDiasHabilesSemana = (numeroSemana) => {
     console.log('📆 [calcularDiasHabilesSemana] Entrada:', {
@@ -2047,11 +1947,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           continue;
         }
 
-        // Verificar si es feriado
-        const esFeriado = esFeriadoFn(dia);
-
-        // Solo agregar si NO es feriado
-        if (!esFeriado) {
+        // Solo agregar si es día hábil (lun-vie, no feriado)
+        if (esDiaHabil(dia)) {
           // Obtener el día de la semana real (0=Domingo, 1=Lunes, etc.)
           const diaSemana = dia.getDay();
           // Ajustar para que Lunes=0, Martes=1, etc.
@@ -2220,8 +2117,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                   </div>
                 )}
 
-                {/* Distribución semanal estimada - solo si hay configuración */}
-                {configuracionObra && configuracionObra.semanasObjetivo && (
+                {/* Distribución semanal estimada - solo si hay configuración con fechaInicio y semanas calculadas */}
+                {configuracionObraActualizada?.fechaInicio && semanas && semanas.length > 0 && (
                   <div className="card mb-3 border-warning">
                     <div className="card-header bg-warning text-dark">
                       <h6 className="mb-0">
@@ -2259,39 +2156,67 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                           return (
                             <div key={semana} className="col-md-6 col-lg-4 mb-2">
                               <div
-                                className="border rounded p-2 bg-light hover-card"
-                                style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                                className="border rounded p-3 bg-light hover-card shadow-sm"
+                                style={{
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s',
+                                  borderLeft: '4px solid #ffc107'
+                                }}
                                 onClick={() => abrirDetalleSemana(semana)}
                                 onMouseEnter={(e) => {
-                                  e.target.style.backgroundColor = '#fff3cd';
-                                  e.target.style.borderColor = '#ffc107';
+                                  e.currentTarget.style.backgroundColor = '#fff3cd';
+                                  e.currentTarget.style.borderColor = '#ffc107';
+                                  e.currentTarget.style.borderLeftColor = '#ff9800';
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.target.style.backgroundColor = '#f8f9fa';
-                                  e.target.style.borderColor = '#dee2e6';
+                                  e.currentTarget.style.backgroundColor = '#f8f9fa';
+                                  e.currentTarget.style.borderColor = '#dee2e6';
+                                  e.currentTarget.style.borderLeftColor = '#ffc107';
                                 }}
                               >
                                 <div className="d-flex justify-content-between align-items-center">
-                                  <strong className="text-warning">Semana {semana}</strong>
+                                  <strong className="text-warning"><i className="fas fa-calendar-week me-1"></i>Semana {semana}</strong>
+                                  <small className="badge bg-info text-white">{porcentajeSemana}%</small>
                                 </div>
+
+                                {/* Gasto monetario sugerido para la semana */}
+                                {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO' || gastosMonetarios.length > 0) && (
+                                  <div className="mt-2 pt-2 border-top">
+                                    <small className="text-success d-block">
+                                      <i className="fas fa-dollar-sign me-1"></i>
+                                      <strong>Presupuesto sugerido:</strong>
+                                    </small>
+                                    <strong className="text-success">${Number(gastoMonetarioSemanal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                                  </div>
+                                )}
 
                                 {/* Mostrar elementos físicos si existen */}
                                 {elementosPorSemana.length > 0 && (
-                                  <small className="text-primary d-block mt-1">
+                                  <small className="text-primary d-block mt-2">
                                     <i className="fas fa-boxes me-1"></i>
-                                    {elementosPorSemana.map((elem, idx) => (
-                                      <span key={idx}>
-                                        {elem.cantidad} {elem.nombre}
-                                        {idx < elementosPorSemana.length - 1 && ', '}
-                                      </span>
-                                    ))}
+                                    <strong>Materiales:</strong>
+                                    <div className="ms-3">
+                                      {elementosPorSemana.map((elem, idx) => (
+                                        <span key={idx} className="d-block">
+                                          • {elem.cantidad} {elem.nombre}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </small>
                                 )}
 
-                                <small className="text-info d-block mt-1">
-                                  <i className="fas fa-hand-pointer me-1"></i>
-                                  Clic para asignar
-                                </small>
+                                <div className="mt-2 pt-2 border-top">
+                                  <button
+                                    className="btn btn-sm btn-warning btn-block w-100"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      abrirDetalleSemana(semana);
+                                    }}
+                                  >
+                                    <i className="fas fa-edit me-1"></i>
+                                    Asignar Gastos para Semana {semana}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           );
@@ -2330,7 +2255,44 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                         <div className="text-center text-muted py-3">
                             <i className="fas fa-info-circle fa-2x mb-2"></i>
                             <p className="mb-0">Aún no hay gastos confirmados</p>
-                            <small className="text-muted">Usa las tarjetas de arriba para asignar gastos por semana</small>
+                            {(!configuracionObra || !configuracionObra.semanasObjetivo) && (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') ? (
+                              /* Modo Global sin semanas - mostrar botón directo para agregar gasto */
+                              <div className="mt-3">
+                                <small className="text-muted d-block mb-2">Asigna gastos manualmente</small>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => {
+                                    // Resetear formulario completamente
+                                    setNuevaAsignacion({
+                                      tipoAsignacion: '',
+                                      otroCostoId: '',
+                                      cantidadAsignada: '',
+                                      importeUnitario: '',
+                                      importeAsignado: '',
+                                      fechaAsignacion: new Date().toISOString().slice(0, 10),
+                                      observaciones: '',
+                                      esManual: false
+                                    });
+                                    setNuevoGastoManual({
+                                      descripcion: '',
+                                      categoria: 'General',
+                                      categoriaCustom: '',
+                                      cantidadAsignada: '',
+                                      importeUnitario: '',
+                                      observaciones: ''
+                                    });
+                                    setMostrarFormularioIndividual(true);
+                                  }}
+                                >
+                                  <i className="fas fa-plus me-1"></i>
+                                  Agregar Gasto
+                                </button>
+                              </div>
+                            ) : (
+                              /* Modo Detalle o con semanas - usar tarjetas */
+                              <small className="text-muted">Usa las tarjetas de arriba para asignar gastos por semana</small>
+                            )}
                           </div>
                         ) : (
                           <div className="table-responsive">

@@ -84,7 +84,27 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     honorarioDireccionImporte: safeInitial.honorarioDireccionImporte ?? '',
 
     honorarios: safeInitial.honorarios || { jornales: { activo: true } }, // ✅ Forzar activo por defecto
-    mayoresCostos: safeInitial.mayoresCostos || { jornales: { activo: true } }, // ✅ Forzar activo por defecto
+    mayoresCostos: (() => {
+      const mc = safeInitial.mayoresCostos || {};
+      return {
+        generalImportado: mc.generalImportado || false,
+        rubroImportado: mc.rubroImportado || false,
+        nombreRubroImportado: mc.nombreRubroImportado || '',
+        explicacion: mc.explicacion || '',
+        profesionales: mc.profesionales || { activo: true, tipo: 'porcentaje', valor: '' },
+        materiales: mc.materiales || { activo: true, tipo: 'porcentaje', valor: '' },
+        otrosCostos: mc.otrosCostos || { activo: true, tipo: 'porcentaje', valor: '' },
+        configuracionPresupuesto: mc.configuracionPresupuesto || { activo: true, tipo: 'porcentaje', valor: '' },
+        honorarios: mc.honorarios || { activo: true, tipo: 'porcentaje', valor: '' },
+        jornales: {
+          activo: (mc.jornales?.activo === false) ? false : true, // ✅ true por defecto, false solo si está explícitamente desmarcado
+          tipo: mc.jornales?.tipo || 'porcentaje',
+          valor: mc.jornales?.valor || '',
+          modoAplicacion: mc.jornales?.modoAplicacion || 'todos',
+          porRol: mc.jornales?.porRol || {}
+        }
+      };
+    })(), // ✅ Forzar jornales.activo = true por defecto
 
     profesionales: safeInitial.profesionales || [],
     materiales: safeInitial.materiales || [],
@@ -102,10 +122,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     nombreObraManual: safeInitial.nombreObraManual || safeInitial.nombreObra || '',
     obraSeleccionadaParaCopiar: null, // ✨ Flag para distinguir si se seleccionó obra (sin vincular, solo copiar datos)
 
-    // 🆕 Modos de carga (global/detalle) - Persistencia de UI
-    modoCargaJornales: normalizeModoCarga(safeInitial.modoCargaJornales, safeInitial.id ? 'detalle' : 'global'),
-    modoCargaMateriales: normalizeModoCarga(safeInitial.modoCargaMateriales, safeInitial.id ? 'detalle' : 'global'),
-    modoCargaGastos: normalizeModoCarga(safeInitial.modoCargaGastos, safeInitial.id ? 'detalle' : 'global'),
+    // 🆕 Modos de carga (global/detalle) - Siempre iniciar en 'global' (Modo Global)
+    modoCargaJornales: normalizeModoCarga(safeInitial.modoCargaJornales, 'global'),
+    modoCargaMateriales: normalizeModoCarga(safeInitial.modoCargaMateriales, 'global'),
+    modoCargaGastos: normalizeModoCarga(safeInitial.modoCargaGastos, 'global'),
   }));
 
   // Estado para guardar el valor protegido del nombre de obra
@@ -378,6 +398,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // Modificar useEffect principal de inicialización para asegurar que las secciones arranquen colapsadas
   useEffect(() => {
+    console.log('🚩 [useEffect-380] Ejecutado');
     // Si es un nuevo presupuesto o carga inicial, asegurar colapsado
     setProfesionalesAgregados(true);
     setManoObraMaterialesAgregados(true);
@@ -398,14 +419,33 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const [itemIdJornalEditando, setItemIdJornalEditando] = useState(null);
 
   // ✨ NUEVOS ESTADOS: Modos de Carga (Detalle vs Global)
-  const [modoCargaJornales, setModoCargaJornales] = useState(normalizeModoCarga(safeInitial.modoCargaJornales, safeInitial.id ? 'detalle' : 'global')); // 'detalle' | 'global'
+
+  const [modoCargaJornales, setModoCargaJornales] = useState(normalizeModoCarga(safeInitial.modoCargaJornales, 'global'));
   const [globalJornales, setGlobalJornales] = useState({ descripcion: 'Presupuesto Global Mano de Obra', importe: '' });
-
-  const [modoCargaMateriales, setModoCargaMateriales] = useState(normalizeModoCarga(safeInitial.modoCargaMateriales, safeInitial.id ? 'detalle' : 'global')); // 'detalle' | 'global'
+  const [modoCargaMateriales, setModoCargaMateriales] = useState(normalizeModoCarga(safeInitial.modoCargaMateriales, 'global'));
   const [globalMateriales, setGlobalMateriales] = useState({ descripcion: 'Presupuesto Global Materiales', importe: '' });
-
-  const [modoCargaGastos, setModoCargaGastos] = useState(normalizeModoCarga(safeInitial.modoCargaGastos, safeInitial.id ? 'detalle' : 'global')); // 'detalle' | 'global'
+  const [modoCargaGastos, setModoCargaGastos] = useState(normalizeModoCarga(safeInitial.modoCargaGastos, 'global'));
   const [globalGastos, setGlobalGastos] = useState({ descripcion: 'Presupuesto Global Gastos Grales.', importe: '' });
+
+  // Sincronizar switches con el valor inicial del formulario cada vez que se abre el modal o cambia el presupuesto
+  useEffect(() => {
+    console.log('🚩 [useEffect-410] Ejecutado');
+    // Inicialización robusta de switches modoCarga
+    // Si hay initialData y tiene id, usar sus valores; si no, usar 'global' por defecto
+    const modoJornales = initialData && initialData.id
+      ? normalizeModoCarga(initialData.modoCargaJornales, 'global')
+      : 'global';
+    const modoMateriales = initialData && initialData.id
+      ? normalizeModoCarga(initialData.modoCargaMateriales, 'global')
+      : 'global';
+    const modoGastos = initialData && initialData.id
+      ? normalizeModoCarga(initialData.modoCargaGastos, 'global')
+      : 'global';
+    setModoCargaJornales(modoJornales);
+    setModoCargaMateriales(modoMateriales);
+    setModoCargaGastos(modoGastos);
+    console.log('🟢 Switches modoCarga inicializados:', { modoJornales, modoMateriales, modoGastos });
+  }, [show, form.id]);
 
   // 🆕 NUEVOS ESTADOS: Selectores de Catálogo vs Entrada Manual
   const [modoEntradaMaterial, setModoEntradaMaterial] = useState('catalogo'); // 'catalogo' | 'manual'
@@ -434,6 +474,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // useEffect para actualizar form cuando cambian los initialData (al abrir para editar)
   useEffect(() => {
+    console.log('🚩 [useEffect-442] Ejecutado');
     if (!initialData || !initialData.id) return;
 
     // 🚫 BLOQUEAR todos los useEffect durante la carga inicial
@@ -673,19 +714,24 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
         return honorariosReconstruido;
       })(),
-      mayoresCostos: safeData.mayoresCostos || (() => {
+      mayoresCostos: (() => {
         // ✅ Reconstruir MAYORES COSTOS desde campos individuales (igual que honorarios)
         console.log('🔧 RECONSTRUYENDO MAYORES COSTOS desde BD');
 
         // Verificar si hay algún dato de mayores costos plano, PERO dar prioridad al objeto si existe
-        if (safeData.mayoresCostos) {
+        if (safeData.mayoresCostos && typeof safeData.mayoresCostos === 'object') {
            // Si ya viene como objeto, asegurarse de que jornales.activo tenga default true
            const mayoresObj = { ...safeData.mayoresCostos };
            if (!mayoresObj.jornales) {
-             mayoresObj.jornales = { activo: true };
-           } else if (mayoresObj.jornales.activo === undefined || mayoresObj.jornales.activo === false) {
-             // 🛠️ FORCE TRUE: Asegurar que Jornales arranque activo incluso si estaba guardado como false
-             mayoresObj.jornales.activo = true;
+             mayoresObj.jornales = { activo: true, tipo: 'porcentaje', valor: '', modoAplicacion: 'todos', porRol: {} };
+           } else {
+             // ✅ FORCE TRUE: Asegurar que Jornales arranque activo SIEMPRE por defecto
+             mayoresObj.jornales = {
+               ...mayoresObj.jornales,
+               activo: (mayoresObj.jornales.activo === false) ? false : true, // true por defecto, false solo si está explícito
+               modoAplicacion: mayoresObj.jornales.modoAplicacion || 'todos',
+               porRol: mayoresObj.jornales.porRol || {}
+             };
            }
            return mayoresObj;
         }
@@ -696,34 +742,34 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           tipoGeneral: safeData.mayoresCostosTipoGeneral || 'porcentaje',
 
           profesionales: {
-            activo: safeData.mayoresCostosProfesionalesActivo ?? false,
+            activo: (safeData.mayoresCostosProfesionalesActivo === false) ? false : true,
             tipo: safeData.mayoresCostosProfesionalesTipo || 'porcentaje',
             valor: safeData.mayoresCostosProfesionalesValor || ''
           },
           materiales: {
-            activo: safeData.mayoresCostosMaterialesActivo ?? false,
+            activo: (safeData.mayoresCostosMaterialesActivo === false) ? false : true,
             tipo: safeData.mayoresCostosMaterialesTipo || 'porcentaje',
             valor: safeData.mayoresCostosMaterialesValor || ''
           },
           otrosCostos: {
-            activo: safeData.mayoresCostosOtrosCostosActivo ?? false,
+            activo: (safeData.mayoresCostosOtrosCostosActivo === false) ? false : true,
             tipo: safeData.mayoresCostosOtrosCostosTipo || 'porcentaje',
             valor: safeData.mayoresCostosOtrosCostosValor || ''
           },
           configuracionPresupuesto: {
-            activo: safeData.mayoresCostosConfiguracionPresupuestoActivo ?? false,
+            activo: (safeData.mayoresCostosConfiguracionPresupuestoActivo === false) ? false : true,
             tipo: safeData.mayoresCostosConfiguracionPresupuestoTipo || 'porcentaje',
             valor: safeData.mayoresCostosConfiguracionPresupuestoValor || ''
           },
           jornales: {
-            activo: true, // safeData.mayoresCostosJornalesActivo ?? true, // ✅ FORCE TRUE por defecto siempre
+            activo: (safeData.mayoresCostosJornalesActivo === false) ? false : true, // ✅ true por defecto, false solo si está explícito
             tipo: safeData.mayoresCostosJornalesTipo || 'porcentaje',
             valor: safeData.mayoresCostosJornalesValor || '',
             modoAplicacion: 'todos',
             porRol: {}
           },
           honorarios: {
-            activo: safeData.mayoresCostosHonorariosActivo ?? false,
+            activo: (safeData.mayoresCostosHonorariosActivo === false) ? false : true,
             tipo: safeData.mayoresCostosHonorariosTipo || 'porcentaje',
             valor: safeData.mayoresCostosHonorariosValor || ''
           },
@@ -748,32 +794,32 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     if (mcLast.tipoGeneral) mayoresCostosReconstruido.tipoGeneral = mcLast.tipoGeneral;
 
                     if (mcLast.jornales) {
-                        // Respetar el activo: true forzado, pero cargar tipo y valor
+                        // ✅ NO cargar activo desde localStorage - siempre arrancar en true por defecto
                         mayoresCostosReconstruido.jornales.tipo = mcLast.jornales.tipo || mayoresCostosReconstruido.jornales.tipo;
                         mayoresCostosReconstruido.jornales.valor = mcLast.jornales.valor || mayoresCostosReconstruido.jornales.valor;
                     }
                     if (mcLast.profesionales) {
-                        mayoresCostosReconstruido.profesionales.activo = mcLast.profesionales.activo ?? mayoresCostosReconstruido.profesionales.activo;
+                        // ✅ NO cargar activo desde localStorage - siempre arrancar en true por defecto
                         mayoresCostosReconstruido.profesionales.tipo = mcLast.profesionales.tipo || mayoresCostosReconstruido.profesionales.tipo;
                         mayoresCostosReconstruido.profesionales.valor = mcLast.profesionales.valor || mayoresCostosReconstruido.profesionales.valor;
                     }
                     if (mcLast.materiales) {
-                        mayoresCostosReconstruido.materiales.activo = mcLast.materiales.activo ?? mayoresCostosReconstruido.materiales.activo;
+                        // ✅ NO cargar activo desde localStorage - siempre arrancar en true por defecto
                         mayoresCostosReconstruido.materiales.tipo = mcLast.materiales.tipo || mayoresCostosReconstruido.materiales.tipo;
                         mayoresCostosReconstruido.materiales.valor = mcLast.materiales.valor || mayoresCostosReconstruido.materiales.valor;
                     }
                     if (mcLast.otrosCostos) {
-                        mayoresCostosReconstruido.otrosCostos.activo = mcLast.otrosCostos.activo ?? mayoresCostosReconstruido.otrosCostos.activo;
+                        // ✅ NO cargar activo desde localStorage - siempre arrancar en true por defecto
                         mayoresCostosReconstruido.otrosCostos.tipo = mcLast.otrosCostos.tipo || mayoresCostosReconstruido.otrosCostos.tipo;
                         mayoresCostosReconstruido.otrosCostos.valor = mcLast.otrosCostos.valor || mayoresCostosReconstruido.otrosCostos.valor;
                     }
                     if (mcLast.configuracionPresupuesto) {
-                        mayoresCostosReconstruido.configuracionPresupuesto.activo = mcLast.configuracionPresupuesto.activo ?? mayoresCostosReconstruido.configuracionPresupuesto.activo;
+                        // ✅ NO cargar activo desde localStorage - siempre arrancar en true por defecto
                         mayoresCostosReconstruido.configuracionPresupuesto.tipo = mcLast.configuracionPresupuesto.tipo || mayoresCostosReconstruido.configuracionPresupuesto.tipo;
                         mayoresCostosReconstruido.configuracionPresupuesto.valor = mcLast.configuracionPresupuesto.valor || mayoresCostosReconstruido.configuracionPresupuesto.valor;
                     }
                     if (mcLast.honorarios) {
-                        mayoresCostosReconstruido.honorarios.activo = mcLast.honorarios.activo ?? mayoresCostosReconstruido.honorarios.activo;
+                        // ✅ NO cargar activo desde localStorage - siempre arrancar en true por defecto
                         mayoresCostosReconstruido.honorarios.tipo = mcLast.honorarios.tipo || mayoresCostosReconstruido.honorarios.tipo;
                         mayoresCostosReconstruido.honorarios.valor = mcLast.honorarios.valor || mayoresCostosReconstruido.honorarios.valor;
                     }
@@ -838,14 +884,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           importe: jornalesUnicos[0].importeJornal || jornalesUnicos[0].valorUnitario || jornalesUnicos[0].subtotal
         });
       } else {
-        // ✅ Respetar modo guardado en BD o usar global solo en nuevos
-        const modoGuardado = normalizeModoCarga(safeData.modoCargaJornales, safeData.id ? 'detalle' : 'global');
+        // Usar valor guardado si existe, si no, 'global'
+        const modoGuardado = normalizeModoCarga(safeData.modoCargaJornales, 'global');
         setModoCargaJornales(modoGuardado);
       }
     } else {
       setJornalesCalc([]);
-      // ✅ Respetar modo guardado en BD o usar global solo en nuevos
-      const modoGuardado = normalizeModoCarga(safeData.modoCargaJornales, safeData.id ? 'detalle' : 'global');
+      // Usar valor guardado si existe, si no, 'global'
+      const modoGuardado = normalizeModoCarga(safeData.modoCargaJornales, 'global');
       setModoCargaJornales(modoGuardado);
     }
 
@@ -871,14 +917,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           importe: mat.precioUnitario || mat.precio || mat.subtotal || ''
         });
       } else {
-        // ✅ Respetar modo guardado en BD o usar detalle por defecto
-        const modoGuardado = normalizeModoCarga(safeData.modoCargaMateriales, safeData.id ? 'detalle' : 'global');
+        // Usar valor guardado si existe, si no, 'global'
+        const modoGuardado = normalizeModoCarga(safeData.modoCargaMateriales, 'global');
         setModoCargaMateriales(modoGuardado);
       }
     } else {
       setMaterialesCalc([]);
-      // ✅ Respetar modo guardado en BD o usar detalle por defecto
-      const modoGuardado = normalizeModoCarga(safeData.modoCargaMateriales, safeData.id ? 'detalle' : 'global');
+      // Usar valor guardado si existe, si no, 'global'
+      const modoGuardado = normalizeModoCarga(safeData.modoCargaMateriales, 'global');
       setModoCargaMateriales(modoGuardado);
     }
 
@@ -903,14 +949,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           importe: gasto.precioUnitario || gasto.precio || gasto.subtotal || ''
         });
       } else {
-        // ✅ Respetar modo guardado en BD o usar detalle por defecto
-        const modoGuardado = normalizeModoCarga(safeData.modoCargaGastos, safeData.id ? 'detalle' : 'global');
+        // Usar valor guardado si existe, si no, 'global'
+        const modoGuardado = normalizeModoCarga(safeData.modoCargaGastos, 'global');
         setModoCargaGastos(modoGuardado);
       }
     } else {
       setGastosGeneralesCalc([]);
-      // ✅ Respetar modo guardado en BD o usar detalle por defecto
-      const modoGuardado = normalizeModoCarga(safeData.modoCargaGastos, safeData.id ? 'detalle' : 'global');
+      // Usar valor guardado si existe, si no, 'global'
+      const modoGuardado = normalizeModoCarga(safeData.modoCargaGastos, 'global');
       setModoCargaGastos(modoGuardado);
     }
 
@@ -940,6 +986,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // useEffect para cargar obras disponibles cuando se abre el modal
   useEffect(() => {
+    console.log('🚩 [useEffect-948] Ejecutado');
     if (show && form.idEmpresa && !soloLectura) {
       fetch(`/api/obras/empresa/${form.idEmpresa}`)
         .then(res => res.json())
@@ -956,6 +1003,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // 📚 useEffect para cargar catálogos (Materiales, Jornales, Gastos) cuando se abre el modal
   useEffect(() => {
+    console.log('🚩 [useEffect-964] Ejecutado');
     const cargarCatalogos = async () => {
       if (!show || !empresaSeleccionada?.id) {
         return;
@@ -1027,6 +1075,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // useEffect para cargar nombres de cliente y obra vinculados (modo edición)
   useEffect(() => {
+    console.log('🚩 [useEffect-1035] Ejecutado');
     if (show && (form.id || initialData?.id)) {
       // Usar form o initialData como fuente
       const clienteId = form.clienteId || initialData?.clienteId || initialData?.cliente_id;
@@ -1509,6 +1558,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // 📦 useEffect para cargar gastos generales desde el stock del backend
   useEffect(() => {
+    console.log('🚩 [useEffect-1517] Ejecutado');
     const cargarGastosGeneralesStock = async () => {
       // No cargar gastos generales en modo trabajo extra
       if (modoTrabajoExtra) {
@@ -2836,8 +2886,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     setItemsCalculadora([...itemsCalculadora, rubroVacio]);
 
-    // ✅ Limpiar todos los campos después de crear el rubro
-    setTipoProfesionalCalc('');
+      // ✅ Limpiar todos los campos después de crear el rubro, excepto el input de rubro
+      // setTipoProfesionalCalc(''); // No limpiar el input de rubro
     setCantidadJornalesCalc('');
     setImporteJornalCalc('');
     setImporteMaterialesCalc('');
@@ -2875,9 +2925,21 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   // ========== CÁLCULOS DE SUBTOTALES ==========
   const subtotalJornales = jornalesCalc.reduce((sum, j) => sum + j.subtotal, 0);
 
+  // --- LOG ANTES DE DECISIÓN JORNALES ---
+  // Ejemplo de uso en el bloque de decisión de jornales
+  // console.log('🔎 [Jornales] safeData:', safeData, 'esGlobal:', esGlobal, 'jornalesUnicos:', jornalesUnicos);
+
   const subtotalManoObraProfesionales = profesionalesCalc.reduce((sum, p) => sum + p.subtotal, 0);
 
+  // --- LOG ANTES DE DECISIÓN MATERIALES ---
+  // Ejemplo de uso en el bloque de decisión de materiales
+  // console.log('🔎 [Materiales] safeData:', safeData, 'esGlobal:', esGlobal, 'mat:', mat);
+
   const subtotalMaterialesLista = materialesCalc.reduce((sum, m) => sum + m.subtotal, 0);
+
+  // --- LOG ANTES DE DECISIÓN GASTOS ---
+  // Ejemplo de uso en el bloque de decisión de gastos
+  // console.log('🔎 [Gastos] safeData:', safeData, 'esGlobal:', esGlobal, 'gasto:', gasto);
 
   const subtotalManoObraCalc = cantidadJornalesCalc && importeJornalCalc
     ? (Number(cantidadJornalesCalc) * Number(importeJornalCalc))
@@ -4000,11 +4062,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // 🔄 useEffect: Actualizar automáticamente el campo tiempoEstimadoTerminacion cuando cambian los rubros o checkboxes
   useEffect(() => {
+    console.log('🚩 [useEffect-4020] Ejecutado');
     // 🚫 NO EJECUTAR si el modo automático está desactivado
     if (form.calculoAutomaticoDiasHabiles === false) {
       return;
     }
-
+  console.log('🚩 [useEffect-4511] Ejecutado');
     // 🚫 NO EJECUTAR si estamos cargando initialData (evitar loop infinito)
     if (estaCargandoInicialRef.current) {
       return;
@@ -6242,6 +6305,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   // 🎯 Modo de presupuesto detectado con hook reutilizable (ver línea ~237)
 
   useEffect(() => {
+    console.log('🚩 [useEffect-6262] Ejecutado');
     if (show) {
       setTimeout(() => {
         const modalContent = document.querySelector('.modal-body');
@@ -7227,7 +7291,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       payload.mayoresCostosExplicacion = mayoresCostosConfig.explicacion || null;
 
       // JORNALES
-      payload.mayoresCostosJornalesActivo = mayoresCostosConfig.jornales?.activo ?? null;
+      payload.mayoresCostosJornalesActivo = mayoresCostosConfig.jornales?.activo ?? true;
       payload.mayoresCostosJornalesTipo = mayoresCostosConfig.jornales?.tipo || null;
       payload.mayoresCostosJornalesValor = (mayoresCostosConfig.jornales?.valor !== null && mayoresCostosConfig.jornales?.valor !== undefined && mayoresCostosConfig.jornales?.valor !== '')
         ? Number(mayoresCostosConfig.jornales.valor)
@@ -7505,12 +7569,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         });
 
         // Enviar como "monto_fijo" con el total calculado
-        payload.mayoresCostosJornalesActivo = configJornales.activo ?? false;
+        payload.mayoresCostosJornalesActivo = configJornales.activo ?? true;
         payload.mayoresCostosJornalesTipo = 'monto_fijo';
         payload.mayoresCostosJornalesValor = totalMayoresCostosJornales;
       } else {
         // Modo "todos" - enviar tal cual
-        payload.mayoresCostosJornalesActivo = configJornales.activo ?? false;
+        payload.mayoresCostosJornalesActivo = configJornales.activo ?? true;
         payload.mayoresCostosJornalesTipo = configJornales.tipo === 'porcentaje' ? 'porcentaje' : 'monto_fijo';
         payload.mayoresCostosJornalesValor = Number(configJornales.valor) || 0;
       }
@@ -9679,7 +9743,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             {!jornalesAgregados && (
                             <div className="border rounded p-3 mb-2 bg-light">
 
-                              {/* Selector de Catálogo */}
+                              {/* Selector de Catálogo - Solo en modo DETALLE */}
+                              {modoCargaJornales === 'detalle' && (
                               <div className="border rounded p-3 mb-2 bg-light">
                                 <div>
                                   <div className="mb-3">
@@ -9714,10 +9779,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   </div>
                                 </div>
                               </div>
+                              )}
 
                               {/* CONDICIONAL: MODO GLOBAL vs MODO DETALLE */}
                               {modoCargaJornales === 'global' ? (
-                                // --- MODO GLOBAL ---
                                 <div className="d-flex flex-row align-items-end gap-3 flex-wrap">
                                   <div style={{minWidth: '350px', flex: 1}}>
                                     <label className="form-label small mb-1">Descripción Global</label>
@@ -9785,7 +9850,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   )}
                                 </div>
                               ) : (
-                                // --- MODO DETALLE (El existente) ---
                                 <div className="d-flex flex-row align-items-end gap-3 flex-wrap">
                                 <div style={{minWidth: '200px', maxWidth: '200px'}}>
                                   <label className="form-label small mb-1">Rol *</label>
@@ -10061,7 +10125,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
                               {/* CONDICIONAL: MODO GLOBAL vs MODO DETALLE */}
                               {modoCargaMateriales === 'global' ? (
-                                // --- MODO GLOBAL ---
                                 <div className="d-flex flex-row align-items-end gap-3 flex-wrap">
                                   <div style={{minWidth: '350px', flex: 1}}>
                                     <label className="form-label small mb-1">Descripción Global</label>
@@ -10126,11 +10189,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   )}
                                 </div>
                               ) : (
-                                // --- MODO DETALLE (Con Selector de Catálogo) ---
                               <div>
                                 {/* SELECTOR: Catálogo o Manual */}
                                 {modoEntradaMaterial === 'catalogo' ? (
-                                  // Mostrar SELECT con catálogo
                                   <div className="mb-3">
                                     <label className="form-label small fw-bold mb-1">
                                       📚 Seleccionar del Catálogo
@@ -10429,7 +10490,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               {!gastosGeneralesAgregados && (
                               <div className="border rounded p-3 mb-2 bg-light">
 
-                                {/* Selector de Catálogo */}
+                                {/* Selector de Catálogo - Solo en modo DETALLE */}
+                                {modoCargaGastos === 'detalle' && (
                                 <div className="border rounded p-3 mb-2 bg-light">
                                   <div>
                                     <div className="mb-3">
@@ -10465,10 +10527,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     </div>
                                   </div>
                                 </div>
+                                )}
 
                                 {/* CONDICIONAL: MODO GLOBAL vs MODO DETALLE */}
                                 {modoCargaGastos === 'global' ? (
-                                  // --- MODO GLOBAL ---
                                   <div className="d-flex flex-row align-items-end gap-3 flex-wrap">
                                     <div style={{minWidth: '350px', flex: 1}}>
                                       <label className="form-label small mb-1">Descripción Global</label>
@@ -10535,7 +10597,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     )}
                                   </div>
                                 ) : (
-                                  // --- MODO DETALLE (El existente) ---
                                 <div className="d-flex flex-row align-items-end gap-3 flex-wrap">
                                   <div style={{minWidth: '200px', flex: 1}}>
                                     <label className="form-label small mb-1">
