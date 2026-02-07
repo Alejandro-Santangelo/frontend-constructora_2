@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import DetalleSemanalMaterialesModal from './DetalleSemanalMaterialesModal';
 import AsignarMaterialSemanalModal from './AsignarMaterialSemanalModal';
+import { calcularSemanasParaDiasHabiles, esDiaHabil, esFeriado } from '../utils/feriadosArgentina';
 
 /**
  * Modal para asignar materiales del presupuestoNoCliente a una obra específica
@@ -72,6 +73,17 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return nuevoMaterialManual.unidad;
   };
 
+  // ✅ Helper para obtener el ID REAL de la obra (diferencia entre trabajo extra y obra normal)
+  const getObraId = () => {
+    if (!obra) return null;
+    // Si es un trabajo extra, usar el ID real de la obra (_obraId o _obraOriginalId)
+    if (obra._esTrabajoExtra) {
+      return obra._obraId || obra._obraOriginalId || obra.obraId || obra.id;
+    }
+    // Si es una obra normal, usar el ID directo
+    return obra.id;
+  };
+
   // ðŸ”¥ Crear configuración actualizada con fechaProbableInicio y jornales del presupuesto
   const configuracionObraActualizada = useMemo(() => {
     if (!configuracionObra) return null;
@@ -138,7 +150,17 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     if (presupuesto?.presupuestoGeneral?.totalMateriales > 0 && asignaciones) {
       const totalMateriales = presupuesto.presupuestoGeneral.totalMateriales;
       const totalAsignado = asignaciones.reduce((sum, asig) => {
-        return sum + (parseFloat(asig.importeAsignado) || 0);
+        const importeDirecto = parseFloat(asig.importeAsignado ?? asig.importe) || 0;
+        if (importeDirecto > 0) {
+          return sum + importeDirecto;
+        }
+
+        const cantidad = parseFloat(asig.cantidadAsignada ?? asig.cantidad) || 0;
+        const precioUnitario = parseFloat(
+          asig.precioUnitario ?? asig.precio ?? asig.presupuestoMaterial?.precioUnitario
+        ) || 0;
+
+        return sum + (cantidad * precioUnitario);
       }, 0);
 
       const disponibleRestante = totalMateriales - totalAsignado;
@@ -431,6 +453,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         version: presupuestoActual.version || 1,
         estado: presupuestoActual.estado,
         fechaProbableInicio: fechaFormateada,
+        tiempoEstimadoTerminacion: presupuestoData.tiempoEstimadoTerminacion,
         presupuestoGeneral: presupuestoData.presupuestoGeneral // 🔥 CRUCIAL: Guardar datos económicos
       };
 
@@ -503,7 +526,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       // Limpiamos referencias a localStorage que ya no se deben usar
 
       const { obtenerMaterialesAsignados } = await import('../services/obraMaterialService');
-      const materialesBDRaw = await obtenerMaterialesAsignados(obra.id, empresaSeleccionada.id);
+      const obraIdParaQuery = getObraId(); // ✅ Usa ID real de la obra
+      const materialesBDRaw = await obtenerMaterialesAsignados(obraIdParaQuery, empresaSeleccionada.id);
       const materialesBD = (Array.isArray(materialesBDRaw) ? materialesBDRaw : []).map(m => ({
         ...m,
         // Normalización crítica para que funcione la tarjeta de semana
@@ -609,7 +633,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         observaciones: nuevaAsignacion.observaciones || ''
       };
 
-      await asignarMaterial(obra.id, datosAsignacion, empresaSeleccionada.id);
+      const obraIdParaAsignacion = getObraId(); // ✅ Usa ID real de la obra
+      await asignarMaterial(obraIdParaAsignacion, datosAsignacion, empresaSeleccionada.id);
 
       setNuevaAsignacion({
         tipoAsignacion: '',
@@ -680,7 +705,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
               esGlobal: true
             };
 
-            await asignarMaterial(obra.id, datosAsignacion, empresaSeleccionada.id);
+            const obraIdParaAsignacion2 = getObraId(); // ✅ Usa ID real de la obra
+            await asignarMaterial(obraIdParaAsignacion2, datosAsignacion, empresaSeleccionada.id);
             resultados.push(asig);
             console.log('✅ Material global asignado:', asig.nombreMaterial);
           } catch (error) {
@@ -708,7 +734,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
           };
 
           try {
-            await asignarMaterial(obra.id, datosAsignacion, empresaSeleccionada.id);
+            const obraIdParaAsignacion3 = getObraId(); // ✅ Usa ID real de la obra
+            await asignarMaterial(obraIdParaAsignacion3, datosAsignacion, empresaSeleccionada.id);
             resultados.push(asignacion);
           } catch (err) {
             console.error('❌ Error asignando material individual:', err);
@@ -750,7 +777,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     }
 
     try {
-      const key = `obra_materiales_${obra.id}_${empresaSeleccionada.id}`;
+      const obraIdParaKey = getObraId(); // ✅ Usa ID real de la obra
+      const key = `obra_materiales_${obraIdParaKey}_${empresaSeleccionada.id}`;
       const localesRaw = JSON.parse(localStorage.getItem(key) || '[]');
       const locales = Array.isArray(localesRaw) ? localesRaw : [];
 
@@ -766,7 +794,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       }
 
       const { eliminarAsignacion } = await import('../services/obraMaterialService');
-      await eliminarAsignacion(obra.id, asignacionId, empresaSeleccionada.id);
+      const obraIdParaEliminar = getObraId(); // ✅ Usa ID real de la obra
+      await eliminarAsignacion(obraIdParaEliminar, asignacionId, empresaSeleccionada.id);
 
       await cargarAsignacionesActuales();
       if (onAsignacionExitosa) onAsignacionExitosa();
@@ -821,167 +850,40 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     setMostrarFormularioIndividual(false); // Cerrar formulario tras éxito
   };
 
-  // Función para verificar si una fecha es feriado en Argentina
-  const esFeriadoFn = (fecha) => {
-    const year = fecha.getFullYear();
-    const mes = fecha.getMonth() + 1;
-    const dia = fecha.getDate();
-    const mesdia = `${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-
-    const feriadosFijos = [
-      '01-01', '03-24', '04-02', '05-01', '05-25', '06-20',
-      '07-09', '12-08', '12-25'
-    ];
-
-    if (feriadosFijos.includes(mesdia)) return true;
-
-    // Cálculo de Pascua
-    const a = year % 19;
-    const b = Math.floor(year / 100);
-    const c = year % 100;
-    const d = Math.floor(b / 4);
-    const e = b % 4;
-    const f = Math.floor((b + 8) / 25);
-    const g = Math.floor((b - f + 1) / 3);
-    const h = (19 * a + b - d - g + 15) % 30;
-    const i = Math.floor(c / 4);
-    const k = c % 4;
-    const l = (32 + 2 * e + 2 * i - h - k) % 7;
-    const m = Math.floor((a + 11 * h + 22 * l) / 451);
-    const month = Math.floor((h + l - 7 * m + 114) / 31);
-    const day = ((h + l - 7 * m + 114) % 31) + 1;
-    const pascua = new Date(year, month - 1, day);
-
-    const carnavalLunes = new Date(pascua);
-    carnavalLunes.setDate(pascua.getDate() - 48);
-    const carnavalMartes = new Date(pascua);
-    carnavalMartes.setDate(pascua.getDate() - 47);
-    const juevesSanto = new Date(pascua);
-    juevesSanto.setDate(pascua.getDate() - 3);
-    const viernesSanto = new Date(pascua);
-    viernesSanto.setDate(pascua.getDate() - 2);
-
-    const compararFecha = (f1, f2) => {
-      return f1 && f2 &&
-             f1.getFullYear() === f2.getFullYear() &&
-             f1.getMonth() === f2.getMonth() &&
-             f1.getDate() === f2.getDate();
-    };
-
-    if (compararFecha(fecha, carnavalLunes) ||
-        compararFecha(fecha, carnavalMartes) ||
-        compararFecha(fecha, juevesSanto) ||
-        compararFecha(fecha, viernesSanto)) {
-      return true;
-    }
-
-    // Feriados puente por año
-    if (year === 2025 && ['04-18', '05-02', '06-16', '10-13', '11-24'].includes(mesdia)) return true;
-    if (year === 2026 && ['02-16', '02-17', '03-23', '06-15', '10-12', '11-23'].includes(mesdia)) return true;
-    if (year === 2027 && ['02-08', '02-09', '03-25', '03-26', '05-24', '06-21', '10-11', '11-22'].includes(mesdia)) return true;
-    if (year === 2028 && ['02-28', '02-29', '04-13', '04-14', '05-26', '06-19', '10-09', '11-20'].includes(mesdia)) return true;
-
-    return false;
-  };
-
-  // Calcular array de días hábiles reales (excluyendo fines de semana y feriados)
-  const calcularDiasHabiles = (inicio, cantidadDias) => {
-    const dias = [];
-    let diasAgregados = 0;
-    let fechaActual = new Date(inicio);
-
-    while (diasAgregados < cantidadDias) {
-      const diaSemana = fechaActual.getDay();
-      const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
-      const esFeriado = esFeriadoFn(fechaActual);
-
-      if (!esFinDeSemana && !esFeriado) {
-        dias.push(new Date(fechaActual));
-        diasAgregados++;
-      }
-
-      fechaActual.setDate(fechaActual.getDate() + 1);
-    }
-
-    return dias;
-  };
-
-  // Calcular días hábiles disponibles según diasHabiles (semanasObjetivo * 5)
-  const diasHabilesDisponibles = useMemo(() => {
-    if (!configuracionObraActualizada?.fechaInicio || !configuracionObraActualizada?.diasHabiles) return [];
-
-    const fechaInicio = configuracionObraActualizada.fechaInicio.includes('-')
-      ? new Date(configuracionObraActualizada.fechaInicio.split('T')[0] + 'T12:00:00')
-      : new Date(configuracionObraActualizada.fechaInicio);
-
-    return calcularDiasHabiles(fechaInicio, configuracionObraActualizada.diasHabiles);
-  }, [configuracionObraActualizada?.fechaInicio, configuracionObraActualizada?.diasHabiles]);
-
-  // Calcular semanas necesarias basándose en días hábiles reales
+  // Calcular semanas necesarias usando la función centralizada
   const semanas = useMemo(() => {
-    if (!configuracionObraActualizada?.fechaInicio || diasHabilesDisponibles.length === 0) return [];
+    if (!configuracionObraActualizada?.tiempoEstimadoTerminacion || !configuracionObraActualizada?.fechaInicio) {
+      console.log('⚠️ [MATERIALES] Sin tiempoEstimadoTerminacion o fechaInicio:', {
+        tiempoEstimado: configuracionObraActualizada?.tiempoEstimadoTerminacion,
+        fechaInicio: configuracionObraActualizada?.fechaInicio
+      });
+      return [];
+    }
 
     const fechaInicio = configuracionObraActualizada.fechaInicio.includes('-')
       ? new Date(configuracionObraActualizada.fechaInicio.split('T')[0] + 'T12:00:00')
       : new Date(configuracionObraActualizada.fechaInicio);
 
-    const semanasPorProyecto = [];
+    const totalSemanas = calcularSemanasParaDiasHabiles(
+      fechaInicio,
+      configuracionObraActualizada.tiempoEstimadoTerminacion
+    );
 
-    // Encontrar el lunes de la semana de inicio
-    const primerLunes = new Date(fechaInicio);
-    const diaSemana = primerLunes.getDay();
-    const diasHastaLunes = diaSemana === 0 ? -6 : 1 - diaSemana;
-    primerLunes.setDate(primerLunes.getDate() + diasHastaLunes);
+    console.log('📊 [MATERIALES] Semanas calculadas:', {
+      diasHabiles: configuracionObraActualizada.tiempoEstimadoTerminacion,
+      totalSemanas,
+      fechaInicio: configuracionObraActualizada.fechaInicio
+    });
 
-    // El último día hábil determina hasta dónde generar semanas
-    const ultimoDiaHabil = diasHabilesDisponibles[diasHabilesDisponibles.length - 1];
-    if (!ultimoDiaHabil) return [];
-
-    let fechaActual = new Date(primerLunes);
-    let numeroSemana = 1;
-
-    while (fechaActual <= ultimoDiaHabil) {
-      const diasSemana = [];
-
-      // Generar los 7 días de la semana (Lunes a Domingo)
-      for (let i = 0; i < 7; i++) {
-        const fecha = new Date(fechaActual);
-        fecha.setDate(fechaActual.getDate() + i);
-        fecha.setHours(0, 0, 0, 0);
-
-        const esFinDeSemana = fecha.getDay() === 0 || fecha.getDay() === 6;
-        const esFeriado = esFeriadoFn(fecha);
-
-        const fechaInicioNormalizada = new Date(fechaInicio);
-        fechaInicioNormalizada.setHours(0, 0, 0, 0);
-
-        const esAntesDeInicio = fecha < fechaInicioNormalizada;
-        const esDespuesDelFinal = ultimoDiaHabil && fecha > ultimoDiaHabil;
-
-        diasSemana.push({
-          fecha: new Date(fecha),
-          esHabil: !esFinDeSemana && !esFeriado && !esAntesDeInicio && !esDespuesDelFinal
-        });
-      }
-
-      // Solo agregar la semana si tiene al menos un día hábil
-      const tieneHabiles = diasSemana.some(d => d.esHabil);
-      if (tieneHabiles) {
-        semanasPorProyecto.push({
-          numeroSemana: numeroSemana,
-          diasHabiles: diasSemana.filter(d => d.esHabil).length,
-          fechaInicio: diasSemana[0].fecha,
-          fechaFin: diasSemana[6].fecha
-        });
-        numeroSemana++;
-      }
-
-      fechaActual.setDate(fechaActual.getDate() + 7);
-    }
-
-    console.log(`📊 [MATERIALES] ${semanasPorProyecto.length} semanas necesarias para ${configuracionObraActualizada.diasHabiles} días hábiles objetivo`);
-    return semanasPorProyecto;
-  }, [configuracionObraActualizada?.fechaInicio, diasHabilesDisponibles]);
+    return Array.from({ length: totalSemanas }, (_, i) => ({
+      numeroSemana: i + 1,
+      fechaInicio,
+      fechaFin: null
+    }));
+  }, [
+    configuracionObraActualizada?.tiempoEstimadoTerminacion,
+    configuracionObraActualizada?.fechaInicio
+  ]);
 
   const calcularDiasHabilesSemana = (numeroSemana) => {
     // Usar fechaProbableInicio del presupuesto (reactivo) con fallback a configuracionObra
@@ -1025,22 +927,22 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         return [];
       }
 
-      // Para la semana solicitada, calcular su lunes sumando semanas completas (7 días)
-      const inicioSemana = new Date(primerLunes.getTime());
-      inicioSemana.setDate(primerLunes.getDate() + ((numeroSemana - 1) * 7));
+      // Calcular el lunes de la semana solicitada (calendario directo)
+      const fechaLunes = new Date(primerLunes.getTime());
+      fechaLunes.setDate(primerLunes.getDate() + ((numeroSemana - 1) * 7));
 
-      // Validar que inicioSemana es válida
-      if (isNaN(inicioSemana.getTime())) {
-        console.error('âŒ Fecha de inicio de semana inválida:', inicioSemana);
+      // Validar que fechaLunes es válida
+      if (isNaN(fechaLunes.getTime())) {
+        console.error('âŒ Fecha de inicio de semana inválida:', fechaLunes);
         return [];
       }
 
       // Generar lunes a viernes, filtrando feriados
-      const nombresDias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+      const nombresDias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
       const diasHabiles = [];
       for (let i = 0; i < 5; i++) {
-        const dia = new Date(inicioSemana.getTime()); // Usar getTime() para clonar correctamente
-        dia.setDate(inicioSemana.getDate() + i);
+        const dia = new Date(fechaLunes.getTime()); // Usar getTime() para clonar correctamente
+        dia.setDate(fechaLunes.getDate() + i);
 
         // Validar cada día antes de añadirlo
         if (isNaN(dia.getTime())) {
@@ -1048,23 +950,15 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
           continue;
         }
 
-        // Verificar si es feriado
-        const esFeriado = esFeriadoFn(dia);
+        // Este día será incluido con marca de feriado
 
-        // Solo agregar si NO es feriado
-        if (!esFeriado) {
-          // Obtener el día de la semana real (0=Domingo, 1=Lunes, etc.)
-          const diaSemana = dia.getDay();
-          // Ajustar para que Lunes=0, Martes=1, etc.
-          const indiceDia = diaSemana === 0 ? 6 : diaSemana - 1;
-
-          diasHabiles.push({
-            fecha: new Date(dia.getTime()),
-            fechaStr: dia.toISOString().split('T')[0],
-            nombre: nombresDias[indiceDia],
-            numero: dia.getDate()
-          });
-        }
+        diasHabiles.push({
+          fecha: new Date(dia.getTime()),
+          fechaStr: dia.toISOString().split('T')[0],
+          nombre: nombresDias[i],
+          numero: dia.getDate(),
+          esFeriado: esFeriado(dia)
+        });
       }
 
       console.log(`ðŸ“… Días hábiles calculados para semana ${numeroSemana}:`, diasHabiles);
@@ -1166,8 +1060,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                   )}
                 </div>
 
-                {/* Distribución semanal estimada - solo si hay configuración */}
-                {configuracionObra && configuracionObra.semanasObjetivo && (
+                {/* Distribución semanal estimada */}
+                {semanas.length > 0 && (
                   <div className="card mb-3 border-info">
                     <div className="card-header bg-info text-white">
                       <h6 className="mb-0">

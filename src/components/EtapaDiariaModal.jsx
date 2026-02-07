@@ -243,7 +243,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
 
       // Obtener profesionales asignados a esta obra específica
       const response = await fetch(
-        `http://localhost:8080/api/profesionales/asignaciones/${obra.id}`,
+        `http://localhost:8080/api/profesionales/asignaciones/${obra._esTrabajoExtra ? (obra._obraId || obra._obraOriginalId || obra.obraId) : obra.id}`,
         {
           headers: {
             'empresaId': empresaSeleccionada.id.toString(),

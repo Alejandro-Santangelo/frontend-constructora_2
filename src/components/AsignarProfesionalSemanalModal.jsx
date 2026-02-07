@@ -73,6 +73,17 @@ const AsignarProfesionalSemanalModal = ({
     return `${year}-W${String(week).padStart(2, '0')}`;
   };
 
+  // ✅ Helper para obtener el ID REAL de la obra (diferencia entre trabajo extra y obra normal)
+  const getObraId = () => {
+    if (!obra) return null;
+    // Si es un trabajo extra, usar el ID real de la obra (_obraId o _obraOriginalId)
+    if (obra._esTrabajoExtra) {
+      return obra._obraId || obra._obraOriginalId || obra.obraId || obra.id;
+    }
+    // Si es una obra normal, usar el ID directo
+    return obra.id;
+  };
+
   // Estados principales
   const [profesionalesSeleccionados, setProfesionalesSeleccionados] = useState([]);
   const [mostrarModalSeleccion, setMostrarModalSeleccion] = useState(false);
@@ -353,7 +364,8 @@ const AsignarProfesionalSemanalModal = ({
       console.log('🔍 Presupuesto con estado válido más reciente:', presupuestoAprobado);
 
       // 2. Obtener ASIGNACIONES SEMANALES de la obra
-      const responseSemanal = await obtenerAsignacionesSemanalPorObra(obra.id, empresaSeleccionada.id);
+      const obraIdParaQuery = getObraId(); // ✅ Usa ID real de la obra
+      const responseSemanal = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
       console.log('🔍 Asignaciones semanales response completo:', responseSemanal);
 
       let dataSemanal = responseSemanal.data || responseSemanal || [];
@@ -365,7 +377,7 @@ const AsignarProfesionalSemanalModal = ({
       let dataObra = [];
       try {
         const responseObra = await fetch(
-          `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
+          `http://localhost:8080/api/obras/${obraIdParaQuery}/asignaciones-profesionales`, // ✅ Usa ID real
           {
             headers: {
               'empresaId': empresaSeleccionada.id.toString(),
@@ -492,10 +504,8 @@ const AsignarProfesionalSemanalModal = ({
   // Función helper para obtener el presupuesto con estado válido más reciente
   const obtenerPresupuestoAprobadoMasReciente = async () => {
     try {
-      // ✅ Para trabajos extra, usar obra.id (presupuesto). Para obras, usar obraId real
-      const obraIdReal = obra._esTrabajoExtra
-        ? obra.id
-        : (obra.presupuestoNoCliente?.obraId || obra.obraId || obra.id);
+      // ✅ Siempre usar el ID real de la obra para buscar presupuestos vinculados
+      const obraIdReal = getObraId();
       const response = await fetch(
         `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
         {
@@ -552,10 +562,8 @@ const AsignarProfesionalSemanalModal = ({
         return;
       }
 
-      // ✅ Para trabajos extra, usar obra.id (presupuesto). Para obras, usar obraId real
-      const obraIdReal = obra._esTrabajoExtra
-        ? obra.id
-        : (obra.presupuestoNoCliente?.obraId || obra.obraId || obra.id);
+      // ✅ Siempre usar el ID real de la obra para cargar presupuestos
+      const obraIdReal = getObraId();
       console.log('🔍 [cargarPresupuestoObra] obraIdReal:', obraIdReal, 'esTrabajoExtra:', obra._esTrabajoExtra);
       const response = await fetch(
         `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
@@ -1455,11 +1463,12 @@ const AsignarProfesionalSemanalModal = ({
 
     setCargando(true);
     try {
+      const obraIdParaQuery = getObraId(); // ✅ Usa ID real de la obra
       // PASO 1: SIEMPRE eliminar asignaciones existentes para evitar conflictos 409
-      console.log('🗑️ Limpiando asignaciones existentes de la obra (bulk delete):', obra.id);
+      console.log('🗑️ Limpiando asignaciones existentes de la obra (bulk delete):', obraIdParaQuery);
 
       try {
-        await eliminarAsignacionesPorObra(obra.id, empresaSeleccionada.id);
+        await eliminarAsignacionesPorObra(obraIdParaQuery, empresaSeleccionada.id);
         console.log('✅ Asignaciones eliminadas correctamente en lote');
       } catch (error) {
         console.warn('⚠️ Error en eliminación por lote (puede no haber asignaciones o endpoint no soportado):', error.message);
@@ -1467,7 +1476,7 @@ const AsignarProfesionalSemanalModal = ({
 
         try {
           // Fallback: Intentar obtener asignaciones actuales y eliminar una por una
-          const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaSeleccionada.id);
+          const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
           console.log('📋 Respuesta completa fetch asignaciones:', responseAsignaciones);
 
           // Manejar posibles estructuras de respuesta (Array directo, objeto con data, Pageable con content)
@@ -1527,7 +1536,7 @@ const AsignarProfesionalSemanalModal = ({
 
       // Construir payload según el contrato del backend
       const payload = {
-        obraId: Number(obra.id),
+        obraId: Number(obraIdParaQuery), // ✅ Usa ID real de la obra
         modalidad: modalidadAsignacion,
         semanasObjetivo: parseInt(semanasObjetivo) || 0,
       };

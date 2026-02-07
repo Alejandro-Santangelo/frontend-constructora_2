@@ -47,11 +47,11 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
         // Presupuesto - Buscar la versión más alta con estado APROBADO o EN_EJECUCION
         api.presupuestosNoCliente.getAll(empresaId).then(todos => {
           // Filtrar presupuestos de esta obra con estado APROBADO o EN_EJECUCION
-          const presupuestosObra = (todos || []).filter(p => 
-            (p.obraId === obra.id || p.idObra === obra.id) && 
+          const presupuestosObra = (todos || []).filter(p =>
+            (p.obraId === obra.id || p.idObra === obra.id) &&
             (p.estado === 'APROBADO' || p.estado === 'EN_EJECUCION')
           );
-          
+
           if (presupuestosObra.length > 0) {
             // Encontrar el presupuesto con el número de versión más alto
             const presupuestoUltimaVersion = presupuestosObra.reduce((max, p) => {
@@ -59,12 +59,12 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
               const versionMax = max.numeroVersion || 0;
               return versionActual > versionMax ? p : max;
             }, presupuestosObra[0]);
-            
+
             console.log('📊 Presupuesto última versión encontrado:', presupuestoUltimaVersion);
             console.log('📈 Versión:', presupuestoUltimaVersion.numeroVersion, '| Estado:', presupuestoUltimaVersion.estado);
             console.log('💰 totalFinal:', presupuestoUltimaVersion.totalFinal);
             console.log('💰 totalPresupuesto:', presupuestoUltimaVersion.totalPresupuesto);
-            
+
             return presupuestoUltimaVersion;
           } else {
             console.warn('⚠️ No se encontró presupuesto APROBADO o EN_EJECUCION para la obra');
@@ -76,10 +76,10 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
         }),
 
         // Profesionales asignados - Probar múltiples endpoints
-        axios.get(`/api/profesionales/asignaciones/${obra.id}`, {
-          headers: { 
+        axios.get(`/api/profesionales/asignaciones/${obra._esTrabajoExtra ? (obra._obraId || obra._obraOriginalId || obra.obraId) : obra.id}`, {
+          headers: {
             empresaId: empresaId,
-            'X-Tenant-ID': empresaId 
+            'X-Tenant-ID': empresaId
           },
           params: { empresaId }
         }).then(response => {
@@ -104,9 +104,9 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
 
         // Materiales
         axios.get(`/api/obras/${obra.id}/materiales`, {
-          headers: { 
+          headers: {
             empresaId: empresaId,
-            'X-Tenant-ID': empresaId 
+            'X-Tenant-ID': empresaId
           }
         }).then(response => {
           const data = response.data?.data || response.data || [];
@@ -119,9 +119,9 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
 
         // Otros costos
         axios.get(`/api/obras/${obra.id}/otros-costos`, {
-          headers: { 
+          headers: {
             empresaId: empresaId,
-            'X-Tenant-ID': empresaId 
+            'X-Tenant-ID': empresaId
           }
         }).then(response => {
           const data = response.data || [];
@@ -153,16 +153,16 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
 
       // Calcular resumen
       // Usar totalFinal o totalPresupuesto del presupuesto
-      const totalPresupuestado = presupuestoData?.totalFinal || 
-                                 presupuestoData?.totalPresupuesto || 
+      const totalPresupuestado = presupuestoData?.totalFinal ||
+                                 presupuestoData?.totalPresupuesto ||
                                  0;
-      
+
       console.log('💵 Total presupuestado extraído:', totalPresupuestado);
-      
+
       // PROCESAR PROFESIONALES - Estructura anidada con semanas
       const profesionalesProcesados = [];
       const profesionalesMap = new Map(); // Para agrupar por profesional
-      
+
       profesionalesData.forEach(asignacion => {
         if (asignacion.asignacionesPorSemana) {
           asignacion.asignacionesPorSemana.forEach(semana => {
@@ -185,10 +185,10 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
           });
         }
       });
-      
+
       // Convertir map a array
       profesionalesProcesados.push(...profesionalesMap.values());
-      
+
       // Obtener valores de jornal desde la BD de profesionales
       const profesionalesConValores = await Promise.all(
         profesionalesProcesados.map(async (prof) => {
@@ -206,66 +206,66 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
           return prof;
         })
       );
-      
+
       // Calcular gasto de profesionales
       const gastoProfesionales = profesionalesConValores.reduce((sum, prof) => {
         const total = prof.valorJornal * prof.jornales;
         console.log(`💰 ${prof.nombre}: $${prof.valorJornal} x ${prof.jornales} jornales = $${total}`);
         return sum + total;
       }, 0);
-      
+
       // PROCESAR MATERIALES
       console.log('📦 Materiales asignados a la obra:', materialesData.length);
       console.log('📊 Presupuesto disponible:', !!presupuestoData);
-      
+
       const materialesProcesados = materialesData.map(mat => {
         let precioFinal = mat.precioUnitario;
-        
+
         console.log(`🔍 Material: "${mat.nombreMaterial}" | Precio: ${mat.precioUnitario} | ID Presupuesto: ${mat.presupuestoMaterialId}`);
-        
+
         // Si el precio es null, buscar en presupuesto
         if (precioFinal === null && presupuestoData?.itemsCalculadora && mat.presupuestoMaterialId) {
           console.log(`🔎 Buscando material ID ${mat.presupuestoMaterialId} en presupuesto...`);
-          
+
           for (let i = 0; i < presupuestoData.itemsCalculadora.length; i++) {
             const item = presupuestoData.itemsCalculadora[i];
-            
+
             // Los materiales están en materialesLista
             if (item.materialesLista && Array.isArray(item.materialesLista)) {
               // Buscar por ID primero
               let materialEncontrado = item.materialesLista.find(m => m.id === mat.presupuestoMaterialId);
-              
+
               // Si no se encuentra por ID, buscar por nombre (fallback para versiones antiguas)
               if (!materialEncontrado) {
-                materialEncontrado = item.materialesLista.find(m => 
+                materialEncontrado = item.materialesLista.find(m =>
                   m.nombre?.toLowerCase() === mat.nombreMaterial?.toLowerCase()
                 );
-                
+
                 if (materialEncontrado) {
                   console.log(`⚠️ Material encontrado por nombre (ID no coincide: ${mat.presupuestoMaterialId} vs ${materialEncontrado.id})`);
                 }
               }
-              
+
               if (materialEncontrado) {
                 precioFinal = materialEncontrado.precioUnitario || materialEncontrado.precio;
-                
+
                 // Si el precio es null pero hay subtotal y cantidad, calcular el precio unitario
                 if (!precioFinal && materialEncontrado.subtotal && materialEncontrado.cantidad) {
                   precioFinal = materialEncontrado.subtotal / materialEncontrado.cantidad;
                   console.log(`💡 Precio calculado desde subtotal: $${materialEncontrado.subtotal} / ${materialEncontrado.cantidad} = $${precioFinal}`);
                 }
-                
+
                 console.log(`✅ Precio encontrado: $${precioFinal || 0}`, materialEncontrado);
                 break;
               }
             }
           }
-          
+
           if (precioFinal === null) {
             console.warn(`❌ Material "${mat.nombreMaterial}" (ID ${mat.presupuestoMaterialId}) NO encontrado en presupuesto`);
           }
         }
-        
+
         return {
           nombre: mat.nombreMaterial,
           descripcion: mat.descripcionMaterial,
@@ -274,25 +274,25 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
           precio: precioFinal || 0
         };
       });
-      
+
       const gastoMateriales = materialesProcesados.reduce((sum, mat) => {
         const total = mat.precio * mat.cantidad;
         console.log(`📦 ${mat.nombre}: $${mat.precio} x ${mat.cantidad} = $${total}`);
         return sum + total;
       }, 0);
-      
+
       // PROCESAR OTROS COSTOS
       const gastoOtrosCostos = otrosCostosData.reduce((sum, costo) => {
         const monto = costo.monto || costo.valor || costo.importe || 0;
         return sum + monto;
       }, 0);
-      
+
       // PROCESAR TRABAJOS EXTRA - El monto está en profesionales[].importe
       const trabajosExtraProcesados = trabajosExtraData.map(te => {
         const montoTotal = (te.profesionales || []).reduce((sum, prof) => {
           return sum + (prof.importe || 0);
         }, 0);
-        
+
         return {
           nombre: te.nombre,
           descripcion: te.observaciones,
@@ -302,33 +302,33 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
           profesionales: te.profesionales || []
         };
       });
-      
+
       const gastoTrabajosExtra = trabajosExtraProcesados.reduce((sum, te) => {
         console.log(`🔧 ${te.nombre}: $${te.monto}`);
         return sum + te.monto;
       }, 0);
-      
+
       const totalGastado = gastoProfesionales + gastoMateriales + gastoOtrosCostos + gastoTrabajosExtra;
-      
+
       console.log('💵 TOTALES:');
       console.log(`  Profesionales: $${gastoProfesionales}`);
       console.log(`  Materiales: $${gastoMateriales}`);
       console.log(`  Otros: $${gastoOtrosCostos}`);
       console.log(`  Trabajos Extra: $${gastoTrabajosExtra}`);
       console.log(`  TOTAL: $${totalGastado}`);
-      
+
       // Calcular avance (etapas completadas)
       const etapasCompletadas = etapasDiariasData.filter(e => e.estado === 'COMPLETADA').length;
-      const porcentajeAvance = etapasDiariasData.length > 0 
-        ? (etapasCompletadas / etapasDiariasData.length) * 100 
+      const porcentajeAvance = etapasDiariasData.length > 0
+        ? (etapasCompletadas / etapasDiariasData.length) * 100
         : 0;
 
       // Por ahora cobros y pagos vacíos (pueden implementarse después)
       const totalCobrado = 0;
       const totalPagado = 0;
-      
-      const rentabilidad = totalPresupuestado > 0 
-        ? ((totalPresupuestado - totalGastado) / totalPresupuestado) * 100 
+
+      const rentabilidad = totalPresupuestado > 0
+        ? ((totalPresupuestado - totalGastado) / totalPresupuestado) * 100
         : 0;
 
       setEstadisticas({
@@ -355,14 +355,14 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
       });
 
       console.log('✅ Estadísticas cargadas correctamente');
-      
+
       // DEBUG: Mostrar estructura de datos completa
       console.log('🔍 DEBUG - Estructura completa de datos:');
       console.log('📊 Profesionales (primero):', JSON.stringify(profesionalesData[0], null, 2));
       console.log('📦 Materiales (primero):', JSON.stringify(materialesData[0], null, 2));
       console.log('💸 Otros costos (primero):', JSON.stringify(otrosCostosData[0], null, 2));
       console.log('🔧 Trabajos extra (primero):', JSON.stringify(trabajosExtraData[0], null, 2));
-      
+
     } catch (error) {
       console.error('❌ Error cargando estadísticas:', error);
       showNotification?.('Error al cargar estadísticas de la obra', 'error');
@@ -392,8 +392,8 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
               <i className="fas fa-chart-line me-2"></i>
               Estadísticas Detalladas - {obra.nombre}
             </h5>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-light btn-sm ms-auto"
               onClick={onClose}
             >
@@ -418,7 +418,7 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                     <small>
                       <strong>Total items:</strong> {estadisticas.profesionales.length} prof. | {estadisticas.materiales.length} mat. | {estadisticas.otrosCostos.length} otros | {estadisticas.trabajosExtra.length} extras
                       <br />
-                      <button 
+                      <button
                         className="btn btn-sm btn-outline-dark mt-2"
                         onClick={() => {
                           console.log('📋 DUMP COMPLETO:', estadisticas);
@@ -430,7 +430,7 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                     </small>
                   </div>
                 )}
-                
+
                 {/* Resumen General - Cards superiores */}
                 <div className="row g-3 mb-4">
                   <div className="col-md-3">
@@ -460,7 +460,7 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                         <h6 className="text-muted mb-1">Gastado</h6>
                         <h4 className="mb-0 text-danger">{formatCurrency(estadisticas.resumen.totalGastado)}</h4>
                         <small className="text-muted">
-                          {estadisticas.resumen.totalPresupuestado > 0 
+                          {estadisticas.resumen.totalPresupuestado > 0
                             ? `${((estadisticas.resumen.totalGastado / estadisticas.resumen.totalPresupuestado) * 100).toFixed(1)}% del presupuesto`
                             : 'Sin presupuesto'
                           }
@@ -489,8 +489,8 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                         <h6 className="text-muted mb-1">Avance</h6>
                         <h4 className="mb-0 text-info">{estadisticas.resumen.porcentajeAvance.toFixed(1)}%</h4>
                         <div className="progress mt-2" style={{ height: '8px' }}>
-                          <div 
-                            className="progress-bar bg-info" 
+                          <div
+                            className="progress-bar bg-info"
                             style={{ width: `${estadisticas.resumen.porcentajeAvance}%` }}
                           ></div>
                         </div>
@@ -647,7 +647,7 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                           <tbody>
                             {estadisticas.profesionales.map((prof, idx) => {
                               const total = prof.valorJornal * prof.jornales;
-                              
+
                               return (
                                 <tr key={idx}>
                                   <td>
@@ -698,7 +698,7 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                           <tbody>
                             {estadisticas.materiales.map((mat, idx) => {
                               const total = mat.precio * mat.cantidad;
-                              
+
                               return (
                                 <tr key={idx}>
                                   <td className="fw-bold">
@@ -752,7 +752,7 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                               const descripcion = costo.descripcion || costo.concepto || costo.detalle || 'Sin descripción';
                               const categoria = costo.categoria || costo.tipo || costo.tipoGasto || 'General';
                               const monto = costo.monto || costo.valor || costo.importe || costo.costo || 0;
-                              
+
                               return (
                                 <tr key={idx}>
                                   <td>{descripcion}</td>
@@ -853,7 +853,7 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
                                 <td>{etapa.descripcion || etapa.nombre || `Etapa ${idx + 1}`}</td>
                                 <td>
                                   <span className={`badge ${
-                                    etapa.estado === 'COMPLETADA' ? 'bg-success' : 
+                                    etapa.estado === 'COMPLETADA' ? 'bg-success' :
                                     etapa.estado === 'EN_PROCESO' ? 'bg-primary' : 'bg-secondary'
                                   }`}>
                                     {etapa.estado || 'PENDIENTE'}
@@ -890,8 +890,8 @@ const EstadisticasObraModal = ({ obra, empresaId, onClose, showNotification }) =
               <i className="fas fa-times me-2"></i>
               Cerrar
             </button>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-primary"
               onClick={() => {
                 showNotification?.('Función de exportar en desarrollo', 'info');

@@ -1153,6 +1153,18 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
           const respuesta = await api.presupuestosNoCliente.create(presupuesto, empresaId);
 
+          // Reintentar marcar la version anterior como MODIFICADO (refuerzo post-creacion)
+          if (presupuestoData?.id && empresaId) {
+            try {
+              await api.presupuestosNoCliente.actualizarEstado(presupuestoData.id, 'MODIFICADO', empresaId);
+              setList(prev => prev.map(p => (
+                p.id === presupuestoData.id ? { ...p, estado: 'MODIFICADO' } : p
+              )));
+            } catch (error) {
+              console.warn('⚠️ No se pudo reforzar estado MODIFICADO en version anterior:', error?.message || error);
+            }
+          }
+
           // Verificar si se copiaron items calculadora
           const itemsHeredados = respuesta?.itemsCalculadora?.length || presupuesto.itemsCalculadora?.length || 0;
 

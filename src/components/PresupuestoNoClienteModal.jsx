@@ -117,7 +117,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     totalHonorariosDireccionObra: safeInitial.totalHonorariosDireccionObra ?? 0,
     montoTotal: safeInitial.montoTotal ?? 0,
 
-    obraId: safeInitial.obraId || null,
+    // 🔑 Mapear obraId desde obra_id si viene de BD (normalización)
+    obraId: safeInitial.obraId ?? safeInitial.obra_id ?? null,
     clienteId: safeInitial.clienteId || null, // ✨ Nuevo: ID del cliente seleccionado
     nombreObraManual: safeInitial.nombreObraManual || safeInitial.nombreObra || '',
     obraSeleccionadaParaCopiar: null, // ✨ Flag para distinguir si se seleccionó obra (sin vincular, solo copiar datos)

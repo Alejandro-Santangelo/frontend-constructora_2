@@ -4,13 +4,13 @@ import api from '../services/api';
 
 const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, onGuardado }) => {
   const { empresaSeleccionada } = useEmpresa();
-  
+
   // Estados principales
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [profesionalesDisponibles, setProfesionalesDisponibles] = useState([]);
   const [profesionalesAsignados, setProfesionalesAsignados] = useState([]);
-  
+
   // Formulario principal
   const [formData, setFormData] = useState({
     nombre: '',
@@ -19,19 +19,19 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
     profesionales: [],
     tareas: []
   });
-  
+
   // Estado para agregar día
   const [nuevoDia, setNuevoDia] = useState('');
-  
+
   // Estado para agregar profesional
   const [tipoProfesional, setTipoProfesional] = useState('ASIGNADO_OBRA');
   const [profesionalSeleccionado, setProfesionalSeleccionado] = useState('');
-  const [profesionalManual, setProfesionalManual] = useState({ 
-    nombre: '', 
-    especialidad: '', 
-    importe: '' 
+  const [profesionalManual, setProfesionalManual] = useState({
+    nombre: '',
+    especialidad: '',
+    importe: ''
   });
-  
+
   // Estado para nueva tarea
   const [nuevaTarea, setNuevaTarea] = useState({
     descripcion: '',
@@ -57,7 +57,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
   const cargarProfesionales = async () => {
     try {
       setLoading(true);
-      
+
       // Intentar cargar profesionales asignados a la obra
       try {
         const asignados = await api.obras.getProfesionales(obra.id, empresaSeleccionada.id);
@@ -70,11 +70,11 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         console.warn('Error message:', errorAsignados.message);
         setProfesionalesAsignados([]);
       }
-      
+
       // Cargar todos los profesionales disponibles
       const todos = await api.profesionales.getAll(empresaSeleccionada.id);
       setProfesionalesDisponibles(Array.isArray(todos) ? todos : []);
-      
+
     } catch (error) {
       console.error('Error cargando profesionales:', error);
       // No mostrar error si al menos tenemos la lista general
@@ -89,9 +89,9 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
     try {
       setLoading(true);
       const data = await api.trabajosExtra.getById(trabajoExtraInicial.id, empresaSeleccionada.id);
-      
+
       console.log('📥 Trabajo extra recibido del backend:', JSON.stringify(data, null, 2));
-      
+
       // Mapear profesionales del backend al formato del frontend
       const profesionalesMapeados = (data.profesionales || []).map(prof => ({
         id: prof.profesionalId, // puede ser null
@@ -100,7 +100,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         tipo: prof.tipo,
         importe: prof.importe || 0
       }));
-      
+
       // Mapear tareas del backend al formato del frontend
       const tareasMapeadas = (data.tareas || []).map(tarea => ({
         descripcion: tarea.descripcion,
@@ -108,7 +108,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         importe: tarea.importe,
         profesionalesAsignados: tarea.profesionalesIndices || []
       }));
-      
+
       setFormData({
         nombre: data.nombre || '',
         observaciones: data.observaciones || '',
@@ -116,10 +116,10 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         profesionales: profesionalesMapeados,
         tareas: tareasMapeadas
       });
-      
+
     } catch (error) {
       console.error('Error cargando trabajo extra:', error);
-      
+
       if (error.status === 404 || error.response?.status === 404 || error.message?.includes('404')) {
         setError('⚠️ El módulo de Trabajos Extra aún no está disponible en el backend');
       } else {
@@ -158,12 +158,12 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
       setError('Debe seleccionar una fecha');
       return;
     }
-    
+
     if (formData.dias.includes(nuevoDia)) {
       setError('Esta fecha ya fue agregada');
       return;
     }
-    
+
     setFormData(prev => ({
       ...prev,
       dias: [...prev.dias, nuevoDia].sort()
@@ -182,18 +182,18 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
   // Manejo de profesionales
   const agregarProfesional = () => {
     let nuevoProfesional = null;
-    
+
     if (tipoProfesional === 'MANUAL') {
       if (!profesionalManual.nombre.trim()) {
         setError('Debe ingresar el nombre del profesional');
         return;
       }
-      
+
       if (!profesionalManual.importe || parseFloat(profesionalManual.importe) <= 0) {
         setError('Debe ingresar un importe válido mayor a 0');
         return;
       }
-      
+
       nuevoProfesional = {
         id: null,
         nombre: profesionalManual.nombre.trim(),
@@ -201,42 +201,44 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         importe: parseFloat(profesionalManual.importe),
         tipo: 'MANUAL'
       };
-      
+
       setProfesionalManual({ nombre: '', especialidad: '', importe: '' });
-      
+
     } else {
       if (!profesionalSeleccionado) {
         setError('Debe seleccionar un profesional');
         return;
       }
-      
-      const listaProfesionales = tipoProfesional === 'ASIGNADO_OBRA' 
-        ? profesionalesAsignados 
+
+      const listaProfesionales = tipoProfesional === 'ASIGNADO_OBRA'
+        ? profesionalesAsignados
         : profesionalesDisponibles;
-      
+
       const prof = listaProfesionales.find(p => p.id == profesionalSeleccionado);
-      
+
       if (!prof) {
         setError('Profesional no encontrado');
         return;
       }
-      
+
       // Verificar si ya está agregado
       if (formData.profesionales.some(p => p.id === prof.id)) {
         setError('Este profesional ya fue agregado');
         return;
       }
-      
+
       nuevoProfesional = {
         id: prof.id,
-        nombre: prof.nombre,
+        nombre: prof.nombre || '',
         especialidad: prof.especialidad || prof.tipo || null,
-        tipo: tipoProfesional
+        tipo: prof.tipo || prof.especialidad || 'Sin especificar', // ✅ Tipo/especialidad del profesional
+        origen: tipoProfesional, // ✅ De dónde se obtuvo (ASIGNADO_OBRA/DISPONIBLE)
+        importe: parseFloat(prof.importe) || 0 // ✅ Agregar importe si existe
       };
-      
+
       setProfesionalSeleccionado('');
     }
-    
+
     if (nuevoProfesional) {
       setFormData(prev => ({
         ...prev,
@@ -259,14 +261,14 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
       setError('La descripción de la tarea es obligatoria');
       return;
     }
-    
+
     const tareaConDatos = {
       descripcion: nuevaTarea.descripcion.trim(),
       estado: nuevaTarea.estado,
       importe: nuevaTarea.importe ? parseFloat(nuevaTarea.importe) : null,
       profesionalesAsignados: nuevaTarea.profesionalesAsignados
     };
-    
+
     if (editandoTareaIndex !== null) {
       // Editar tarea existente
       setFormData(prev => ({
@@ -281,7 +283,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         tareas: [...prev.tareas, tareaConDatos]
       }));
     }
-    
+
     setNuevaTarea({
       descripcion: '',
       estado: 'A_TERMINAR',
@@ -342,12 +344,12 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
       const dias = formData.dias.length || 0;
       return sum + (importe * dias);
     }, 0);
-    
+
     // Calcular total de tareas
     const totalTareas = formData.tareas.reduce((sum, tarea) => {
       return sum + (parseFloat(tarea.importe) || 0);
     }, 0);
-    
+
     return totalProfesionales + totalTareas;
   };
 
@@ -357,7 +359,20 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
       setError('El nombre del trabajo extra es obligatorio');
       return false;
     }
-    
+
+    // ✅ Validar que todos los profesionales tengan nombre y tipo
+    for (let i = 0; i < formData.profesionales.length; i++) {
+      const prof = formData.profesionales[i];
+      if (!prof.nombre || !prof.nombre.trim()) {
+        setError(`El profesional #${i + 1} no tiene nombre. Por favor, complete la información o elimínelo.`);
+        return false;
+      }
+      if (!prof.tipo || !prof.tipo.trim()) {
+        setError(`El profesional #${i + 1} (${prof.nombre}) no tiene tipo/especialidad. Por favor, complete la información.`);
+        return false;
+      }
+    }
+
     return true;
   };
 
@@ -365,20 +380,23 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
     if (!validarFormulario()) {
       return;
     }
-    
+
     try {
       setLoading(true);
       setError(null);
-      
+
       // Mapear profesionales al formato del backend
       const profesionalesParaBackend = formData.profesionales.map(prof => ({
         profesionalId: prof.id, // null si es manual
-        nombre: prof.nombre,
-        especialidad: prof.especialidad,
-        tipo: prof.tipo,
+        nombre: prof.nombre || '', // ✅ Asegurar que siempre haya un nombre
+        especialidad: prof.especialidad || prof.tipo || '',
+        tipo: prof.tipo || prof.especialidad || 'Sin especificar', // ✅ Tipo/especialidad del profesional
         importe: parseFloat(prof.importe) || 0
       }));
-      
+
+      console.log('🔍 Profesionales originales en formData:', formData.profesionales);
+      console.log('🔍 Profesionales mapeados para backend:', profesionalesParaBackend);
+
       // Mapear tareas al formato del backend
       const tareasParaBackend = formData.tareas.map(tarea => ({
         descripcion: tarea.descripcion,
@@ -386,7 +404,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         importe: tarea.importe,
         profesionalesIndices: tarea.profesionalesAsignados || []
       }));
-      
+
       const dataParaEnviar = {
         obraId: obra.id,
         nombre: formData.nombre.trim(),
@@ -395,41 +413,41 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
         profesionales: profesionalesParaBackend,
         tareas: tareasParaBackend
       };
-      
+
       console.log('📤 Enviando trabajo extra al backend:', JSON.stringify(dataParaEnviar, null, 2));
-      
+
       let resultado;
       if (trabajoExtraInicial) {
         resultado = await api.trabajosExtra.update(
-          trabajoExtraInicial.id, 
-          dataParaEnviar, 
+          trabajoExtraInicial.id,
+          dataParaEnviar,
           empresaSeleccionada.id
         );
       } else {
         resultado = await api.trabajosExtra.create(
-          dataParaEnviar, 
+          dataParaEnviar,
           empresaSeleccionada.id
         );
       }
-      
+
       if (onGuardado) {
         onGuardado(resultado);
       }
-      
+
       resetearFormulario();
       onClose();
-      
+
     } catch (error) {
       console.error('Error guardando trabajo extra:', error);
       console.error('Error status:', error.status);
       console.error('Error response:', error.response);
       console.error('Error response data:', error.response?.data);
       console.error('Error message:', error.message);
-      
+
       let mensajeError = 'Error al guardar el trabajo extra';
-      
+
       // Detectar error de endpoint no disponible (500 con mensaje específico)
-      if (error.message?.includes('No static resource') || 
+      if (error.message?.includes('No static resource') ||
           error.message?.includes('api/trabajos-extra')) {
         mensajeError = '🚫 ERROR DE BACKEND:\n\n' +
                       'El endpoint /api/trabajos-extra NO ESTÁ DISPONIBLE.\n\n' +
@@ -451,7 +469,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
       } else if (error.message) {
         mensajeError = error.message;
       }
-      
+
       setError(mensajeError);
     } finally {
       setLoading(false);
@@ -489,29 +507,29 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
               <i className="fas fa-tools me-2"></i>
               {trabajoExtraInicial ? 'Editar' : 'Nuevo'} Trabajo Extra - {obra?.nombre}
             </h5>
-            <button 
-              type="button" 
-              className="btn btn-light btn-sm ms-auto" 
+            <button
+              type="button"
+              className="btn btn-light btn-sm ms-auto"
               onClick={onClose}
               disabled={loading}
             >
               Cerrar
             </button>
           </div>
-          
+
           <div className="modal-body">
             {error && (
               <div className="alert alert-danger alert-dismissible fade show" role="alert">
                 <i className="fas fa-exclamation-triangle me-2"></i>
                 {error}
-                <button 
-                  type="button" 
-                  className="btn-close" 
+                <button
+                  type="button"
+                  className="btn-close"
                   onClick={() => setError(null)}
                 ></button>
               </div>
             )}
-            
+
             {/* INFORMACIÓN GENERAL */}
             <div className="card mb-3">
               <div className="card-header bg-light">
@@ -549,7 +567,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                     />
                   </div>
                 </div>
-                
+
                 <div className="mb-3">
                   <label className="form-label">Observaciones</label>
                   <textarea
@@ -562,7 +580,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                 </div>
               </div>
             </div>
-            
+
             {/* DÍAS DEL TRABAJO */}
             <div className="card mb-3">
               <div className="card-header bg-light">
@@ -582,8 +600,8 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                     />
                   </div>
                   <div className="col-md-4">
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       className="btn btn-primary w-100"
                       onClick={agregarDia}
                     >
@@ -592,18 +610,18 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                     </button>
                   </div>
                 </div>
-                
+
                 {formData.dias.length > 0 ? (
                   <div className="list-group">
                     {formData.dias.map((dia, index) => (
                       <div key={index} className="list-group-item d-flex justify-content-between align-items-center">
                         <span>
                           <i className="fas fa-calendar-day me-2 text-primary"></i>
-                          {new Date(dia + 'T00:00:00').toLocaleDateString('es-AR', { 
-                            weekday: 'long', 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
+                          {new Date(dia + 'T00:00:00').toLocaleDateString('es-AR', {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
                           })}
                         </span>
                         <button
@@ -624,7 +642,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                 )}
               </div>
             </div>
-            
+
             {/* PROFESIONALES ASIGNADOS */}
             <div className="card mb-3">
               <div className="card-header bg-light">
@@ -650,7 +668,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                       <label className="btn btn-outline-primary" htmlFor="tipoAsignado">
                         Asignados a la obra
                       </label>
-                      
+
                       <input
                         type="radio"
                         className="btn-check"
@@ -663,7 +681,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                       <label className="btn btn-outline-primary" htmlFor="tipoGeneral">
                         Listado general
                       </label>
-                      
+
                       <input
                         type="radio"
                         className="btn-check"
@@ -679,7 +697,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                     </div>
                   </div>
                 </div>
-                
+
                 {tipoProfesional === 'MANUAL' ? (
                   <div className="row mb-3">
                     <div className="col-md-4">
@@ -710,8 +728,8 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                       />
                     </div>
                     <div className="col-md-2">
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         className="btn btn-success w-100"
                         onClick={agregarProfesional}
                       >
@@ -737,8 +755,8 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                       </select>
                     </div>
                     <div className="col-md-3">
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         className="btn btn-success w-100"
                         onClick={agregarProfesional}
                       >
@@ -748,7 +766,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                     </div>
                   </div>
                 )}
-                
+
                 {formData.profesionales.length > 0 ? (
                   <div className="list-group">
                     {formData.profesionales.map((prof, index) => (
@@ -765,7 +783,7 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
                             </span>
                           )}
                           <span className="badge bg-secondary ms-2">
-                            {prof.tipo === 'MANUAL' ? 'Manual' : 
+                            {prof.tipo === 'MANUAL' ? 'Manual' :
                              prof.tipo === 'ASIGNADO_OBRA' ? 'Asignado' : 'General'}
                           </span>
                         </div>
@@ -788,10 +806,10 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
               </div>
             </div>
           </div>
-          
+
           <div className="modal-footer">
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-secondary"
               onClick={onClose}
               disabled={loading}
@@ -799,8 +817,8 @@ const TrabajoExtraModal = ({ show, onClose, obra, trabajoExtraInicial = null, on
               <i className="fas fa-times me-2"></i>
               Cancelar
             </button>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-primary"
               onClick={handleGuardar}
               disabled={loading}

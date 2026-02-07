@@ -879,12 +879,16 @@ const ObrasPage = ({ showNotification }) => {
     }
 
     // Asignar el presupuesto
-
-    presupuestoAsignadoRef.current.add(presupuestoKey);
-    setObraParaEtapasDiarias(prev => ({
-      ...prev,
-      presupuestoNoCliente: presupuestoActualizado
-    }));
+    // 🔒 NO actualizar presupuesto para trabajos extra - mantener presupuesto precargado
+    if (!obraParaEtapasDiarias._esTrabajoExtra) {
+      presupuestoAsignadoRef.current.add(presupuestoKey);
+      setObraParaEtapasDiarias(prev => ({
+        ...prev,
+        presupuestoNoCliente: presupuestoActualizado
+      }));
+    } else {
+      console.log('🔒 [useEffect presupuestosObras] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA');
+    }
   }, [presupuestosObras, obraParaEtapasDiarias?.id]);
 
   const cargarObrasSegunFiltro = async () => {
@@ -1223,9 +1227,12 @@ const ObrasPage = ({ showNotification }) => {
             }));
 
             // Si hay etapas diarias abiertas, recargarlas
-            if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === id) {
+            // 🔒 NO actualizar presupuesto para trabajos extra - mantener presupuesto precargado
+            if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === id && !obraParaEtapasDiarias._esTrabajoExtra) {
               const obraActualizada = { ...obraParaEtapasDiarias, presupuestoNoCliente: presupuestoActualizado };
               setObraParaEtapasDiarias(obraActualizada);
+            } else if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === id && obraParaEtapasDiarias._esTrabajoExtra) {
+              console.log('🔒 [handleModificarFechaInicio] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA');
             }
 
             console.log(' Presupuesto actualizado con nueva fecha de inicio');
@@ -1398,6 +1405,21 @@ const ObrasPage = ({ showNotification }) => {
   };
 
   // ==================== FUNCIONES TRABAJOS EXTRA ====================
+
+  /**
+   * 🔑 Normaliza datos de trabajo extra desde BD
+   * Mapea obra_id → obraId para consistencia del frontend
+   */
+  const normalizarTrabajoExtra = (trabajo) => {
+    if (!trabajo) return null;
+    return {
+      ...trabajo,
+      // 🔑 Asegurar que tenga obraId mapeado desde obra_id si viene de BD
+      obraId: trabajo.obraId ?? trabajo.obra_id ?? null,
+      idObra: trabajo.idObra ?? trabajo.obra_id ?? null
+    };
+  };
+
   const cargarTrabajosExtra = async (obra) => {
     console.log('📥 cargarTrabajosExtra llamado con obra:', obra?.id, obra?.nombre);
 
@@ -1412,88 +1434,74 @@ const ObrasPage = ({ showNotification }) => {
       const data = await api.trabajosExtra.getAll(empresaSeleccionada.id, { obraId: obra.id });
       console.log('📦 Trabajos extra recibidos:', data?.length || 0, data);
 
-      // Enriquecer cada trabajo extra con sus contadores
-      const trabajosEnriquecidos = await Promise.all(
-        (Array.isArray(data) ? data : []).map(async (trabajo) => {
-          try {
-            // Cargar los contadores de este trabajo extra
-            // 🔥 Para trabajos extra, usar trabajo.id (presupuestoId) para profesionales/materiales/gastos
-            // y trabajo.obraId solo para validaciones
-            const [profesionales, materiales, gastos, etapas] = await Promise.all([
-              // Profesionales - usar ID del trabajo extra (presupuesto)
-              obtenerAsignacionesSemanalPorObra(trabajo.id, empresaId).then(response => {
-                const asignaciones = Array.isArray(response.data || response) ? (response.data || response) : [];
-                const profesionalesUnicos = new Set();
-                asignaciones.forEach(asignacion => {
-                  if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
-                    asignacion.asignacionesPorSemana.forEach(semana => {
-                      if (semana.detallesPorDia && Array.isArray(semana.detallesPorDia)) {
-                        semana.detallesPorDia.forEach(detalle => {
-                          if (detalle.profesionalId && detalle.cantidad > 0) {
-                            profesionalesUnicos.add(detalle.profesionalId);
-                          }
-                        });
-                      }
-                    });
-                  }
-                });
-                return Array.from(profesionalesUnicos).map(id => ({ id }));
-              }).catch(() => []),
+      // � DEBUG: Ver qué días trae cada trabajo extra del backend
+      if (Array.isArray(data) && data.length > 0) {
+        data.forEach((t, idx) => {
+          console.log(`🔍 [BACKEND] Trabajo Extra ${idx + 1} - ID: ${t.id}, Nombre: ${t.nombreObra || t.nombre}:`, {
+            tiempoEstimadoTerminacion: t.tiempoEstimadoTerminacion,
+            obra_id: t.obra_id,
+            obraId: t.obraId,
+            fechaProbableInicio: t.fechaProbableInicio
+          });
+        });
+      }
 
-              // Materiales - usar ID del trabajo extra (presupuesto)
-              axios.get(`/api/obras/${trabajo.id}/materiales`, {
-                headers: { empresaId: empresaId, 'X-Tenant-ID': empresaId }
-              }).then(response => {
-                const data = response.data?.data || response.data || [];
-                return Array.isArray(data) ? data : [];
-              }).catch(error => {
-                // Silenciar error 400/404 - trabajo extra sin materiales aún
-                if (error.response?.status !== 400 && error.response?.status !== 404) {
-                  console.warn('Error cargando materiales trabajo extra:', trabajo.id, error.message);
-                }
-                return [];
-              }),
+      // �🔑 Normalizar datos para asegurar que tienen obraId
+      const dataNormalizada = (Array.isArray(data) ? data : []).map(normalizarTrabajoExtra);
 
-              // Gastos generales - usar ID del trabajo extra (presupuesto)
-              axios.get(`/api/obras/${trabajo.id}/otros-costos`, {
-                headers: { empresaId: empresaId, 'X-Tenant-ID': empresaId },
-                params: { empresaId }
-              }).then(response => {
-                const data = response.data || [];
-                return Array.isArray(data) ? data : [];
-              }).catch(error => {
-                // Silenciar error 400/404 - trabajo extra sin gastos aún
-                if (error.response?.status !== 400 && error.response?.status !== 404) {
-                  console.warn('Error cargando gastos trabajo extra:', trabajo.id, error.message);
-                }
-                return [];
-              }),
+      // ✅ NO hacer queries adicionales - Los datos ya vienen completos del presupuesto
+      // itemsCalculadora incluye jornales, materiales, gastos
+      // Solo procesar contadores desde los datos del trabajo extra
+      const trabajosEnriquecidos = dataNormalizada.map(trabajo => {
+        // Extraer profesionales únicos de itemsCalculadora
+        const profesionalesSet = new Set();
+        if (trabajo.itemsCalculadora && Array.isArray(trabajo.itemsCalculadora)) {
+          trabajo.itemsCalculadora.forEach(item => {
+            if (item.jornales && Array.isArray(item.jornales)) {
+              item.jornales.forEach(jornal => {
+                if (jornal.profesionalId) profesionalesSet.add(jornal.profesionalId);
+              });
+            }
+          });
+        }
 
-              // Etapas diarias - usar obraId real (las etapas se vinculan a la obra, no al presupuesto)
-              api.etapasDiarias.getAll(empresaId, { obraId: trabajo.obraId })
-                .then(data => Array.isArray(data) ? data : [])
-                .catch(error => {
-                  // Silenciar error 400/404 - trabajo extra sin etapas aún
-                  if (error.response?.status !== 400 && error.response?.status !== 404) {
-                    console.warn('Error cargando etapas trabajo extra:', trabajo.id, error.message);
-                  }
-                  return [];
-                })
-            ]);
+        // Contar materiales únicos
+        const materialesSet = new Set();
+        if (trabajo.itemsCalculadora && Array.isArray(trabajo.itemsCalculadora)) {
+          trabajo.itemsCalculadora.forEach(item => {
+            if (item.materialesLista && Array.isArray(item.materialesLista)) {
+              item.materialesLista.forEach(mat => {
+                if (mat.id) materialesSet.add(mat.id);
+              });
+            }
+          });
+        }
 
-            return {
-              ...trabajo,
-              profesionales,
-              materiales,
-              gastosGenerales: gastos,
-              etapasDiarias: etapas
-            };
-          } catch (error) {
-            console.error('Error enriqueciendo trabajo extra:', trabajo.id, error);
-            return trabajo;
-          }
-        })
-      );
+        // Contar gastos únicos
+        const gastosSet = new Set();
+        if (trabajo.itemsCalculadora && Array.isArray(trabajo.itemsCalculadora)) {
+          trabajo.itemsCalculadora.forEach(item => {
+            if (item.gastosGenerales && Array.isArray(item.gastosGenerales)) {
+              item.gastosGenerales.forEach(gasto => {
+                if (gasto.id) gastosSet.add(gasto.id);
+              });
+            }
+            if (item.otrosCostosLista && Array.isArray(item.otrosCostosLista)) {
+              item.otrosCostosLista.forEach(costo => {
+                if (costo.id) gastosSet.add(costo.id);
+              });
+            }
+          });
+        }
+
+        return {
+          ...trabajo,
+          profesionales: Array.from(profesionalesSet).map(id => ({ id })),
+          materiales: Array.from(materialesSet).map(id => ({ id })),
+          gastosGenerales: Array.from(gastosSet).map(id => ({ id })),
+          etapasDiarias: trabajo.etapasDiarias || []
+        };
+      });
 
       console.log('🔍 DEBUG Trabajos Extra Enriquecidos:', trabajosEnriquecidos);
       trabajosEnriquecidos.forEach((t, idx) => {
@@ -1571,18 +1579,123 @@ const ObrasPage = ({ showNotification }) => {
       console.log('💾 Guardando trabajo extra (presupuesto completo recibido):', datosPresupuesto);
       console.log('📝 Trabajo extra en edición:', trabajoExtraEditar);
 
-      // NO TRANSFORMAR - Enviar el presupuesto completo tal cual
-      // Solo agregar campos obligatorios si faltan
+      // ✅ LIMPIAR Y TRANSFORMAR datos para el backend de trabajos-extra
+      // El backend de trabajos-extra NO usa itemsCalculadora, solo necesita campos básicos
       const trabajoExtraData = {
-        ...datosPresupuesto,
-        // Asegurar que tenga los campos mínimos requeridos
+        // Campos básicos del presupuesto
         nombre: datosPresupuesto.nombreObra || datosPresupuesto.nombreObraManual || 'Trabajo Extra',
-        // Marcar como trabajo extra si el backend necesita diferenciarlo
-        esTrabajExtra: true
+        descripcion: datosPresupuesto.descripcion || datosPresupuesto.observaciones,
+        observaciones: datosPresupuesto.observaciones,
+
+        // Vinculación con obra
+        obraId: obraParaTrabajosExtra?.id || datosPresupuesto.obraId,
+        idObra: obraParaTrabajosExtra?.id || datosPresupuesto.obraId,
+
+        // Datos temporales y financieros
+        fechaProbableInicio: datosPresupuesto.fechaProbableInicio,
+        tiempoEstimadoTerminacion: datosPresupuesto.tiempoEstimadoTerminacion,
+        fechaCreacion: datosPresupuesto.fechaCreacion,
+        vencimiento: datosPresupuesto.vencimiento,
+
+        // Totales calculados
+        precioTotal: datosPresupuesto.precioTotal || 0,
+        importeJornales: datosPresupuesto.importeJornales || 0,
+        importeMateriales: datosPresupuesto.importeMateriales || 0,
+        importeGastosGenerales: datosPresupuesto.importeGastosGenerales || 0,
+        jornalesTotales: datosPresupuesto.jornalesTotales || 0,
+        totalHonorarios: datosPresupuesto.totalHonorarios || 0,
+        totalMayoresCostos: datosPresupuesto.totalMayoresCostos || 0,
+
+        // ✅ HONORARIOS - Persistir configuración completa
+        honorariosAplicarATodos: datosPresupuesto.honorariosAplicarATodos,
+        honorariosValorGeneral: datosPresupuesto.honorariosValorGeneral,
+        honorariosTipoGeneral: datosPresupuesto.honorariosTipoGeneral,
+
+        honorariosJornalesActivo: datosPresupuesto.honorariosJornalesActivo,
+        honorariosJornalesTipo: datosPresupuesto.honorariosJornalesTipo,
+        honorariosJornalesValor: datosPresupuesto.honorariosJornalesValor,
+
+        honorariosProfesionalesActivo: datosPresupuesto.honorariosProfesionalesActivo,
+        honorariosProfesionalesTipo: datosPresupuesto.honorariosProfesionalesTipo,
+        honorariosProfesionalesValor: datosPresupuesto.honorariosProfesionalesValor,
+
+        honorariosMaterialesActivo: datosPresupuesto.honorariosMaterialesActivo,
+        honorariosMaterialesTipo: datosPresupuesto.honorariosMaterialesTipo,
+        honorariosMaterialesValor: datosPresupuesto.honorariosMaterialesValor,
+
+        honorariosOtrosCostosActivo: datosPresupuesto.honorariosOtrosCostosActivo,
+        honorariosOtrosCostosTipo: datosPresupuesto.honorariosOtrosCostosTipo,
+        honorariosOtrosCostosValor: datosPresupuesto.honorariosOtrosCostosValor,
+
+        honorariosConfiguracionPresupuestoActivo: datosPresupuesto.honorariosConfiguracionPresupuestoActivo,
+        honorariosConfiguracionPresupuestoTipo: datosPresupuesto.honorariosConfiguracionPresupuestoTipo,
+        honorariosConfiguracionPresupuestoValor: datosPresupuesto.honorariosConfiguracionPresupuestoValor,
+
+        // ✅ MAYORES COSTOS - Persistir configuración completa
+        mayoresCostosAplicarValorGeneral: datosPresupuesto.mayoresCostosAplicarValorGeneral,
+        mayoresCostosValorGeneral: datosPresupuesto.mayoresCostosValorGeneral,
+        mayoresCostosTipoGeneral: datosPresupuesto.mayoresCostosTipoGeneral,
+        mayoresCostosGeneralImportado: datosPresupuesto.mayoresCostosGeneralImportado,
+        mayoresCostosRubroImportado: datosPresupuesto.mayoresCostosRubroImportado,
+        mayoresCostosNombreRubroImportado: datosPresupuesto.mayoresCostosNombreRubroImportado,
+        mayoresCostosExplicacion: datosPresupuesto.mayoresCostosExplicacion,
+
+        mayoresCostosJornalesActivo: datosPresupuesto.mayoresCostosJornalesActivo,
+        mayoresCostosJornalesTipo: datosPresupuesto.mayoresCostosJornalesTipo,
+        mayoresCostosJornalesValor: datosPresupuesto.mayoresCostosJornalesValor,
+
+        mayoresCostosProfesionalesActivo: datosPresupuesto.mayoresCostosProfesionalesActivo,
+        mayoresCostosProfesionalesTipo: datosPresupuesto.mayoresCostosProfesionalesTipo,
+        mayoresCostosProfesionalesValor: datosPresupuesto.mayoresCostosProfesionalesValor,
+
+        mayoresCostosMaterialesActivo: datosPresupuesto.mayoresCostosMaterialesActivo,
+        mayoresCostosMaterialesTipo: datosPresupuesto.mayoresCostosMaterialesTipo,
+        mayoresCostosMaterialesValor: datosPresupuesto.mayoresCostosMaterialesValor,
+
+        mayoresCostosOtrosCostosActivo: datosPresupuesto.mayoresCostosOtrosCostosActivo,
+        mayoresCostosOtrosCostosTipo: datosPresupuesto.mayoresCostosOtrosCostosTipo,
+        mayoresCostosOtrosCostosValor: datosPresupuesto.mayoresCostosOtrosCostosValor,
+
+        mayoresCostosConfiguracionPresupuestoActivo: datosPresupuesto.mayoresCostosConfiguracionPresupuestoActivo,
+        mayoresCostosConfiguracionPresupuestoTipo: datosPresupuesto.mayoresCostosConfiguracionPresupuestoTipo,
+        mayoresCostosConfiguracionPresupuestoValor: datosPresupuesto.mayoresCostosConfiguracionPresupuestoValor,
+
+        mayoresCostosHonorariosActivo: datosPresupuesto.mayoresCostosHonorariosActivo,
+        mayoresCostosHonorariosTipo: datosPresupuesto.mayoresCostosHonorariosTipo,
+        mayoresCostosHonorariosValor: datosPresupuesto.mayoresCostosHonorariosValor,
+
+        // Estado
+        estado: datosPresupuesto.estado || 'BORRADOR',
+        esTrabajExtra: true,
+
+        // ✅ LIMPIAR itemsCalculadora - eliminar profesionales vacíos/inválidos
+        itemsCalculadora: (datosPresupuesto.itemsCalculadora || []).map(item => {
+          const itemLimpio = { ...item };
+
+          // Limpiar array de jornales - eliminar los que no tienen datos válidos
+          if (itemLimpio.jornales && Array.isArray(itemLimpio.jornales)) {
+            itemLimpio.jornales = itemLimpio.jornales.filter(jornal => {
+              // Mantener solo si tiene datos válidos
+              return jornal.cantidad > 0 || jornal.valorUnitario > 0 || jornal.total > 0;
+            });
+          }
+
+          // Limpiar array de profesionales si existe
+          if (itemLimpio.profesionales && Array.isArray(itemLimpio.profesionales)) {
+            itemLimpio.profesionales = itemLimpio.profesionales.filter(prof => {
+              // Mantener solo si tiene nombre y tipo válidos
+              return prof.nombre && prof.nombre.trim() && prof.tipo && prof.tipo.trim();
+            });
+          }
+
+          return itemLimpio;
+        })
       };
 
-      console.log('📦 Datos completos para trabajo extra:', trabajoExtraData);
-      console.log('� Items calculadora a enviar:', trabajoExtraData.itemsCalculadora?.length || 0, trabajoExtraData.itemsCalculadora);
+      console.log('🔗 ObraId vinculada al trabajo extra:', trabajoExtraData.obraId, '(Obra:', obraParaTrabajosExtra?.nombre || 'sin nombre', ')');
+
+      console.log('📦 Datos limpiados para trabajo extra:', trabajoExtraData);
+      console.log('🧹 Items calculadora a enviar (limpiados):', trabajoExtraData.itemsCalculadora?.length || 0);
       console.log('📅 Fechas incluidas:', {
         fechaProbableInicio: trabajoExtraData.fechaProbableInicio,
         tiempoEstimadoTerminacion: trabajoExtraData.tiempoEstimadoTerminacion,
@@ -1599,14 +1712,27 @@ const ObrasPage = ({ showNotification }) => {
         console.log('🔑 Empresa seleccionada ID:', empresaSeleccionada.id);
         console.log('📤 Enviando PUT a /api/v1/trabajos-extra/' + trabajoExtraEditar.id);
 
-        // 🔍 LOG DETALLADO DE DATOS QUE SE ENVÍAN
-        console.log('📦 DATOS COMPLETOS A ENVIAR:', JSON.stringify(trabajoExtraData, null, 2));
-        console.log('📋 ItemsCalculadora estructurados:', trabajoExtraData.itemsCalculadora?.map(item => ({
+        // 🔍 LOG DETALLADO DE DATOS QUE SE ENVÍAN (después de limpieza)
+        console.log('📦 DATOS COMPLETOS A ENVIAR (LIMPIADOS):', JSON.stringify(trabajoExtraData, null, 2));
+        console.log('📋 ItemsCalculadora estructurados (después de limpieza):', trabajoExtraData.itemsCalculadora?.map(item => ({
           tipoProfesional: item.tipoProfesional,
+          descripcion: item.descripcion,
           jornalesCount: item.jornales?.length || 0,
           materialesCount: item.materialesLista?.length || 0,
           gastosGeneralesCount: item.gastosGenerales?.length || 0,
-          profesionalesCount: item.profesionales?.length || 0
+          profesionalesCount: item.profesionales?.length || 0,
+          // Detalles de cada jornal después de filtrado
+          jornalesValidos: item.jornales?.map(j => ({
+            rol: j.rol,
+            cantidad: j.cantidad,
+            valorUnitario: j.valorUnitario,
+            total: j.total
+          })),
+          // Detalles de cada profesional después de filtrado
+          profesionalesValidos: item.profesionales?.map(p => ({
+            nombre: p.nombre,
+            tipo: p.tipo
+          }))
         })));
 
         response = await api.trabajosExtra.update(
@@ -1632,6 +1758,11 @@ const ObrasPage = ({ showNotification }) => {
       console.log('🔄 Recargando trabajos extra para obra:', obraParaTrabajosExtra?.id, obraParaTrabajosExtra?.nombre);
       console.log('🔑 empresaSeleccionada:', empresaSeleccionada?.id);
       console.log('📍 Llamando a cargarTrabajosExtra...');
+
+      // 🔑 Normalizar respuesta del backend antes de almacenarla
+      const responseNormalizada = normalizarTrabajoExtra(response);
+      console.log('✅ Respuesta normalizada:', responseNormalizada);
+
       await cargarTrabajosExtra(obraParaTrabajosExtra);
       console.log('✅ Trabajos extra recargados correctamente');
       console.log('📊 Total de trabajos extra después de recargar:', trabajosExtra.length);
@@ -1640,7 +1771,7 @@ const ObrasPage = ({ showNotification }) => {
       setMostrarModalTrabajoExtra(false);
       setTrabajoExtraEditar(null);
 
-      return response; // Retornar la respuesta para el modal
+      return responseNormalizada; // Retornar la respuesta normalizada para el modal
     } catch (error) {
       console.error('❌ Error al guardar trabajo extra:', error);
       console.error('❌ Detalles del error:', {
@@ -1658,15 +1789,16 @@ const ObrasPage = ({ showNotification }) => {
     try {
       if (!window.confirm(`¿Estás seguro de cambiar el estado a ${nuevoEstado}?`)) return;
 
-      const updatedData = {
-        ...trabajo,
+      // 🔑 Normalizar el trabajo antes de enviar
+      const trabajoNormalizado = {
+        ...normalizarTrabajoExtra(trabajo),
         estado: nuevoEstado
       };
 
       // Normalizar campos para evitar errores de validación si faltan
-      if (!updatedData.nombre) updatedData.nombre = updatedData.nombreObra || 'Trabajo Extra';
+      if (!trabajoNormalizado.nombre) trabajoNormalizado.nombre = trabajoNormalizado.nombreObra || 'Trabajo Extra';
 
-      await api.trabajosExtra.update(trabajo.id, updatedData, empresaId);
+      const response = await api.trabajosExtra.update(trabajoNormalizado.id, trabajoNormalizado, empresaId);
       showNotification(`Estado actualizado a ${nuevoEstado}`, 'success');
 
       // Recargar lista
@@ -2025,28 +2157,17 @@ const ObrasPage = ({ showNotification }) => {
   // Generar calendario automático basado en jornales del presupuesto
   const generarCalendarioAutomatico = (obra) => {
 
-
     // USAR itemsCalculadora en lugar de detalles, pero permitir continuar si no existen
     const items = obra?.presupuestoNoCliente?.itemsCalculadora || obra?.presupuestoNoCliente?.detalles;
-
-    // Mostrar info de items si existen
-    if (items && Array.isArray(items) && items.length > 0) {
-      console.log(' DEBUG - Buscando jornales en presupuesto');
-      console.log('📋 Items del presupuesto:', items);
-      console.log('📋 Cantidad de items:', items.length);
-      items.forEach((item, index) => {
-        console.log(`  ${index + 1}. Tipo: "${item.tipoProfesional}" | cantidadJornales: ${item.cantidadJornales} | descripción: "${item.descripcion}"`);
-      });
-    }
 
     // Sumar TODOS los jornales de todos los items (para referencia, pero NO se usa para calendario)
     const jornalesPresupuesto = items && Array.isArray(items)
       ? items.reduce((sum, item) => sum + (parseInt(item.cantidadJornales) || 0), 0)
       : 0;
 
-    // Verificar si existe configuración de la obra
-    const configuracion = obra._esTrabajoExtra && obra.configuracionPlanificacion
-      ? obra.configuracionPlanificacion
+    // ✅ Configuración: SOLO para obras normales (trabajos extra NUNCA usan configuración de obra)
+    const configuracion = obra._esTrabajoExtra
+      ? obra.configuracionPlanificacion || null
       : obtenerConfiguracionObra(obra.id);
 
     // 🔥 PRIORIZAR presupuesto sobre configuración vieja
@@ -2054,10 +2175,18 @@ const ObrasPage = ({ showNotification }) => {
 
     if (obra.presupuestoNoCliente?.tiempoEstimadoTerminacion > 0) {
       totalJornales = parseInt(obra.presupuestoNoCliente.tiempoEstimadoTerminacion);
-    } else if (configuracion && configuracion.diasHabiles > 0) {
+    } else if (!obra._esTrabajoExtra && configuracion && configuracion.diasHabiles > 0) {
+      // ✅ Solo obras normales pueden usar configuracion.diasHabiles (NUNCA trabajos extra)
       totalJornales = parseInt(configuracion.diasHabiles);
     } else {
       totalJornales = jornalesPresupuesto || 0;
+    }
+
+    // 🔥 LOG SIMPLE Y CLARO: Exactamente qué se está generando
+    if (obra._esTrabajoExtra) {
+      console.log(`🎯 [generarCalendarioAutomatico TE] Generando TRABAJO EXTRA con ${totalJornales} días hábiles (${Math.ceil(totalJornales / 5)} semanas)`);
+    } else {
+      console.log(`🎯 [generarCalendarioAutomatico OBRA] Generando obra con ${totalJornales} días hábiles (${Math.ceil(totalJornales / 5)} semanas)`);
     }
 
     // Permitir generación si hay fecha probable de inicio y días hábiles > 0
@@ -2238,29 +2367,32 @@ const ObrasPage = ({ showNotification }) => {
       return [];
     }
 
-    // 🔥 Si es trabajo extra, usar SOLO su presupuesto precargado, NO buscar en cache
-    console.log('🔍 DEBUG calendarioCompleto:', {
-      esTrabajoExtra: obraParaEtapasDiarias._esTrabajoExtra,
-      obraId: obraParaEtapasDiarias.id,
-      presupuestoDirecto: obraParaEtapasDiarias.presupuestoNoCliente?.tiempoEstimadoTerminacion,
-      presupuestoCache: presupuestosObras[obraParaEtapasDiarias.id]?.tiempoEstimadoTerminacion
-    });
+    // 🔥 Si es trabajo extra, FORZAR el uso del presupuesto precargado ORIGINAL
+    // NUNCA permitir que se lea o se actualice desde presupuestosObras
+    let presupuestoFinalSeguro;
 
-    const presupuestoActualizado = obraParaEtapasDiarias._esTrabajoExtra
-      ? obraParaEtapasDiarias.presupuestoNoCliente
-      : (presupuestosObras[obraParaEtapasDiarias.id] || obraParaEtapasDiarias.presupuestoNoCliente);
+    if (obraParaEtapasDiarias._esTrabajoExtra) {
+      // Trabajo extra: SIEMPRE usar presupuestoNoCliente original (precargado)
+      // NUNCA buscar en presupuestosObras porque podría estar contaminado con la obra padre
+      presupuestoFinalSeguro = obraParaEtapasDiarias.presupuestoNoCliente;
 
-    console.log('✅ Presupuesto seleccionado:', {
-      tiempoEstimado: presupuestoActualizado?.tiempoEstimadoTerminacion,
-      semanas: presupuestoActualizado?.tiempoEstimadoTerminacion ? Math.ceil(presupuestoActualizado.tiempoEstimadoTerminacion / 5) : 0
-    });
+      // Log de diagnóstico (sin hardcodes de valores específicos)
+      if (!presupuestoFinalSeguro || !presupuestoFinalSeguro.tiempoEstimadoTerminacion) {
+        console.warn('⚠️ ALERTA: Presupuesto de trabajo extra incompleto', presupuestoFinalSeguro);
+      }
+    } else {
+      // Obra normal: usar del cache si está disponible
+      const presupuestoFinal = presupuestosObras[obraParaEtapasDiarias.id] || obraParaEtapasDiarias.presupuestoNoCliente;
+      presupuestoFinalSeguro = presupuestoFinal;
+    }
 
-    const obraConPresupuestoActualizado = {
+    console.log(`🎯 [calendarioCompleto] ${obraParaEtapasDiarias._esTrabajoExtra ? 'TRABAJO EXTRA' : 'OBRA'} - Presupuesto final: ${presupuestoFinalSeguro?.tiempoEstimadoTerminacion} días (${Math.ceil((presupuestoFinalSeguro?.tiempoEstimadoTerminacion || 0) / 5)} semanas)`);
+    const obraConPresupuestoFinal = {
       ...obraParaEtapasDiarias,
-      presupuestoNoCliente: presupuestoActualizado
+      presupuestoNoCliente: presupuestoFinalSeguro
     };
 
-    const semanasGeneradas = generarCalendarioAutomatico(obraConPresupuestoActualizado);
+    const semanasGeneradas = generarCalendarioAutomatico(obraConPresupuestoFinal);
 
     // console.log(' Semanas generadas:', semanasGeneradas.length);
 
@@ -2308,11 +2440,20 @@ const ObrasPage = ({ showNotification }) => {
     return resultado;
   }, [
     obraParaEtapasDiarias?.id,
-    presupuestosObras[obraParaEtapasDiarias?.id]?.fechaProbableInicio, // 🔥 REACTIVO
-    presupuestosObras[obraParaEtapasDiarias?.id]?.tiempoEstimadoTerminacion, // 🔥 REACTIVO
+    obraParaEtapasDiarias?._esTrabajoExtra, // 🔥 Detectar cuando es trabajo extra
+    obraParaEtapasDiarias?._trabajoExtraId,
+    // Para obras normales: escuchar cambios en cache de presupuestos
+    obraParaEtapasDiarias?._esTrabajoExtra ? null : presupuestosObras[obraParaEtapasDiarias?.id]?.fechaProbableInicio,
+    obraParaEtapasDiarias?._esTrabajoExtra ? null : presupuestosObras[obraParaEtapasDiarias?.id]?.tiempoEstimadoTerminacion,
+    // Para trabajos extra: escuchar cambios en presupuesto congelado en cache
+    obraParaEtapasDiarias?._esTrabajoExtra ? presupuestosObras[`te_${obraParaEtapasDiarias?._trabajoExtraId}`]?.tiempoEstimadoTerminacion : null,
+    obraParaEtapasDiarias?._esTrabajoExtra ? presupuestosObras[`te_${obraParaEtapasDiarias?._trabajoExtraId}`]?.fechaProbableInicio : null,
+    // Fallback: también escuchar cambios en presupuesto pre-cargado
+    obraParaEtapasDiarias?._esTrabajoExtra ? obraParaEtapasDiarias?.presupuestoNoCliente?.tiempoEstimadoTerminacion : null,
+    obraParaEtapasDiarias?._esTrabajoExtra ? obraParaEtapasDiarias?.presupuestoNoCliente?.fechaProbableInicio : null,
     etapasDiarias,
     calendarioVersion // Contador que se incrementa cuando se actualiza el presupuesto o la configuración
-  ]); // Regenerar cuando cambie la obra, las fechas del presupuesto (REACTIVO desde presupuestosObras), las etapas guardadas, o la configuración
+  ]); // Regenerar cuando cambie la obra, las fechas del presupuesto, las etapas guardadas, o la configuración
 
   const cargarEtapasDiarias = async (obra) => {
     if (!obra) {
@@ -2336,8 +2477,20 @@ const ObrasPage = ({ showNotification }) => {
       const obraIdReal = obra._obraOriginalId || obra.obraId || obra.id;
       console.log('🔍 [cargarEtapasDiarias] obra.id:', obra.id, '| obraIdReal:', obraIdReal, '| esTrabajoExtra:', obra._esTrabajoExtra);
 
-      // Siempre buscar el presupuesto de mayor versión (ya sea en cache o backend)
-      let presupuestoMayorVersion = null;
+      // ✅ Si es trabajo extra y ya tiene presupuesto pre-cargado, usarlo tal cual (NO sobrescribir)
+      if (obra._esTrabajoExtra && obra.presupuestoNoCliente) {
+        console.log('✅ [Trabajo Extra] Usando presupuesto pre-cargado (no buscar en backend)');
+        obraCompleta.presupuestoNoCliente = obra.presupuestoNoCliente;
+
+        // 🔥 TAMBIÉN: Verificar si existe presupuesto congelado en cache y usar ESE en lugar del objeto
+        const presupuestoCongelado = presupuestosObras[`te_${obra._trabajoExtraId}`];
+        if (presupuestoCongelado) {
+          console.log('✅ [Trabajo Extra] USANDO presupuesto CONGELADO del cache:', presupuestoCongelado.tiempoEstimadoTerminacion);
+          obraCompleta.presupuestoNoCliente = presupuestoCongelado;
+        }
+      } else {
+        // Solo para obras normales: buscar el presupuesto de mayor versión (ya sea en cache o backend)
+        let presupuestoMayorVersion = null;
       if (presupuestosObras[obraIdReal]) {
         presupuestoMayorVersion = presupuestosObras[obraIdReal];
       } else {
@@ -2356,8 +2509,13 @@ const ObrasPage = ({ showNotification }) => {
               (curr.numeroVersion > (max?.numeroVersion || 0) ? curr : max), presupuestos[0]
             );
             if (presupuestoMayorVersion) {
-              obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
-              setPresupuestosObras(prev => ({...prev, [obra.id]: presupuestoMayorVersion}));
+              // 🔥 BLOQUEO TOTAL: NUNCA tocar presupuestoNoCliente si es trabajo extra
+              if (!obra._esTrabajoExtra) {
+                obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
+                setPresupuestosObras(prev => ({...prev, [obra.id]: presupuestoMayorVersion}));
+              } else {
+                console.log('🔒 [cargarEtapasDiarias] TRABAJO EXTRA - BLOQUEANDO sobrescritura de presupuestoNoCliente');
+              }
             }
           } else {
             console.warn(' ⚠️ No se pudo cargar presupuesto (HTTP', response.status, ')');
@@ -2366,8 +2524,10 @@ const ObrasPage = ({ showNotification }) => {
           console.warn(' ⚠️ Error cargando presupuesto de la obra:', errorPresupuesto);
         }
       }
-      if (presupuestoMayorVersion) {
-        obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
+        // 🔥 BLOQUEO TOTAL: NUNCA tocar presupuestoNoCliente si es trabajo extra
+        if (presupuestoMayorVersion && !obra._esTrabajoExtra) {
+          obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
+        }
       }
 
       const data = await api.etapasDiarias.getAll(empresaSeleccionada.id, { obraId: obra.id });
@@ -2409,6 +2569,30 @@ const ObrasPage = ({ showNotification }) => {
         console.log('  Total etapas recibidas:', Array.isArray(data) ? data.length : 0);
       }
       setEtapasDiarias(etapasConProfesionales);
+      console.log('🔥🔥🔥 [cargarEtapasDiarias] ANTES de setObraParaEtapasDiarias:', {
+        obraCompletaId: obraCompleta.id,
+        esTrabajoExtra: obraCompleta._esTrabajoExtra,
+        presupuestoNoClienteTimepo: obraCompleta.presupuestoNoCliente?.tiempoEstimadoTerminacion,
+        presupuestoNoClienteFecha: obraCompleta.presupuestoNoCliente?.fechaProbableInicio,
+        OBRA_COMPLETA: obraCompleta
+      });
+
+      // 🔥 PROTECCIÓN CRÍTICA: Guardar presupuesto de trabajo extra en cache etiquetado
+      // Esto PREVIENE que el presupuesto se contamine después de cerrar/reabrir
+      if (obraCompleta._esTrabajoExtra && obraCompleta._trabajoExtraId && obraCompleta.presupuestoNoCliente) {
+        console.log('🔒 [cargarEtapasDiarias] CONGELANDO presupuesto de trabajo extra en cache');
+        setPresupuestosObras(prev => ({
+          ...prev,
+          [`te_${obraCompleta._trabajoExtraId}`]: obraCompleta.presupuestoNoCliente,
+          // También guardar con clave _metadata para recuperarlo después
+          [`te_${obraCompleta._trabajoExtraId}_meta`]: {
+            tiempoEstimadoTerminacion: obraCompleta.presupuestoNoCliente.tiempoEstimadoTerminacion,
+            fechaProbableInicio: obraCompleta.presupuestoNoCliente.fechaProbableInicio,
+            timestamp: Date.now()
+          }
+        }));
+      }
+
       setObraParaEtapasDiarias(obraCompleta);
 
     } catch (error) {
@@ -2439,11 +2623,14 @@ const ObrasPage = ({ showNotification }) => {
             .filter(p => p.estado === 'APROBADO')
             .sort((a, b) => b.version - a.version)[0];
 
-          if (presupuestoAprobado) {
-            obraCompleta.presupuestoNoCliente = presupuestoAprobado;
-          } else {
-            const masReciente = presupuestos.sort((a, b) => b.version - a.version)[0];
-            if (masReciente) obraCompleta.presupuestoNoCliente = masReciente;
+          // 🔒 Bloquear sobrescritura de presupuesto para trabajos extra
+          if (!obraCompleta._esTrabajoExtra) {
+            if (presupuestoAprobado) {
+              obraCompleta.presupuestoNoCliente = presupuestoAprobado;
+            } else {
+              const masReciente = presupuestos.sort((a, b) => b.version - a.version)[0];
+              if (masReciente) obraCompleta.presupuestoNoCliente = masReciente;
+            }
           }
         }
       } catch (errorPresupuesto) {
@@ -3127,6 +3314,46 @@ const ObrasPage = ({ showNotification }) => {
     return semanasCalculadas;
   };
 
+  // 🔥 EFECTO: Cuando se abre el modal de configuración, cargar datos correctos
+  React.useEffect(() => {
+    if (!mostrarModalConfiguracionObra || !obraParaConfigurar) {
+      return;
+    }
+
+    // ✅ SI ES TRABAJO EXTRA: usar presupuesto pre-cargado, NO buscar en backend
+    if (obraParaConfigurar._esTrabajoExtra && obraParaConfigurar.presupuestoNoCliente) {
+      console.log('✅ [Modal Configuración TE] Es trabajo extra - usando presupuesto pre-cargado');
+      const presupuesto = obraParaConfigurar.presupuestoNoCliente;
+
+      // 🔥 Para trabajos extra: usar cálculo SIMPLE de semanas (no con feriados)
+      const semanasCalculadas = presupuesto.tiempoEstimadoTerminacion
+        ? Math.ceil(presupuesto.tiempoEstimadoTerminacion / 5)
+        : 0;
+
+      const jornalesTotales = parseInt(presupuesto.tiempoEstimadoTerminacion) || 0;
+
+      setConfiguracionObra({
+        jornalesTotales,
+        fechaInicio: presupuesto.fechaProbableInicio ? parsearFechaLocal(presupuesto.fechaProbableInicio) : new Date(),
+        presupuestoSeleccionado: presupuesto,
+        semanasObjetivo: semanasCalculadas > 0 ? semanasCalculadas.toString() : '',
+        diasHabiles: presupuesto.tiempoEstimadoTerminacion || 0,
+        capacidadNecesaria: 0,
+        fechaFinEstimada: null
+      });
+
+      console.log('✅ [Modal Configuración TE] configuracionObra inicializada:', {
+        presupuestoId: presupuesto.id,
+        diasHabiles: presupuesto.tiempoEstimadoTerminacion,
+        semanas: semanasCalculadas
+      });
+      return;
+    }
+
+    // 🔥 SI ES OBRA NORMAL: llamar handleConfigurarObra para buscar presupuestos
+    handleConfigurarObra(obraParaConfigurar);
+  }, [mostrarModalConfiguracionObra, obraParaConfigurar?._esTrabajoExtra]);
+
   const handleConfigurarObra = async (obra) => {
     console.log('🚀🚀🚀 INICIO handleConfigurarObra - Obra:', obra?.id, obra?.direccion);
 
@@ -3135,11 +3362,12 @@ const ObrasPage = ({ showNotification }) => {
       return;
     }
 
-    setObraParaConfigurar(obra);
-    setMostrarModalConfiguracionObra(true);
+    // No setear obraParaConfigurar aquí si ya está seteado (viene de handleAbrirDia de trabajos extra)
+    if (!obraParaConfigurar || obraParaConfigurar.id !== obra.id) {
+      setObraParaConfigurar(obra);
+    }
 
-    console.log('🚀 Modal abierto, comenzando cálculos...');
-
+    console.log('🚀 Buscando presupuesto para configuración...');
 
     try {
       // Buscar todos los presupuestos de la obra y elegir el de mayor versión
@@ -3368,14 +3596,68 @@ const ObrasPage = ({ showNotification }) => {
 
     // Actualizar la obra seleccionada para etapas diarias (si existe)
     if (obraParaEtapasDiarias) {
-      setObraParaEtapasDiarias(prev => ({
-        ...prev,
+      // 🔥 Para trabajos extra: actualizar también presupuestoNoCliente con los nuevos datos de fechas/días
+      const obraActualizada = {
+        ...obraParaEtapasDiarias,
         configuracionPlanificacion: nuevaConfiguracion
-      }));
+      };
+
+      // Si es trabajo extra, actualizar presupuestoNoCliente con fechaProbableInicio y tiempoEstimadoTerminacion
+      if (obraParaEtapasDiarias._esTrabajoExtra && obraParaEtapasDiarias.presupuestoNoCliente) {
+        console.log('✅ [Guardada Configuración TE] Actualizando presupuestoNoCliente con fechas:', {
+          fechaProbableInicio: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio,
+          tiempoEstimadoTerminacion: diasHabiles
+        });
+
+        obraActualizada.presupuestoNoCliente = {
+          ...obraParaEtapasDiarias.presupuestoNoCliente,
+          fechaProbableInicio: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio || obraParaEtapasDiarias.presupuestoNoCliente.fechaProbableInicio,
+          tiempoEstimadoTerminacion: diasHabiles
+        };
+        // 🔥 IMPORTANTE: También actualizar directamente en la obra para que calendarioCompleto lo vea
+        obraActualizada.tiempoEstimadoTerminacion = diasHabiles;
+        obraActualizada.fechaProbableInicio = configuracionObra.presupuestoSeleccionado?.fechaProbableInicio || obraParaEtapasDiarias.fechaProbableInicio;
+      }
+
+      setObraParaEtapasDiarias(obraActualizada);
+
+      // 🔥 PARA TRABAJOS EXTRA: Guardar el presupuesto en cache CONGELADO
+      if (obraParaEtapasDiarias._esTrabajoExtra && obraActualizada.presupuestoNoCliente) {
+        console.log('🔥 [Guardada Configuración TE] CONGELANDO presupuesto en cache:', {
+          presupuestoId: obraActualizada.presupuestoNoCliente.id,
+          tiempoEstimadoTerminacion: obraActualizada.presupuestoNoCliente.tiempoEstimadoTerminacion
+        });
+        setPresupuestosObras(prev => ({
+          ...prev,
+          // Guardar con KEY diferente para trabajos extra para evitar que se sobrescriba
+          [`te_${obraParaEtapasDiarias._trabajoExtraId}`]: obraActualizada.presupuestoNoCliente
+        }));
+      }
+
       // Actualizar el estado global de configuraciones
       setConfiguracionesPlanificacion(prev => ({
         ...prev,
         [obraParaEtapasDiarias.id]: nuevaConfiguracion
+      }));
+    }
+
+    // 🔥 Si el modal se abrió desde un trabajo extra (pestaña trabajos-extra), actualizar ese trabajo en el array
+    if (obraParaConfigurar?._esTrabajoExtra && obraParaConfigurar._trabajoExtraId) {
+      console.log('✅ [Guardada TE Config] Actualizando trabajo extra en array trabajosExtra:', {
+        trabajoExtraId: obraParaConfigurar._trabajoExtraId,
+        tiempoEstimadoTerminacion: diasHabiles,
+        fechaProbableInicio: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio
+      });
+
+      setTrabajosExtra(prev => prev.map(trabajo => {
+        if (trabajo.id === obraParaConfigurar._trabajoExtraId) {
+          return {
+            ...trabajo,
+            fechaProbableInicio: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio || trabajo.fechaProbableInicio,
+            tiempoEstimadoTerminacion: diasHabiles
+          };
+        }
+        return trabajo;
       }));
     }
 
@@ -5043,22 +5325,28 @@ const ObrasPage = ({ showNotification }) => {
                                               title="Reconfigurar planificación del trabajo extra"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                // Crear objeto limpio para configuración de planificación
+                                                // 🔥 PRIMERO: buscar el trabajo extra actualizado en el estado local
+                                                const trabajoExtraActualizado = trabajosExtra.find(t => t.id === row.id) || row;
+
+                                                console.log('✅ [Reconfigurar TE] Usando trabajo extra actualizado:', {
+                                                  rowId: row.id,
+                                                  tiempoEnRow: row.tiempoEstimadoTerminacion,
+                                                  tiempoEnEstado: trabajoExtraActualizado.tiempoEstimadoTerminacion,
+                                                  fechaEnRow: row.fechaProbableInicio,
+                                                  fechaEnEstado: trabajoExtraActualizado.fechaProbableInicio
+                                                });
+
+                                                // Crear objeto con presupuesto completo para configuración de planificación
                                                 const trabajoParaConfigurar = {
-                                                  id: `te_${row.id}`,
-                                                  nombre: row.nombreObra || row.nombre,
+                                                  id: `te_${trabajoExtraActualizado.id}`,
+                                                  nombre: trabajoExtraActualizado.nombreObra || trabajoExtraActualizado.nombre,
                                                   direccion: obraParaTrabajosExtra?.direccion || '',
-                                                  presupuestoNoCliente: {
-                                                    ...row,
-                                                    // Limpiar totales y jornales
-                                                    totalFinal: 0,
-                                                    jornalesTotales: 0,
-                                                    itemsCalculadora: []
-                                                  },
-                                                  fechaProbableInicio: row.fechaProbableInicio || '',
-                                                  tiempoEstimadoTerminacion: row.tiempoEstimadoTerminacion || 0,
+                                                  // ✅ Usar el trabajo extra ACTUALIZADO del estado local (NO el row del backend)
+                                                  presupuestoNoCliente: trabajoExtraActualizado,
+                                                  fechaProbableInicio: trabajoExtraActualizado.fechaProbableInicio || '',
+                                                  tiempoEstimadoTerminacion: trabajoExtraActualizado.tiempoEstimadoTerminacion || 0,
                                                   _esTrabajoExtra: true,
-                                                  _trabajoExtraId: row.id,
+                                                  _trabajoExtraId: trabajoExtraActualizado.id,
                                                   _obraOriginalId: obraParaTrabajosExtra.id
                                                 };
                                                 setObraParaConfigurar(trabajoParaConfigurar);
@@ -5166,7 +5454,9 @@ const ObrasPage = ({ showNotification }) => {
 
                                               // Usar el presupuesto completo como si fuera una obra
                                               const trabajoComoObra = {
-                                                id: row.id, // ✅ ID REAL del trabajo extra
+                                                id: row.id, // ✅ ID REAL del trabajo extra (para tracking)
+                                                _obraId: obraParaTrabajosExtra.id, // 🔑 ID REAL de la obra (para búsquedas en BD)
+                                                obraId: obraParaTrabajosExtra.id, // 🔑 Alternativa normalizada
                                                 nombre: row.nombreObra || row.nombre,
                                                 presupuestoNoCliente: presupuestoCompleto, // ✅ Presupuesto completo cargado
                                                 fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || row.fechaProbableInicio,
@@ -5336,41 +5626,82 @@ const ObrasPage = ({ showNotification }) => {
                                         </h6>
                                         <button
                                           className="btn btn-sm btn-outline-info w-100 d-flex justify-content-between align-items-center"
-                                          onClick={(e) => {
+                                          onClick={async (e) => {
                                             e.stopPropagation();
-                                            // Crear objeto independiente para trabajo extra
-                                            const trabajoParaEtapas = {
-                                              id: row.obraId || obraParaTrabajosExtra.id, // ID de la obra real (NO el ID del trabajo extra)
-                                              _idVisualizacion: `te_${row.id}`, // ID único para visualización
-                                              nombre: row.nombreObra || row.nombre,
-                                              fechaProbableInicio: row.fechaProbableInicio,
-                                              tiempoEstimadoTerminacion: row.tiempoEstimadoTerminacion,
-                                              diasHabiles: row.tiempoEstimadoTerminacion,
-                                              semanas: Math.ceil((row.tiempoEstimadoTerminacion || 0) / 5),
-                                              // Configuración establecida
-                                              configuracionPlanificacion: {
-                                                semanas: Math.ceil((row.tiempoEstimadoTerminacion || 0) / 5),
-                                                diasHabiles: row.tiempoEstimadoTerminacion,
-                                                fechaInicio: row.fechaProbableInicio
-                                              },
-                                              _esTrabajoExtra: true,
-                                              _trabajoExtraId: row.id,
-                                              _trabajoExtraPresupuestoId: row.id, // ID del presupuesto del trabajo extra
-                                              _obraOriginalId: row.obraId || obraParaTrabajosExtra.id,
-                                              _trabajoExtraNombre: row.nombreObra || row.nombre,
-                                              obraId: row.obraId || obraParaTrabajosExtra.id,
-                                              // 🔥 IMPORTANTE: Pre-cargar el presupuesto del trabajo extra
-                                              presupuestoNoCliente: {
-                                                id: row.id,
-                                                tiempoEstimadoTerminacion: row.tiempoEstimadoTerminacion,
-                                                fechaProbableInicio: row.fechaProbableInicio,
-                                                itemsCalculadora: row.itemsCalculadora || []
+
+                                            try {
+                                              // 🔥 PRIMERO: buscar el trabajo extra actualizado en el estado local
+                                              const trabajoExtraEnEstado = trabajosExtra.find(t => t.id === row.id);
+                                              const tiempoActualizado = trabajoExtraEnEstado?.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion;
+                                              const fechaActualizada = trabajoExtraEnEstado?.fechaProbableInicio || row.fechaProbableInicio;
+
+                                              console.log('🔍 [Cronograma TE] Buscando trabajo extra con configuración actualizada:', {
+                                                rowId: row.id,
+                                                trabajoEnEstado: !!trabajoExtraEnEstado,
+                                                tiempoEnEstado: trabajoExtraEnEstado?.tiempoEstimadoTerminacion,
+                                                tiempoFinal: tiempoActualizado
+                                              });
+
+                                              // Si el trabajo extra en estado tiene datos diferentes a row, usarlos sin cargar del backend
+                                              let presupuestoCompleto;
+
+                                              // 🔒 PASO 1: Buscar en cache etiquetado para trabajos extra (más confiable)
+                                              const presupuestoCacheado = presupuestosObras[`te_${row.id}`];
+
+                                              if (presupuestoCacheado && presupuestoCacheado.tiempoEstimadoTerminacion) {
+                                                console.log('✅ [Cronograma TE] RECUPERANDO presupuesto del cache etiquetado (congelado)');
+                                                presupuestoCompleto = presupuestoCacheado;
+                                              } else if (trabajoExtraEnEstado && (trabajoExtraEnEstado.tiempoEstimadoTerminacion !== row.tiempoEstimadoTerminacion || trabajoExtraEnEstado.fechaProbableInicio !== row.fechaProbableInicio)) {
+                                                console.log('✅ [Cronograma TE] Usando trabajo extra actualizado del estado (NO cargar del backend)');
+                                                presupuestoCompleto = { ...row, ...trabajoExtraEnEstado };
+                                              } else {
+                                                console.log('🔍 [Cronograma TE] Cargando presupuesto completo del trabajo extra ID:', row.id);
+                                                presupuestoCompleto = await api.trabajosExtra.getById(row.id, empresaId);
                                               }
-                                            };
-                                            console.log('🎯 [Gestionar Etapa TE] Usando obraId:', trabajoParaEtapas.id, 'para trabajo extra:', row.id, 'con', row.tiempoEstimadoTerminacion, 'días hábiles');
-                                            setSelectedObraId(trabajoParaEtapas.id);
-                                            cargarEtapasDiarias(trabajoParaEtapas);
-                                            dispatch(setActiveTab('etapas-diarias'));
+
+                                              console.log('✅ [Cronograma TE] Presupuesto resuelto:', {
+                                                tiempoEstimadoTerminacion: presupuestoCompleto.tiempoEstimadoTerminacion,
+                                                fechaProbableInicio: presupuestoCompleto.fechaProbableInicio
+                                              });
+
+                                              // Crear objeto independiente para trabajo extra
+                                              const trabajoParaEtapas = {
+                                                id: row.obraId || obraParaTrabajosExtra.id, // ID de la obra real (NO el ID del trabajo extra)
+                                                _idVisualizacion: `te_${row.id}`, // ID único para visualización
+                                                nombre: row.nombreObra || row.nombre,
+                                                fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || row.fechaProbableInicio,
+                                                tiempoEstimadoTerminacion: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
+                                                diasHabiles: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
+                                                semanas: Math.ceil((presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion || 0) / 5),
+                                                // Configuración establecida
+                                                configuracionPlanificacion: {
+                                                  semanas: Math.ceil((presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion || 0) / 5),
+                                                  diasHabiles: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
+                                                  fechaInicio: presupuestoCompleto.fechaProbableInicio || row.fechaProbableInicio
+                                                },
+                                                _esTrabajoExtra: true,
+                                                _trabajoExtraId: row.id,
+                                                _trabajoExtraPresupuestoId: row.id, // ID del presupuesto del trabajo extra
+                                                _obraOriginalId: row.obraId || obraParaTrabajosExtra.id,
+                                                _trabajoExtraNombre: row.nombreObra || row.nombre,
+                                                obraId: row.obraId || obraParaTrabajosExtra.id,
+                                                // 🔥 IMPORTANTE: Usar el presupuesto actualizado (puede ser del estado o del backend)
+                                                presupuestoNoCliente: presupuestoCompleto
+                                              };
+                                              console.log('🎯 [Gestionar Etapa TE] Usando presupuesto con', presupuestoCompleto.tiempoEstimadoTerminacion, 'días hábiles');
+                                              console.log('🎯🎯🎯 [Gestionar Etapa TE] TRABAJO_PARA_ETAPAS COMPLETO:', {
+                                                id: trabajoParaEtapas.id,
+                                                presupuestoNoClienteTiempo: trabajoParaEtapas.presupuestoNoCliente?.tiempoEstimadoTerminacion,
+                                                presupuestoNoClienteFecha: trabajoParaEtapas.presupuestoNoCliente?.fechaProbableInicio,
+                                                TRABAJO_PARA_ETAPAS_COMPLETO: trabajoParaEtapas
+                                              });
+                                              setSelectedObraId(trabajoParaEtapas.id);
+                                              cargarEtapasDiarias(trabajoParaEtapas);
+                                              dispatch(setActiveTab('etapas-diarias'));
+                                            } catch (error) {
+                                              console.error('❌ Error cargando presupuesto del trabajo extra:', error);
+                                              showNotification('Error al cargar el presupuesto del trabajo extra', 'error');
+                                            }
                                           }}
                                         >
                                           <span>
@@ -5550,7 +5881,9 @@ const ObrasPage = ({ showNotification }) => {
                   <div>
                     <h5 className="mb-0">
                       <i className="fas fa-calendar-check me-2"></i>
-                      Cronograma de Obra - {obraParaEtapasDiarias?.nombre}
+                      {obraParaEtapasDiarias?._esTrabajoExtra
+                        ? `Cronograma de Trabajo Extra - ${obraParaEtapasDiarias?._trabajoExtraNombre || obraParaEtapasDiarias?.nombre}`
+                        : `Cronograma de Obra - ${obraParaEtapasDiarias?.nombre}`}
                     </h5>
                     {obraParaEtapasDiarias && (
                       <small className="text-muted">
@@ -5574,19 +5907,6 @@ const ObrasPage = ({ showNotification }) => {
                     <option value="MODIFICADA"> Modificadas</option>
                     <option value="CANCELADA"> Canceladas</option>
                   </select>
-
-                  {/* Botón de consolidación */}
-                  <button
-                    className="btn btn-success btn-sm"
-                    onClick={() => {
-                      // Solo cierra/vuelve atrás para dar sensación de guardado
-                      dispatch(setActiveTab('lista'));
-                      setObraParaEtapasDiarias(null);
-                    }}
-                  >
-                    <i className="fas fa-check-circle me-2"></i>
-                    Guardar y Cerrar
-                  </button>
                 </div>
               </div>
               <div className="card-body">
@@ -5598,8 +5918,19 @@ const ObrasPage = ({ showNotification }) => {
                     <p className="mt-2 text-muted">Cargando calendario...</p>
                   </div>
                 ) : (() => {
-                    // 🔥 Obtener presupuesto actualizado desde presupuestosObras (reactivo)
-                    const presupuestoActualizado = presupuestosObras[obraParaEtapasDiarias?.id] || obraParaEtapasDiarias?.presupuestoNoCliente;
+                    // 🔥 Si es trabajo extra, usar SOLO su presupuesto pre-cargado (no buscar en cache)
+                    const presupuestoActualizado = obraParaEtapasDiarias?._esTrabajoExtra
+                      ? obraParaEtapasDiarias?.presupuestoNoCliente
+                      : (presupuestosObras[obraParaEtapasDiarias?.id] || obraParaEtapasDiarias?.presupuestoNoCliente);
+
+                    // 🔍 DEBUG: Ver qué presupuesto se está usando
+                    console.log('🔍 [CRONOGRAMA JSX] presupuestoActualizado:', {
+                      esTrabajoExtra: obraParaEtapasDiarias?._esTrabajoExtra,
+                      obraId: obraParaEtapasDiarias?.id,
+                      tiempoEstimado: presupuestoActualizado?.tiempoEstimadoTerminacion,
+                      version: presupuestoActualizado?.numeroVersion,
+                      itemsCount: presupuestoActualizado?.itemsCalculadora?.length
+                    });
 
                     if (!presupuestoActualizado || !presupuestoActualizado?.id) {
                       return (
@@ -5632,34 +5963,15 @@ const ObrasPage = ({ showNotification }) => {
                       <div className="row text-center">
                         <div className="col-3">
                           <h5>
-                            {(() => {
-                              // ✅ PRIORIDAD: 1. Presupuesto (fuente de verdad)
-                              const tiempoEstimado = presupuestoActualizado?.tiempoEstimadoTerminacion;
-                              if (tiempoEstimado) {
-                                console.log('✅ Usando días del presupuesto:', tiempoEstimado);
-                                return tiempoEstimado;
-                              }
-
-                              // 2. Configuración de la obra (si no hay presupuesto)
-                              const configuracion = obtenerConfiguracionObra(obraParaEtapasDiarias.id);
-                              if (configuracion?.diasHabiles) {
-                                console.log('✅ Usando días de configuración:', configuracion.diasHabiles);
-                                return configuracion.diasHabiles;
-                              }
-
-                              // 3. Último fallback: sumar jornales
-                              const items = presupuestoActualizado?.itemsCalculadora ||
-                                           presupuestoActualizado?.detalles || [];
-                              const suma = items.reduce((sum, item) => sum + (parseInt(item.cantidadJornales) || 0), 0);
-                              console.log('🔍 RESUMEN - suma jornales:', suma);
-                              return suma;
-                            })()}
+                            {/* ✅ USAR MISMA LÓGICA QUE LÍNEA 5181*/}
+                            {obraParaEtapasDiarias?.tiempoEstimadoTerminacion || obraParaEtapasDiarias?.presupuestoNoCliente?.tiempoEstimadoTerminacion || 0}
                           </h5>
                           <small>Días</small>
                         </div>
                         <div className="col-3">
                           <h5>
-                            {calendarioCompleto.length}
+                            {/* ✅ USAR MISMA LÓGICA QUE LÍNEA 5181 */}
+                            {Math.ceil((obraParaEtapasDiarias?.tiempoEstimadoTerminacion || obraParaEtapasDiarias?.presupuestoNoCliente?.tiempoEstimadoTerminacion || 0) / 5)}
                           </h5>
                           <small>Semanas</small>
                         </div>
@@ -6397,8 +6709,8 @@ const ObrasPage = ({ showNotification }) => {
               });
 
               // Si hay etapas diarias abiertas de esta obra, actualizar inmediatamente
-              if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === presupuesto.obraId) {
-                console.log(' Etapas diarias abiertas, actualizando presupuesto en el estado...');
+              if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === presupuesto.obraId && !obraParaEtapasDiarias._esTrabajoExtra) {
+                console.log(' Etapas diarias abiertas (OBRA NORMAL), actualizando presupuesto en el estado...');
                 setObraParaEtapasDiarias(prev => {
                   const actualizada = {
                     ...prev,
@@ -6412,6 +6724,8 @@ const ObrasPage = ({ showNotification }) => {
                   console.log(' Incrementando calendarioVersion:', v, ' €™', v + 1);
                   return v + 1;
                 });
+              } else if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === presupuesto.obraId && obraParaEtapasDiarias._esTrabajoExtra) {
+                console.log('🔒 [eventBus] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA - manteniendo presupuestoNoCliente intacto');
               }
             } else {
               console.warn(' ⚠️ Presupuesto sin obraId:', presupuesto);

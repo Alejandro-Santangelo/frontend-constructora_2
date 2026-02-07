@@ -114,6 +114,17 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     return 'DISPONIBLE';
   };
 
+  // ✅ Helper para obtener el ID REAL de la obra (diferencia entre trabajo extra y obra normal)
+  const getObraId = () => {
+    if (!obra) return null;
+    // Si es un trabajo extra, usar el ID real de la obra (_obraId o _obraOriginalId)
+    if (obra._esTrabajoExtra) {
+      return obra._obraId || obra._obraOriginalId || obra.obraId || obra.id;
+    }
+    // Si es una obra normal, usar el ID directo
+    return obra.id;
+  };
+
   // 🔥 Crear configuración actualizada con fechaProbableInicio y jornales del presupuesto
   // ✅ GARANTIZAR SIEMPRE: fechaInicio y diasHabiles para mostrar tarjetas de semanas
   const configuracionObraActualizada = useMemo(() => {
@@ -540,41 +551,62 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
         // El backend puede devolver el array directamente o dentro de content/datos
         const presupuestosTradicionales = Array.isArray(dataTradicionales) ? dataTradicionales : (dataTradicionales?.content || dataTradicionales?.datos || []);
-        const trabajosExtra = Array.isArray(dataTrabajosExtra) ? dataTrabajosExtra : [];
+
+        // 🔑 Normalizar trabajos extra para asegurar que tienen obraId
+        const trabajosExtraNormalizados = (Array.isArray(dataTrabajosExtra) ? dataTrabajosExtra : []).map(trabajo => ({
+          ...trabajo,
+          obraId: trabajo.obraId ?? trabajo.obra_id ?? obra.id,
+          idObra: trabajo.idObra ?? trabajo.obra_id ?? obra.id
+        }));
 
         // 🆕 Combinar ambos tipos de presupuestos
-        const presupuestos = [...presupuestosTradicionales, ...trabajosExtra];
+        const presupuestos = [...presupuestosTradicionales, ...trabajosExtraNormalizados];
         console.log('📦 Total presupuestos combinados:', presupuestos.length);
 
         // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
         const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
 
-        // Filtrar por obraId y estado válido
-        const presupuestosObra = (presupuestos || []).filter(p =>
-          (Number(p.obraId) === Number(obra.id) || Number(p.idObra) === Number(obra.id)) &&
-          estadosValidos.includes(p.estado)
-        );
-        console.log('✅ Presupuestos con estado válido de obra', obra.id, ':', presupuestosObra.length);
-
-        if (presupuestosObra.length === 0) {
-          throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
-        }
-
         // 🔥 SI EL MODAL FUE ABIERTO DESDE UN TRABAJO EXTRA ESPECÍFICO, USAR SOLO ESE
         const trabajoExtraIdEspecifico = obra._trabajoExtraId;
 
+        let presupuestosObra;
         let presupuestoResumen;
-        if (trabajoExtraIdEspecifico) {
-          // Buscar el trabajo extra específico que se clickeó
-          presupuestoResumen = presupuestosObra.find(p =>
-            (p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA') && p.id === trabajoExtraIdEspecifico
-          );
 
-          if (!presupuestoResumen) {
+        if (trabajoExtraIdEspecifico) {
+          // 🔥 BÚSQUEDA DIRECTA: Si sabemos el ID específico del trabajo extra, buscarlo directamente
+          console.log('🔍 Buscando trabajo extra específico con ID:', trabajoExtraIdEspecifico);
+
+          // Primero intentar encontrarlo en la lista combinada
+          presupuestoResumen = presupuestos.find(p => p.id === trabajoExtraIdEspecifico);
+
+          if (presupuestoResumen) {
+            console.log('✅ Usando TRABAJO EXTRA ESPECÍFICO encontrado por ID:', presupuestoResumen.id, presupuestoResumen.nombre);
+            // Validar que tenga estado válido
+            if (!estadosValidos.includes(presupuestoResumen.estado)) {
+              throw new Error(`El trabajo extra ${trabajoExtraIdEspecifico} no tiene un estado válido (${presupuestoResumen.estado})`);
+            }
+          } else {
             throw new Error(`No se encontró el trabajo extra con ID ${trabajoExtraIdEspecifico}`);
           }
-          console.log('✅ Usando TRABAJO EXTRA ESPECÍFICO clickeado:', presupuestoResumen.id, presupuestoResumen.nombre);
         } else {
+          // Filtrar por obraId y estado válido (búsqueda tradicional)
+          console.log('🔍 Filtrando presupuestos por obraId:', obra.id);
+          presupuestosObra = (presupuestos || []).filter(p => {
+            const coincideObra = (Number(p.obraId) === Number(obra.id) || Number(p.idObra) === Number(obra.id));
+            const tieneEstado = estadosValidos.includes(p.estado);
+
+            if (!coincideObra || !tieneEstado) {
+              console.warn(`❌ Presupuesto ${p.id} - coincideObra: ${coincideObra} (obraId: ${p.obraId}, idObra: ${p.idObra}), tieneEstado: ${tieneEstado} (estado: ${p.estado})`);
+            }
+
+            return coincideObra && tieneEstado;
+          });
+          console.log('✅ Presupuestos con estado válido de obra', obra.id, ':', presupuestosObra.length);
+
+          if (presupuestosObra.length === 0) {
+            throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
+          }
+
           // Lógica original: priorizar trabajos extra sobre presupuestos tradicionales
           const trabajosExtraObra = presupuestosObra.filter(p => p.esTrabajoExtra || p.tipo === 'TRABAJO_EXTRA');
           const tradicionalesObra = presupuestosObra.filter(p => !p.esTrabajoExtra && p.tipo !== 'TRABAJO_EXTRA');
@@ -1238,8 +1270,9 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     try {
       console.log('🔍 Cargando asignaciones actuales de otros costos...');
 
+      const obraIdParaQuery = getObraId(); // ✅ Usa ID real de la obra
       const response = await fetch(
-        `/api/obras/${obra.id}/otros-costos`,
+        `/api/obras/${obraIdParaQuery}/otros-costos`,
         {
           headers: {
             'empresaId': empresaSeleccionada.id.toString()
@@ -1450,11 +1483,13 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       console.log('🔍 Estado formulario:', nuevaAsignacion);
       console.log(`🔥🔥🔥 POST OTRO COSTO INDIVIDUAL - Payload:`, datos);
 
-      const resultado = await asignarOtroCostoAObra(obra.id, empresaSeleccionada.id, datos);
+      const obraIdParaAsignacion = getObraId(); // ✅ Usa ID real de la obra
+      const resultado = await asignarOtroCostoAObra(obraIdParaAsignacion, empresaSeleccionada.id, datos);
       console.log('✅ Costo asignado exitosamente:', resultado);
 
       // 🧹 Limpiar localStorage después de guardado exitoso en BD
-      const locKey = `asignaciones_locales_costos_${obra.id}`;
+      const obraIdParaKey = getObraId(); // ✅ Usa ID real de la obra
+      const locKey = `asignaciones_locales_costos_${obraIdParaKey}`;
       localStorage.removeItem(locKey);
       console.log('🧹 localStorage limpiado después de guardado exitoso en BD');
 
@@ -1631,8 +1666,9 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           let success = false;
 
           try {
+            const obraIdParaBulk = getObraId(); // ✅ Usa ID real de la obra
             const response = await fetch(
-              `/api/obras/${obra.id}/otros-costos`,
+              `/api/obras/${obraIdParaBulk}/otros-costos`,
               {
                 method: 'POST',
                 headers: {
@@ -1713,8 +1749,9 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       localStorage.setItem(locKey, JSON.stringify(filtered));
 
       // 2. Eliminar de BD
+      const obraIdParaDelete = getObraId(); // ✅ Usa ID real de la obra
       const response = await fetch(
-        `/api/obras/${obra.id}/otros-costos/${asignacionId}`,
+        `/api/obras/${obraIdParaDelete}/otros-costos/${asignacionId}`,
         {
           method: 'DELETE',
           headers: {
