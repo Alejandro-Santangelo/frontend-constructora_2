@@ -2903,6 +2903,13 @@ const ObrasPage = ({ showNotification }) => {
   const cargarContadoresObra = async (obraId) => {
     // console.log('🔄 Cargando contadores para obra:', obraId);
     try {
+      // 🔥 Detectar si es un trabajo extra buscando en el array de obras
+      const obraEncontrada = obras.find(o => o.id === obraId);
+      const esTrabajoExtra = obraEncontrada?._esTrabajoExtra || false;
+      const idParaConsulta = esTrabajoExtra ? obraId : obraId; // Para trabajo extra usar su propio ID
+
+      console.log('🔍 cargarContadoresObra - obraId:', obraId, 'esTrabajoExtra:', esTrabajoExtra);
+
       const contadores = {
         presupuestos: 0,
         trabajosExtra: 0,
@@ -3003,61 +3010,70 @@ const ObrasPage = ({ showNotification }) => {
           return { count: 0, asignaciones: [] };
         }),
 
-        // Materiales - Obtener solo desde el backend
-        axios.get(`/api/obras/${obraId}/materiales`, {
-          headers: {
-            empresaId: empresaId,
-            'X-Tenant-ID': empresaId
+        // Materiales - Obtener asignaciones reales desde el backend
+        (async () => {
+          try {
+            // 🔥 Tanto para obra normal como trabajo extra, consultar el endpoint de asignaciones
+            const response = await axios.get(`/api/obras/${obraId}/materiales`, {
+              headers: {
+                empresaId: empresaId,
+                'X-Tenant-ID': empresaId
+              }
+            });
+            const data = response.data?.data || response.data || [];
+            const materialesBackend = Array.isArray(data) ? data : [];
+            const count = materialesBackend.length;
+
+            console.log(`  📊 Materiales asignados ${esTrabajoExtra ? '(trabajo extra)' : ''}:`, count);
+
+            // Guardar los datos completos de materiales
+            setDatosAsignacionesPorObra(prev => ({
+              ...prev,
+              [obraId]: {
+                ...prev[obraId],
+                materiales: materialesBackend
+              }
+            }));
+
+            return count;
+          } catch (error) {
+            console.warn('  ⚠️ Error cargando materiales:', error.message);
+            return 0;
           }
-        }).then(response => {
-          const data = response.data?.data || response.data || [];
-          const materialesBackend = Array.isArray(data) ? data : [];
-          const count = materialesBackend.length;
+        })(),
 
-          console.log('  📊 Materiales backend:', count);
+        // Gastos/Otros costos asignados - Obtener asignaciones reales desde el backend
+        (async () => {
+          try {
+            // 🔥 Tanto para obra normal como trabajo extra, consultar el endpoint de asignaciones
+            const response = await axios.get(`/api/obras/${obraId}/otros-costos`, {
+              headers: {
+                empresaId: empresaId,
+                'X-Tenant-ID': empresaId
+              },
+              params: { empresaId }
+            });
+            const data = response.data || [];
+            const gastos = Array.isArray(data) ? data : [];
+            const count = gastos.length;
 
-          // Guardar los datos completos de materiales
-          setDatosAsignacionesPorObra(prev => ({
-            ...prev,
-            [obraId]: {
-              ...prev[obraId],
-              materiales: materialesBackend
-            }
-          }));
+            console.log(`  📊 Gastos asignados ${esTrabajoExtra ? '(trabajo extra)' : ''}:`, count, gastos);
 
-          return count;
-        }).catch(error => {
-          console.warn('  ⚠️ Error cargando materiales:', error.message);
-          return 0;
-        }),
+            // Guardar los datos completos de gastos generales
+            setDatosAsignacionesPorObra(prev => ({
+              ...prev,
+              [obraId]: {
+                ...prev[obraId],
+                gastosGenerales: gastos
+              }
+            }));
 
-        // Gastos/Otros costos asignados
-        axios.get(`/api/obras/${obraId}/otros-costos`, {
-          headers: {
-            empresaId: empresaId,
-            'X-Tenant-ID': empresaId
-          },
-          params: { empresaId }
-        }).then(response => {
-          const data = response.data || [];
-          const gastos = Array.isArray(data) ? data : [];
-          const count = gastos.length;
-          console.log('  📊 Gastos Generales:', count, gastos);
-
-          // Guardar los datos completos de gastos generales
-          setDatosAsignacionesPorObra(prev => ({
-            ...prev,
-            [obraId]: {
-              ...prev[obraId],
-              gastosGenerales: gastos
-            }
-          }));
-
-          return count;
-        }).catch(error => {
-          console.warn('  ⚠️ Error cargando gastos generales:', error.message);
-          return 0;
-        }),
+            return count;
+          } catch (error) {
+            console.warn('  ⚠️ Error cargando gastos generales:', error.message);
+            return 0;
+          }
+        })(),
 
         // Etapas diarias
         api.etapasDiarias.getAll(empresaId, { obraId }).then(data =>

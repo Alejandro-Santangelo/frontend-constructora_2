@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Button, Form } from 'react-bootstrap';
 import { useEmpresa } from '../EmpresaContext';
+import api from '../services/api';
 import SeleccionarProfesionalesModal from './SeleccionarProfesionalesModal';
 import DetalleSemanaModal from './DetalleSemanaModal';
 import { calcularSemanasParaDiasHabiles } from '../utils/feriadosArgentina';
@@ -562,47 +563,62 @@ const AsignarProfesionalSemanalModal = ({
         return;
       }
 
-      // ✅ Siempre usar el ID real de la obra para cargar presupuestos
-      const obraIdReal = getObraId();
-      console.log('🔍 [cargarPresupuestoObra] obraIdReal:', obraIdReal, 'esTrabajoExtra:', obra._esTrabajoExtra);
-      const response = await fetch(
-        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
+      // 🔥 BIFURCACIÓN: Trabajos extra vs Obras normales
+      if (obra._esTrabajoExtra) {
+        console.log('📦 TRABAJO EXTRA: Cargando presupuesto desde trabajo extra ID:', obra.id);
+
+        // Cargar presupuesto del trabajo extra directamente
+        const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+
+        if (trabajoExtra) {
+          console.log('✅ Presupuesto de trabajo extra cargado:', trabajoExtra);
+          setPresupuesto(trabajoExtra);
+        } else {
+          console.warn('⚠️ No se pudo cargar el presupuesto del trabajo extra');
+        }
+      } else {
+        // ✅ OBRA NORMAL: Usar el ID real de la obra para cargar presupuestos
+        const obraIdReal = getObraId();
+        console.log('🔍 [cargarPresupuestoObra] obraIdReal:', obraIdReal, 'esTrabajoExtra:', obra._esTrabajoExtra);
+        const response = await fetch(
+          `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
+          {
+            headers: {
+              'empresaId': empresaSeleccionada.id.toString(),
+              'Content-Type': 'application/json'
+            }
           }
-        }
-      );
+        );
 
-      if (response.ok) {
-        let data = await response.json();
+        if (response.ok) {
+          let data = await response.json();
 
-        if (!Array.isArray(data)) {
-          data = [data];
-        }
+          if (!Array.isArray(data)) {
+            data = [data];
+          }
 
-        if (Array.isArray(data) && data.length > 0) {
-          // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
-          const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
+          if (Array.isArray(data) && data.length > 0) {
+            // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
+            const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
 
-          // Filtrar presupuestos con estado válido
-          const presupuestosValidos = data.filter(p => estadosValidos.includes(p.estado));
+            // Filtrar presupuestos con estado válido
+            const presupuestosValidos = data.filter(p => estadosValidos.includes(p.estado));
 
-          if (presupuestosValidos.length > 0) {
-            // Ordenar por versión más reciente
-            const presupuestoSeleccionado = presupuestosValidos.sort((a, b) => {
-              if (a.version !== undefined && b.version !== undefined) {
-                return b.version - a.version;
-              }
-              return (b.id || 0) - (a.id || 0);
-            })[0];
+            if (presupuestosValidos.length > 0) {
+              // Ordenar por versión más reciente
+              const presupuestoSeleccionado = presupuestosValidos.sort((a, b) => {
+                if (a.version !== undefined && b.version !== undefined) {
+                  return b.version - a.version;
+                }
+                return (b.id || 0) - (a.id || 0);
+              })[0];
 
-            setPresupuesto(presupuestoSeleccionado);
-          } else {
-            // Fallback: usar el más reciente sin filtrar por estado
-            const presupuestoSeleccionado = data.sort((a, b) => (b.id || 0) - (a.id || 0))[0];
-            setPresupuesto(presupuestoSeleccionado);
+              setPresupuesto(presupuestoSeleccionado);
+            } else {
+              // Fallback: usar el más reciente sin filtrar por estado
+              const presupuestoSeleccionado = data.sort((a, b) => (b.id || 0) - (a.id || 0))[0];
+              setPresupuesto(presupuestoSeleccionado);
+            }
           }
         }
       }
