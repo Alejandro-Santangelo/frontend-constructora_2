@@ -3493,6 +3493,9 @@ const ObrasPage = ({ showNotification }) => {
         });
 
         console.log('✅ setConfiguracionObra ejecutado con semanasObjetivo:', semanasCalculadas > 0 ? semanasCalculadas.toString() : '');
+
+        // ✅ ABRIR MODAL DE CONFIGURACIÓN
+        setMostrarModalConfiguracionObra(true);
       } else {
         // Fallback si no hay presupuesto vinculado
         showNotification('⚠️ No se encontró un presupuesto vinculado a esta obra', 'warning');
@@ -3505,6 +3508,8 @@ const ObrasPage = ({ showNotification }) => {
           capacidadNecesaria: 0,
           fechaFinEstimada: null
         });
+        // ✅ ABRIR MODAL INCLUSO SIN PRESUPUESTO (para que el usuario configure manualmente)
+        setMostrarModalConfiguracionObra(true);
       }
 
     } catch (error) {
@@ -3519,6 +3524,8 @@ const ObrasPage = ({ showNotification }) => {
         capacidadNecesaria: 0,
         fechaFinEstimada: null
       });
+      // ✅ ABRIR MODAL PARA QUE EL USUARIO INTENTE CONFIGURAR MANUALMENTE
+      setMostrarModalConfiguracionObra(true);
     }
   };
 
