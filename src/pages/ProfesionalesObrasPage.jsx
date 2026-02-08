@@ -37,7 +37,7 @@ import HistorialVersionesPresupuestoNoClienteModal from '../components/Historial
 const ProfesionalesObrasPage = () => {
   // Obtener empresa del contexto
   const { empresaSeleccionada } = useEmpresa();
-  
+
   // Función para normalizar tipo profesional
   const normalizarTipoProfesional = (valor) => {
     if (!valor) return '';
@@ -45,7 +45,7 @@ const ProfesionalesObrasPage = () => {
       .replace(/\s+/g, '_')
       .replace(/Á/g, 'A').replace(/É/g, 'E').replace(/Í/g, 'I').replace(/Ó/g, 'O').replace(/Ú/g, 'U')
       .replace(/Ñ/g, 'N');
-    
+
     // Mapeo de variaciones comunes a los valores exactos que acepta el backend
     const mapeo = {
       'ARQUITECTA': 'ARQUITECTO',
@@ -70,10 +70,10 @@ const ProfesionalesObrasPage = () => {
       'ENCARGADA_DE_OBRA': 'ENCARGADO_DE_OBRA',
       'CAPATAZ': 'CAPATAZ'
     };
-    
+
     return mapeo[normalizado] || normalizado;
   };
-  
+
   // Función para normalizar rol en obra
   const normalizarRolEnObra = (valor) => {
     if (!valor) return '';
@@ -81,7 +81,7 @@ const ProfesionalesObrasPage = () => {
       .replace(/\s+/g, '_')
       .replace(/Á/g, 'A').replace(/É/g, 'E').replace(/Í/g, 'I').replace(/Ó/g, 'O').replace(/Ú/g, 'U')
       .replace(/Ñ/g, 'N');
-    
+
     // Mapeo de variaciones comunes
     const mapeo = {
       'ENCARGADA': 'ENCARGADO',
@@ -90,35 +90,35 @@ const ProfesionalesObrasPage = () => {
       'DIRECTORA_DE_OBRA': 'DIRECTOR_OBRA',
       'DIRECTOR_DE_OBRA': 'DIRECTOR_OBRA'
     };
-    
+
     return mapeo[normalizado] || normalizado;
   };
-  
+
   // Estado para la lista de profesionales en el modal múltiple
   const [profesionalesLista, setProfesionalesLista] = React.useState([]);
-  
+
   // Estados para notificaciones
   const [notification, setNotification] = React.useState({ show: false, message: '', variant: 'success' });
-  
+
   // Estados para selección de profesional-obra (para caja chica, gastos, asistencia)
   const [profesionalObraSeleccionado, setProfesionalObraSeleccionado] = React.useState(null);
-  
+
   // Estados para modales de Caja Chica
   const [showAsignarCajaChicaModal, setShowAsignarCajaChicaModal] = React.useState(false);
   const [showConsultarSaldoModal, setShowConsultarSaldoModal] = React.useState(false);
   const [showDiagnosticoCajaChica, setShowDiagnosticoCajaChica] = React.useState(false);
-  
+
   // Estados para modales de Gastos
   const [showRegistrarGastoModal, setShowRegistrarGastoModal] = React.useState(false);
   const [showListarGastosModal, setShowListarGastosModal] = React.useState(false);
   const [showDetalleGastoModal, setShowDetalleGastoModal] = React.useState(false);
   const [gastoSeleccionado, setGastoSeleccionado] = React.useState(null);
-  
+
   // Estados para modales de Asistencia
   const [showCheckInModal, setShowCheckInModal] = React.useState(false);
   const [showCheckOutModal, setShowCheckOutModal] = React.useState(false);
   const [showHistorialAsistenciasModal, setShowHistorialAsistenciasModal] = React.useState(false);
-  
+
   // Maneja acciones del sidebar
   const [showListarPorTipoModal, setShowListarPorTipoModal] = React.useState(false);
   const [showProfesionalesPorObraModal, setShowProfesionalesPorObraModal] = React.useState(false);
@@ -126,15 +126,15 @@ const ProfesionalesObrasPage = () => {
   const [showDesactivarAsignacionModal, setShowDesactivarAsignacionModal] = React.useState(false);
   const [asignacionIdActualizar, setAsignacionIdActualizar] = React.useState('');
   const [empresaIdActualizar, setEmpresaIdActualizar] = React.useState('');
-  
+
   // Función para mostrar notificaciones
   const showNotification = (message, variant = 'success') => {
     setNotification({ show: true, message, variant });
   };
-  
+
   const handleSidebarAction = (action) => {
     setActiveAction(action);
-    
+
     // NUEVAS ACCIONES - PRESUPUESTOS
     if (action === 'historial-versiones') {
       // Abrir modal de selección de obra en modo historial
@@ -144,14 +144,14 @@ const ProfesionalesObrasPage = () => {
       cerrarTodosLosModales();
       return;
     }
-    
+
     if (action === 'listar-presupuestos') {
       // Abrir modal para listar TODOS los presupuestos
       setShowListarPresupuestosModal(true);
       cerrarTodosLosModales();
       return;
     }
-    
+
     // NUEVAS ACCIONES - CAJA CHICA
     if (action === 'asignar-caja-chica') {
       setShowAsignarCajaChicaModal(true);
@@ -168,7 +168,7 @@ const ProfesionalesObrasPage = () => {
       cerrarTodosLosModales();
       return;
     }
-    
+
     // NUEVAS ACCIONES - GASTOS
     if (action === 'registrar-gasto') {
       setShowRegistrarGastoModal(true);
@@ -180,7 +180,7 @@ const ProfesionalesObrasPage = () => {
       cerrarTodosLosModales();
       return;
     }
-    
+
     // NUEVAS ACCIONES - ASISTENCIA
     if (action === 'check-in') {
       setShowCheckInModal(true);
@@ -197,7 +197,7 @@ const ProfesionalesObrasPage = () => {
       cerrarTodosLosModales();
       return;
     }
-    
+
     // ACCIONES EXISTENTES
     if (action === 'asignar-profesional-legacy') {
       setShowAsignarModal(true);
@@ -269,7 +269,7 @@ const ProfesionalesObrasPage = () => {
       }
     }
   };
-  
+
   // Función helper para cerrar todos los modales nuevos
   const cerrarTodosLosModales = () => {
     setShowModal(false);
@@ -282,28 +282,28 @@ const ProfesionalesObrasPage = () => {
     setShowHistorialModal(false);
     setShowDiagnosticoCajaChica(false);
   };
-  
+
   // Handlers de éxito para los nuevos modales
   const handleCajaChicaSuccess = (data) => {
     showNotification(data.mensaje || 'Operación exitosa', 'success');
     // Recargar asignaciones si es necesario
     fetchAsignaciones();
   };
-  
+
   const handleGastoSuccess = (data) => {
     showNotification(data.mensaje || 'Gasto registrado exitosamente', 'success');
   };
-  
+
   const handleAsistenciaSuccess = (data) => {
     showNotification(data.mensaje || 'Asistencia registrada exitosamente', 'success');
   };
-  
+
   const handleVerDetalleGasto = (gasto) => {
     setGastoSeleccionado(gasto);
     setShowListarGastosModal(false);
     setShowDetalleGastoModal(true);
   };
-  
+
   // Estado para empresas y obras
   const [empresas, setEmpresas] = React.useState([]);
   const [obras, setObras] = React.useState([]);
@@ -317,18 +317,18 @@ const ProfesionalesObrasPage = () => {
   const [obrasDisponibles, setObrasDisponibles] = React.useState([]);
   const [loadingObras, setLoadingObras] = React.useState(false);
   const [modoSeleccionObra, setModoSeleccionObra] = React.useState('presupuesto'); // 'presupuesto' o 'historial'
-  
+
   // Estado para el modal de presupuesto
   const [showPresupuestoModal, setShowPresupuestoModal] = React.useState(false);
   const [presupuestoData, setPresupuestoData] = React.useState(null);
-  
+
   // Estado para el modal de historial de versiones
   const [showHistorialModal, setShowHistorialModal] = React.useState(false);
   const [obraIdHistorial, setObraIdHistorial] = React.useState(null);
-  
+
   // Estado para el modal de listar todos los presupuestos
   const [showListarPresupuestosModal, setShowListarPresupuestosModal] = React.useState(false);
-  
+
   // Estado para el modal de asignar profesional (legacy - por si lo necesitamos)
   const [showAsignarModal, setShowAsignarModal] = React.useState(false);
   const [asignarForm, setAsignarForm] = React.useState({
@@ -343,7 +343,7 @@ const ProfesionalesObrasPage = () => {
     valorHoraAsignado: '',
     activo: true
   });
-  
+
   // Estado para cargar profesionales del presupuesto
   const [profesionalesPresupuesto, setProfesionalesPresupuesto] = React.useState([]);
   const [loadingPresupuesto, setLoadingPresupuesto] = React.useState(false);
@@ -368,7 +368,7 @@ const ProfesionalesObrasPage = () => {
   const [multiplesForm, setMultiplesForm] = React.useState({ empresaId: '', obraId: '', profesionalesIds: [] });
   const [empresaIdInput, setEmpresaIdInput] = React.useState('');
   const [obraIdInput, setObraIdInput] = React.useState('');
-  
+
   // Precargar empresaIdInput cuando hay empresa seleccionada
   React.useEffect(() => {
     if (empresaSeleccionada?.id) {
@@ -398,7 +398,7 @@ const ProfesionalesObrasPage = () => {
         });
     }
   }, [showSeleccionarObraModal, empresaSeleccionada]);
-  
+
   // Sincronización empresa selector/input
   React.useEffect(() => {
     if (multiplesForm.empresaId) {
@@ -692,12 +692,12 @@ const ProfesionalesObrasPage = () => {
   const handleSeleccionarPresupuestoDelListado = (presupuesto) => {
     console.log('✅ Presupuesto seleccionado del listado:', presupuesto);
     console.log('🔴 Cerrando modal de listar...');
-    
+
     // Cerrar el modal de listado primero
     setShowListarPresupuestosModal(false);
-    
+
     console.log('🟢 Modal de listar cerrado, esperando 100ms...');
-    
+
     // Pequeño delay para asegurar que el modal anterior se cierre completamente
     setTimeout(() => {
       console.log('🟡 Abriendo modal de edición...');
@@ -713,7 +713,7 @@ const ProfesionalesObrasPage = () => {
       setAsignarError('Debe seleccionar una obra');
       return;
     }
-    
+
     // Si el modo es historial, abrir el modal de historial directamente
     if (modoSeleccionObra === 'historial') {
       console.log('📚 Abriendo historial de versiones para obra ID:', obraSeleccionada.id);
@@ -723,20 +723,20 @@ const ProfesionalesObrasPage = () => {
       setObraSeleccionada(null);
       return;
     }
-    
+
     // Modo presupuesto (comportamiento original)
     try {
       setLoadingPresupuesto(true);
       setAsignarError(null);
-      
+
       // Intentar cargar el presupuesto de la obra seleccionada
       const response = await api.get(`http://localhost:8080/api/presupuestos/por-obra-version?empresaId=${empresaSeleccionada.id}&obraId=${obraSeleccionada.id}`);
-      
+
       console.log('✅ Presupuesto encontrado:', response);
       console.log('📋 Profesionales en presupuesto:', response.profesionales);
       console.log('📦 Materiales en presupuesto:', response.materiales);
       console.log('💰 Otros costos en presupuesto:', response.otrosCostos);
-      
+
       // Si existe el presupuesto, lo cargamos
       setPresupuestoData(response);
       setShowSeleccionarObraModal(false);
@@ -749,12 +749,12 @@ const ProfesionalesObrasPage = () => {
         obraCompleta: obraSeleccionada
       });
       console.log('🔍 Respuesta del error:', error.response);
-      
+
       // Si el error es 404 (presupuesto no encontrado), crear uno nuevo
       if (error.response?.status === 404 || error.status === 404 || error.message?.includes('No se encontró')) {
         console.log('📝 No existe presupuesto para esta obra, creando uno nuevo...');
         console.log('🏗️ Datos de la obra seleccionada:', obraSeleccionada);
-        
+
         // Preparar datos iniciales para nuevo presupuesto con la obra seleccionada
         const today = new Date().toISOString().slice(0, 10);
         const nuevoPresupuestoData = {
@@ -786,7 +786,7 @@ const ProfesionalesObrasPage = () => {
           _obraId: obraSeleccionada.id,
           _nombreObra: obraSeleccionada.nombreObra || obraSeleccionada.nombre || obraSeleccionada.direccion
         };
-        
+
         console.log('✅ Presupuesto nuevo creado:', nuevoPresupuestoData);
         setPresupuestoData(nuevoPresupuestoData);
         setShowSeleccionarObraModal(false);
@@ -819,12 +819,12 @@ const ProfesionalesObrasPage = () => {
         valorHoraAsignado: Number(asignarForm.valorHoraAsignado),
         activo: asignarForm.activo
       };
-      
+
       // Agregar profesionalId solo si existe
       if (asignarForm.profesionalId) {
         payload.profesionalId = Number(asignarForm.profesionalId);
       }
-      
+
       const resp = await api.post('http://localhost:8080/api/profesionales-obras/asignar', payload);
       setAsignarSuccess('Profesional asignado correctamente.');
       setAsignarLoading(false);
@@ -848,14 +848,14 @@ const ProfesionalesObrasPage = () => {
               <form onSubmit={handleAsignarSubmit} style={{display:'flex', flexWrap:'wrap', gap:'18px 18px', justifyContent:'space-between'}}>
                 <div className="mb-2" style={{flex:'1 1 30%'}}>
                   <label className="form-label">Tipo Profesional
-                    <input 
-                      name="tipoProfesional" 
-                      value={asignarForm.tipoProfesional} 
-                      onChange={handleAsignarChange} 
-                      required 
-                      className="form-control" 
-                      autoComplete="off" 
-                      placeholder="Ej: ARQUITECTO, INGENIERO" 
+                    <input
+                      name="tipoProfesional"
+                      value={asignarForm.tipoProfesional}
+                      onChange={handleAsignarChange}
+                      required
+                      className="form-control"
+                      autoComplete="off"
+                      placeholder="Ej: ARQUITECTO, INGENIERO"
                       list="tiposProfesionalesList"
                     />
                     <datalist id="tiposProfesionalesList">
@@ -887,10 +887,10 @@ const ProfesionalesObrasPage = () => {
                     <input name="empresaId" type="number" value={asignarForm.empresaId} onChange={handleAsignarChange} required className="form-control" autoComplete="off" disabled={true} />
                   </label>
                   <label className="form-label" style={{marginTop:'4px'}}>Nombre de Empresa
-                    <input 
-                      type="text" 
-                      className="form-control" 
-                      value={empresaSeleccionada?.nombreEmpresa || empresaSeleccionada?.nombre || ''} 
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={empresaSeleccionada?.nombreEmpresa || empresaSeleccionada?.nombre || ''}
                       disabled={true}
                       readOnly
                     />
@@ -909,7 +909,7 @@ const ProfesionalesObrasPage = () => {
                     </select>
                   </label>
                 </div>
-                
+
                 {/* Mostrar profesionales del presupuesto si hay obra seleccionada */}
                 {asignarForm.obraId && (
                   <div className="mb-3" style={{flex:'1 1 100%', marginTop: '20px'}}>
@@ -938,8 +938,8 @@ const ProfesionalesObrasPage = () => {
                                 <td>{prof.modoPago || '-'}</td>
                                 <td>${prof.importe || 0}</td>
                                 <td>
-                                  <button 
-                                    type="button" 
+                                  <button
+                                    type="button"
                                     className="btn btn-sm btn-primary"
                                     onClick={() => {
                                       setAsignarForm(prev => ({
@@ -966,7 +966,7 @@ const ProfesionalesObrasPage = () => {
                     )}
                   </div>
                 )}
-                
+
                 <div className="mb-2" style={{flex:'1 1 30%'}}>
                   <label className="form-label">Fecha Desde
                     <input name="fechaDesde" type="date" value={asignarForm.fechaDesde} onChange={handleAsignarChange} required className="form-control" />
@@ -979,14 +979,14 @@ const ProfesionalesObrasPage = () => {
                 </div>
                 <div className="mb-2" style={{flex:'1 1 30%'}}>
                   <label className="form-label">Rol en Obra
-                    <input 
-                      name="rolEnObra" 
-                      value={asignarForm.rolEnObra} 
-                      onChange={handleAsignarChange} 
-                      required 
-                      className="form-control" 
-                      autoComplete="off" 
-                      placeholder="Ej: ENCARGADO, OFICIAL" 
+                    <input
+                      name="rolEnObra"
+                      value={asignarForm.rolEnObra}
+                      onChange={handleAsignarChange}
+                      required
+                      className="form-control"
+                      autoComplete="off"
+                      placeholder="Ej: ENCARGADO, OFICIAL"
                       list="rolesObraList"
                     />
                     <datalist id="rolesObraList">
@@ -1032,7 +1032,7 @@ const ProfesionalesObrasPage = () => {
         .catch(() => setEmpresas([]));
     }
   }, [showAsignarModal]);
-  
+
   // Cargar obras solo cuando hay empresa seleccionada y el modal está abierto
   React.useEffect(() => {
     if (showAsignarModal && asignarForm.empresaId) {
@@ -1075,7 +1075,7 @@ const ProfesionalesObrasPage = () => {
       }
       const resp = await listarAsignaciones(empresaId);
       console.log('📋 Respuesta listarAsignaciones:', resp);
-      
+
       // Intentar diferentes formatos de respuesta
       let asignacionesArray = [];
       if (Array.isArray(resp)) {
@@ -1087,8 +1087,13 @@ const ProfesionalesObrasPage = () => {
       } else if (resp.content && Array.isArray(resp.content)) {
         asignacionesArray = resp.content;
       }
-      
+
       console.log('📋 Asignaciones procesadas:', asignacionesArray.length, 'items');
+      if (asignacionesArray.length > 0) {
+        console.log('🔍 Estructura primera asignación - TODOS LOS CAMPOS:');
+        console.log('  Campos disponibles:', Object.keys(asignacionesArray[0]));
+        console.log('  Objeto completo:', JSON.stringify(asignacionesArray[0], null, 2));
+      }
       setAsignaciones(asignacionesArray);
     } catch (e) {
       console.error('Error cargando asignaciones:', e);
@@ -1114,6 +1119,19 @@ const ProfesionalesObrasPage = () => {
     setActiveAction(null);
   };
 
+  const obtenerNombreObraAsignacion = (asignacion) => {
+    if (!asignacion) return '-';
+
+    return (
+      asignacion.nombreTrabajoExtra ||
+      asignacion.trabajoExtraNombre ||
+      asignacion.nombreTrabajoExtraObra ||
+      asignacion.trabajoExtra ||
+      asignacion.nombreObra ||
+      '-'
+    );
+  };
+
   // Tabla reutilizable
   const AsignacionesTable = () => (
   <div style={{marginTop:32, marginLeft: '40px', paddingLeft: '0px', width: 'calc(100% - 40px)'}} onClick={() => setSelectedAsignacionId(null)}>
@@ -1129,26 +1147,23 @@ const ProfesionalesObrasPage = () => {
                 <th>Profesional</th>
                 <th>Tipo</th>
                 <th>Obra</th>
-                <th>Estado</th>
                 <th>Dirección</th>
                 <th>Desde</th>
                 <th>Hasta</th>
-                <th>Rol</th>
-                <th>Valor Hora</th>
                 <th>Activo</th>
                 <th>Creación</th>
               </tr>
             </thead>
             <tbody>
               {asignaciones.length === 0 && (
-                <tr><td colSpan={12} className="text-center">No existen profesionales asignados a una obra</td></tr>
+                <tr><td colSpan={9} className="text-center">No existen profesionales asignados a una obra</td></tr>
               )}
               {asignaciones.map(a => {
                 const asignacionId = a.idAsignacion;
                 const isSelected = selectedAsignacionId && asignacionId && selectedAsignacionId === asignacionId;
-                
+
                 return (
-                <tr 
+                <tr
                   key={asignacionId}
                   onClick={() => {
                     // Toggle: si ya está seleccionado, deseleccionar; si no, seleccionar
@@ -1167,13 +1182,10 @@ const ProfesionalesObrasPage = () => {
                   </td>
                   <td>{a.nombreProfesional}</td>
                   <td>{a.tipoProfesional}</td>
-                  <td>{a.nombreObra}</td>
-                  <td>{a.estadoObra}</td>
+                  <td>{obtenerNombreObraAsignacion(a)}</td>
                   <td>{a.direccionObra}</td>
                   <td>{a.fechaDesde}</td>
                   <td>{a.fechaHasta}</td>
-                  <td>{a.rolEnObra}</td>
-                  <td>{a.valorHoraAsignado}</td>
                   <td>{a.activo ? 'Sí' : 'No'}</td>
                   <td>{a.fechaCreacion}</td>
                 </tr>
@@ -1201,7 +1213,7 @@ const ProfesionalesObrasPage = () => {
   return (
     <PlantillaPageLayout sidebar={<SidebarProfesionalesObrasMenu onAction={handleSidebarAction} /> }>
   <h2 style={{textAlign: 'center', width: '100%'}}>Página de Profesionales y Obras</h2>
-  
+
   {/* Notificaciones */}
   <NotificationToast
     show={notification.show}
@@ -1209,9 +1221,9 @@ const ProfesionalesObrasPage = () => {
     variant={notification.variant}
     onClose={() => setNotification({ ...notification, show: false })}
   />
-  
+
   {/* Selector de Profesional-Obra para modales nuevos */}
-  {(showAsignarCajaChicaModal || showConsultarSaldoModal || showRegistrarGastoModal || 
+  {(showAsignarCajaChicaModal || showConsultarSaldoModal || showRegistrarGastoModal ||
     showListarGastosModal || showCheckInModal || showCheckOutModal || showHistorialAsistenciasModal) && (
     <div style={{ marginTop: 20, marginLeft: 40, padding: 20, background: '#f8f9fa', borderRadius: 8, maxWidth: 600 }}>
       <h5>Seleccionar Profesional Asignado</h5>
@@ -1243,7 +1255,7 @@ const ProfesionalesObrasPage = () => {
       </Form.Group>
     </div>
   )}
-  
+
   {/* Tabla principal siempre visible */}
   <AsignacionesTable />
   {/* Modal si se activa desde el sidebar */}
@@ -1278,7 +1290,7 @@ const ProfesionalesObrasPage = () => {
       {renderAsignarMultiplesModal()}
     </>
   )}
-  
+
   {/* NUEVOS MODALES - CAJA CHICA */}
   <AsignarCajaChicaModal
     show={showAsignarCajaChicaModal}
@@ -1288,17 +1300,17 @@ const ProfesionalesObrasPage = () => {
     profesionalNombre={profesionalObraSeleccionado?.nombreProfesional}
     direccionObra={profesionalObraSeleccionado?.direccionObra}
   />
-  
+
   <ConsultarSaldoCajaChicaModal
     show={showConsultarSaldoModal}
     onHide={() => setShowConsultarSaldoModal(false)}
   />
-  
+
   <DiagnosticoCajaChica
     show={showDiagnosticoCajaChica}
     onHide={() => setShowDiagnosticoCajaChica(false)}
   />
-  
+
   {/* NUEVOS MODALES - GASTOS */}
   <RegistrarGastoModal
     show={showRegistrarGastoModal}
@@ -1308,7 +1320,7 @@ const ProfesionalesObrasPage = () => {
     profesionalNombre={profesionalObraSeleccionado?.nombreProfesional}
     direccionObra={profesionalObraSeleccionado?.direccionObra}
   />
-  
+
   <ListarGastosModal
     show={showListarGastosModal}
     onHide={() => setShowListarGastosModal(false)}
@@ -1317,7 +1329,7 @@ const ProfesionalesObrasPage = () => {
     direccionObra={profesionalObraSeleccionado?.direccionObra}
     onVerDetalle={handleVerDetalleGasto}
   />
-  
+
   <DetalleGastoModal
     show={showDetalleGastoModal}
     onHide={() => {
@@ -1326,7 +1338,7 @@ const ProfesionalesObrasPage = () => {
     }}
     gastoSeleccionado={gastoSeleccionado}
   />
-  
+
   {/* NUEVOS MODALES - ASISTENCIA */}
   <CheckInModal
     show={showCheckInModal}
@@ -1336,7 +1348,7 @@ const ProfesionalesObrasPage = () => {
     profesionalNombre={profesionalObraSeleccionado?.nombreProfesional}
     direccionObra={profesionalObraSeleccionado?.direccionObra}
   />
-  
+
   <CheckOutModal
     show={showCheckOutModal}
     onHide={() => setShowCheckOutModal(false)}
@@ -1345,7 +1357,7 @@ const ProfesionalesObrasPage = () => {
     profesionalNombre={profesionalObraSeleccionado?.nombreProfesional}
     direccionObra={profesionalObraSeleccionado?.direccionObra}
   />
-  
+
   <ListarAsistenciasModal
     show={showHistorialAsistenciasModal}
     onHide={() => setShowHistorialAsistenciasModal(false)}
@@ -1361,13 +1373,13 @@ const ProfesionalesObrasPage = () => {
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title">
-              {modoSeleccionObra === 'historial' 
-                ? '📚 Seleccionar Obra para Ver Historial' 
+              {modoSeleccionObra === 'historial'
+                ? '📚 Seleccionar Obra para Ver Historial'
                 : 'Seleccionar Obra'}
             </h5>
-            <button 
-              type="button" 
-              className="btn-close" 
+            <button
+              type="button"
+              className="btn-close"
               onClick={() => setShowSeleccionarObraModal(false)}
             ></button>
           </div>
@@ -1436,10 +1448,10 @@ const ProfesionalesObrasPage = () => {
               onClick={handleSeleccionarObra}
               disabled={!obraSeleccionada || loadingPresupuesto}
             >
-              {loadingPresupuesto 
-                ? 'Cargando...' 
-                : modoSeleccionObra === 'historial' 
-                  ? '📚 Ver Historial' 
+              {loadingPresupuesto
+                ? 'Cargando...'
+                : modoSeleccionObra === 'historial'
+                  ? '📚 Ver Historial'
                   : 'Continuar'}
             </button>
           </div>
@@ -1461,16 +1473,16 @@ const ProfesionalesObrasPage = () => {
         try {
           // Determinar si estamos creando una nueva versión basada en una existente
           const hasExistingVersion = presupuestoData?.id;
-          
+
           if (hasExistingVersion) {
             // Si hay un presupuesto existente, crear NUEVA versión (no reemplazar)
             // Incrementar la versión automáticamente
             presupuesto.version = (presupuestoData.version || 1) + 1;
             console.log(`📝 Creando nueva versión ${presupuesto.version} del presupuesto para ${presupuesto.direccionObraCalle}`);
-            
+
             // Eliminar el ID para que el backend cree un nuevo registro
             delete presupuesto.id;
-            
+
             // POST para crear nueva versión (historial de versiones)
             await api.post('/api/v1/presupuestos-no-cliente', presupuesto);
             setAsignarSuccess(`Nueva versión creada correctamente (Versión ${presupuesto.version})`);
@@ -1478,21 +1490,21 @@ const ProfesionalesObrasPage = () => {
             // Si es completamente nuevo (primera vez para esta obra)
             presupuesto.version = presupuesto.version || 1;
             console.log('✨ Creando primer presupuesto, versión: 1');
-            
+
             // POST para crear nuevo presupuesto
             await api.post('/api/v1/presupuestos-no-cliente', presupuesto);
             setAsignarSuccess('Presupuesto creado correctamente (Versión 1)');
           }
-          
+
           // Cerrar modal y limpiar estados
           setShowPresupuestoModal(false);
           setPresupuestoData(null);
           setObraSeleccionada(null);
-          
+
           console.log('✅ Presupuesto guardado exitosamente con historial de versiones');
         } catch (error) {
           console.error('❌ Error guardando presupuesto:', error);
-          
+
           // Mostrar mensaje de error detallado
           const errorMsg = error.response?.data?.message || error.message || 'Error desconocido';
           setAsignarError(`Error al guardar el presupuesto: ${errorMsg}`);
