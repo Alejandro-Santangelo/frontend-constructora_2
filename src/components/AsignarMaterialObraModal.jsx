@@ -6,8 +6,9 @@ import api from '../services/api';
 import { calcularSemanasParaDiasHabiles, esDiaHabil } from '../utils/feriadosArgentina';
 
 /**
- * Modal para asignar otros costos/gastos generales del presupuestoNoCliente a una obra específica
- * Organiza la asignación por jornales y semanas para facilitar la planificación
+ * Modal para asignar MATERIALES del presupuestoNoCliente a una obra específica
+ * Organiza la asignación por rubros y semanas para facilitar la planificación
+ * ⚠️ IMPORTANTE: Este modal es SOLO para MATERIALES, no para Gastos Generales
  */
 const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, configuracionObra = null }) => {
   const { empresaSeleccionada } = useEmpresa();
@@ -1023,365 +1024,85 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         });
       }
 
-      // 1. Verificar si tiene otrosCostos (formato simple)
-      const otrosCostosDesdeJson = parsearArrayDesdeJson(presupuestoActual.otrosCostosJson);
-      const otrosCostosDesdeProp = Array.isArray(presupuestoActual.otrosCostos) ? presupuestoActual.otrosCostos : [];
-      const otrosCostosCandidatos = (otrosCostosDesdeProp.length > 0) ? otrosCostosDesdeProp : otrosCostosDesdeJson;
+      // 🚨 CAMBIO CRÍTICO: Este modal es SOLO para MATERIALES
+      // IGNORAR completamente otrosCostos (gastos generales)
+      // SOLO procesar materialesLista de cada rubro en itemsCalculadora
 
-      // 🔍 LOG: Estructura de otrosCostos
-      console.log('🔍🔍🔍 [DEBUG GASTOS GLOBALES] Analizando otrosCostos:', {
-        tieneProp: otrosCostosDesdeProp.length > 0,
-        tieneJson: otrosCostosDesdeJson.length > 0,
-        candidatosTotal: otrosCostosCandidatos.length,
-        primerItem: otrosCostosCandidatos[0],
-        estructuraCompleta: otrosCostosCandidatos
-      });
+      gastosDisponibles = [];
+      modoDetectado = null;
+      presupuestoGlobal = 0;
 
-      // 🚨🚨🚨 LOG CRÍTICO: ANÁLISIS DE IMPORTES 🚨🚨🚨
-      if (otrosCostosCandidatos.length > 0) {
-        console.log('═══════════════════════════════════════');
-        console.log('🔍 IMPORTES RECIBIDOS DEL PRESUPUESTO');
-        console.log('═══════════════════════════════════════');
-        otrosCostosCandidatos.forEach((gasto, idx) => {
-          console.log(`Item ${idx + 1}: ${gasto.descripcion}`);
-          console.log(`  ├─ importe: $${gasto.importe?.toLocaleString('es-AR')}`);
-          console.log(`  ├─ subtotal: $${gasto.subtotal?.toLocaleString('es-AR')}`);
-          console.log(`  ├─ cantidad: ${gasto.cantidad}`);
-          console.log(`  ├─ precioUnitario: $${gasto.precioUnitario?.toLocaleString('es-AR')}`);
-          console.log(`  ├─ Todas las propiedades:`, Object.keys(gasto));
-          console.log(`  └─ Objeto completo:`, gasto);
-        });
-        console.log('═══════════════════════════════════════');
-      }
+      // Extraer SOLO MATERIALES desde itemsCalculadora
+      if (presupuestoActual.itemsCalculadora && Array.isArray(presupuestoActual.itemsCalculadora) && presupuestoActual.itemsCalculadora.length > 0) {
+        console.log('📋 EXTRAYENDO MATERIALES DESDE itemsCalculadora...');
 
-      if (otrosCostosCandidatos.length > 0) {
-        extraerRubrosDeArray(otrosCostosCandidatos);
-        fuenteDeteccion = (otrosCostosDesdeProp.length > 0)
-          ? 'presupuestoActual.otrosCostos'
-          : 'presupuestoActual.otrosCostosJson';
+        presupuestoActual.itemsCalculadora.forEach((item, itemIdx) => {
+          if (!item.materialesLista || !Array.isArray(item.materialesLista)) {
+            console.log(`⏭️ Item ${itemIdx + 1} (${item.tipoProfesional}) - Sin materiales`);
+            return;
+          }
 
-        const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosCandidatos, honorarios, mayoresCostos);
+          console.log(`✅ Item ${itemIdx + 1} (${item.tipoProfesional}) - ${item.materialesLista.length} materiales`);
 
-        console.log('🔍 [DEBUG GASTOS GLOBALES] Resultado separarGlobalYDetalle:', {
-          tieneGlobal,
-          importeGlobal,
-          detalleItemsCount: detalleItems.length
+          // Agregar cada material como disponible
+          item.materialesLista.forEach((material, matIdx) => {
+            gastosDisponibles.push({
+              id: `mat_${itemIdx}_${matIdx}`,
+              nombre: material.descripcion || 'Sin descripción',
+              descripcion: material.descripcion || 'Sin descripción',
+              categoria: material.categoria || item.tipoProfesional || 'Materiales',
+              cantidad: material.cantidad || 1,
+              cantidadDisponible: material.cantidad || 1,
+              precioUnitario: material.precioUnitario || 0,
+              importe: material.subtotal || material.importe || 0,
+              subtotal: material.subtotal || material.importe || 0,
+              esDelStock: false, // Los materiales del presupuesto no son del stock
+              esDesdePresupuesto: true,
+              rubroOrigen: item.tipoProfesional,
+              itemIdx: itemIdx,
+              materialIdx: matIdx
+            });
+          });
         });
 
-        if (tieneGlobal) {
-          presupuestoGlobal = presupuestoGlobal || importeGlobal;
-          console.log('💰 [DEBUG GASTOS GLOBALES] presupuestoGlobal asignado:', presupuestoGlobal);
-        }
-
-        if (tieneGlobal && detalleItems.length === 0) {
-          modoDetectado = 'GLOBAL';
-          gastosDisponibles = [];
-        } else if (tieneGlobal && detalleItems.length > 0) {
-          modoDetectado = 'MIXTO';
-          gastosDisponibles = detalleItems.map(gasto => ({
-            id: gasto.id,
-            nombre: gasto.descripcion,
-            descripcion: gasto.descripcion,
-            categoria: obtenerCategoriaGasto(gasto),
-            cantidadDisponible: gasto.cantidad ?? null,
-            precioUnitario: gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe,
-            importe: gasto.subtotal || gasto.importe,
-            esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
-          }));
-        } else {
+        console.log(`✅ Total de MATERIALES extraídos: ${gastosDisponibles.length}`);
+        if (gastosDisponibles.length > 0) {
           modoDetectado = 'DETALLE';
-          gastosDisponibles = otrosCostosCandidatos.map(gasto => {
-            const importeFinal = gasto.subtotal || gasto.importe;
-            console.log('═══════════════════════════════════════');
-            console.log(`🔍 MAPEANDO GASTO DISPONIBLE: ${gasto.descripcion}`);
-            console.log('═══════════════════════════════════════');
-            console.log('📥 Datos RAW del backend:');
-            console.log('   ├─ gasto.importe:', gasto.importe);
-            console.log('   ├─ gasto.subtotal:', gasto.subtotal);
-            console.log('   ├─ gasto.precioUnitario:', gasto.precioUnitario);
-            console.log('   ├─ gasto.cantidad:', gasto.cantidad);
-            console.log('   └─ gasto objeto completo:', gasto);
-            console.log('📤 Valores calculados para UI:');
-            console.log('   ├─ importeFinal (subtotal || importe):', importeFinal);
-            console.log('   ├─ precioUnitario calculado:', gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe);
-            console.log('   └─ Cálculo manual: cantidad × precioUnitario =', gasto.cantidad, '×', gasto.precioUnitario, '=', (gasto.cantidad * gasto.precioUnitario));
-            console.log('═══════════════════════════════════════');
-
-            return {
-              id: gasto.id,
-              nombre: gasto.descripcion,
-              descripcion: gasto.descripcion,
-              categoria: obtenerCategoriaGasto(gasto),
-              cantidadDisponible: gasto.cantidad ?? null,
-              precioUnitario: gasto.precioUnitario || (gasto.subtotal / gasto.cantidad) || gasto.importe,
-              importe: importeFinal,
-              esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
-            };
-          });
         }
       }
 
-      // 2. Verificar itemsCalculadora.materialesLista (formato anidado)
-      // ✅ Solo buscar más gastos si NO es modo GLOBAL
-      if (!modoDetectado && presupuestoActual.itemsCalculadora && Array.isArray(presupuestoActual.itemsCalculadora)) {
-        const todosGastos = [];
-        presupuestoActual.itemsCalculadora.forEach(item => {
-          // 🔥 VALIDACIÓN CRÍTICA: Si es trabajo extra, validar que el item pertenece a ESTE trabajo extra
-          // NO a la obra principal vinculada
-          if (obra._esTrabajoExtra && item.presupuestoId && item.presupuestoId !== presupuestoActual.id) {
-            console.warn('⚠️ Ignorando item de otro presupuesto (obra principal):', {
-              itemPresupuestoId: item.presupuestoId,
-              trabajoExtraId: presupuestoActual.id,
-              itemDescripcion: item.tipoProfesional
-            });
-            return; // Saltar este item
-          }
-
-          if (item.materialesLista && Array.isArray(item.materialesLista)) {
-            extraerRubrosDeArray(item.materialesLista);
-            todosGastos.push(...item.materialesLista);
-          }
-        });
-
-        // 🔍 LOG: Materiales encontrados en itemsCalculadora
-        console.log('🔍🔍🔍 [DEBUG MATERIALES] Materiales en itemsCalculadora.materialesLista:', {
-          totalMateriales: todosGastos.length,
-          primerMaterial: todosGastos[0],
-          estructuraCompleta: todosGastos
-        });
-
-        if (todosGastos.length > 0) {
-          fuenteDeteccion = 'presupuestoActual.itemsCalculadora.materialesLista';
-          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(todosGastos, honorarios, mayoresCostos);
-
-          console.log('🔍 [DEBUG GASTOS GLOBALES] Resultado separarGlobalYDetalle (itemsCalculadora):', {
-            tieneGlobal,
-            importeGlobal,
-            detalleItemsCount: detalleItems.length
-          });
-
-          if (tieneGlobal) {
-            presupuestoGlobal = presupuestoGlobal || importeGlobal;
-            console.log('💰 [DEBUG GASTOS GLOBALES] presupuestoGlobal asignado (itemsCalculadora):', presupuestoGlobal);
-          }
-
-          if (tieneGlobal && detalleItems.length === 0) {
-            modoDetectado = 'GLOBAL';
-            gastosDisponibles = [];
-          } else if (tieneGlobal && detalleItems.length > 0) {
-            modoDetectado = 'MIXTO';
-            gastosDisponibles = detalleItems.map(gasto => ({
-              id: gasto.id,
-              nombre: gasto.descripcion,
-              descripcion: gasto.descripcion,
-              categoria: obtenerCategoriaGasto(gasto),
-              cantidadDisponible: gasto.cantidad,
-              unidadMedida: '',
-              precioUnitario: gasto.precioUnitario,
-              importe: gasto.subtotal,
-              esDelStock: true
-            }));
-          } else {
-            modoDetectado = 'DETALLE';
-            gastosDisponibles = todosGastos.map(gasto => ({
-              id: gasto.id,
-              nombre: gasto.descripcion,
-              descripcion: gasto.descripcion,
-              categoria: obtenerCategoriaGasto(gasto),
-              cantidadDisponible: gasto.cantidad,
-              unidadMedida: '',
-              precioUnitario: gasto.precioUnitario,
-              importe: gasto.subtotal,
-              esDelStock: true
-            }));
-          }
-        }
-      }
-
-      // 3. Intentar endpoint del backend como respaldo
-      // ✅ Solo buscar en backend si NO detectó ningún modo aún
+      // Si no hay materiales, mostrar modo global vacío
       if (!modoDetectado) {
-        try {
-          console.log('📡 Intentando endpoint de gastos generales (backend):', presupuestoId);
+        console.log('📦 No se encontraron materiales, usando modo GLOBAL');
+        modoDetectado = 'GLOBAL';
+        gastosDisponibles = [];
 
-          const materialesAsociadosData = await obtenerGastosGeneralesConStock(presupuestoId, empresaSeleccionada.id);
-          console.log('📦 Gastos generales obtenidos del backend:', materialesAsociadosData);
-
-          extraerRubrosDeArray(materialesAsociadosData);
-
-          // 🔍 LOG: Ver estructura completa del primer gasto
-          if (materialesAsociadosData && materialesAsociadosData.length > 0) {
-            console.log('🔍 ESTRUCTURA del primer gasto:', {
-              objetoCompleto: materialesAsociadosData[0],
-              importe: materialesAsociadosData[0].importe,
-              todasLasPropiedades: Object.keys(materialesAsociadosData[0])
-            });
-
-            // 🚨 LOG EXHAUSTIVO PARA DETECTAR DIVISION POR SEMANAS 🚨
-            console.log('═══════════════════════════════════════');
-            console.log('   🔍 ANÁLISIS DE IMPORTE RECIBIDO');
-            console.log('═══════════════════════════════════════');
-            materialesAsociadosData.forEach((gasto, index) => {
-              console.log(`Item ${index + 1}:`);
-              console.log(`  - Descripción: ${gasto.descripcion}`);
-              console.log(`  - Importe en el objeto: $${gasto.importe?.toLocaleString('es-AR')}`);
-              console.log(`  - Subtotal (si existe): $${gasto.subtotal?.toLocaleString('es-AR')}`);
-              console.log(`  - Cantidad (si existe): ${gasto.cantidad}`);
-              console.log(`  - Importe original (si existe): $${gasto.importeOriginal?.toLocaleString('es-AR')}`);
-              console.log(`  - Importe total (si existe): $${gasto.importeTotal?.toLocaleString('es-AR')}`);
-              console.log(`  - Semanas (si existe): ${gasto.semanas || gasto.cantidadSemanas}`);
-              console.log(`  - Props del objeto:`, Object.keys(gasto));
-            });
-            console.log('═══════════════════════════════════════');
-          }
-
-          fuenteDeteccion = 'endpoint /gastos-generales';
-          const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(materialesAsociadosData || [], honorarios, mayoresCostos);
-          if (tieneGlobal) {
-            presupuestoGlobal = presupuestoGlobal || importeGlobal;
-          }
-
-          if (tieneGlobal && detalleItems.length === 0) {
-            modoDetectado = 'GLOBAL';
-            gastosDisponibles = [];
-          } else if (tieneGlobal && detalleItems.length > 0) {
-            modoDetectado = 'MIXTO';
-            gastosDisponibles = detalleItems.map(gasto => ({
-              id: gasto.id,
-              nombre: gasto.descripcion,
-              descripcion: gasto.descripcion,
-              categoria: obtenerCategoriaGasto(gasto),
-              cantidadDisponible: gasto.cantidad ?? null,
-              unidadMedida: '',
-              importe: gasto.importe,
-              esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
-            }));
-          } else {
-            gastosDisponibles = (materialesAsociadosData || []).map(gasto => ({
-              id: gasto.id,
-              nombre: gasto.descripcion,
-              descripcion: gasto.descripcion,
-              categoria: obtenerCategoriaGasto(gasto),
-              cantidadDisponible: gasto.cantidad ?? null,
-              unidadMedida: '',
-              importe: gasto.importe,
-              esDelStock: gasto.cantidad !== null && gasto.cantidad !== undefined
-            }));
-            modoDetectado = gastosDisponibles.length > 0 ? 'DETALLE' : null;
-          }
-
-        } catch (stockError) {
-          console.log('⚠️ Endpoint gastos-generales no disponible, usando otros-costos como respaldo:', stockError.message);
-
-          // Respaldo: usar el endpoint original de otros-costos
-          try {
-            const otrosCostosUrl = `/api/presupuestos-no-cliente/${presupuestoId}/otros-costos`;
-            console.log('📡 Llamando a endpoint de respaldo:', otrosCostosUrl);
-
-            const otrosCostosResponse = await fetch(otrosCostosUrl, {
-              headers: {
-                'empresaId': empresaSeleccionada.id.toString()
-              }
-            });
-
-            if (otrosCostosResponse.ok) {
-              const otrosCostosData = await otrosCostosResponse.json();
-              console.log('📋 Otros costos del presupuesto (respaldo):', otrosCostosData);
-
-              extraerRubrosDeArray(otrosCostosData);
-
-              fuenteDeteccion = 'endpoint /otros-costos (respaldo)';
-              const { tieneGlobal, importeGlobal, detalleItems } = separarGlobalYDetalle(otrosCostosData || [], honorarios, mayoresCostos);
-              if (tieneGlobal) {
-                presupuestoGlobal = presupuestoGlobal || importeGlobal;
-              }
-
-              if (tieneGlobal && detalleItems.length === 0) {
-                modoDetectado = 'GLOBAL';
-                gastosDisponibles = [];
-                console.log('🌍 GLOBAL detectado en endpoint de respaldo (solo item global)');
-              } else {
-                // Convertir formato de otros costos al formato esperado
-                const base = tieneGlobal ? detalleItems : (otrosCostosData || []);
-                if (tieneGlobal && detalleItems.length > 0) {
-                  modoDetectado = 'MIXTO';
-                }
-
-                gastosDisponibles = base.map(costo => {
-                return {
-                  id: costo.id,
-                  nombre: costo.descripcion,
-                  descripcion: costo.descripcion,
-                  categoria: obtenerCategoriaGasto(costo),
-                  cantidadDisponible: costo.cantidad ?? null,
-                  importe: costo.importe,
-                  esDelStock: costo.cantidad !== null && costo.cantidad !== undefined
-                };
-                });
-
-                if (!modoDetectado) {
-                  modoDetectado = gastosDisponibles.length > 0 ? 'DETALLE' : null;
-                }
-                console.log('✅ Otros costos convertidos:', gastosDisponibles.length);
-              }
-            } else {
-              const errorText = await otrosCostosResponse.text();
-              throw new Error(`Error ${otrosCostosResponse.status}: ${errorText}`);
-            }
-          } catch (respaldoError) {
-            console.error('❌ Error en endpoint de respaldo:', respaldoError);
-            // No lanzar error, simplemente no hay gastos disponibles
-          }
+        // Calcular presupuesto global total del presupuesto
+        if (presupuestoActual.montoTotal) {
+          presupuestoGlobal = presupuestoActual.montoTotal;
+        } else if (presupuestoActual.total) {
+          presupuestoGlobal = presupuestoActual.total;
         }
       }
 
-      // 4. Establecer modo final y disponibles
       const modoFinal = modoDetectado || 'GLOBAL';
       setModoPresupuesto(modoFinal);
 
       setDebugDeteccionPresupuesto({
         modoFinal,
-        fuenteDeteccion,
+        fuenteDeteccion: 'materialesLista desde itemsCalculadora',
         presupuestoGlobal,
         itemsDetalle: gastosDisponibles.length,
-        rubrosDetectados: rubrosMap.size,
-        rubrosEjemplo: Array.from(rubrosMap.values()).slice(0, 8),
+        rubrosDetectados: rubrosMap.size
       });
 
-      // ✅ En MODO GLOBAL, asegurar lista vacía; en DETALLE, usar los gastos encontrados
+      // ✅ En MODO GLOBAL, asegurar lista vacía; en DETALLE, usar los materiales encontrados
       if (modoFinal === 'GLOBAL') {
         setOtrosCostosDisponibles([]);
-        console.log('🌍 MODO GLOBAL - Lista de gastos disponibles: VACÍA (crear manual)');
-        console.log('═══════════════════════════════════════');
-        console.log('📊 RESUMEN FINAL - MODO GLOBAL');
-        console.log('═══════════════════════════════════════');
-        console.log('Presupuesto Global:', presupuestoGlobal);
-        console.log('Usuario creará gastos manualmente');
-        console.log('═══════════════════════════════════════');
+        console.log('🌍 MODO GLOBAL - Sin materiales detallados');
       } else {
-        console.log('═══════════════════════════════════════');
-        console.log('🚨🚨🚨 GASTOS DISPONIBLES FINALES 🚨🚨🚨');
-        console.log('═══════════════════════════════════════');
-        console.log('Modo detectado:', modoFinal);
-        console.log('Fuente de datos:', fuenteDeteccion);
-        console.log('Total de gastos disponibles:', gastosDisponibles.length);
-        console.log('\n📋 DETALLE DE CADA GASTO:');
-        gastosDisponibles.forEach((g, idx) => {
-          console.log(`\n${idx + 1}. ${g.nombre || g.descripcion}`);
-          console.log('   ├─ ID:', g.id);
-          console.log('   ├─ Importe:', g.importe);
-          console.log('   ├─ Importe formateado: $' + g.importe?.toLocaleString('es-AR'));
-          console.log('   ├─ Precio unitario:', g.precioUnitario);
-          console.log('   ├─ Cantidad disponible:', g.cantidadDisponible);
-          console.log('   ├─ Es del stock:', g.esDelStock);
-          console.log('   └─ Categoría:', g.categoria);
-        });
-        console.log('\n═══════════════════════════════════════');
-        console.log('🎯 ESTOS SON LOS VALORES QUE VERÁ EL USUARIO EN LA UI');
-        console.log('═══════════════════════════════════════\n');
-
         setOtrosCostosDisponibles(gastosDisponibles);
-        console.log('✅ Estado actualizado - Gastos disponibles:', gastosDisponibles.length);
+        console.log(`✅ MODO DETALLE - ${gastosDisponibles.length} materiales disponibles`);
       }
 
       setPresupuestoGlobalTotal(presupuestoGlobal);
@@ -1390,15 +1111,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       // Rubros sugeridos desde el presupuesto vinculado
       setRubrosPresupuesto(Array.from(rubrosMap.values()).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })));
 
-      console.log(`🎯 MODO FINAL DETECTADO: ${modoDetectado || 'GLOBAL'}`);
-      if (modoDetectado === 'GLOBAL') {
-        console.log(`💰 Presupuesto Global Total: $${presupuestoGlobal.toLocaleString('es-AR')}`);
-      } else {
-        console.log(`📋 Gastos Detallados: ${gastosDisponibles.length} items`);
-      }
-
-      console.log('✅ Presupuesto guardado en estado con configuración de honorarios/mayores costos');
-      console.log('🏁🏁🏁 FIN CARGA DE PRESUPUESTO Y RUBROS 🏁🏁🏁');
+      console.log('✅ Presupuesto cargado - SOLO MATERIALES');
+      console.log('🏁🏁🏁 FIN CARGA DE PRESUPUESTO 🏁🏁🏁');
     } catch (error) {
       console.error('❌ Error cargando presupuesto:', error);
       setError(error.message);
@@ -1407,9 +1121,9 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     }
   };
 
-  // 🆕 Función auxiliar para extraer asignaciones desde trabajo extra
+  // 🆕 Función auxiliar para extraer asignaciones desde trabajo extra (SOLO MATERIALES)
   const extraerAsignacionesDesdeTrabajoExtra = (trabajoExtra) => {
-    console.log('📦 Extrayendo asignaciones desde trabajo extra...');
+    console.log('📦 Extrayendo MATERIALES desde trabajo extra...');
     const asignaciones = [];
 
     if (!trabajoExtra?.itemsCalculadora || !Array.isArray(trabajoExtra.itemsCalculadora)) {
@@ -1417,17 +1131,23 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       return asignaciones;
     }
 
-    // Recorrer cada rubro/item
+    // Recorrer cada rubro/item y extraer SOLO los materiales (no gastos generales)
     trabajoExtra.itemsCalculadora.forEach((item, itemIdx) => {
-      if (!item.materialesLista || !Array.isArray(item.materialesLista)) return;
+      // 🚀 SOLO procesar materialesLista - NO gastosGenerales
+      if (!item.materialesLista || !Array.isArray(item.materialesLista)) {
+        console.log(`⏭️ Item "${item.tipoProfesional}" - Sin materiales, skipping`);
+        return;
+      }
 
-      // Extraer materiales de este rubro
-      item.materialesLista.forEach((material, gastoIdx) => {
+      console.log(`✅ Item "${item.tipoProfesional}" - Procesando ${item.materialesLista.length} materiales`);
+
+      // Extraer SOLO materiales (ignorar gastosGenerales)
+      item.materialesLista.forEach((material, materialIdx) => {
         asignaciones.push({
-          id: `${itemIdx}-${gastoIdx}`, // ID temporal único
+          id: `${itemIdx}-${materialIdx}`, // ID temporal único
           descripcion: material.descripcion || 'Sin descripción',
           nombreOtroCosto: material.descripcion || 'Sin descripción',
-          categoria: material.categoria || item.tipoProfesional || 'General',
+          categoria: material.categoria || item.tipoProfesional || 'Materiales',
           importeAsignado: material.importe || material.subtotal || 0,
           cantidadAsignada: material.cantidad || 1,
           importeUnitario: material.precioUnitario || 0,
@@ -1437,12 +1157,12 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
           esDesdePresupuesto: true, // Flag para identificar origen
           rubroOrigen: item.tipoProfesional,
           itemIdx: itemIdx, // Índice del item para actualizar
-          gastoIdx: gastoIdx // Índice del material dentro del item
+          gastoIdx: materialIdx // Índice del material dentro del item
         });
       });
     });
 
-    console.log(`✅ ${asignaciones.length} asignaciones extraídas desde trabajo extra`);
+    console.log(`✅ ${asignaciones.length} MATERIALES extraídos desde trabajo extra`);
     return asignaciones;
   };
 
@@ -1478,59 +1198,64 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       }
 
       // ════════════════════════════════════════════════════════════
-      // OBRA NORMAL: Usar endpoints tradicionales
+      // OBRA NORMAL: Cargar asignaciones guardadas EN BD
       // ════════════════════════════════════════════════════════════
-      const obraIdParaQuery = getObraId();
-      let endpoint = `/api/obras/${obraIdParaQuery}/otros-costos`;
-      let params = { empresaId: empresaSeleccionada.id };
+      console.log('📦 OBRA NORMAL: Cargando asignaciones guardadas en BD');
 
-      console.log('📡 GET endpoint:', endpoint, 'params:', params);
+      const obraIdParaCargar = getObraId();
+      let asignacionesDesdebd = [];
 
-      const queryString = new URLSearchParams(params).toString();
-      const fullUrl = `${endpoint}${queryString ? '?' + queryString : ''}`;
-
-      const response = await fetch(fullUrl, {
-        headers: {
-          'empresaId': empresaSeleccionada.id.toString()
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Asignaciones actuales desde BD:', data);
-
-        // 📦 Cargar también localStorage temporal (solo para este modal)
-        const locKey = `asignaciones_locales_costos_${obra.id}`;
-        const locales = JSON.parse(localStorage.getItem(locKey) || '[]');
-
-        // Combinar BD + localStorage temporal (evitar duplicados)
-        const combined = [...(Array.isArray(data) ? data : [])];
-        locales.forEach(loc => {
-          if (!combined.some(c => c.id === loc.id)) {
-            combined.push({ ...loc, esTemporalLocal: true });
+      try {
+        const response = await fetch(`/api/obras/${obraIdParaCargar}/materiales`, {
+          headers: {
+            'empresaId': empresaSeleccionada.id.toString()
           }
         });
 
-        console.log(`📊 Asignaciones: ${data.length} desde BD + ${locales.length} temporales en localStorage = ${combined.length} total`);
-        setAsignaciones(combined);
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Asignaciones cargadas desde BD:', data);
 
-        // Calcular disponible del presupuesto global después de cargar asignaciones
-        if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
-          const totalAsignado = combined.reduce((sum, asig) => {
-            return sum + (parseFloat(asig.importeAsignado) || 0);
-          }, 0);
+          // Convertir formato BD a formato UI
+          asignacionesDesdebd = Array.isArray(data) ? data.map((mat, idx) => ({
+            id: `asign_${mat.id || idx}`,
+            descripcion: mat.descripcion,
+            nombreOtroCosto: mat.descripcion,
+            categoria: mat.unidadMedida || 'Materiales',
+            importeAsignado: mat.precioUnitario ? (mat.cantidadAsignada * mat.precioUnitario) : 0,
+            cantidadAsignada: mat.cantidadAsignada,
+            importeUnitario: mat.precioUnitario || 0,
+            fechaAsignacion: null,
+            semana: mat.semana,
+            observaciones: mat.observaciones,
+            esManual: mat.esGlobal
+          })) : [];
 
-          const disponibleRestante = presupuestoGlobalTotal - totalAsignado;
-          setPresupuestoGlobalDisponible(Math.max(0, disponibleRestante));
-
-          console.log(`💰 Presupuesto Global - Total: $${presupuestoGlobalTotal.toLocaleString('es-AR')}, Asignado: $${totalAsignado.toLocaleString('es-AR')}, Disponible: $${disponibleRestante.toLocaleString('es-AR')}`);
+          console.log(`✅ ${asignacionesDesdebd.length} asignaciones convertidas al formato UI`);
+        } else if (response.status === 404) {
+          console.log('ℹ️ Sin asignaciones previas (404)');
+          asignacionesDesdebd = [];
         }
-      } else if (response.status === 404) {
-        console.warn(`⚠️ Sin asignaciones previas (404) - Primera vez configurando`);
-        setAsignaciones([]);
+      } catch (error) {
+        console.error('⚠️ Error cargando from BD:', error);
+        asignacionesDesdebd = [];
+      }
+
+      setAsignaciones(asignacionesDesdebd);
+      console.log(`✅ ${asignacionesDesdebd.length} asignaciones mostradas en tabla`);
+
+      // Calcular disponible del presupuesto global si está en ese modo
+      if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
+        const totalAsignado = asignacionesDesdebd.reduce((sum, asig) => {
+          return sum + (parseFloat(asig.importeAsignado) || 0);
+        }, 0);
+
+        const disponibleRestante = presupuestoGlobalTotal - totalAsignado;
+        setPresupuestoGlobalDisponible(Math.max(0, disponibleRestante));
+
+        console.log(`💰 Presupuesto Global - Total: $${presupuestoGlobalTotal.toLocaleString('es-AR')}, Asignado: $${totalAsignado.toLocaleString('es-AR')}, Disponible: $${disponibleRestante.toLocaleString('es-AR')}`);
       } else {
-        console.error(`❌ Error ${response.status} al cargar asignaciones desde BD`);
-        setAsignaciones([]);
+        console.warn('⚠️ Modo presupuesto: ' + modoPresupuesto);
       }
     } catch (error) {
       console.error('❌ Error cargando asignaciones:', error);
@@ -1824,18 +1549,19 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
   // Nueva función: manejar asignaciones semanales múltiples de costos
   const handleAsignacionSemanalCompleta = async (asignacionesSemana) => {
-    console.log('📋 [INICIO HANDLER] handleAsignacionSemanalCompleta EJECUTADO - Timestamp:', new Date().toISOString());
-    console.log('📥 [HANDLER] Recibido:', asignacionesSemana);
+    console.log('📋 [INICIO HANDLER] handleAsignacionSemanalCompleta EJECUTADO');
+    console.log('📥 Recibido:', asignacionesSemana);
+    console.log('📊 Modo presupuesto:', modoPresupuesto);
 
     if (!asignacionesSemana || asignacionesSemana.length === 0) {
-      console.log('⚠️ No hay asignaciones de costos para procesar');
+      console.log('⚠️ No hay asignaciones de materiales para procesar');
       return;
     }
 
-    // 🔥 ADVERTENCIA: Trabajos extra no soportan asignaciones semanales
+    // 🔥 Trabajos extra no soportan asignaciones semanales
     if (obra._esTrabajoExtra) {
-      console.warn('⚠️ TRABAJO EXTRA: Las asignaciones semanales no están soportadas para trabajos extra');
-      alert('Las asignaciones semanales no están disponibles para trabajos extra. Use asignaciones individuales.');
+      console.warn('⚠️ TRABAJO EXTRA: Las asignaciones semanales no están soportadas');
+      alert('Las asignaciones semanales no están disponibles para trabajos extra.');
       return;
     }
 
@@ -1843,127 +1569,93 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     setError(null);
 
     try {
-      console.log('💰 Procesando asignaciones semanales de costos:', asignacionesSemana);
+      console.log('💰 Procesando asignaciones semanales de materiales:', asignacionesSemana);
 
-      // Procesar cada asignación diaria
       const resultados = [];
+      let conteoExitosas = 0;
 
       for (const asignacion of asignacionesSemana) {
         try {
-          // Manejar IDs manuales (strings) para evitar NaN
-          const esManual = typeof asignacion.materialId === 'string' && asignacion.materialId.startsWith('MANUAL');
+          console.log(`📋 Asignando material para semana ${asignacion.numeroSemana}: ${asignacion.nombreMaterial}`);
 
-          let gastoId = esManual ? null : Number(asignacion.materialId);
-
-          // 🔥 CREAR GASTO EN EL CATÁLOGO si es manual (sin Content-Type charset)
-          if (esManual) {
-            try {
-              console.log('📝 Creando gasto en catálogo:', asignacion.nombreOtroCosto);
-              const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
-              const gastoCatalogo = await obtenerOCrearGasto(
-                asignacion.nombreOtroCosto,
-                Number(asignacion.importe),
-                empresaSeleccionada.id
-              );
-              gastoId = gastoCatalogo.id;
-              console.log('✅ Gasto creado/encontrado en catálogo:', gastoCatalogo);
-            } catch (error) {
-              console.error('❌ Error creando gasto en catálogo:', error);
-              gastoId = null; // Fallback - backend intentará crear
-            }
-          }
-
-          const payload = {
-            obraId: obra.id,
-            presupuestoOtroCostoId: gastoId,
-            gastoGeneralId: gastoId,
-            importeAsignado: Number(asignacion.importe),
+          // 🔑 Payload según especificación del backend
+          // 🔥 CONVERTIR TODOS A TIPOS CORRECTOS
+          let payload = {
+            obraId: Number(obra.id),
+            cantidadAsignada: Number(asignacion.cantidad) || 0,
             semana: Number(asignacion.numeroSemana),
-            observaciones: asignacion.observaciones,
-            // Agregar metadatos descriptivos para que backend pueda crear el gasto si no existe
-            descripcion: asignacion.nombreOtroCosto,
-            categoria: asignacion.categoria,
-            esGlobal: Boolean(asignacion.esManual), // 🔥 NUEVO: Marcar como global si es manual
-            esManual: Boolean(asignacion.esManual) // 🔥 NUEVO: Preservar flag de gasto manual
+            esGlobal: Boolean(modoPresupuesto === 'GLOBAL' || asignacion.esManual),
+            descripcion: String(asignacion.nombreMaterial || ''),
+            unidadMedida: String(asignacion.unidadMedida || ''),
+            precioUnitario: Number(asignacion.precioUnitario) || 0,
+            observaciones: String(asignacion.observaciones || '')
           };
 
-          // Intentar guardar en backend
-          let data = null;
-          let success = false;
-
-          try {
-            const obraIdParaBulk = getObraId(); // ✅ Usa ID real de la obra
-
-            // 🔥 Si es trabajo extra, agregar su ID al payload
-            let payloadBulk = { ...payload };
-            if (obra._esTrabajoExtra) {
-              console.log('✅ TRABAJO EXTRA - Agregando ID al payload bulk');
-              payloadBulk.trabajoExtraId = parseInt(obra.id);
-              payloadBulk.esTrabajoExtra = true;
+          // 🔥 SOLO enviar presupuestoMaterialId si es MODO DETALLADO Y tiene ID válido
+          if (modoPresupuesto !== 'GLOBAL' && asignacion.materialId && !String(asignacion.materialId).startsWith('MANUAL')) {
+            const presupuestoMaterialIdNum = Number(asignacion.materialId);
+            if (!isNaN(presupuestoMaterialIdNum)) {
+              payload.presupuestoMaterialId = presupuestoMaterialIdNum;
             }
-
-            const endpoint = `/api/obras/${obraIdParaBulk}/otros-costos`;
-            console.log('📡 POST BULK endpoint:', endpoint);
-
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'empresaId': empresaSeleccionada.id.toString(),
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(payloadBulk)
-            });
-
-            if (response.ok) {
-              data = await response.json();
-              success = true;
-            } else {
-              console.warn(`⚠️ Backend respondió con error ${response.status} para ${asignacion.fechaAsignacion}`);
-            }
-          } catch (netError) {
-             console.error(`❌ Error de red al asignar costo para ${asignacion.fechaAsignacion}:`, netError);
           }
 
-          let nuevaAsignacionFinal = null;
+          console.log('📦 Payload para guardar:', payload);
 
-          if (success && data) {
+          const obraIdParaBulk = getObraId();
+          // 🔥 ENDPOINT CORRECTO para asignaciones de materiales
+          const endpoint = `/api/obras/${obraIdParaBulk}/materiales`;
+          console.log('📡 POST endpoint:', endpoint);
+
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'empresaId': empresaSeleccionada.id.toString(),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            conteoExitosas++;
             resultados.push({
               semana: asignacion.numeroSemana,
-              costo: asignacion.nombreOtroCosto,
-              importe: asignacion.importe,
+              material: asignacion.nombreMaterial,
+              cantidad: asignacion.cantidad,
               resultado: data
             });
+            console.log(`✅ Material asignado para semana ${asignacion.numeroSemana}:`, data);
           } else {
-            console.error(`❌ No se pudo guardar asignación para semana ${asignacion.numeroSemana}: ${asignacion.nombreOtroCosto}`);
+            const errorText = await response.text();
+            console.error(`❌ Backend error ${response.status}: ${errorText}`);
           }
         } catch (innerError) {
-          console.error('Error crítico procesando asignación individual:', innerError);
+          console.error(`❌ Error asignando material para semana ${asignacion.numeroSemana}:`, innerError);
         }
       }
 
-      console.log('✅ Asignaciones semanales completadas.');
+      console.log(`✅ Resultado: ${conteoExitosas}/${asignacionesSemana.length} materiales asignados`);
 
-      // 🧹 Limpiar localStorage después de guardado exitoso en BD
-      const locKey = `asignaciones_locales_costos_${obra.id}`;
-      localStorage.removeItem(locKey);
-      console.log('🧹 localStorage limpiado después de asignaciones semanales exitosas');
+      if (conteoExitosas > 0) {
+        alert(`✅ Se asignaron ${conteoExitosas} material(es) para la semana ${asignacionesSemana[0]?.numeroSemana}`);
 
-      // Recargar asignaciones desde BD
-      await cargarAsignacionesActuales();
+        // Recargar asignaciones desde BD
+        await cargarAsignacionesActuales();
 
-      // Cerrar modal
-      setMostrarAsignacionSemanal(false);
+        // Cerrar modal
+        setMostrarAsignacionSemanal(false);
 
-      if (onAsignacionExitosa) {
-        onAsignacionExitosa();
+        if (onAsignacionExitosa) {
+          onAsignacionExitosa();
+        }
+      } else {
+        alert(`⚠️ No se pudo guardar ningún material para la semana ${asignacionesSemana[0]?.numeroSemana}`);
       }
 
-      alert(`💰 Se asignaron ${resultados.length} costos para la semana ${semanaAsignacionCompleta}`);
-
     } catch (error) {
-      console.error('❌ Error en asignaciones semanales de costos:', error);
+      console.error('❌ Error en asignaciones semanales:', error);
       setError(error.message);
-      alert(`Error en asignaciones semanales de costos: ${error.message}`);
+      alert(`Error: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -2525,6 +2217,69 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                   </div>
                 )}
 
+                {/* 📦 Resumen de Materiales Disponibles (NUEVO) */}
+                {modoPresupuesto === 'DETALLE' && materialesDisponibles.length > 0 && (() => {
+                  const totalMaterialesDisponibles = materialesDisponibles.reduce((sum, m) => {
+                    const importe = extraerImporteItem(m);
+                    return sum + importe;
+                  }, 0);
+
+                  const totalMaterialesAsignados = asignaciones.reduce((sum, asig) => {
+                    return sum + (parseFloat(asig.importeAsignado) || 0);
+                  }, 0);
+
+                  const materialesdisponibleRestante = Math.max(0, totalMaterialesDisponibles - totalMaterialesAsignados);
+                  const porcentajeUtilizado = totalMaterialesDisponibles > 0
+                    ? ((totalMaterialesAsignados / totalMaterialesDisponibles) * 100).toFixed(1)
+                    : 0;
+
+                  return (
+                    <div className="alert alert-primary mb-3 border-0">
+                      <div className="row align-items-center">
+                        <div className="col-md-6">
+                          <h6 className="mb-1">
+                            <i className="fas fa-boxes me-2"></i>
+                            Resumen de Materiales
+                          </h6>
+                          <p className="mb-0 text-muted small">
+                            {porcentajeUtilizado}% del presupuesto de materiales asignado
+                          </p>
+                          <div className="progress mt-2" style={{ height: '6px' }}>
+                            <div
+                              className={`progress-bar ${porcentajeUtilizado >= 100 ? 'bg-danger' : porcentajeUtilizado >= 75 ? 'bg-warning' : 'bg-success'}`}
+                              role="progressbar"
+                              style={{ width: `${Math.min(porcentajeUtilizado, 100)}%` }}
+                              aria-valuenow={porcentajeUtilizado}
+                              aria-valuemin="0"
+                              aria-valuemax="100"
+                            ></div>
+                          </div>
+                        </div>
+                        <div className="col-md-6 text-md-end">
+                          <div className="mb-2">
+                            <small className="text-muted">Total de Materiales:</small>{' '}
+                            <strong className="text-primary fs-5">
+                              ${totalMaterialesDisponibles.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+                          <div className="mb-2">
+                            <small className="text-muted">Asignado:</small>{' '}
+                            <strong className="text-warning fs-5">
+                              ${totalMaterialesAsignados.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+                          <div>
+                            <small className="text-muted">Disponible:</small>{' '}
+                            <strong className={`fs-5 ${materialesdisponibleRestante <= 0 ? 'text-danger' : 'text-success'}`}>
+                              ${materialesdisponibleRestante.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Debug info (colapsable) */}
                 {debugDeteccionPresupuesto && (
                   <div className="mt-2">
@@ -2638,7 +2393,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                                     }}
                                   >
                                     <i className="fas fa-edit me-1"></i>
-                                    Asignar Gastos para Semana {semana}
+                                    Asignar Materiales para Semana {semana}
                                   </button>
                                 </div>
                               </div>
@@ -2649,8 +2404,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                       <div className="alert alert-light mt-2 mb-0">
                         <small className="text-muted">
                           <i className="fas fa-lightbulb me-1"></i>
-                          <strong>Sugerencia:</strong> Los gastos generales se distribuyen proporcionalmente según la duración.
-                          Algunos gastos (seguros, alquileres) son constantes, otros (combustible, servicios) varían según la actividad.
+                          <strong>Sugerencia:</strong> Los materiales se distribuyen proporcionalmente según el avance de la obra.
+                          Algunos materiales se usan al inicio (cimentación), otros durante el proyecto (estructuras), y otros al final (terminaciones).
                         </small>
                       </div>
                     </div>
@@ -2662,9 +2417,9 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                   <div className="alert alert-warning shadow-sm border-0 d-flex align-items-center">
                     <i className="fas fa-exclamation-triangle fs-4 me-3"></i>
                     <div>
-                      No se detectaron rubros ni ítems de Gastos Generales en el presupuesto de esta obra.
+                      No se detectaron rubros ni ítems de Materiales en el presupuesto de esta obra.
                       <br />
-                      <small>Verifica que el presupuesto no este vacío o que tenga cargada la calculadora de jornales/gastos.</small>
+                      <small>Verifica que el presupuesto no esté vacío o que tenga cargados los materiales.</small>
                     </div>
                   </div>
                 )}
@@ -2678,11 +2433,11 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                       {asignaciones.length === 0 ? (
                         <div className="text-center text-muted py-3">
                             <i className="fas fa-info-circle fa-2x mb-2"></i>
-                            <p className="mb-0">Aún no hay gastos confirmados</p>
+                            <p className="mb-0">Aún no hay materiales confirmados</p>
                             {(!configuracionObra || !configuracionObra.semanasObjetivo) && (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') ? (
                               /* Modo Global sin semanas - mostrar botón directo para agregar gasto */
                               <div className="mt-3">
-                                <small className="text-muted d-block mb-2">Asigna gastos manualmente</small>
+                                <small className="text-muted d-block mb-2">Asigna materiales manualmente</small>
                                 <button
                                   type="button"
                                   className="btn btn-sm btn-primary"
@@ -2710,12 +2465,12 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                                   }}
                                 >
                                   <i className="fas fa-plus me-1"></i>
-                                  Agregar Gasto
+                                  Agregar Material
                                 </button>
                               </div>
                             ) : (
                               /* Modo Detalle o con semanas - usar tarjetas */
-                              <small className="text-muted">Usa las tarjetas de arriba para asignar gastos por semana</small>
+                              <small className="text-muted">Usa las tarjetas de arriba para asignar materiales por semana</small>
                             )}
                           </div>
                         ) : (

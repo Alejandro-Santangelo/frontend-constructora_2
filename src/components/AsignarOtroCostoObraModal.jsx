@@ -2484,37 +2484,58 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
             ) : (
               <>
                 {/* 📊 Información del presupuesto según modo */}
-                {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && (
-                  <div className="alert alert-success mb-3">
-                    <div className="row align-items-center">
-                      <div className="col-md-6">
-                        <h6 className="mb-1">
-                          <i className="fas fa-wallet me-2"></i>
-                          Presupuesto Disponible
-                        </h6>
-                        <p className="mb-0 text-muted small">
-                          {modoPresupuesto === 'GLOBAL'
-                            ? 'Asigna montos libremente dentro del presupuesto total'
-                            : 'Combina presupuesto global + items específicos'}
-                        </p>
-                      </div>
-                      <div className="col-md-6 text-md-end">
-                        <div className="mb-1">
-                          <small className="text-muted">Total Presupuestado:</small>{' '}
-                          <strong className="text-primary fs-5">
-                            ${presupuestoGlobalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </strong>
+                {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && (() => {
+                  const totalAsignado = presupuestoGlobalTotal - presupuestoGlobalDisponible;
+                  const porcentajeUtilizado = presupuestoGlobalTotal > 0
+                    ? ((totalAsignado / presupuestoGlobalTotal) * 100).toFixed(1)
+                    : 0;
+
+                  return (
+                    <div className="alert alert-primary mb-3 border-0">
+                      <div className="row align-items-center">
+                        <div className="col-md-6">
+                          <h6 className="mb-1">
+                            <i className="fas fa-wallet me-2"></i>
+                            Resumen de Gastos Generales
+                          </h6>
+                          <p className="mb-0 text-muted small">
+                            {porcentajeUtilizado}% del presupuesto de gastos asignado
+                          </p>
+                          <div className="progress mt-2" style={{ height: '6px' }}>
+                            <div
+                              className={`progress-bar ${porcentajeUtilizado >= 100 ? 'bg-danger' : porcentajeUtilizado >= 75 ? 'bg-warning' : 'bg-success'}`}
+                              role="progressbar"
+                              style={{ width: `${Math.min(porcentajeUtilizado, 100)}%` }}
+                              aria-valuenow={porcentajeUtilizado}
+                              aria-valuemin="0"
+                              aria-valuemax="100"
+                            ></div>
+                          </div>
                         </div>
-                        <div>
-                          <small className="text-muted">Disponible para asignar:</small>{' '}
-                          <strong className={`fs-5 ${presupuestoGlobalDisponible <= 0 ? 'text-danger' : 'text-success'}`}>
-                            ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </strong>
+                        <div className="col-md-6 text-md-end">
+                          <div className="mb-2">
+                            <small className="text-muted">Total Presupuestado:</small>{' '}
+                            <strong className="text-primary fs-5">
+                              ${presupuestoGlobalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+                          <div className="mb-2">
+                            <small className="text-muted">Asignado:</small>{' '}
+                            <strong className="text-warning fs-5">
+                              ${totalAsignado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+                          <div>
+                            <small className="text-muted">Disponible para asignar:</small>{' '}
+                            <strong className={`fs-5 ${presupuestoGlobalDisponible <= 0 ? 'text-danger' : 'text-success'}`}>
+                              ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {modoPresupuesto === 'DETALLE' && (
                   <div className="alert alert-info mb-3">

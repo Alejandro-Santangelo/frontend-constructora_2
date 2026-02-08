@@ -337,6 +337,9 @@ const AsignarProfesionalSemanalModal = ({
       console.log('🔍 Cargando asignaciones para obra:', obra?.id, 'empresa:', empresaSeleccionada?.id);
       console.log('🔍 obra._esTrabajoExtra:', obra?._esTrabajoExtra);
       console.log('🔍 obra.asignacionesActuales:', obra?.asignacionesActuales?.length || 0);
+  console.log('🟡 [DEBUG_OBRA] ID:', obra?.id, 'Nombre:', obra?.nombre, 'Dirección:', obra?.direccion);
+  console.log('🟡 [DEBUG_OBRA] _esTrabajoExtra:', obra?._esTrabajoExtra, 'Tipo:', typeof obra?._esTrabajoExtra);
+  console.log('🟡 [DEBUG_OBRA] asignacionesActuales:', obra?.asignacionesActuales);
 
       if (!empresaSeleccionada?.id) {
         console.warn('⚠️ No hay empresa seleccionada, saltando carga de asignaciones');
@@ -366,12 +369,21 @@ const AsignarProfesionalSemanalModal = ({
 
       // 2. Obtener ASIGNACIONES SEMANALES de la obra
       const obraIdParaQuery = getObraId(); // ✅ Usa ID real de la obra
-      const responseSemanal = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
-      console.log('🔍 Asignaciones semanales response completo:', responseSemanal);
+      let dataSemanal = [];
+      try {
+        const responseSemanal = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
+        console.log('🔍 Asignaciones semanales response completo:', responseSemanal);
 
-      let dataSemanal = responseSemanal.data || responseSemanal || [];
-      if (dataSemanal.data && Array.isArray(dataSemanal.data)) {
-        dataSemanal = dataSemanal.data;
+        dataSemanal = responseSemanal.data || responseSemanal || [];
+        if (dataSemanal.data && Array.isArray(dataSemanal.data)) {
+          dataSemanal = dataSemanal.data;
+        }
+        console.log('✅ Asignaciones semanales cargadas:', dataSemanal.length, 'items');
+      } catch (errorSemanal) {
+        console.error('❌ Error obteniendo asignaciones semanales:', errorSemanal.message);
+        console.error('   Status:', errorSemanal.response?.status);
+        console.error('   Data:', errorSemanal.response?.data);
+        dataSemanal = [];
       }
 
       // 3. Obtener ASIGNACIONES POR OBRA COMPLETA
@@ -1458,9 +1470,14 @@ const AsignarProfesionalSemanalModal = ({
   };
 
   const handleAsignar = async () => {
+    const tieneAsignacionesExistentes = Array.isArray(asignacionesExistentes) && asignacionesExistentes.length > 0;
     // Validaciones
     if (modalidadAsignacion === 'total') {
       if (profesionalesSeleccionados.length === 0) {
+        if (tieneAsignacionesExistentes) {
+          onHide();
+          return;
+        }
         const confirmarVacio = window.confirm('No has seleccionado ningún profesional. Al guardar, se eliminarán todas las asignaciones existentes de esta obra. ¿Estás seguro de continuar?');
         if (!confirmarVacio) {
           return;
@@ -1470,6 +1487,10 @@ const AsignarProfesionalSemanalModal = ({
     } else if (modalidadAsignacion === 'semanal') {
       if (Object.keys(asignacionesPorSemana).length === 0) {
         // Permitir guardar vacío (implica eliminar todo), pero confirmar antes
+        if (tieneAsignacionesExistentes) {
+          onHide();
+          return;
+        }
         const confirmarVacio = window.confirm('No hay profesionales asignados en ninguna semana. Al guardar, se eliminarán todas las asignaciones existentes de esta obra. ¿Estás seguro de continuar?');
         if (!confirmarVacio) {
           return;
@@ -2062,6 +2083,205 @@ const AsignarProfesionalSemanalModal = ({
     });
   };
 
+  const renderTablaProfesionalesAsignados = () => {
+    if (!semanas || semanas.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="mt-3">
+        <div className="d-flex justify-content-between align-items-center mb-2">
+          <h6 className="mb-0">
+            <i className="fas fa-users me-2"></i>
+            Profesionales Asignados
+          </h6>
+          <small className="text-muted">
+            Clic en una semana para modificar asignaciones
+          </small>
+        </div>
+
+        {(() => {
+          const profesionalesPorSemana = {};
+
+          semanas.forEach(semana => {
+            const asignacionSemana = asignacionesPorSemana[semana.key];
+            const profesionalesNuevos = asignacionSemana?.profesionales || [];
+
+            const profesionalesExistentes = [];
+            asignacionesExistentes.forEach(asignacion => {
+              if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
+                asignacion.asignacionesPorSemana.forEach(asignacionSemanaData => {
+                  if (asignacionSemanaData.detallesPorDia && Array.isArray(asignacionSemanaData.detallesPorDia)) {
+                    asignacionSemanaData.detallesPorDia.forEach(detalle => {
+                      if (detalle.profesionalId && detalle.cantidad > 0 && detalle.fecha) {
+                        const fechaDetalle = new Date(detalle.fecha);
+                        const estaEnEstaSemana = semana.dias.some(diaSemana => {
+                          const diaSemanaFormat = new Date(diaSemana);
+                          return fechaDetalle.toDateString() === diaSemanaFormat.toDateString();
+                        });
+
+                        if (estaEnEstaSemana) {
+                          const profesionalInfo = todosProfesionales.find(p => p.id === detalle.profesionalId)
+                            || profesionalesDisponibles.find(p => p.id === detalle.profesionalId);
+                          const yaExiste = profesionalesExistentes.some(p => p.id === detalle.profesionalId);
+                          if (!yaExiste) {
+                            profesionalesExistentes.push({
+                              id: detalle.profesionalId,
+                              nombre: profesionalInfo?.nombre || `Profesional ${detalle.profesionalId}`,
+                              tipoProfesional: profesionalInfo?.tipoProfesional || profesionalInfo?.tipo_profesional || 'Trabajador',
+                              asignacionId: asignacion.asignacionId
+                            });
+                          }
+                        }
+                      }
+                    });
+                  }
+                });
+              }
+            });
+
+            const todosProfesionalesSemana = [...profesionalesExistentes, ...profesionalesNuevos];
+            if (todosProfesionalesSemana.length > 0) {
+              profesionalesPorSemana[semana.key] = {
+                semana,
+                profesionales: todosProfesionalesSemana
+              };
+            }
+          });
+
+          const hayAsignaciones = Object.keys(profesionalesPorSemana).length > 0;
+
+          if (!hayAsignaciones) {
+            return (
+              <div className="alert alert-info mb-0">
+                <small>
+                  <i className="fas fa-info-circle me-2"></i>
+                  No hay profesionales asignados. Haz clic en cada semana para comenzar a asignar.
+                </small>
+              </div>
+            );
+          }
+
+          return (
+            <div className="table-responsive">
+              <table className="table table-sm table-hover">
+                <thead className="table-light">
+                  <tr>
+                    <th style={{width: '120px'}}>Semana</th>
+                    <th>Profesional</th>
+                    <th>Tipo</th>
+                    <th>Días Asignados</th>
+                    <th style={{width: '100px'}} className="text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(profesionalesPorSemana).map(([semanaKey, data]) => {
+                    const diasPorProfesional = {};
+
+                    data.profesionales.forEach(prof => {
+                      diasPorProfesional[prof.id] = [];
+
+                      asignacionesExistentes.forEach(asignacion => {
+                        if (asignacion.asignacionesPorSemana) {
+                          asignacion.asignacionesPorSemana.forEach(semanaData => {
+                            if (semanaData.semanaKey === semanaKey && semanaData.detallesPorDia) {
+                              semanaData.detallesPorDia.forEach(detalle => {
+                                if (detalle.profesionalId === prof.id && detalle.fecha) {
+                                  const fecha = parsearFechaLocal(detalle.fecha);
+                                  const diaFormato = fecha.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+                                  diasPorProfesional[prof.id].push(diaFormato);
+                                }
+                              });
+                            }
+                          });
+                        }
+                      });
+
+                      const asignacionLocal = asignacionesPorSemana[semanaKey];
+                      if (asignacionLocal?.asignacionesDia) {
+                        Object.entries(asignacionLocal.asignacionesDia).forEach(([fecha, profesionales]) => {
+                          if (profesionales.some(p => p.id === prof.id)) {
+                            const fechaObj = parsearFechaLocal(fecha);
+                            const diaFormato = fechaObj.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+                            if (!diasPorProfesional[prof.id].includes(diaFormato)) {
+                              diasPorProfesional[prof.id].push(diaFormato);
+                            }
+                          }
+                        });
+                      }
+                    });
+
+                    return data.profesionales.map((prof, idx) => (
+                      <tr key={`${semanaKey}-${prof.id}-${idx}`}>
+                        {idx === 0 && (
+                          <td rowSpan={data.profesionales.length} className="align-middle">
+                            <strong className="text-primary">Semana {data.semana.numeroSemana}</strong>
+                            <br />
+                            <small className="text-muted">
+                              {data.semana.fechaInicio?.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                              {' - '}
+                              {data.semana.fechaFin?.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                            </small>
+                          </td>
+                        )}
+                        <td>{prof.nombre}</td>
+                        <td>
+                          <span className="badge bg-secondary" style={{fontSize: '0.7rem'}}>
+                            {prof.tipoProfesional}
+                          </span>
+                        </td>
+                        <td>
+                          {diasPorProfesional[prof.id] && diasPorProfesional[prof.id].length > 0 ? (
+                            <div className="d-flex flex-wrap gap-1">
+                              {diasPorProfesional[prof.id].map((dia, diaIdx) => (
+                                <span key={diaIdx} className="badge bg-info text-dark" style={{fontSize: '0.65rem'}}>
+                                  {dia}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <small className="text-muted">Toda la semana</small>
+                          )}
+                        </td>
+                        <td className="text-center">
+                          {prof.asignacionId ? (
+                            <button
+                              className="btn btn-sm btn-outline-danger"
+                              style={{padding: '2px 8px', fontSize: '0.75rem'}}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (confirm(`¿Eliminar a ${prof.nombre} de la Semana ${data.semana.numeroSemana}?`)) {
+                                  try {
+                                    await eliminarAsignacionSemanal(prof.asignacionId, empresaSeleccionada.id);
+                                    setAsignacionesEliminadas(prev => [...prev, prof.asignacionId]);
+                                    await cargarAsignacionesExistentes();
+                                    alert('✅ Asignación eliminada correctamente');
+                                  } catch (error) {
+                                    console.error('Error:', error);
+                                    alert('❌ Error al eliminar la asignación: ' + error.message);
+                                  }
+                                }
+                              }}
+                              title="Eliminar asignación"
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          ) : (
+                            <small className="text-muted">Nuevo</small>
+                          )}
+                        </td>
+                      </tr>
+                    ));
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+      </div>
+    );
+  };
+
   if (!show) return null;
 
   return (
@@ -2282,6 +2502,20 @@ const AsignarProfesionalSemanalModal = ({
                       })}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {(asignacionesExistentes.length > 0 || Object.keys(asignacionesPorSemana).length > 0) && (
+              <div className="card mb-3 border-success">
+                <div className="card-header bg-success text-white">
+                  <h6 className="mb-0">
+                    <i className="fas fa-user-check me-2"></i>
+                    Profesionales Ya Asignados
+                  </h6>
+                </div>
+                <div className="card-body">
+                  {renderTablaProfesionalesAsignados()}
                 </div>
               </div>
             )}
@@ -2654,205 +2888,7 @@ const AsignarProfesionalSemanalModal = ({
                       </div>
                     )}
 
-                    {/* Lista de profesionales asignados con opción de eliminar */}
-                    {semanas.length > 0 && (
-                      <div className="mt-3">
-                      <div className="d-flex justify-content-between align-items-center mb-2">
-                        <h6 className="mb-0">
-                          <i className="fas fa-users me-2"></i>
-                          Profesionales Asignados
-                        </h6>
-                        <small className="text-muted">
-                          Clic en una semana para modificar asignaciones
-                        </small>
-                      </div>
-
-                      {(() => {
-                        // Recolectar todos los profesionales asignados agrupados por semana
-                        const profesionalesPorSemana = {};
-
-                        semanas.forEach(semana => {
-                          const asignacionSemana = asignacionesPorSemana[semana.key];
-                          const profesionalesNuevos = asignacionSemana?.profesionales || [];
-
-                          // Obtener asignaciones existentes
-                          const profesionalesExistentes = [];
-                          asignacionesExistentes.forEach(asignacion => {
-                            if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
-                              asignacion.asignacionesPorSemana.forEach(asignacionSemanaData => {
-                                if (asignacionSemanaData.detallesPorDia && Array.isArray(asignacionSemanaData.detallesPorDia)) {
-                                  asignacionSemanaData.detallesPorDia.forEach(detalle => {
-                                    if (detalle.profesionalId && detalle.cantidad > 0 && detalle.fecha) {
-                                      const fechaDetalle = new Date(detalle.fecha);
-                                      const estaEnEstaSemana = semana.dias.some(diaSemana => {
-                                        const diaSemanaFormat = new Date(diaSemana);
-                                        return fechaDetalle.toDateString() === diaSemanaFormat.toDateString();
-                                      });
-
-                                      if (estaEnEstaSemana) {
-                                        // Buscar primero en todosProfesionales, luego en profesionalesDisponibles
-                                        const profesionalInfo = todosProfesionales.find(p => p.id === detalle.profesionalId)
-                                          || profesionalesDisponibles.find(p => p.id === detalle.profesionalId);
-                                        const yaExiste = profesionalesExistentes.some(p => p.id === detalle.profesionalId);
-                                        if (!yaExiste) {
-                                          profesionalesExistentes.push({
-                                            id: detalle.profesionalId,
-                                            nombre: profesionalInfo?.nombre || `Profesional ${detalle.profesionalId}`,
-                                            tipoProfesional: profesionalInfo?.tipoProfesional || profesionalInfo?.tipo_profesional || 'Trabajador',
-                                            asignacionId: asignacion.asignacionId
-                                          });
-                                        }
-                                      }
-                                    }
-                                  });
-                                }
-                              });
-                            }
-                          });
-
-                          const todosProfesionalesSemana = [...profesionalesExistentes, ...profesionalesNuevos];
-                          if (todosProfesionalesSemana.length > 0) {
-                            profesionalesPorSemana[semana.key] = {
-                              semana,
-                              profesionales: todosProfesionalesSemana
-                            };
-                          }
-                        });
-
-                        const hayAsignaciones = Object.keys(profesionalesPorSemana).length > 0;
-
-                        if (!hayAsignaciones) {
-                          return (
-                            <div className="alert alert-info mb-0">
-                              <small>
-                                <i className="fas fa-info-circle me-2"></i>
-                                No hay profesionales asignados. Haz clic en cada semana para comenzar a asignar.
-                              </small>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div className="table-responsive">
-                            <table className="table table-sm table-hover">
-                              <thead className="table-light">
-                                <tr>
-                                  <th style={{width: '120px'}}>Semana</th>
-                                  <th>Profesional</th>
-                                  <th>Tipo</th>
-                                  <th>Días Asignados</th>
-                                  <th style={{width: '100px'}} className="text-center">Acciones</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {Object.entries(profesionalesPorSemana).map(([semanaKey, data]) => {
-                                  // Obtener días asignados por profesional
-                                  const diasPorProfesional = {};
-
-                                  data.profesionales.forEach(prof => {
-                                    diasPorProfesional[prof.id] = [];
-
-                                    // Buscar en asignaciones existentes los días específicos
-                                    asignacionesExistentes.forEach(asignacion => {
-                                      if (asignacion.asignacionesPorSemana) {
-                                        asignacion.asignacionesPorSemana.forEach(semanaData => {
-                                          if (semanaData.semanaKey === semanaKey && semanaData.detallesPorDia) {
-                                            semanaData.detallesPorDia.forEach(detalle => {
-                                              if (detalle.profesionalId === prof.id && detalle.fecha) {
-                                                const fecha = parsearFechaLocal(detalle.fecha);
-                                                const diaFormato = fecha.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
-                                                diasPorProfesional[prof.id].push(diaFormato);
-                                              }
-                                            });
-                                          }
-                                        });
-                                      }
-                                    });
-
-                                    // También buscar en asignacionesPorSemana del estado local
-                                    const asignacionLocal = asignacionesPorSemana[semanaKey];
-                                    if (asignacionLocal?.asignacionesDia) {
-                                      Object.entries(asignacionLocal.asignacionesDia).forEach(([fecha, profesionales]) => {
-                                        if (profesionales.some(p => p.id === prof.id)) {
-                                          const fechaObj = parsearFechaLocal(fecha);
-                                          const diaFormato = fechaObj.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
-                                          if (!diasPorProfesional[prof.id].includes(diaFormato)) {
-                                            diasPorProfesional[prof.id].push(diaFormato);
-                                          }
-                                        }
-                                      });
-                                    }
-                                  });
-
-                                  return data.profesionales.map((prof, idx) => (
-                                    <tr key={`${semanaKey}-${prof.id}-${idx}`}>
-                                      {idx === 0 && (
-                                        <td rowSpan={data.profesionales.length} className="align-middle">
-                                          <strong className="text-primary">Semana {data.semana.numeroSemana}</strong>
-                                          <br />
-                                          <small className="text-muted">
-                                            {data.semana.fechaInicio?.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
-                                            {' - '}
-                                            {data.semana.fechaFin?.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
-                                          </small>
-                                        </td>
-                                      )}
-                                      <td>{prof.nombre}</td>
-                                      <td>
-                                        <span className="badge bg-secondary" style={{fontSize: '0.7rem'}}>
-                                          {prof.tipoProfesional}
-                                        </span>
-                                      </td>
-                                      <td>
-                                        {diasPorProfesional[prof.id] && diasPorProfesional[prof.id].length > 0 ? (
-                                          <div className="d-flex flex-wrap gap-1">
-                                            {diasPorProfesional[prof.id].map((dia, diaIdx) => (
-                                              <span key={diaIdx} className="badge bg-info text-dark" style={{fontSize: '0.65rem'}}>
-                                                {dia}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <small className="text-muted">Toda la semana</small>
-                                        )}
-                                      </td>
-                                      <td className="text-center">
-                                        {prof.asignacionId ? (
-                                          <button
-                                            className="btn btn-sm btn-outline-danger"
-                                            style={{padding: '2px 8px', fontSize: '0.75rem'}}
-                                            onClick={async (e) => {
-                                              e.stopPropagation();
-                                              if (confirm(`¿Eliminar a ${prof.nombre} de la Semana ${data.semana.numeroSemana}?`)) {
-                                                try {
-                                                  await eliminarAsignacionSemanal(prof.asignacionId, empresaSeleccionada.id);
-                                                  setAsignacionesEliminadas(prev => [...prev, prof.asignacionId]);
-                                                  await cargarAsignacionesExistentes();
-                                                  alert('✅ Asignación eliminada correctamente');
-                                                } catch (error) {
-                                                  console.error('Error:', error);
-                                                  alert('❌ Error al eliminar la asignación: ' + error.message);
-                                                }
-                                              }
-                                            }}
-                                            title="Eliminar asignación"
-                                          >
-                                            <i className="fas fa-trash"></i>
-                                          </button>
-                                        ) : (
-                                          <small className="text-muted">Nuevo</small>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  ));
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        );
-                      })()}
-                      </div>
-                    )}
+                    {renderTablaProfesionalesAsignados()}
                   </div>
                 </div>
 
@@ -2874,6 +2910,48 @@ const AsignarProfesionalSemanalModal = ({
                             ? '✅ Suficiente para completar la obra'
                             : `⚠️ Faltan ${jornalesTotales - totalJornalesAsignados} jornales`}
                         </small>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tabla de Profesionales Confirmados */}
+                {asignacionesExistentes && asignacionesExistentes.length > 0 && (
+                  <div className="card mt-3 border-success">
+                    <div className="card-header bg-success text-white">
+                      <h6 className="mb-0">
+                        <i className="fas fa-user-check me-2"></i>
+                        Profesionales Asignados ({asignacionesExistentes.length})
+                      </h6>
+                    </div>
+                    <div className="card-body p-0">
+                      <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                        <table className="table table-sm table-hover mb-0">
+                          <thead className="table-light sticky-top">
+                            <tr>
+                              <th>Profesional</th>
+                              <th>Tipo</th>
+                              <th>Semana</th>
+                              <th>Jornales</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {asignacionesExistentes.map((asig, idx) => (
+                              <tr key={idx}>
+                                <td>{asig.nombre || asig.profesionalNombre || 'Sin nombre'}</td>
+                                <td>
+                                  <span className="badge bg-secondary" style={{fontSize: '0.7rem'}}>
+                                    {asig.tipoProfesional || 'N/A'}
+                                  </span>
+                                </td>
+                                <td>Semana {asig.numeroSemana || asig.semana || '-'}</td>
+                                <td className="text-end">
+                                  <strong>{asig.jornales || asig.cantidadJornales || 1}</strong>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   </div>

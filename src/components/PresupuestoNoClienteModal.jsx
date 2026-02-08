@@ -4990,6 +4990,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
         return itemMapeado;
       });
+
       setItemsCalculadora(itemsCargados);
 
       const itemsConCero = itemsCargados.filter(i => !i.total || i.total === 0);
@@ -6660,6 +6661,49 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.error('❌ Detalles del error:', error.response?.data);
       console.error('❌ Stack trace:', error.stack);
       alert(`❌ Error al actualizar estado a ENVIADO: ${error.response?.data?.message || error.message}`);
+    }
+  };
+
+  // Función para marcar trabajo extra como ENVIADO
+  const marcarTrabajoExtraComoEnviado = async () => {
+    console.log('🔍 marcarTrabajoExtraComoEnviado - Iniciando...', {
+      formId: form.id,
+      empresaId: empresaSeleccionada?.id,
+      estadoActual: form.estado
+    });
+
+    if (!form.id || !empresaSeleccionada?.id) {
+      console.warn('⚠️ No se puede marcar trabajo extra como ENVIADO: sin ID o empresa');
+      alert('⚠️ Error: No se puede marcar como ENVIADO sin ID de trabajo extra o empresa');
+      return;
+    }
+
+    const estadoNormalizado = String(form.estado || '').toUpperCase().replace(/\s+/g, '_');
+    if (estadoNormalizado !== 'A_ENVIAR') {
+      console.log(`ℹ️ Trabajo extra no pasa a ENVIADO porque estado actual es "${form.estado}"`);
+      return;
+    }
+
+    try {
+      console.log('🌐 Actualizando trabajo extra a ENVIADO...', {
+        trabajoExtraId: form.id,
+        empresaId: empresaSeleccionada.id
+      });
+
+      await apiService.trabajosExtra.update(
+        form.id,
+        {
+          ...form,
+          estado: 'ENVIADO'
+        },
+        empresaSeleccionada.id
+      );
+
+      setForm(prev => ({ ...prev, estado: 'ENVIADO' }));
+      console.log('✅ Estado trabajo extra actualizado a ENVIADO');
+    } catch (error) {
+      console.error('❌ Error al marcar trabajo extra como ENVIADO:', error);
+      alert(`❌ Error al actualizar estado del trabajo extra: ${error.response?.data?.message || error.message}`);
     }
   };
 
@@ -13351,8 +13395,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               alert(`✅ PDF generado, descargado Y guardado en la base de datos\n\nArchivo: ${archivoConExtension}\nEstado: ${response.status || 'OK'}`);
                             }
 
-                            // Marcar presupuesto como ENVIADO (solo para presupuestos)
-                            if (!modoTrabajoExtra) {
+                            // Marcar como ENVIADO segun tipo
+                            if (modoTrabajoExtra) {
+                              await marcarTrabajoExtraComoEnviado();
+                            } else {
                               await marcarComoEnviado();
                             }
                           }
