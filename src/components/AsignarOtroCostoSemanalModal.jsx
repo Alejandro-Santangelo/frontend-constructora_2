@@ -16,6 +16,12 @@ const AsignarOtroCostoSemanalModal = ({
   rubroInicial = 'General', // Rubro desde donde se abre el modal
   onConfirmarAsignacion
 }) => {
+  console.log('🔍 [MODAL SEMANAL] Props recibidas:', {
+    presupuestoGlobalDisponible,
+    modoPresupuesto,
+    show,
+    obra: obra ? { id: obra.id, nombre: obra.nombre } : null
+  });
   const [tipoAsignacion, setTipoAsignacion] = useState(modoPresupuesto === 'GLOBAL' ? 'IMPORTE_GLOBAL' : 'ELEMENTO_DETALLADO');
   const [costoSeleccionadoId, setCostoSeleccionadoId] = useState('');
   const [importeTotal, setImporteTotal] = useState('');

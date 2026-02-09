@@ -1692,6 +1692,80 @@ const ObrasPage = ({ showNotification }) => {
     };
   };
 
+  /**
+   * 🔑 Extrae profesionales, materiales y gastos de itemsCalculadora[]
+   * Para trabajos extra, estos datos están en el JSON, NO en tablas relacionales
+   */
+  const extraerDatosDeItemsCalculadora = (trabajo) => {
+    const profesionales = [];
+    const materiales = [];
+    const gastosGenerales = [];
+
+    if (!trabajo.itemsCalculadora || !Array.isArray(trabajo.itemsCalculadora)) {
+      console.log(`  📋 Trabajo ${trabajo.id}: No tiene itemsCalculadora`);
+      return { profesionales, materiales, gastosGenerales };
+    }
+
+    console.log(`  📋 Trabajo ${trabajo.id}: Procesando ${trabajo.itemsCalculadora.length} items de calculadora`);
+
+    trabajo.itemsCalculadora.forEach((item, idx) => {
+      // Extraer profesionales del item
+      if (item.profesionales && Array.isArray(item.profesionales) && item.profesionales.length > 0) {
+        console.log(`    Item ${idx}: ${item.profesionales.length} profesionales encontrados`);
+        item.profesionales.forEach(prof => {
+          profesionales.push({
+            id: prof.profesionalObraId || prof.id || `temp_${Date.now()}_${Math.random()}`,
+            profesionalObraId: prof.profesionalObraId || prof.id,
+            nombreCompleto: prof.nombreCompleto || prof.nombre || 'Sin nombre',
+            rol: prof.rol || item.tipoProfesional || 'Profesional',
+            tipoProfesional: prof.rol || item.tipoProfesional || 'Profesional',
+            cantidadJornales: prof.cantidadJornales || 0,
+            valorJornal: prof.valorJornal || 0,
+            subtotal: prof.subtotal || 0,
+            observaciones: prof.observaciones || null
+          });
+        });
+      }
+
+      // Extraer materiales del item
+      if (item.materialesLista && Array.isArray(item.materialesLista) && item.materialesLista.length > 0) {
+        console.log(`    Item ${idx}: ${item.materialesLista.length} materiales encontrados`);
+        item.materialesLista.forEach(mat => {
+          materiales.push({
+            id: mat.obraMaterialId || mat.id || `temp_${Date.now()}_${Math.random()}`,
+            obraMaterialId: mat.obraMaterialId || mat.id,
+            nombre: mat.nombre || 'Material sin nombre',
+            descripcion: mat.descripcion || '',
+            unidad: mat.unidad || 'unidad',
+            cantidad: mat.cantidad || 0,
+            precio: mat.precio || 0,
+            subtotal: mat.subtotal || 0,
+            observaciones: mat.observaciones || null
+          });
+        });
+      }
+
+      // Extraer gastos generales del item
+      if (item.gastosGenerales && Array.isArray(item.gastosGenerales) && item.gastosGenerales.length > 0) {
+        console.log(`    Item ${idx}: ${item.gastosGenerales.length} gastos encontrados`);
+        item.gastosGenerales.forEach(gasto => {
+          gastosGenerales.push({
+            id: gasto.id || `temp_${Date.now()}_${Math.random()}`,
+            descripcion: gasto.descripcion || 'Gasto sin descripción',
+            cantidad: gasto.cantidad || 1,
+            precioUnitario: gasto.precioUnitario || 0,
+            subtotal: gasto.subtotal || 0,
+            observaciones: gasto.observaciones || null
+          });
+        });
+      }
+    });
+
+    console.log(`  ✅ Trabajo ${trabajo.id}: Extraídos ${profesionales.length} profesionales, ${materiales.length} materiales, ${gastosGenerales.length} gastos`);
+
+    return { profesionales, materiales, gastosGenerales };
+  };
+
   const cargarTrabajosExtra = async (obra) => {
     console.log('📥 cargarTrabajosExtra llamado con obra:', obra?.id, obra?.nombre);
 
@@ -1721,107 +1795,33 @@ const ObrasPage = ({ showNotification }) => {
       // �🔑 Normalizar datos para asegurar que tienen obraId
       const dataNormalizada = (Array.isArray(data) ? data : []).map(normalizarTrabajoExtra);
 
-      // ✅ CARGAR ASIGNACIONES REALES DEL BACKEND para cada trabajo extra
-      // Los trabajos extra tienen sus propias asignaciones independientes de la obra
+      // ✅ EXTRAER DATOS DE ITEMSCALCULADORA para trabajos extra
+      // Los trabajos extra NO usan tablas relacionales, todo está en itemsCalculadora[]
       const trabajosEnriquecidos = await Promise.all(dataNormalizada.map(async (trabajo) => {
         try {
-          // 1. Cargar asignaciones de profesionales reales del trabajo extra
-          let profesionalesReales = [];
-          try {
-            const responseProfesionales = await obtenerAsignacionesSemanalPorObra(trabajo.id, empresaId);
-            let dataProfesionales = responseProfesionales.data || responseProfesionales;
+          console.log(`📦 Procesando trabajo extra ${trabajo.id}: ${trabajo.nombre || trabajo.nombreObra}`);
 
-            // Si data tiene una propiedad data, extraerla
-            if (dataProfesionales.data && Array.isArray(dataProfesionales.data)) {
-              dataProfesionales = dataProfesionales.data;
-            }
+          // 🔑 EXTRAER profesionales, materiales y gastos de itemsCalculadora[]
+          const { profesionales: profesionalesReales, materiales: materialesReales, gastosGenerales: gastosReales } =
+            extraerDatosDeItemsCalculadora(trabajo);
 
-            const asignaciones = Array.isArray(dataProfesionales) ? dataProfesionales : [];
+          // DEBUG: Mostrar lo que se extrajo
+          console.log(`  ✅ Trabajo Extra ${trabajo.id}:`, {
+            profesionales: profesionalesReales.length,
+            materiales: materialesReales.length,
+            gastos: gastosReales.length
+          });
 
-            // 🔥 FILTRAR SOLO ASIGNACIONES QUE PERTENECEN A ESTE TRABAJO EXTRA
-            const asignacionesDelTrabajoExtra = asignaciones.filter(asig => asig.obraId === trabajo.id);
-            console.log(`  🔍 Trabajo Extra ${trabajo.id}: Total asignaciones encontradas: ${asignaciones.length}, Solo del trabajo extra: ${asignacionesDelTrabajoExtra.length}`);
-
-            if (asignaciones.length > 0 && asignacionesDelTrabajoExtra.length === 0) {
-              console.warn(`  ⚠️ ADVERTENCIA: El endpoint devolvió ${asignaciones.length} asignaciones pero NINGUNA pertenece al trabajo extra ${trabajo.id}`);
-              asignaciones.forEach(a => console.log(`    - Asignación ID ${a.id} tiene obraId=${a.obraId} (esperado: ${trabajo.id})`));
-            }
-
-            // Contar profesionales únicos SOLO de las asignaciones del trabajo extra
-            const profesionalesUnicos = new Set();
-            asignacionesDelTrabajoExtra.forEach(asignacion => {
-              if (asignacion.asignacionesPorSemana && Array.isArray(asignacion.asignacionesPorSemana)) {
-                asignacion.asignacionesPorSemana.forEach(semana => {
-                  if (semana.detallesPorDia && Array.isArray(semana.detallesPorDia)) {
-                    semana.detallesPorDia.forEach(detalle => {
-                      if (detalle.profesionalId && detalle.cantidad > 0) {
-                        profesionalesUnicos.add(detalle.profesionalId);
-                      }
-                    });
-                  }
-                });
-              }
-            });
-
-            profesionalesReales = Array.from(profesionalesUnicos).map(id => ({ id }));
-            console.log(`  ✅ Trabajo Extra ${trabajo.id}: ${profesionalesReales.length} profesionales asignados`);
-          } catch (error) {
-            console.warn(`  ⚠️ Error cargando profesionales del trabajo extra ${trabajo.id}:`, error.message);
-          }
-
-          // 2. Cargar asignaciones de materiales reales del trabajo extra
-          let materialesReales = [];
-          try {
-            const responseMateriales = await axios.get(`/api/obras/${trabajo.id}/materiales`, {
-              headers: {
-                empresaId: empresaId,
-                'X-Tenant-ID': empresaId
-              }
-            });
-            const dataMateriales = responseMateriales.data?.data || responseMateriales.data || [];
-            const materialesSinFiltrar = Array.isArray(dataMateriales) ? dataMateriales : [];
-
-            // 🔥 FILTRAR SOLO MATERIALES QUE PERTENECEN A ESTE TRABAJO EXTRA
-            materialesReales = materialesSinFiltrar.filter(mat => mat.obraId === trabajo.id);
-            console.log(`  🔍 Trabajo Extra ${trabajo.id}: Total materiales encontrados: ${materialesSinFiltrar.length}, Solo del trabajo extra: ${materialesReales.length}`);
-
-            if (materialesSinFiltrar.length > 0 && materialesReales.length === 0) {
-              console.warn(`  ⚠️ ADVERTENCIA: El endpoint devolvió ${materialesSinFiltrar.length} materiales pero NINGUNO pertenece al trabajo extra ${trabajo.id}`);
-            }
-          } catch (error) {
-            console.warn(`  ⚠️ Error cargando materiales del trabajo extra ${trabajo.id}:`, error.message);
-          }
-
-          // 3. Cargar asignaciones de gastos generales reales del trabajo extra
-          let gastosReales = [];
-          try {
-            const responseGastos = await axios.get(`/api/obras/${trabajo.id}/otros-costos`, {
-              headers: {
-                empresaId: empresaId,
-                'X-Tenant-ID': empresaId
-              },
-              params: { empresaId }
-            });
-            const dataGastos = responseGastos.data || [];
-            const gastosSinFiltrar = Array.isArray(dataGastos) ? dataGastos : [];
-
-            // 🔥 FILTRAR SOLO GASTOS QUE PERTENECEN A ESTE TRABAJO EXTRA
-            gastosReales = gastosSinFiltrar.filter(gasto => gasto.obraId === trabajo.id);
-            console.log(`  🔍 Trabajo Extra ${trabajo.id}: Total gastos encontrados: ${gastosSinFiltrar.length}, Solo del trabajo extra: ${gastosReales.length}`);
-
-            if (gastosSinFiltrar.length > 0 && gastosReales.length === 0) {
-              console.warn(`  ⚠️ ADVERTENCIA: El endpoint devolvió ${gastosSinFiltrar.length} gastos pero NINGUNO pertenece al trabajo extra ${trabajo.id}`);
-            }
-          } catch (error) {
-            console.warn(`  ⚠️ Error cargando gastos del trabajo extra ${trabajo.id}:`, error.message);
-          }
+          // NOTA: Para trabajos extra, NO llamamos a APIs relacionales
+          // porque los datos YA ESTÁN en itemsCalculadora[] que viene del backend
 
           return {
             ...trabajo,
             profesionales: profesionalesReales,
             materiales: materialesReales,
             gastosGenerales: gastosReales,
-            etapasDiarias: trabajo.etapasDiarias || []
+            etapasDiarias: trabajo.etapasDiarias || [],
+            dias: trabajo.dias || []
           };
         } catch (error) {
           console.error(`❌ Error procesando trabajo extra ${trabajo.id}:`, error);
@@ -1831,7 +1831,8 @@ const ObrasPage = ({ showNotification }) => {
             profesionales: [],
             materiales: [],
             gastosGenerales: [],
-            etapasDiarias: trabajo.etapasDiarias || []
+            etapasDiarias: trabajo.etapasDiarias || [],
+            dias: trabajo.dias || []
           };
         }
       }));
@@ -1840,6 +1841,8 @@ const ObrasPage = ({ showNotification }) => {
       trabajosEnriquecidos.forEach((t, idx) => {
         console.log(`📋 Trabajo ${idx + 1} - ${t.nombreObra || t.nombre}:`, {
           id: t.id,
+          estado: t.estado,
+          estadoOriginal: t.estado,
           profesionalesAsignados: t.profesionales?.length || 0,
           materialesAsignados: t.materiales?.length || 0,
           gastosAsignados: t.gastosGenerales?.length || 0
@@ -1847,6 +1850,7 @@ const ObrasPage = ({ showNotification }) => {
       });
 
       console.log('🔥 [cargarTrabajosExtra] Actualizando estado con trabajos enriquecidos:', trabajosEnriquecidos);
+      console.log('🔍 Estados de trabajos extra cargados:', trabajosEnriquecidos.map(t => ({id: t.id, estado: t.estado, nombre: t.nombre})));
       setTrabajosExtra(trabajosEnriquecidos);
       setObraParaTrabajosExtra(obra);
       console.log('✅ [cargarTrabajosExtra] Estado actualizado');
@@ -7353,29 +7357,23 @@ const ObrasPage = ({ showNotification }) => {
           abrirEmailDespuesDePDF={abrirEmailTrabajoExtra}
           onPDFGenerado={() => {
             console.log('✅ PDF generado para trabajo extra, cerrando modal...');
+            console.log('📥 Iniciando recarga de trabajos extra después del envío...');
 
-            // Cambiar estado a ENVIADO si está en A_ENVIAR
-            if (trabajoExtraEditar && trabajoExtraEditar.estado === 'A_ENVIAR') {
-              api.trabajosExtra.update(trabajoExtraEditar.id_trabajo_extra || trabajoExtraEditar.id, {
-                ...trabajoExtraEditar,
-                estado: 'ENVIADO'
-              }, empresaId)
-                .then(() => {
-                  console.log('✅ Estado cambiado a ENVIADO');
-                  showNotification('✅ Trabajo extra enviado exitosamente', 'success');
-                })
-                .catch(error => {
-                  console.error('❌ Error al cambiar estado a ENVIADO:', error);
-                  showNotification('⚠️ PDF generado pero error al actualizar estado: ' + error.message, 'warning');
-                });
-            }
+            // ⚠️ NO actualizar el estado aquí - ya lo hace marcarTrabajoExtraComoEnviado() dentro del modal
+            // Si se hace aquí, sobrescribe el cambio de estado con el objeto viejo (estado A_ENVIAR)
+
+            showNotification('✅ Trabajo extra enviado exitosamente', 'success');
 
             setAutoGenerarPDFTrabajoExtra(false);
             setAbrirWhatsAppTrabajoExtra(false);
             setAbrirEmailTrabajoExtra(false);
             setMostrarModalTrabajoExtra(false);
             setTrabajoExtraEditar(null);
+
+            // Recargar trabajos extra para reflejar el cambio de estado
+            console.log('🔄 Llamando cargarTrabajosExtra para refrescar después del envío...');
             cargarTrabajosExtra(obraParaTrabajosExtra);
+            console.log('✅ Recarga de trabajos extra completada');
           }}
           initialData={{
             // ✅ Pasar TODOS los datos del trabajo extra (para incluir campos planos como los de honorarios)

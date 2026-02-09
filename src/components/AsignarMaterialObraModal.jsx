@@ -198,8 +198,14 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     if (show && obra) {
       // Incrementar forceUpdate ANTES de cargar para forzar re-render
       setForceUpdate(prev => prev + 1);
-      cargarPresupuestoObra();
-      cargarAsignacionesActuales();
+      // Carga secuencial: primero presupuesto, luego asignaciones con los datos cargados
+      cargarPresupuestoObra().then((presupuestoCargado) => {
+        if (presupuestoCargado) {
+          cargarAsignacionesActuales(presupuestoCargado);
+        } else {
+          cargarAsignacionesActuales();
+        }
+      });
     } else if (!show) {
       // Limpiar estado cuando se cierra para forzar recarga fresca
       console.log('🧹 [OTROS COSTOS] Limpiando estado del modal (cerrado)');
@@ -401,14 +407,6 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
   // Función para asignar otros costos a obra (usando formato original que funcionaba)
   const asignarOtroCostoAObra = async (obraId, empresaId, datos) => {
-    // 🔥 BIFURCACIÓN: Trabajos extra vs Obras normales
-    if (obra._esTrabajoExtra) {
-      return await asignarGastoATrabajoExtra(obraId, empresaId, datos);
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // OBRA NORMAL: Usar endpoint tradicional
-    // ════════════════════════════════════════════════════════════
     const esManual = Boolean(datos.esManual);
 
     const payload = {
@@ -465,107 +463,6 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return await response.json();
   };
 
-  // 🆕 Función auxiliar para asignar gasto a trabajo extra
-  const asignarGastoATrabajoExtra = async (trabajoExtraId, empresaId, datos) => {
-    console.log('📦 Asignando gasto a trabajo extra...');
-
-    // VALIDACIÓN CRÍTICA: Nunca enviar importe 0
-    const importe = parseFloat(datos.importeAsignado);
-    if (!importe || importe <= 0) {
-      throw new Error('El importe asignado debe ser mayor a cero');
-    }
-
-    // 1. Obtener el trabajo extra actual
-    const trabajoExtra = await api.trabajosExtra.getById(trabajoExtraId, empresaId);
-
-    if (!trabajoExtra.itemsCalculadora) {
-      trabajoExtra.itemsCalculadora = [];
-    }
-
-    // 2. Crear el nuevo gasto
-    const nuevoGasto = {
-      descripcion: datos.descripcion || datos.nombre || 'Gasto general',
-      cantidad: datos.cantidadAsignada || 1,
-      precioUnitario: datos.importeUnitario || importe,
-      importe: importe,
-      categoria: datos.categoria || 'General',
-      observaciones: datos.observaciones || null
-    };
-
-    // 3. Buscar o crear el rubro apropiado
-    const categoria = datos.categoria || 'General';
-    let itemObjetivo = trabajoExtra.itemsCalculadora.find(
-      item => item.tipoProfesional === categoria
-    );
-
-    if (!itemObjetivo) {
-      // Crear nuevo rubro si no existe
-      itemObjetivo = {
-        tipoProfesional: categoria,
-        tipoJornal: 'FIJO',
-        valorJornal: 0,
-        cantidadEstimada: 0,
-        subtotal: 0,
-        materialesLista: [],
-        gastosGenerales: []
-      };
-      trabajoExtra.itemsCalculadora.push(itemObjetivo);
-    }
-
-    // 4. Agregar el gasto al rubro
-    if (!itemObjetivo.materialesLista) {
-      itemObjetivo.materialesLista = [];
-    }
-    itemObjetivo.materialesLista.push(nuevoGasto);
-
-    // 5. Recalcular subtotal del rubro
-    itemObjetivo.subtotal = (itemObjetivo.subtotal || 0) + importe;
-
-    // 6. Guardar el trabajo extra actualizado
-    console.log('📡 PUT /api/v1/trabajos-extra/{id} - Actualizando trabajo extra...');
-
-    const response = await fetch(`/api/v1/trabajos-extra/${trabajoExtraId}`, {
-      method: 'PUT',
-      headers: {
-        'empresaId': empresaId.toString(),
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(trabajoExtra)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Error ${response.status} del backend:`, errorText);
-      throw new Error(`Error ${response.status}: ${errorText}`);
-    }
-
-    const trabajoExtraActualizado = await response.json();
-    console.log('✅ Gasto agregado al trabajo extra');
-
-    // 7. Retornar el gasto recién creado (simulando respuesta de obra normal)
-    const itemIdx = trabajoExtraActualizado.itemsCalculadora.findIndex(
-      item => item.tipoProfesional === categoria
-    );
-    const gastoIdx = trabajoExtraActualizado.itemsCalculadora[itemIdx].materialesLista.length - 1;
-
-    return {
-      id: `${itemIdx}-${gastoIdx}`,
-      descripcion: nuevoGasto.descripcion,
-      nombreOtroCosto: nuevoGasto.descripcion,
-      categoria: categoria,
-      importeAsignado: importe,
-      cantidadAsignada: nuevoGasto.cantidad,
-      importeUnitario: nuevoGasto.precioUnitario,
-      fechaAsignacion: null,
-      semana: null,
-      observaciones: nuevoGasto.observaciones,
-      esDesdePresupuesto: true,
-      rubroOrigen: categoria,
-      itemIdx: itemIdx,
-      gastoIdx: gastoIdx
-    };
-  };
-
   const cargarPresupuestoObra = async () => {
     setLoadingPresupuesto(true);
     setError(null);
@@ -581,22 +478,22 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       // 🔥 SIEMPRE RECARGAR para tener datos frescos (evita mostrar presupuestos editados con valores viejos)
       if (obra._esTrabajoExtra) {
         console.log('✅ Trabajo Extra detectado - cargando datos del trabajo extra ID:', obra.id);
-        console.log('⚠️ IMPORTANTE: Trabajo extra NO debe mezclar datos con obra principal');
+        console.log('⚠️ IMPORTANTE: Trabajo extra funciona como presupuesto-no-cliente independiente');
 
         // Cargar el trabajo extra completo (que incluye todos los datos del presupuesto)
         try {
           presupuestoActual = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
-          presupuestoId = presupuestoActual.id; // ✅ Asignar ID
 
-          // 🔥 VALIDAR: El trabajo extra debe ser INDEPENDIENTE
-          // Si tiene obraId, verificar que sea cero o vacío (trabajo extra = sin obra principal vinculada)
-          if (presupuestoActual.obraId && presupuestoActual.obraId !== 0) {
-            console.warn('⚠️ Trabajo extra tiene obraId:', presupuestoActual.obraId);
-            console.warn('🔥 Limpiando referencias a obra principal...');
-            // Forzar que sea independiente
-            presupuestoActual.obraId = null;
-            presupuestoActual.idObra = null;
-          }
+          // 🔑 PARA TRABAJOS EXTRA: El presupuestoId ES el ID del trabajo extra
+          // NO necesita buscar presupuestos externos, ya tiene TODO dentro
+          presupuestoId = presupuestoActual.id;
+
+          console.log('🔑 [TRABAJO EXTRA] Usando presupuesto del trabajo extra:', {
+            trabajoExtraId: presupuestoActual.id,
+            presupuestoId: presupuestoId,
+            tieneItemsCalculadora: !!presupuestoActual.itemsCalculadora,
+            cantidadItems: presupuestoActual.itemsCalculadora?.length || 0
+          });
 
           // 🚨🚨🚨 LOG CRÍTICO DEL PRESUPUESTO COMPLETO 🚨🚨🚨
           console.log('═══════════════════════════════════════');
@@ -979,7 +876,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         fechaProbableInicio: fechaFormateada,
         tiempoEstimadoTerminacion: presupuestoActual.tiempoEstimadoTerminacion,
         honorarios,
-        mayoresCostos
+        mayoresCostos,
+        itemsCalculadora: presupuestoActual.itemsCalculadora || []
       };
 
       setPresupuesto(presupuestoParaEstado);
@@ -1113,9 +1011,11 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
       console.log('✅ Presupuesto cargado - SOLO MATERIALES');
       console.log('🏁🏁🏁 FIN CARGA DE PRESUPUESTO 🏁🏁🏁');
+      return presupuestoActual;
     } catch (error) {
       console.error('❌ Error cargando presupuesto:', error);
       setError(error.message);
+      return null;
     } finally {
       setLoadingPresupuesto(false);
     }
@@ -1123,50 +1023,43 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
   // 🆕 Función auxiliar para extraer asignaciones desde trabajo extra (SOLO MATERIALES)
   const extraerAsignacionesDesdeTrabajoExtra = (trabajoExtra) => {
-    console.log('📦 Extrayendo MATERIALES desde trabajo extra...');
-    const asignaciones = [];
+    console.log('📦 [CORRECCIÓN ARQUITECTURAL] Procesando MATERIALES de trabajo extra...');
 
-    if (!trabajoExtra?.itemsCalculadora || !Array.isArray(trabajoExtra.itemsCalculadora)) {
-      console.warn('⚠️ Trabajo extra sin itemsCalculadora');
-      return asignaciones;
+    // ═══════════════════════════════════════════════════════════════════
+    // 🛑 CORRECCIÓN CRÍTICA: ARQUITECTURA PRESUPUESTO vs ASIGNACIONES
+    // ═══════════════════════════════════════════════════════════════════
+
+    console.log('🔍 ANÁLISIS ARQUITECTURAL DE MATERIALES:');
+    console.log('📋 itemsCalculadora[].materialesLista = PRESUPUESTO (disponible para asignar)');
+    console.log('📅 Asignaciones reales = materiales asignados a fechas/semanas específicas');
+    console.log('');
+
+    if (trabajoExtra?.itemsCalculadora && Array.isArray(trabajoExtra.itemsCalculadora)) {
+      console.log('📊 PRESUPUESTO DE MATERIALES ENCONTRADO:');
+
+      trabajoExtra.itemsCalculadora.forEach((item, itemIdx) => {
+        if (item.materialesLista && Array.isArray(item.materialesLista) && item.materialesLista.length > 0) {
+          console.log(`  ├─ Item ${itemIdx + 1}: "${item.tipoProfesional}"`);
+
+          item.materialesLista.forEach((material, materialIdx) => {
+            const subtotal = material.subtotal || material.importe || (material.cantidad * material.precio) || 0;
+            console.log(`  │   └─ Material ${materialIdx + 1}: "${material.nombre || material.descripcion}" - $${Number(subtotal).toLocaleString('es-AR')}`);
+          });
+        }
+      });
     }
 
-    // Recorrer cada rubro/item y extraer SOLO los materiales (no gastos generales)
-    trabajoExtra.itemsCalculadora.forEach((item, itemIdx) => {
-      // 🚀 SOLO procesar materialesLista - NO gastosGenerales
-      if (!item.materialesLista || !Array.isArray(item.materialesLista)) {
-        console.log(`⏭️ Item "${item.tipoProfesional}" - Sin materiales, skipping`);
-        return;
-      }
+    console.log('');
+    console.log('✅ DECISIÓN: Devolver array vacío hasta que se hagan asignaciones reales');
+    console.log('💡 Esto permitirá que "Asignado: $0" y "Disponible: ${presupuesto total}"');
+    console.log('📝 Las asignaciones reales se crearán cuando el usuario asigne materiales a fechas específicas');
+    console.log('');
 
-      console.log(`✅ Item "${item.tipoProfesional}" - Procesando ${item.materialesLista.length} materiales`);
-
-      // Extraer SOLO materiales (ignorar gastosGenerales)
-      item.materialesLista.forEach((material, materialIdx) => {
-        asignaciones.push({
-          id: `${itemIdx}-${materialIdx}`, // ID temporal único
-          descripcion: material.descripcion || 'Sin descripción',
-          nombreOtroCosto: material.descripcion || 'Sin descripción',
-          categoria: material.categoria || item.tipoProfesional || 'Materiales',
-          importeAsignado: material.importe || material.subtotal || 0,
-          cantidadAsignada: material.cantidad || 1,
-          importeUnitario: material.precioUnitario || 0,
-          fechaAsignacion: null, // Los materiales del presupuesto no tienen fecha específica
-          semana: null,
-          observaciones: material.observaciones || '',
-          esDesdePresupuesto: true, // Flag para identificar origen
-          rubroOrigen: item.tipoProfesional,
-          itemIdx: itemIdx, // Índice del item para actualizar
-          gastoIdx: materialIdx // Índice del material dentro del item
-        });
-      });
-    });
-
-    console.log(`✅ ${asignaciones.length} MATERIALES extraídos desde trabajo extra`);
-    return asignaciones;
+    // Retornar array vacío - las asignaciones reales se crearán posteriormente
+    return [];
   };
 
-  const cargarAsignacionesActuales = async () => {
+  const cargarAsignacionesActuales = async (presupuestoCargado = null) => {
     try {
       console.log('🔍 Cargando asignaciones actuales de otros costos...');
 
@@ -1174,9 +1067,10 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       if (obra._esTrabajoExtra) {
         console.log('📦 TRABAJO EXTRA: Extrayendo gastos desde itemsCalculadora');
 
-        // Los gastos están en el presupuesto ya cargado
-        if (presupuesto) {
-          const asignacionesExtraidas = extraerAsignacionesDesdeTrabajoExtra(presupuesto);
+        // Los gastos están en el presupuesto ya cargado o pasado como parámetro
+        const presupuestoParaUsar = presupuestoCargado || presupuesto;
+        if (presupuestoParaUsar) {
+          const asignacionesExtraidas = extraerAsignacionesDesdeTrabajoExtra(presupuestoParaUsar);
           setAsignaciones(asignacionesExtraidas);
 
           // Calcular disponible del presupuesto global
@@ -1265,10 +1159,182 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
   };
 
   const handleAsignarCosto = async () => {
-    console.log('🚀 [DEBUG GASTOS] Iniciando handleAsignarCosto');
-    console.log('📊 [DEBUG GASTOS] Estado completo nuevaAsignacion:', nuevaAsignacion);
-    console.log('📅 [DEBUG GASTOS] Fecha que se va a procesar:', nuevaAsignacion.fechaAsignacion);
+    console.log('🚀 [DEBUG MATERIALES] Iniciando handleAsignarCosto');
+    console.log('📊 [DEBUG MATERIALES] Estado completo nuevaAsignacion:', nuevaAsignacion);
+    console.log('📅 [DEBUG MATERIALES] Fecha que se va a procesar:', nuevaAsignacion.fechaAsignacion);
 
+    // 🔥 TRABAJO EXTRA: Guardado especial con PUT a /api/v1/trabajos-extra/{id}
+    if (obra._esTrabajoExtra) {
+      console.log('🔥 [TRABAJO EXTRA] Iniciando guardado de material...');
+
+      // Validar que haya material seleccionado
+      if (!nuevaAsignacion.materialId || nuevaAsignacion.materialId === 'CREAR_NUEVO') {
+        alert('⚠️ Debes seleccionar un material');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        // 1. Obtener el trabajo extra completo actual
+        console.log('📥 Obteniendo trabajo extra completo...');
+        const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+        console.log('✅ Trabajo extra obtenido:', trabajoExtra);
+
+        // 2. Validar que tenga itemsCalculadora con al menos un item
+        if (!trabajoExtra.itemsCalculadora || trabajoExtra.itemsCalculadora.length === 0) {
+          alert('❌ Error: El trabajo extra no tiene rubros (itemsCalculadora vacío)');
+          setLoading(false);
+          return;
+        }
+
+        const primerItem = trabajoExtra.itemsCalculadora[0];
+        if (!primerItem.id) {
+          alert('❌ Error: El rubro del trabajo extra no tiene ID');
+          setLoading(false);
+          return;
+        }
+
+        console.log('📋 Rubro a actualizar:', { id: primerItem.id, tipo: primerItem.tipoProfesional });
+
+        // 3. Obtener info del material seleccionado
+        const materialSeleccionado = materialesDisponibles.find(
+          m => m.id.toString() === nuevaAsignacion.materialId
+        );
+
+        if (!materialSeleccionado) {
+          alert('❌ Error: Material no encontrado');
+          setLoading(false);
+          return;
+        }
+
+        const cantidad = parseFloat(nuevaAsignacion.cantidadAsignada) || 0;
+        const precio = parseFloat(nuevaAsignacion.importeUnitario) || 0;
+        const subtotal = cantidad * precio;
+
+        if (cantidad <= 0) {
+          alert('⚠️ Debe ingresar una cantidad válida');
+          setLoading(false);
+          return;
+        }
+
+        if (precio <= 0) {
+          alert('⚠️ Debe ingresar un precio válido');
+          setLoading(false);
+          return;
+        }
+
+        // 4. Construir objeto de material según especificación del backend
+        const nuevoMaterial = {
+          nombre: materialSeleccionado.nombre || materialSeleccionado.descripcion,
+          unidad: materialSeleccionado.unidad || 'unidad',
+          cantidad: cantidad,
+          precio: precio,
+          subtotal: subtotal,
+          descripcion: materialSeleccionado.descripcion || '',
+          observaciones: nuevaAsignacion.observaciones || ''
+        };
+
+        console.log('📦 Material a agregar:', nuevoMaterial);
+
+        // 5. Agregar el nuevo material a la lista existente (o crear nueva lista)
+        const materialesActualizados = [...(primerItem.materialesLista || []), nuevoMaterial];
+
+        // 6. Calcular totales actualizados
+        const subtotalMateriales = materialesActualizados.reduce((sum, m) => sum + (m.subtotal || 0), 0);
+        const subtotalManoObra = primerItem.subtotalManoObra || 0;
+        const subtotalGastos = (primerItem.gastosGenerales || []).reduce((sum, g) => sum + (g.subtotal || 0), 0);
+        const totalItem = subtotalManoObra + subtotalMateriales - subtotalGastos;
+
+        // 7. Construir payload según especificación del backend
+        const payload = {
+          obraId: trabajoExtra.obraId,
+          nombre: trabajoExtra.nombre,
+          descripcion: trabajoExtra.descripcion,
+          fechaProbableInicio: trabajoExtra.fechaProbableInicio,
+          vencimiento: trabajoExtra.vencimiento,
+          tiempoEstimadoTerminacion: trabajoExtra.tiempoEstimadoTerminacion,
+          itemsCalculadora: [
+            {
+              id: primerItem.id,
+              tipoProfesional: primerItem.tipoProfesional || 'Material',
+              descripcion: primerItem.descripcion || 'Trabajo adicional',
+
+              // ⚠️ CAMPOS OBLIGATORIOS DEL ITEM
+              esModoManual: primerItem.esModoManual ?? false,
+              esRubroVacio: primerItem.esRubroVacio ?? false,
+              esGastoGeneral: primerItem.esGastoGeneral ?? false,
+              incluirEnCalculoDias: primerItem.incluirEnCalculoDias ?? true,
+              trabajaEnParalelo: primerItem.trabajaEnParalelo ?? true,
+
+              // Cálculos actualizados
+              cantidadJornales: primerItem.cantidadJornales || 0,
+              importeJornal: primerItem.importeJornal || 0,
+              subtotalManoObra: subtotalManoObra,
+              total: totalItem,
+
+              // Arrays de datos
+              profesionales: primerItem.profesionales || [],
+              materialesLista: materialesActualizados,
+              gastosGenerales: primerItem.gastosGenerales || [],
+              jornales: primerItem.jornales || []
+            }
+          ],
+          dias: trabajoExtra.dias || []
+        };
+
+        console.log('📦 Payload completo a enviar:', JSON.stringify(payload, null, 2));
+
+        // 8. Enviar PUT al backend
+        console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${obra.id}`);
+        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${obra.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'empresaId': empresaSeleccionada.id.toString()
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.text();
+          console.error('❌ Error del backend:', errorData);
+          throw new Error(`Error ${response.status}: ${errorData}`);
+        }
+
+        const resultado = await response.json();
+        console.log('✅ Respuesta del backend:', resultado);
+
+        // 9. Success feedback
+        alert(`✅ Material "${materialSeleccionado.nombre}" asignado correctamente al trabajo extra`);
+
+        // 10. Limpiar formulario
+        setNuevaAsignacion({
+          materialId: '',
+          cantidadAsignada: '',
+          importeUnitario: '',
+          importeAsignado: '',
+          fechaAsignacion: '',
+          observaciones: ''
+        });
+
+        // 11. Actualizar UI
+        await cargarAsignacionesActuales();
+        if (onAsignacionExitosa) {
+          onAsignacionExitosa();
+        }
+
+        setLoading(false);
+        return; // ✅ Salir aquí, no continuar con lógica de obras normales
+
+      } catch (error) {
+        console.error('❌ Error asignando material a trabajo extra:', error);
+        alert(`❌ Error al guardar: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+    }
+
+    // 🔵 OBRA NORMAL: Lógica original para obras normales
     // ✅ CASO 1: Asignación desde IMPORTE GLOBAL
     if (nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL') {
       if (!nuevoGastoManual.descripcion.trim()) {
@@ -1558,13 +1624,126 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       return;
     }
 
-    // 🔥 Trabajos extra no soportan asignaciones semanales
+    // 🔥 TRABAJO EXTRA: Guardado especial con PUT a /api/v1/trabajos-extra/{id}
     if (obra._esTrabajoExtra) {
-      console.warn('⚠️ TRABAJO EXTRA: Las asignaciones semanales no están soportadas');
-      alert('Las asignaciones semanales no están disponibles para trabajos extra.');
-      return;
+      console.log('🔥 [TRABAJO EXTRA] Iniciando guardado de múltiples materiales...');
+      setLoading(true);
+
+      try {
+        // 1. Obtener el trabajo extra completo actual
+        console.log('📥 Obteniendo trabajo extra completo...');
+        const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+        console.log('✅ Trabajo extra obtenido:', trabajoExtra);
+
+        // 2. Validar que tenga itemsCalculadora
+        if (!trabajoExtra.itemsCalculadora || trabajoExtra.itemsCalculadora.length === 0) {
+          alert('❌ Error: El trabajo extra no tiene rubros (itemsCalculadora vacío)');
+          setLoading(false);
+          return;
+        }
+
+        const primerItem = trabajoExtra.itemsCalculadora[0];
+        if (!primerItem.id) {
+          alert('❌ Error: El rubro del trabajo extra no tiene ID');
+          setLoading(false);
+          return;
+        }
+
+        // 3. Convertir asignaciones a formato de materiales
+        const nuevosMateriales = asignacionesSemana.map(asig => ({
+          nombre: asig.nombreMaterial || asig.descripcion,
+          unidad: asig.unidadMedida || 'unidad',
+          cantidad: Number(asig.cantidad) || 0,
+          precio: Number(asig.precioUnitario) || 0,
+          subtotal: (Number(asig.cantidad) || 0) * (Number(asig.precioUnitario) || 0),
+          descripcion: asig.nombreMaterial || '',
+          observaciones: asig.observaciones || ''
+        }));
+
+        console.log('📦 Nuevos materiales a agregar:', nuevosMateriales);
+
+        // 4. Agregar a la lista existente
+        const materialesActualizados = [...(primerItem.materialesLista || []), ...nuevosMateriales];
+
+        // 5. Calcular totales
+        const subtotalMateriales = materialesActualizados.reduce((sum, m) => sum + (m.subtotal || 0), 0);
+        const subtotalManoObra = primerItem.subtotalManoObra || 0;
+        const subtotalGastos = (primerItem.gastosGenerales || []).reduce((sum, g) => sum + (g.subtotal || 0), 0);
+        const totalItem = subtotalManoObra + subtotalMateriales - subtotalGastos;
+
+        // 6. Construir payload
+        const payload = {
+          obraId: trabajoExtra.obraId,
+          nombre: trabajoExtra.nombre,
+          descripcion: trabajoExtra.descripcion,
+          fechaProbableInicio: trabajoExtra.fechaProbableInicio,
+          vencimiento: trabajoExtra.vencimiento,
+          tiempoEstimadoTerminacion: trabajoExtra.tiempoEstimadoTerminacion,
+          itemsCalculadora: [
+            {
+              id: primerItem.id,
+              tipoProfesional: primerItem.tipoProfesional || 'Material',
+              descripcion: primerItem.descripcion || 'Trabajo adicional',
+              esModoManual: primerItem.esModoManual ?? false,
+              esRubroVacio: primerItem.esRubroVacio ?? false,
+              esGastoGeneral: primerItem.esGastoGeneral ?? false,
+              incluirEnCalculoDias: primerItem.incluirEnCalculoDias ?? true,
+              trabajaEnParalelo: primerItem.trabajaEnParalelo ?? true,
+              cantidadJornales: primerItem.cantidadJornales || 0,
+              importeJornal: primerItem.importeJornal || 0,
+              subtotalManoObra: subtotalManoObra,
+              total: totalItem,
+              profesionales: primerItem.profesionales || [],
+              materialesLista: materialesActualizados,
+              gastosGenerales: primerItem.gastosGenerales || [],
+              jornales: primerItem.jornales || []
+            }
+          ],
+          dias: trabajoExtra.dias || []
+        };
+
+        // 7. Enviar PUT
+        console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${obra.id}`);
+        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${obra.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'empresaId': empresaSeleccionada.id.toString()
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.text();
+          console.error('❌ Error del backend:', errorData);
+          throw new Error(`Error ${response.status}: ${errorData}`);
+        }
+
+        const resultado = await response.json();
+        console.log('✅ Respuesta del backend:', resultado);
+
+        // 8. Success feedback
+        alert(`✅ ${nuevosMateriales.length} material(es) asignado(s) correctamente al trabajo extra`);
+
+        // 9. Actualizar UI
+        await cargarAsignacionesActuales();
+        setMostrarAsignacionSemanal(false);
+        if (onAsignacionExitosa) {
+          onAsignacionExitosa();
+        }
+
+        setLoading(false);
+        return; // ✅ Salir aquí
+
+      } catch (error) {
+        console.error('❌ Error asignando materiales a trabajo extra:', error);
+        alert(`❌ Error al guardar: ${error.message}`);
+        setLoading(false);
+        return;
+      }
     }
 
+    // 🔵 OBRA NORMAL: Lógica original
     setLoading(true);
     setError(null);
 
@@ -1726,49 +1905,17 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     }
   };
 
-  // 🆕 Función auxiliar para eliminar gasto de trabajo extra
+  // 🆕 Función auxiliar para eliminar material de trabajo extra
   const eliminarGastoDeTrabajoExtra = async (asignacionId) => {
-    console.log('🗑️ Eliminando gasto de trabajo extra...');
+    console.log('🗑️ Eliminando material de trabajo extra...');
+    console.log('🗑️ ID del material a eliminar:', asignacionId);
 
-    // El ID tiene formato: `${itemIdx}-${gastoIdx}`
-    const [itemIdx, gastoIdx] = asignacionId.toString().split('-').map(Number);
-
-    if (isNaN(itemIdx) || isNaN(gastoIdx)) {
-      throw new Error(`ID de asignación inválido: ${asignacionId}`);
-    }
-
-    // 1. Obtener el trabajo extra actual
-    const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
-
-    // 2. Validar que el gasto existe
-    if (!trabajoExtra.itemsCalculadora ||
-        !trabajoExtra.itemsCalculadora[itemIdx] ||
-        !trabajoExtra.itemsCalculadora[itemIdx].materialesLista ||
-        !trabajoExtra.itemsCalculadora[itemIdx].materialesLista[gastoIdx]) {
-      throw new Error(`Gasto no encontrado en índices: item ${itemIdx}, gasto ${gastoIdx}`);
-    }
-
-    // 3. Obtener el importe del gasto a eliminar
-    const gastoAEliminar = trabajoExtra.itemsCalculadora[itemIdx].materialesLista[gastoIdx];
-    const importeAEliminar = gastoAEliminar.importe || gastoAEliminar.subtotal || 0;
-
-    // 4. Eliminar el gasto del array
-    trabajoExtra.itemsCalculadora[itemIdx].materialesLista.splice(gastoIdx, 1);
-
-    // 5. Recalcular subtotal del rubro
-    trabajoExtra.itemsCalculadora[itemIdx].subtotal =
-      (trabajoExtra.itemsCalculadora[itemIdx].subtotal || 0) - importeAEliminar;
-
-    // 6. Guardar el trabajo extra actualizado
-    console.log('📡 PUT /api/v1/trabajos-extra/{id} - Eliminando gasto...');
-
-    const response = await fetch(`/api/v1/trabajos-extra/${obra.id}`, {
-      method: 'PUT',
+    // Usar el endpoint DELETE específico del backend
+    const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/materiales/${asignacionId}`, {
+      method: 'DELETE',
       headers: {
-        'empresaId': empresaSeleccionada.id.toString(),
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(trabajoExtra)
+        'empresaId': empresaSeleccionada.id.toString()
+      }
     });
 
     if (!response.ok) {
@@ -1777,7 +1924,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       throw new Error(`Error ${response.status}: ${errorText}`);
     }
 
-    console.log('✅ Gasto eliminado del trabajo extra');
+    console.log('✅ Material eliminado del trabajo extra');
   };
 
   const handleEditarAsignacion = (asignacion) => {

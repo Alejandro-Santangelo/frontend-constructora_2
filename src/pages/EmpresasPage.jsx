@@ -73,19 +73,32 @@ const EmpresasPage = ({ showNotification }) => {
     loadEstadisticas();
   }, []);
 
+  const getErrorMessage = (error, fallback) => {
+    let msg = fallback;
+
+    if (error?.data?.message || error?.data?.mensaje) {
+      msg = error.data.message || error.data.mensaje;
+    } else if (error?.message) {
+      msg = error.message;
+    }
+
+    if (error?.data?.validationErrors) {
+      const detalles = Object.entries(error.data.validationErrors)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+      msg = `${msg}: ${detalles}`;
+    }
+
+    return msg;
+  };
+
   const loadEmpresas = async () => {
     try {
       setLoading(true);
       const data = await empresasApiService.getAll();
       setEmpresas(data || []);
     } catch (error) {
-      let msg = 'Error cargando empresas';
-      if (error && error.data) {
-        msg = error.data.message || msg;
-        if (error.data.validationErrors) {
-          msg += ': ' + Object.entries(error.data.validationErrors).map(([k, v]) => `${k}: ${v}`).join(', ');
-        }
-      }
+      const msg = getErrorMessage(error, 'Error cargando empresas');
       console.error('Error cargando empresas:', error);
       showNotification(msg, 'error');
     } finally {
@@ -96,13 +109,12 @@ const EmpresasPage = ({ showNotification }) => {
   const loadEmpresasActivas = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/empresas/activas');
-      const data = await response.json();
+      const data = await empresasApiService.getAllActivas();
       setEmpresas(data || []);
       showNotification('Empresas activas cargadas', 'success');
     } catch (error) {
       console.error('Error cargando empresas activas:', error);
-      showNotification('Error cargando empresas activas', 'error');
+      showNotification(getErrorMessage(error, 'Error cargando empresas activas'), 'error');
     } finally {
       setLoading(false);
     }
@@ -111,13 +123,12 @@ const EmpresasPage = ({ showNotification }) => {
   const loadEmpresasConClientes = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/empresas/con-clientes');
-      const data = await response.json();
+      const data = await empresasApiService.getConClientes();
       setEmpresas(data || []);
       showNotification('Empresas con clientes cargadas', 'success');
     } catch (error) {
       console.error('Error cargando empresas con clientes:', error);
-      showNotification('Error cargando empresas con clientes', 'error');
+      showNotification(getErrorMessage(error, 'Error cargando empresas con clientes'), 'error');
     } finally {
       setLoading(false);
     }
@@ -125,8 +136,7 @@ const EmpresasPage = ({ showNotification }) => {
 
   const loadEstadisticas = async () => {
     try {
-      const response = await fetch('/api/empresas/estadisticas');
-      const data = await response.json();
+      const data = await empresasApiService.estadisticas();
       setEstadisticas(data || []);
     } catch (error) {
       console.error('Error cargando estadísticas:', error);
@@ -141,13 +151,12 @@ const EmpresasPage = ({ showNotification }) => {
 
     try {
       setLoading(true);
-      const response = await fetch(`/api/empresas/buscar?q=${encodeURIComponent(searchQuery)}`);
-      const data = await response.json();
+      const data = await empresasApiService.getById(searchQuery);
       setSearchResult(data);
       showNotification('Búsqueda realizada', 'success');
     } catch (error) {
       console.error('Error en búsqueda:', error);
-      showNotification('Error en búsqueda', 'error');
+      showNotification(getErrorMessage(error, 'Error en búsqueda'), 'error');
       setSearchResult(null);
     } finally {
       setLoading(false);
@@ -159,8 +168,7 @@ const EmpresasPage = ({ showNotification }) => {
 
     try {
       setCuitValidation({ disponible: null, validating: true });
-      const response = await fetch(`http://localhost:8080/api/empresas/validar-cuit/${encodeURIComponent(cuit)}`);
-      const data = await response.json();
+      const data = await empresasApiService.validarCuit(cuit);
       setCuitValidation({ disponible: data.disponible, validating: false });
     } catch (error) {
       console.error('Error validando CUIT:', error);
@@ -170,74 +178,64 @@ const EmpresasPage = ({ showNotification }) => {
 
   const verificarEstado = async (identificador) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/empresas/${encodeURIComponent(identificador)}/estado`);
-      const data = await response.json();
+      const data = await empresasApiService.verificarEstado(identificador);
       showNotification(`Estado: ${data.existe ? 'Existe' : 'No existe'}, ${data.activa ? 'Activa' : 'Inactiva'}`, 'info');
       return data;
     } catch (error) {
       console.error('Error verificando estado:', error);
-      showNotification('Error verificando estado', 'error');
+      showNotification(getErrorMessage(error, 'Error verificando estado'), 'error');
     }
   };
 
   const activarEmpresa = async (id) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/empresas/${encodeURIComponent(id)}/activar`, {
-        method: 'PATCH'
-      });
-      const message = await response.text();
+      const response = await empresasApiService.activar(id);
+      const message = response?.message || response?.mensaje || 'Empresa activada';
       showNotification(message, 'success');
       loadEmpresas();
     } catch (error) {
       console.error('Error activando empresa:', error);
-      showNotification('Error activando empresa', 'error');
+      showNotification(getErrorMessage(error, 'Error activando empresa'), 'error');
     }
   };
 
   const desactivarEmpresa = async (id) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/empresas/${encodeURIComponent(id)}/desactivar`, {
-        method: 'PATCH'
-      });
-      const message = await response.text();
+      const response = await empresasApiService.desactivar(id);
+      const message = response?.message || response?.mensaje || 'Empresa desactivada';
       showNotification(message, 'success');
       loadEmpresas();
     } catch (error) {
       console.error('Error desactivando empresa:', error);
-      showNotification('Error desactivando empresa', 'error');
+      showNotification(getErrorMessage(error, 'Error desactivando empresa'), 'error');
     }
   };
 
   const crearEmpresa = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8080/api/empresas', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
+      const payload = {
+        ...formData,
+        // Compatibilidad backend: usar "activo" y "razonSocial" si son requeridos
+        activo: formData.activa,
+        razonSocial: formData.razonSocial || formData.nombreEmpresa,
+        nombre: formData.nombreEmpresa
+      };
+      await empresasApiService.create(payload);
+      showNotification('Empresa creada exitosamente', 'success');
+      setFormData({
+        nombreEmpresa: '',
+        cuit: '',
+        direccionFiscal: '',
+        telefono: '',
+        email: '',
+        representanteLegal: '',
+        activa: true
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        showNotification('Empresa creada exitosamente', 'success');
-        setFormData({
-          nombreEmpresa: '',
-          cuit: '',
-          direccionFiscal: '',
-          telefono: '',
-          email: '',
-          representanteLegal: '',
-          activa: true
-        });
-        loadEmpresas();
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      loadEmpresas();
     } catch (error) {
       console.error('Error creando empresa:', error);
-      showNotification('Error creando empresa', 'error');
+      showNotification(getErrorMessage(error, 'Error creando empresa'), 'error');
     } finally {
       setLoading(false);
     }
@@ -245,24 +243,20 @@ const EmpresasPage = ({ showNotification }) => {
 
   const actualizarEmpresa = async (id, data) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/empresas/${encodeURIComponent(id)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-
-      if (response.ok) {
-        showNotification('Empresa actualizada exitosamente', 'success');
-        loadEmpresas();
-        setEmpresaParaEditar(null);
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      const payload = {
+        ...data,
+        // Compatibilidad backend: usar "activo" y "razonSocial" si son requeridos
+        activo: data.activo ?? data.activa,
+        razonSocial: data.razonSocial || data.nombreEmpresa,
+        nombre: data.nombreEmpresa
+      };
+      await empresasApiService.update(id, payload);
+      showNotification('Empresa actualizada exitosamente', 'success');
+      loadEmpresas();
+      setEmpresaParaEditar(null);
     } catch (error) {
       console.error('Error actualizando empresa:', error);
-      showNotification('Error actualizando empresa', 'error');
+      showNotification(getErrorMessage(error, 'Error actualizando empresa'), 'error');
     }
   };
 
@@ -270,20 +264,13 @@ const EmpresasPage = ({ showNotification }) => {
     if (!window.confirm('¿Está seguro de eliminar esta empresa?')) return;
 
     try {
-      const response = await fetch(`http://localhost:8080/api/empresas/${encodeURIComponent(id)}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        const message = await response.text();
-        showNotification(message, 'success');
-        loadEmpresas();
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      const response = await empresasApiService.delete(id);
+      const message = response?.message || response?.mensaje || 'Empresa eliminada';
+      showNotification(message, 'success');
+      loadEmpresas();
     } catch (error) {
       console.error('Error eliminando empresa:', error);
-      showNotification('Error eliminando empresa', 'error');
+      showNotification(getErrorMessage(error, 'Error eliminando empresa'), 'error');
     }
   };
 
@@ -360,8 +347,8 @@ const EmpresasPage = ({ showNotification }) => {
                               <td>{empresa.cuit}</td>
                               <td>{empresa.email}</td>
                               <td>
-                                <span className={`badge ${empresa.activa ? 'bg-success' : 'bg-danger'}`}>
-                                  {empresa.activa ? 'Activa' : 'Inactiva'}
+                                <span className={`badge ${(empresa.activa ?? empresa.activo) ? 'bg-success' : 'bg-danger'}`}>
+                                  {(empresa.activa ?? empresa.activo) ? 'Activa' : 'Inactiva'}
                                 </span>
                               </td>
                               <td>{new Date(empresa.fechaCreacion).toLocaleDateString()}</td>

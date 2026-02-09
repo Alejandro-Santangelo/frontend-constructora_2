@@ -6680,29 +6680,81 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     const estadoNormalizado = String(form.estado || '').toUpperCase().replace(/\s+/g, '_');
     if (estadoNormalizado !== 'A_ENVIAR') {
-      console.log(`ℹ️ Trabajo extra no pasa a ENVIADO porque estado actual es "${form.estado}"`);
+      console.log(`ℹ️ Trabajo extra no pasa a ENVIADO porque estado actual es "${form.estado}" (normalizado: "${estadoNormalizado}")`);
       return;
     }
 
     try {
-      console.log('🌐 Actualizando trabajo extra a ENVIADO...', {
-        trabajoExtraId: form.id,
-        empresaId: empresaSeleccionada.id
-      });
+      console.log('🌐 Actualizando trabajo extra a ENVIADO...');
 
-      await apiService.trabajosExtra.update(
+      // 1. Primero obtener el trabajo extra completo actual
+      console.log('📥 GET trabajo extra completo...');
+      const trabajoExtraActual = await apiService.trabajosExtra.getById(
         form.id,
-        {
-          ...form,
-          estado: 'ENVIADO'
-        },
         empresaSeleccionada.id
       );
 
+      console.log('✅ Trabajo extra obtenido del backend:', {
+        id: trabajoExtraActual.id,
+        estado: trabajoExtraActual.estado,
+        nombre: trabajoExtraActual.nombre,
+        keys: Object.keys(trabajoExtraActual)
+      });
+
+      // 2. Actualizar solo el estado en el objeto completo
+      const trabajoExtraActualizado = {
+        ...trabajoExtraActual,
+        estado: 'ENVIADO'
+      };
+
+      console.log('📦 Enviando trabajo extra completo con estado actualizado...', {
+        endpoint: `/api/v1/trabajos-extra/${form.id}`,
+        headers: { empresaId: empresaSeleccionada.id },
+        estadoAnterior: trabajoExtraActual.estado,
+        estadoNuevo: trabajoExtraActualizado.estado,
+        payloadSize: JSON.stringify(trabajoExtraActualizado).length
+      });
+
+      // 3. Enviar PUT con el objeto completo
+      const response = await apiService.trabajosExtra.update(
+        form.id,
+        trabajoExtraActualizado,
+        empresaSeleccionada.id
+      );
+
+      console.log('✅ Respuesta del backend:', {
+        status: response?.status || 'N/A',
+        statusText: response?.statusText || 'N/A',
+        estadoDevuelto: response?.data?.estado,
+        responseKeys: response?.data ? Object.keys(response.data) : []
+      });
+
+      // 🔍 VERIFICACIÓN ADICIONAL: Hacer GET para confirmar que el estado se persistió correctamente
+      console.log('🔍 Verificando que el estado se persistió correctamente...');
+      const trabajoExtraVerificacion = await apiService.trabajosExtra.getById(
+        form.id,
+        empresaSeleccionada.id
+      );
+
+      console.log('🔍 Estado después del PUT:', {
+        estadoAnterior: trabajoExtraActual.estado,
+        estadoEsperado: 'ENVIADO',
+        estadoActual: trabajoExtraVerificacion.estado,
+        persistido: trabajoExtraVerificacion.estado === 'ENVIADO' ? '✅ SÍ' : '❌ NO'
+      });
+
+      if (trabajoExtraVerificacion.estado !== 'ENVIADO') {
+        console.error('❌ EL BACKEND NO PERSISTIÓ EL CAMBIO DE ESTADO');
+        alert('⚠️ Error: El backend no guardó el cambio de estado. El trabajo extra sigue en estado: ' + trabajoExtraVerificacion.estado);
+        return;
+      }
+
       setForm(prev => ({ ...prev, estado: 'ENVIADO' }));
-      console.log('✅ Estado trabajo extra actualizado a ENVIADO');
+      console.log('✅ Estado trabajo extra actualizado localmente a ENVIADO');
     } catch (error) {
       console.error('❌ Error al marcar trabajo extra como ENVIADO:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error stack:', error.stack);
       alert(`❌ Error al actualizar estado del trabajo extra: ${error.response?.data?.message || error.message}`);
     }
   };

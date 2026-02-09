@@ -4,11 +4,11 @@ import apiService from './api';
 export const empresasApiService = {
   async getAll() {
     console.log('🔄 EMPRESAS: Obteniendo lista usando /api/empresas/simple');
-    
+
     try {
       const response = await apiService.get('/api/empresas/simple');
       console.log('✅ EMPRESAS: Respuesta de /api/empresas/simple:', response);
-      
+
       // Tu endpoint devuelve: [{ "resultado": [empresas], "mensaje": null }]
       if (Array.isArray(response) && response.length > 0 && response[0].resultado && Array.isArray(response[0].resultado)) {
         console.log('📋 EMPRESAS: Encontradas', response[0].resultado.length, 'empresas en resultado');
@@ -36,7 +36,7 @@ export const empresasApiService = {
       console.log('✅ EMPRESAS: Respuesta de búsqueda:', response);
       console.log('📊 EMPRESAS: Tipo de respuesta búsqueda:', typeof response);
       console.log('📊 EMPRESAS: Keys de búsqueda:', Object.keys(response || {}));
-      
+
       // El endpoint de búsqueda devuelve directamente la empresa encontrada
       return response;
     } catch (error) {
@@ -54,14 +54,14 @@ export const empresasApiService = {
 
   async update(identificador, data) {
     console.log('🔄 EMPRESAS: Actualizando empresa:', identificador, 'con datos:', data);
-    const response = await apiService.put(`/api/empresas/${identificador}`, data);
+    const response = await apiService.put(`/api/empresas/${encodeURIComponent(identificador)}`, data);
     console.log('✅ EMPRESAS: Empresa actualizada:', response);
     return response;
   },
 
   async delete(identificador) {
     console.log('🔄 EMPRESAS: Eliminando empresa:', identificador);
-    const response = await apiService.delete(`/api/empresas/${identificador}`);
+    const response = await apiService.delete(`/api/empresas/${encodeURIComponent(identificador)}`);
     console.log('✅ EMPRESAS: Empresa eliminada');
     return response;
   },
@@ -73,6 +73,31 @@ export const empresasApiService = {
 
   async getConClientes() {
     const response = await apiService.get('/api/empresas/con-clientes');
+    return response;
+  },
+
+  async estadisticas() {
+    const response = await apiService.get('/api/empresas/estadisticas');
+    return response;
+  },
+
+  async validarCuit(cuit) {
+    const response = await apiService.get(`/api/empresas/validar-cuit/${encodeURIComponent(cuit)}`);
+    return response;
+  },
+
+  async verificarEstado(identificador) {
+    const response = await apiService.get(`/api/empresas/${encodeURIComponent(identificador)}/estado`);
+    return response;
+  },
+
+  async activar(identificador) {
+    const response = await apiService.patch(`/api/empresas/${encodeURIComponent(identificador)}/activar`);
+    return response;
+  },
+
+  async desactivar(identificador) {
+    const response = await apiService.patch(`/api/empresas/${encodeURIComponent(identificador)}/desactivar`);
     return response;
   }
 };

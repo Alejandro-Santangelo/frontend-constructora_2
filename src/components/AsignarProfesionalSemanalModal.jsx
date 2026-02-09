@@ -194,6 +194,13 @@ const AsignarProfesionalSemanalModal = ({
       cargarTodosProfesionales();
       cargarPresupuestoObra();
       cargarAsignacionesExistentes();
+    } else if (!show) {
+      // 🧹 Limpiar estados cuando se cierra el modal
+      console.log('🧹 Limpiando estados del modal...');
+      // No limpiamos profesionalesSeleccionados ni asignacionesPorSemana para mantener cambios pendientes
+      // Solo limpiamos loadings y asignacionesExistentes que se recargan siempre
+      setLoadingPresupuesto(false);
+      setLoadingAsignaciones(false);
     }
   }, [show, obra]);
 
@@ -347,7 +354,92 @@ const AsignarProfesionalSemanalModal = ({
         return;
       }
 
-      // 🔥 PRIORIDAD 1: USAR ASIGNACIONES YA CARGADAS SI EXISTEN
+      // 🔥 PRIORIDAD 1: SI ES TRABAJO EXTRA, CARGAR DESDE ITEMSCALCULADORA[] SIEMPRE
+      // (Ignorar asignacionesActuales porque vienen en formato incorrecto)
+      if (obra._esTrabajoExtra) {
+        console.log('🔥 [TRABAJO EXTRA] Cargando profesionales desde itemsCalculadora[]');
+        try {
+          // Obtener trabajo extra completo con itemsCalculadora[]
+          const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+          console.log('📦 Trabajo extra obtenido:', trabajoExtra);
+          console.log('📦 Items calculadora:', trabajoExtra.itemsCalculadora?.length || 0);
+
+          // Extraer profesionales de itemsCalculadora[]
+          const profesionalesDelTrabajoExtra = [];
+
+          if (trabajoExtra.itemsCalculadora && Array.isArray(trabajoExtra.itemsCalculadora)) {
+            trabajoExtra.itemsCalculadora.forEach((item, itemIdx) => {
+              console.log(`  📋 Item ${itemIdx}:`, {
+                id: item.id,
+                tipoProfesional: item.tipoProfesional,
+                descripcion: item.descripcion,
+                cantidadProfesionales: item.profesionales?.length || 0,
+                profesionales: item.profesionales
+              });
+
+              if (item.profesionales && Array.isArray(item.profesionales)) {
+                console.log(`    ✅ Item ${itemIdx} tiene ${item.profesionales.length} profesionales`);
+
+                item.profesionales.forEach((prof, profIdx) => {
+                  console.log(`    👤 Profesional ${profIdx}:`, prof.nombreCompleto, '-', prof.rol, '- ID:', prof.id);
+
+                  // Convertir al formato de asignación que espera el modal
+                  profesionalesDelTrabajoExtra.push({
+                    modalidad: 'total', // Los trabajos extra se manejan como asignación total
+                    profesionalId: prof.profesionalObraId || prof.id || `temp_${Date.now()}_${Math.random()}`,
+                    profesionalNombre: prof.nombreCompleto || prof.nombre || 'Sin nombre',
+                    profesionalTipo: prof.rol || item.tipoProfesional || 'Profesional',
+                    cantidadJornales: prof.cantidadJornales || 0,
+                    valorJornal: prof.valorJornal || 0,
+                    subtotal: prof.subtotal || 0,
+                    observaciones: prof.observaciones || null,
+                    // ⚠️ IMPORTANTE: asignacionId se usa para DELETE, debe ser el ID del profesional en itemsCalculadora
+                    asignacionId: prof.id,
+                    // Datos adicionales útiles
+                    _fromItemsCalculadora: true,
+                    _itemId: item.id,
+                    _tipoProfesionalItem: item.tipoProfesional
+                  });
+                });
+              }
+            });
+          }
+
+          console.log(`✅ Profesionales extraídos de itemsCalculadora: ${profesionalesDelTrabajoExtra.length}`);
+          console.log('📋 Profesionales completos:', JSON.stringify(profesionalesDelTrabajoExtra, null, 2));
+
+          // 🔥 Para trabajos extra, SIEMPRE establecer modalidad 'total' (aunque no haya profesionales aún)
+          console.log('🔵 Estableciendo modalidad = total para trabajo extra');
+          setModalidadAsignacion('total');
+
+          // Si hay profesionales, establecerlos en profesionalesSeleccionados
+          if (profesionalesDelTrabajoExtra.length > 0) {
+            const profesionalesParaSeleccionar = profesionalesDelTrabajoExtra.map(asig => ({
+              id: asig.profesionalId,
+              nombre: asig.profesionalNombre,
+              tipoProfesional: asig.profesionalTipo
+            }));
+
+            console.log('✅ Estableciendo profesionales seleccionados:', profesionalesParaSeleccionar);
+            setProfesionalesSeleccionados(profesionalesParaSeleccionar);
+          } else {
+            console.log('ℹ️ No hay profesionales en itemsCalculadora, inicializando vacío');
+            setProfesionalesSeleccionados([]);
+          }
+
+          setAsignacionesExistentes(profesionalesDelTrabajoExtra);
+          setLoadingAsignaciones(false);
+          return;
+        } catch (error) {
+          console.error('❌ Error cargando trabajo extra:', error);
+          // Si falla, continuar con array vacío
+          setAsignacionesExistentes([]);
+          setLoadingAsignaciones(false);
+          return;
+        }
+      }
+
+      // 🔵 PRIORIDAD 2: USAR ASIGNACIONES YA CARGADAS (solo para obras normales)
       if (obra.asignacionesActuales && Array.isArray(obra.asignacionesActuales) && obra.asignacionesActuales.length > 0) {
         console.log('✅ Usando asignaciones pre-cargadas desde obra:', obra.asignacionesActuales.length);
         setAsignacionesExistentes(obra.asignacionesActuales);
@@ -355,14 +447,7 @@ const AsignarProfesionalSemanalModal = ({
         return;
       }
 
-      // ✅ PRIORIDAD 2: SI ES TRABAJO EXTRA SIN ASIGNACIONES PRE-CARGADAS, INICIAR VACÍO
-      if (obra._esTrabajoExtra) {
-        console.log('✅ Trabajo extra sin asignaciones pre-cargadas - iniciando vacío');
-        setAsignacionesExistentes([]);
-        setLoadingAsignaciones(false);
-        return;
-      }
-
+      // 🟢 PRIORIDAD 3: CARGAR DESDE BACKEND (obras normales sin asignaciones pre-cargadas)
       // 1. Obtener el presupuesto con estado válido más reciente
       const presupuestoAprobado = await obtenerPresupuestoAprobadoMasReciente();
       console.log('🔍 Presupuesto con estado válido más reciente:', presupuestoAprobado);
@@ -1470,6 +1555,153 @@ const AsignarProfesionalSemanalModal = ({
   };
 
   const handleAsignar = async () => {
+    // 🔥 TRABAJO EXTRA: Guardado especial con PUT a /api/v1/trabajos-extra/{id}
+    if (obra._esTrabajoExtra) {
+      console.log('🔥 [TRABAJO EXTRA] Iniciando guardado de profesionales...');
+
+      // Validar que haya profesionales seleccionados
+      if (!profesionalesSeleccionados || profesionalesSeleccionados.length === 0) {
+        alert('⚠️ Debes seleccionar al menos un profesional');
+        return;
+      }
+
+      setCargando(true);
+      try {
+        // 1. Obtener el trabajo extra completo actual
+        console.log('📥 Obteniendo trabajo extra completo...');
+        const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+        console.log('✅ Trabajo extra obtenido:', trabajoExtra);
+
+        // 2. Validar que tenga itemsCalculadora con al menos un item
+        if (!trabajoExtra.itemsCalculadora || trabajoExtra.itemsCalculadora.length === 0) {
+          alert('❌ Error: El trabajo extra no tiene rubros (itemsCalculadora vacío)');
+          setCargando(false);
+          return;
+        }
+
+        const primerItem = trabajoExtra.itemsCalculadora[0];
+        if (!primerItem.id) {
+          alert('❌ Error: El rubro del trabajo extra no tiene ID');
+          setCargando(false);
+          return;
+        }
+
+        console.log('📋 Rubro a actualizar:', { id: primerItem.id, tipo: primerItem.tipoProfesional });
+
+        // 3. Construir array de profesionales según especificación del backend
+        const profesionalesPayload = profesionalesSeleccionados.map(prof => {
+          // Buscar info completa del profesional en todosProfesionales
+          const profComplete = todosProfesionales.find(p => p.id === prof.id) || prof;
+          const cantJornales = diasHabilesObjetivo || 10;
+          const valorJorn = profComplete.valorPromedio || 0;
+
+          return {
+            profesionalObraId: Number(prof.id),
+            rol: profComplete.tipoProfesional || prof.tipoProfesional || 'Profesional',
+            nombreCompleto: prof.nombre || profComplete.nombre || 'Sin nombre',
+            cantidadJornales: cantJornales,
+            valorJornal: valorJorn,
+            subtotal: cantJornales * valorJorn, // ⚠️ OBLIGATORIO: calcular subtotal
+            incluirEnCalculoDias: true
+          };
+        });
+
+        console.log('👥 Profesionales a guardar:', profesionalesPayload);
+
+        // 4. Calcular totales del item
+        const totalJornales = profesionalesPayload.reduce((sum, p) => sum + p.cantidadJornales, 0);
+        const importePromedio = profesionalesPayload.length > 0
+          ? profesionalesPayload.reduce((sum, p) => sum + p.valorJornal, 0) / profesionalesPayload.length
+          : 0;
+        const subtotalManoObra = profesionalesPayload.reduce((sum, p) => sum + p.subtotal, 0);
+
+        // 5. Construir payload según especificación del backend
+        // ⚠️ IMPORTANTE: Debe incluir TODOS los campos obligatorios del item
+        const payload = {
+          obraId: trabajoExtra.obraId,
+          nombre: trabajoExtra.nombre,
+          descripcion: trabajoExtra.descripcion,
+          fechaProbableInicio: trabajoExtra.fechaProbableInicio,
+          vencimiento: trabajoExtra.vencimiento,
+          tiempoEstimadoTerminacion: trabajoExtra.tiempoEstimadoTerminacion,
+          itemsCalculadora: [
+            {
+              id: primerItem.id,
+              tipoProfesional: primerItem.tipoProfesional || 'Profesional',
+              descripcion: primerItem.descripcion || 'Trabajo adicional',
+
+              // ⚠️ CAMPOS OBLIGATORIOS DEL ITEM
+              esModoManual: primerItem.esModoManual ?? false,
+              esRubroVacio: primerItem.esRubroVacio ?? false,
+              esGastoGeneral: primerItem.esGastoGeneral ?? false,
+              incluirEnCalculoDias: primerItem.incluirEnCalculoDias ?? true,
+              trabajaEnParalelo: primerItem.trabajaEnParalelo ?? true,
+
+              // Cálculos actualizados con profesionales seleccionados
+              cantidadJornales: totalJornales,
+              importeJornal: importePromedio,
+              subtotalManoObra: subtotalManoObra,
+              total: subtotalManoObra, // Por ahora solo mano de obra (sin materiales/gastos)
+
+              // Arrays de datos
+              profesionales: profesionalesPayload,
+              materialesLista: primerItem.materialesLista || [],
+              gastosGenerales: primerItem.gastosGenerales || [],
+              jornales: primerItem.jornales || []
+            }
+          ],
+          dias: trabajoExtra.dias || []
+        };
+
+        console.log('📦 Payload completo a enviar:', JSON.stringify(payload, null, 2));
+
+        // 5. Enviar PUT al backend
+        console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${obra.id}`);
+        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${obra.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'empresaId': empresaSeleccionada.id.toString()
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.text();
+          console.error('❌ Error del backend:', errorData);
+          throw new Error(`Error ${response.status}: ${errorData}`);
+        }
+
+        const resultado = await response.json();
+        console.log('✅ Respuesta del backend:', resultado);
+
+        // 6. Success feedback
+        alert(`✅ ${profesionalesSeleccionados.length} profesional(es) asignado(s) correctamente al trabajo extra`);
+
+        // 7. Actualizar UI
+        if (onAsignar) {
+          onAsignar();
+        }
+        if (onRefreshProfesionales) {
+          onRefreshProfesionales();
+        }
+
+        setCargando(false);
+        onHide();
+        return; // ✅ Salir aquí, no continuar con lógica de obras normales
+
+      } catch (error) {
+        console.error('❌ Error asignando profesionales a trabajo extra:', error);
+        alert(`❌ Error al guardar: ${error.message}`);
+        setCargando(false);
+        return;
+      }
+    }
+
+    // 🔵 OBRA NORMAL: Lógica original para obras normales
+    // Las asignaciones de planificación funcionan igual para obras normales y trabajos extra
+    // Ambas usan tablas relacionales (asignaciones_profesional_obra, etc.)
+
     const tieneAsignacionesExistentes = Array.isArray(asignacionesExistentes) && asignacionesExistentes.length > 0;
     // Validaciones
     if (modalidadAsignacion === 'total') {
@@ -1728,6 +1960,7 @@ const AsignarProfesionalSemanalModal = ({
       }
 
       // Llamar al servicio del backend (siempre POST después de eliminar)
+      // NOTA: El bloqueo para trabajos extra ya se ejecutó al inicio de handleAsignar
       const response = await crearAsignacionSemanal(payload, empresaSeleccionada.id);
 
       // 🔍 DEBUG: Ver qué retorna exactamente el backend
@@ -1894,7 +2127,27 @@ const AsignarProfesionalSemanalModal = ({
 
     try {
       console.log('🗑️ Eliminando asignación:', asignacionId);
-      await eliminarAsignacionSemanal(asignacionId, empresaSeleccionada.id);
+
+      // 🔥 BIFURCACIÓN: Trabajos extra vs Obras normales
+      if (obra._esTrabajoExtra) {
+        // Eliminar profesional de trabajo extra usando endpoint DELETE específico
+        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/profesionales/${asignacionId}`, {
+          method: 'DELETE',
+          headers: {
+            'empresaId': empresaSeleccionada.id.toString()
+          }
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Error ${response.status}: ${errorText}`);
+        }
+
+        console.log('✅ Profesional eliminado del trabajo extra');
+      } else {
+        // Obra normal: usar endpoint tradicional
+        await eliminarAsignacionSemanal(asignacionId, empresaSeleccionada.id);
+      }
 
       alert('✅ Asignación eliminada correctamente');
 
@@ -2084,10 +2337,106 @@ const AsignarProfesionalSemanalModal = ({
   };
 
   const renderTablaProfesionalesAsignados = () => {
-    if (!semanas || semanas.length === 0) {
-      return null;
+    console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesExistentes:', asignacionesExistentes);
+    console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesExistentes.length:', asignacionesExistentes?.length);
+
+    // 🔥 PRIORIDAD 1: Si hay asignaciones en modalidad 'total', mostrarlas directamente
+    const asignacionesTotales = asignacionesExistentes.filter(a => a.modalidad === 'total');
+    console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesTotales:', asignacionesTotales);
+    console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesTotales.length:', asignacionesTotales.length);
+    if (asignacionesTotales.length > 0) {
+      console.log('✅ Renderizando asignaciones en modalidad TOTAL:', asignacionesTotales);
+
+      // Extraer profesionales únicos
+      const profesionalesUnicos = [];
+      const profesionalesIds = new Set();
+
+      asignacionesTotales.forEach(asignacion => {
+        if (asignacion.profesionalId && !profesionalesIds.has(asignacion.profesionalId)) {
+          profesionalesIds.add(asignacion.profesionalId);
+          profesionalesUnicos.push({
+            id: asignacion.profesionalId,
+            nombre: asignacion.profesionalNombre || `Profesional ${asignacion.profesionalId}`,
+            tipoProfesional: asignacion.profesionalTipo || 'Profesional',
+            cantidadJornales: asignacion.cantidadJornales,
+            valorJornal: asignacion.valorJornal,
+            subtotal: asignacion.subtotal
+          });
+        }
+      });
+
+      if (profesionalesUnicos.length > 0) {
+        return (
+          <div className="mt-3">
+            <div className="alert alert-success mb-3">
+              <i className="fas fa-check-circle me-2"></i>
+              <strong>Modalidad:</strong> Asignación por Obra Completa
+              <br />
+              <small className="text-muted">
+                {profesionalesUnicos.length} profesional(es) asignado(s) a toda la obra
+              </small>
+            </div>
+
+            <div className="table-responsive">
+              <table className="table table-sm table-hover">
+                <thead className="table-light">
+                  <tr>
+                    <th>Profesional</th>
+                    <th>Tipo</th>
+                    <th className="text-end">Jornales</th>
+                    <th className="text-end">Valor Jornal</th>
+                    <th className="text-end">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profesionalesUnicos.map(prof => (
+                    <tr key={prof.id}>
+                      <td>
+                        <i className="fas fa-user me-2 text-primary"></i>
+                        {prof.nombre}
+                      </td>
+                      <td>
+                        <span className="badge bg-info">
+                          {prof.tipoProfesional}
+                        </span>
+                      </td>
+                      <td className="text-end">{prof.cantidadJornales || '-'}</td>
+                      <td className="text-end">
+                        {prof.valorJornal ? `$${prof.valorJornal.toLocaleString('es-AR')}` : '-'}
+                      </td>
+                      <td className="text-end">
+                        <strong>
+                          {prof.subtotal ? `$${prof.subtotal.toLocaleString('es-AR')}` : '-'}
+                        </strong>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      }
     }
 
+    // 🔵 OPCIÓN 2: Si no hay semanas, mostrar mensaje apropiado
+    if (!semanas || semanas.length === 0) {
+      // Si hay asignacionesExistentes pero no son 'total', puede ser un problema
+      if (asignacionesExistentes.length > 0) {
+        console.warn('⚠️ Hay asignaciones pero no se pueden renderizar:', asignacionesExistentes);
+      }
+
+      return (
+        <div className="alert alert-info mb-0">
+          <small>
+            <i className="fas fa-info-circle me-2"></i>
+            No hay profesionales asignados. Selecciona una modalidad para comenzar.
+          </small>
+        </div>
+      );
+    }
+
+    // 🟢 OPCIÓN 3: Lógica normal para asignaciones semanales
     return (
       <div className="mt-3">
         <div className="d-flex justify-content-between align-items-center mb-2">
@@ -2250,17 +2599,8 @@ const AsignarProfesionalSemanalModal = ({
                               style={{padding: '2px 8px', fontSize: '0.75rem'}}
                               onClick={async (e) => {
                                 e.stopPropagation();
-                                if (confirm(`¿Eliminar a ${prof.nombre} de la Semana ${data.semana.numeroSemana}?`)) {
-                                  try {
-                                    await eliminarAsignacionSemanal(prof.asignacionId, empresaSeleccionada.id);
-                                    setAsignacionesEliminadas(prev => [...prev, prof.asignacionId]);
-                                    await cargarAsignacionesExistentes();
-                                    alert('✅ Asignación eliminada correctamente');
-                                  } catch (error) {
-                                    console.error('Error:', error);
-                                    alert('❌ Error al eliminar la asignación: ' + error.message);
-                                  }
-                                }
+                                // Usar handleEliminarAsignacion que soporta trabajos extra
+                                await handleEliminarAsignacion(prof.asignacionId);
                               }}
                               title="Eliminar asignación"
                             >
