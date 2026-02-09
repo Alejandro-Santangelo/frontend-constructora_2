@@ -58,6 +58,9 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
   const [trabajosExtraSeleccionados, setTrabajosExtraSeleccionados] = useState([]);
   const [mostrarDetallesTrabajo, setMostrarDetallesTrabajo] = useState({}); // {trabajoId: true/false}
 
+  // 🗓️ Estado para toggle de días trabajados (incluir/excluir feriados)
+  const [mostrarSoloHabiles, setMostrarSoloHabiles] = useState(false); // false = mostrar todos los días, true = solo hábiles
+
   useEffect(() => {
     if (show && empresaSeleccionada) {
       console.log('🔄 [PagoConsolidado] Modal abierto, cargando datos...');
@@ -2132,7 +2135,8 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                     <div className="alert alert-info mt-2 mb-0 py-2" style={{fontSize:'0.85rem'}}>
                       <i className="bi bi-calendar-check me-1"></i>
                       <strong>Calendario de Feriados:</strong> El sistema tiene en cuenta los feriados nacionales de Argentina (2025-2026).
-                      Los días marcados como feriados se identifican con 🗓️ en la tabla de profesionales.
+                      Use los botones "<strong>📅 Asignados</strong>" o "<strong>✅ Hábiles</strong>" en la columna "Días Trabajados" para elegir si desea incluir o excluir los feriados en el cálculo de pagos.
+                      Los días marcados como feriados se identifican con 🗓️ en la tabla.
                     </div>
                   </div>
                 </div>
@@ -2214,11 +2218,30 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                           <tr>
                                             <th style={{minWidth:'120px',padding:'8px'}}>Tipo Profesional</th>
                                             <th style={{minWidth:'150px',padding:'8px'}}>Nombre Completo</th>
-                                            <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>
-                                              Días Trabajados
-                                              <span className="d-block text-muted" style={{fontSize:'0.75rem',fontWeight:'normal'}}>
-                                                (Hábiles)
-                                              </span>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'center'}}>
+                                              <div className="d-flex flex-column align-items-center gap-1">
+                                                <span>Días Trabajados</span>
+                                                <div className="btn-group btn-group-sm" role="group">
+                                                  <button
+                                                    type="button"
+                                                    className={`btn ${!mostrarSoloHabiles ? 'btn-primary' : 'btn-outline-primary'}`}
+                                                    onClick={() => setMostrarSoloHabiles(false)}
+                                                    style={{fontSize:'0.7rem',padding:'2px 8px'}}
+                                                    title="Mostrar todos los días asignados (incluye feriados)"
+                                                  >
+                                                    📅 Asignados
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    className={`btn ${mostrarSoloHabiles ? 'btn-success' : 'btn-outline-success'}`}
+                                                    onClick={() => setMostrarSoloHabiles(true)}
+                                                    style={{fontSize:'0.7rem',padding:'2px 8px'}}
+                                                    title="Mostrar solo días hábiles (excluye feriados)"
+                                                  >
+                                                    ✅ Hábiles
+                                                  </button>
+                                                </div>
+                                              </div>
                                             </th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Tarifa por Día</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Total a Pagar</th>
@@ -2276,6 +2299,13 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                             const totalDias = prof.totalJornales || prof.diasTrabajados || prof.cantidadJornales || 0;
                                             const hayFeriados = totalFeriados > 0;
 
+                                            // 🗓️ Determinar qué días mostrar según el toggle
+                                            const diasAMostrar = mostrarSoloHabiles ? totalHabiles : totalDias;
+                                            const totalAPagar = mostrarSoloHabiles
+                                              ? totalHabiles * (prof.tarifaPorDia || prof.precioJornal || 0)
+                                              : (prof.importeCalculado || prof.precioTotal || 0);
+                                            const saldoAjustado = totalAPagar - (prof.totalPagado || 0);
+
                                             return (
                                               <tr key={uniqueId} className={estaPagado ? 'table-success' : ''}>
                                                 <td>{prof.tipoProfesional || prof.tipo || '-'}</td>
@@ -2287,27 +2317,52 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                                 </td>
                                                 <td className="text-center">
                                                   <div className="d-flex justify-content-center align-items-center gap-1">
-                                                    <span className="fw-bold">{totalDias}</span>
-                                                    {hayFeriados && (
+                                                    <span className="fw-bold">{diasAMostrar}</span>
+                                                    {hayFeriados && !mostrarSoloHabiles && (
                                                       <span
                                                         className="badge bg-warning text-dark"
                                                         style={{fontSize:'0.65rem',cursor:'help'}}
-                                                        title={`🗓️ Total: ${totalDias} días\n✅ Hábiles: ${totalHabiles} días\n🎉 Feriados: ${totalFeriados} día(s)\n\nLos feriados están incluidos pero identificados para referencia.`}
+                                                        title={`🗓️ Total: ${totalDias} días\n✅ Hábiles: ${totalHabiles} días\n🎉 Feriados: ${totalFeriados} día(s)`}
                                                       >
                                                         🗓️ {totalFeriados}F
+                                                      </span>
+                                                    )}
+                                                    {mostrarSoloHabiles && hayFeriados && (
+                                                      <span
+                                                        className="badge bg-info text-dark"
+                                                        style={{fontSize:'0.65rem',cursor:'help'}}
+                                                        title={`✅ Días hábiles: ${totalHabiles}\n🗓️ Total asignados: ${totalDias}\n🎉 Feriados excluidos: ${totalFeriados}`}
+                                                      >
+                                                        -{totalFeriados}🗓️
                                                       </span>
                                                     )}
                                                   </div>
                                                   {hayFeriados && (
                                                     <small className="text-muted d-block" style={{fontSize:'0.7rem'}}>
-                                                      ({totalHabiles} hábiles)
+                                                      {mostrarSoloHabiles
+                                                        ? `(${totalDias} total)`
+                                                        : `(${totalHabiles} hábiles)`}
                                                     </small>
                                                   )}
                                                 </td>
                                                 <td className="text-end">${(prof.tarifaPorDia || prof.precioJornal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
-                                                <td className="text-end fw-bold">${(prof.importeCalculado || prof.precioTotal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                                <td className="text-end fw-bold">
+                                                  ${totalAPagar.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                  {mostrarSoloHabiles && hayFeriados && (
+                                                    <small className="d-block text-muted" style={{fontSize:'0.7rem'}}>
+                                                      (${(prof.importeCalculado || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})} total)
+                                                    </small>
+                                                  )}
+                                                </td>
                                                 <td className="text-end text-success">${(prof.totalPagado || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
-                                                <td className="text-end text-danger">${saldoPendiente.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                                <td className="text-end text-danger">
+                                                  ${saldoAjustado.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                  {mostrarSoloHabiles && hayFeriados && Math.abs(saldoAjustado - saldoPendiente) > 0.01 && (
+                                                    <small className="d-block text-muted" style={{fontSize:'0.7rem'}}>
+                                                      (${saldoPendiente.toLocaleString('es-AR', {minimumFractionDigits: 2})} total)
+                                                    </small>
+                                                  )}
+                                                </td>
                                                 <td className="text-center">
                                                   {estaPagado ? (
                                                     <span className="badge bg-success">✅ Completo</span>
