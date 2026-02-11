@@ -488,6 +488,31 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const [materialesSectionOpen, setMaterialesSectionOpen] = useState(false);
   const [gastosSectionOpen, setGastosSectionOpen] = useState(false);
 
+  // ✨ Actualizar descripciones globales cuando cambia el nombre del rubro
+  useEffect(() => {
+    if (tipoProfesionalCalc && tipoProfesionalCalc.trim()) {
+      // Solo actualizar si las descripciones están en su valor por defecto
+      if (globalJornales.descripcion === 'Presupuesto Global Mano de Obra' || !globalJornales.descripcion.includes(tipoProfesionalCalc)) {
+        setGlobalJornales(prev => ({
+          ...prev,
+          descripcion: `Presupuesto Jornales ${tipoProfesionalCalc}`
+        }));
+      }
+      if (globalMateriales.descripcion === 'Presupuesto Global Materiales' || !globalMateriales.descripcion.includes(tipoProfesionalCalc)) {
+        setGlobalMateriales(prev => ({
+          ...prev,
+          descripcion: `Presupuesto Materiales ${tipoProfesionalCalc}`
+        }));
+      }
+      if (globalGastos.descripcion === 'Presupuesto Global Gastos Grales.' || !globalGastos.descripcion.includes(tipoProfesionalCalc)) {
+        setGlobalGastos(prev => ({
+          ...prev,
+          descripcion: `Presupuesto Gastos Generales ${tipoProfesionalCalc}`
+        }));
+      }
+    }
+  }, [tipoProfesionalCalc]);
+
   // useEffect para actualizar form cuando cambian los initialData (al abrir para editar)
   useEffect(() => {
     console.log('🚩 [useEffect-442] Ejecutado');
@@ -9995,7 +10020,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       className="form-control form-control-sm"
                                       value={globalJornales.descripcion}
                                       onChange={(e) => setGlobalJornales({...globalJornales, descripcion: e.target.value})}
-                                      placeholder="Ej: Mano de obra global estimada para albañilería"
+                                      placeholder={`Ej: Presupuesto Jornales ${tipoProfesionalCalc || 'del rubro'}`}
                                     />
                                   </div>
                                   <div style={{minWidth: '200px', maxWidth: '200px'}}>
@@ -10337,7 +10362,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       className="form-control form-control-sm"
                                       value={globalMateriales.descripcion}
                                       onChange={(e) => setGlobalMateriales({...globalMateriales, descripcion: e.target.value})}
-                                      placeholder="Ej: Materiales gruesos y finos globales estimados"
+                                      placeholder={`Ej: Presupuesto Materiales ${tipoProfesionalCalc || 'del rubro'}`}
                                     />
                                   </div>
                                   <div style={{minWidth: '200px', maxWidth: '200px'}}>
@@ -10743,7 +10768,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                         className="form-control form-control-sm"
                                         value={globalGastos.descripcion}
                                         onChange={(e) => setGlobalGastos({...globalGastos, descripcion: e.target.value})}
-                                        placeholder="Ej: Gastos operativos, transporte y permisos globales estimados"
+                                        placeholder={`Ej: Presupuesto Gastos Generales ${tipoProfesionalCalc || 'del rubro'}`}
                                       />
                                     </div>
                                     <div style={{minWidth: '200px', maxWidth: '200px'}}>

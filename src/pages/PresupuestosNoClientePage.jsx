@@ -355,46 +355,75 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         })
       );
 
-      // 🎯 ORDENAMIENTO INTELIGENTE: Agrupar trabajos extra con sus presupuestos padres
-      // 1. Separar presupuestos normales de trabajos extra
-      const presupuestosNormales = presupuestosCompletos.filter(p => !p.esPresupuestoTrabajoExtra);
-      const trabajosExtra = presupuestosCompletos.filter(p => p.esPresupuestoTrabajoExtra);
+      // 🎯 AGRUPACIÓN INTELIGENTE POR CLIENTE: Agrupar TODOS los presupuestos por cliente_id
+      console.log('📊 Agrupando presupuestos por cliente_id...');
 
-      // 2. Ordenar presupuestos normales por número (descendente)
-      presupuestosNormales.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
+      // 1. Agrupar presupuestos por cliente_id
+      const gruposPorCliente = {};
+      const presupuestosSinCliente = [];
 
-      // 3. Construir lista final intercalando trabajos extra después de sus presupuestos padres
-      const listaOrdenada = [];
-      presupuestosNormales.forEach(presupuesto => {
-        // Agregar el presupuesto normal
-        listaOrdenada.push(presupuesto);
-
-        // Buscar trabajos extra asociados a este presupuesto
-        const trabajosExtraAsociados = trabajosExtra.filter(te => {
-          // Un trabajo extra está asociado si su obra fue creada por este presupuesto
-          const numeroPresupuestoPadre = mapObraAPresupuesto[te.obraId];
-          return numeroPresupuestoPadre === presupuesto.numeroPresupuesto;
-        });
-
-        // Agregar trabajos extra justo después del presupuesto padre
-        if (trabajosExtraAsociados.length > 0) {
-          // Ordenar los trabajos extra por su número de presupuesto (descendente)
-          trabajosExtraAsociados.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
-          listaOrdenada.push(...trabajosExtraAsociados);
-          console.log(`📎 Presupuesto #${presupuesto.numeroPresupuesto} tiene ${trabajosExtraAsociados.length} trabajo(s) extra asociado(s)`);
+      presupuestosCompletos.forEach(p => {
+        if (p.clienteId) {
+          if (!gruposPorCliente[p.clienteId]) {
+            gruposPorCliente[p.clienteId] = [];
+          }
+          gruposPorCliente[p.clienteId].push(p);
+        } else {
+          presupuestosSinCliente.push(p);
         }
       });
 
-      // 4. Agregar trabajos extra huérfanos (sin presupuesto padre identificado) al final
-      const trabajosExtraHuerfanos = trabajosExtra.filter(te => {
-        const numeroPresupuestoPadre = mapObraAPresupuesto[te.obraId];
-        return !numeroPresupuestoPadre || !presupuestosNormales.find(p => p.numeroPresupuesto === numeroPresupuestoPadre);
+      // 2. Ordenar presupuestos dentro de cada grupo por número (descendente)
+      Object.values(gruposPorCliente).forEach(grupo => {
+        grupo.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
       });
 
-      if (trabajosExtraHuerfanos.length > 0) {
-        console.log(`⚠️ ${trabajosExtraHuerfanos.length} trabajo(s) extra sin presupuesto padre identificado`);
-        trabajosExtraHuerfanos.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
-        listaOrdenada.push(...trabajosExtraHuerfanos);
+      // 3. Ordenar grupos por el número de presupuesto más alto de cada grupo
+      const gruposOrdenados = Object.entries(gruposPorCliente)
+        .map(([clienteId, presupuestos]) => ({
+          clienteId,
+          presupuestos,
+          maxNumeroPresupuesto: Math.max(...presupuestos.map(p => p.numeroPresupuesto || 0))
+        }))
+        .sort((a, b) => b.maxNumeroPresupuesto - a.maxNumeroPresupuesto);
+
+      // 4. Construir lista final con información de grupo
+      const listaOrdenada = [];
+      let grupoIndex = 0;
+
+      gruposOrdenados.forEach(grupo => {
+        console.log(`📦 Grupo cliente ${grupo.clienteId}: ${grupo.presupuestos.length} presupuesto(s)`);
+
+        grupo.presupuestos.forEach((presupuesto, indexEnGrupo) => {
+          // Agregar metadatos del grupo al presupuesto
+          listaOrdenada.push({
+            ...presupuesto,
+            _grupoCliente: grupo.clienteId,
+            _grupoIndex: grupoIndex,
+            _primerEnGrupo: indexEnGrupo === 0,
+            _ultimoEnGrupo: indexEnGrupo === grupo.presupuestos.length - 1,
+            _totalEnGrupo: grupo.presupuestos.length
+          });
+        });
+
+        grupoIndex++;
+      });
+
+      // 5. Agregar presupuestos sin cliente al final
+      if (presupuestosSinCliente.length > 0) {
+        console.log(`⚠️ ${presupuestosSinCliente.length} presupuesto(s) sin cliente`);
+        presupuestosSinCliente.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
+        presupuestosSinCliente.forEach(p => {
+          listaOrdenada.push({
+            ...p,
+            _grupoCliente: null,
+            _grupoIndex: grupoIndex,
+            _primerEnGrupo: true,
+            _ultimoEnGrupo: true,
+            _totalEnGrupo: 1
+          });
+          grupoIndex++;
+        });
       }
 
       // Aplicar filtros de búsqueda
@@ -1623,10 +1652,18 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   }, [selectedId, setPresupuestoControls, list]);
 
   return (
-    <div className="container-fluid fade-in" style={{padding: '0'}} onClick={() => setSelectedId(null)}>
-      <div className="d-flex justify-content-between align-items-center mb-3" style={{padding: '0 15px'}}>
-        <div className="d-flex align-items-center gap-3">
-          <h3 className="mb-0"><i className="fas fa-file-signature me-2"></i>Presupuestos</h3>
+    <>
+      {/* Estilos personalizados para hover celeste */}
+      <style>{`
+        .table-hover tbody tr:hover td {
+          background-color: #d1ecf1 !important;
+        }
+      `}</style>
+
+      <div className="container-fluid fade-in" style={{padding: '0'}} onClick={() => setSelectedId(null)}>
+        <div className="d-flex justify-content-between align-items-center mb-3" style={{padding: '0 15px'}}>
+          <div className="d-flex align-items-center gap-3">
+            <h3 className="mb-0"><i className="fas fa-file-signature me-2"></i>Presupuestos</h3>
           {tieneFiltrosPorDefecto && (
             <span
               className="badge bg-info"
@@ -1688,7 +1725,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.map(row => {
+                  {list.map((row, index) => {
                     const esEditable = esPresupuestoEditable(row);
                     const esSemanal = row.tipoPresupuesto === 'TRABAJOS_SEMANALES';
                     const alertaInicio = obtenerAlertaInicio(row);
@@ -1696,9 +1733,61 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     const rowId = row.id;
                     const isSelected = selectedId && rowId && selectedId === rowId;
 
+                    // Determinar información de grupo para estilos visuales
+                    const perteneceAGrupo = row._grupoCliente !== null;
+                    const esPrimerEnGrupo = row._primerEnGrupo;
+                    const esUltimoEnGrupo = row._ultimoEnGrupo;
+                    const grupoIndex = row._grupoIndex || 0;
+                    const totalEnGrupo = row._totalEnGrupo || 1;
+
+                    // Verificar si es un cambio de grupo (comparar con el anterior)
+                    const esCambioDeGrupo = index > 0 && list[index - 1]._grupoCliente !== row._grupoCliente;
+
+                    // Colores alternados para grupos (más visibles)
+                    const coloresGrupo = [
+                      '#e9ecef', // Gris claro
+                      '#d1e7ff', // Azul claro
+                      '#ffe8cc', // Naranja claro
+                      '#d4edda', // Verde claro
+                      '#f8d7da', // Rosa claro
+                      '#e7d6ff'  // Púrpura claro
+                    ];
+                    const colorGrupo = perteneceAGrupo ? coloresGrupo[grupoIndex % coloresGrupo.length] : '#ffffff';
+
+                    // Determinar la relación con el presupuesto anterior (para trabajos extra)
+                    let tipoRelacion = null;
+                    let presupuestoRelacionado = null;
+                    if (row.esPresupuestoTrabajoExtra && index > 0) {
+                      const presupuestoAnterior = list[index - 1];
+
+                      // Verificar relación por obra-presupuesto
+                      const numeroPresupuestoPadre = mapObraAPresupuesto[row.obraId];
+                      if (numeroPresupuestoPadre === presupuestoAnterior.numeroPresupuesto) {
+                        tipoRelacion = 'obra';
+                        presupuestoRelacionado = presupuestoAnterior;
+                      }
+                      // Verificar relación por cliente_id
+                      else if (row.clienteId && presupuestoAnterior.clienteId && row.clienteId === presupuestoAnterior.clienteId) {
+                        tipoRelacion = 'cliente';
+                        presupuestoRelacionado = presupuestoAnterior;
+                      }
+                    }
+
                     return (
+                    <React.Fragment key={rowId}>
+                      {/* Separador visual entre grupos */}
+                      {esCambioDeGrupo && (
+                        <tr style={{ height: '8px', backgroundColor: '#495057' }}>
+                          <td colSpan="11" style={{
+                            padding: 0,
+                            height: '8px',
+                            borderTop: '2px solid #343a40',
+                            borderBottom: '2px solid #343a40',
+                            backgroundColor: '#6c757d'
+                          }}></td>
+                        </tr>
+                      )}
                     <tr
-                      key={rowId}
                       onClick={(e) => {
                         e.stopPropagation();
                         // Toggle: si ya está seleccionado, deseleccionar; si no, seleccionar
@@ -1710,11 +1799,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       }}
                       style={{
                         cursor: 'pointer',
-                        ...(isSelected && { backgroundColor: '#cfe2ff !important' }),
-                        ...(row.esPresupuestoTrabajoExtra && {
-                          borderLeft: '4px solid #ffc107',
-                          backgroundColor: isSelected ? '#cfe2ff' : '#fffbf0'
-                        })
+                        backgroundColor: isSelected ? '#cfe2ff' : (row.esPresupuestoTrabajoExtra ? '#fffbf0' : colorGrupo),
+                        borderLeft: row.esPresupuestoTrabajoExtra
+                          ? '5px solid #ffc107'
+                          : (perteneceAGrupo ? '4px solid #6c757d' : 'none'),
+                        transition: 'all 0.2s ease'
                       }}
                       className={`${
                         isSelected
@@ -1731,9 +1820,19 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       }
                     >
                       <td className="small">
+                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
+                          <span className="text-primary me-1" title={`Grupo de ${totalEnGrupo} presupuesto(s) del mismo cliente`}>
+                            <i className="fas fa-users" style={{fontSize: '0.9em', fontWeight: 'bold'}}></i>
+                          </span>
+                        )}
+                        {perteneceAGrupo && !esPrimerEnGrupo && totalEnGrupo > 1 && (
+                          <span className="text-info me-1" title="Mismo cliente que el presupuesto anterior">
+                            <i className="fas fa-level-down-alt" style={{fontSize: '0.7em'}}></i>
+                          </span>
+                        )}
                         {row.esPresupuestoTrabajoExtra && (
-                          <span className="text-warning me-1" title="Trabajo extra del presupuesto anterior">
-                            <i className="fas fa-level-up-alt" style={{transform: 'rotate(90deg)', fontSize: '0.8em'}}></i>
+                          <span className="text-warning me-1" title="Trabajo extra">
+                            <i className="fas fa-wrench" style={{fontSize: '0.8em'}}></i>
                           </span>
                         )}
                         {isSelected && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
@@ -1746,12 +1845,38 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       <td className="small fw-bold text-dark">{row.nombreSolicitante || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}</td>
                       <td className="small fw-bold text-dark">
                         {row.nombreObra || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}
+                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
+                          <div className="mt-1">
+                            <span className="badge" style={{
+                              fontSize: '0.7em',
+                              padding: '4px 8px',
+                              backgroundColor: '#6c757d',
+                              color: 'white',
+                              fontWeight: 'bold',
+                              border: '1px solid #495057'
+                            }}>
+                              <i className="fas fa-users me-1"></i>
+                              GRUPO: {row.nombreSolicitante} ({totalEnGrupo} presupuesto{totalEnGrupo > 1 ? 's' : ''})
+                            </span>
+                          </div>
+                        )}
                         {row.esPresupuestoTrabajoExtra && (
                           <div className="mt-1">
-                            <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
-                              🔧 TRABAJO EXTRA
-                              {mapObraAPresupuesto[row.obraId] && ` de #${mapObraAPresupuesto[row.obraId]}`}
-                            </span>
+                            {tipoRelacion === 'obra' && presupuestoRelacionado && (
+                              <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
+                                🔧 TRABAJO EXTRA de #{presupuestoRelacionado.numeroPresupuesto}
+                              </span>
+                            )}
+                            {tipoRelacion === 'cliente' && presupuestoRelacionado && (
+                              <span className="badge bg-info text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
+                                🔧 TRABAJO EXTRA (mismo cliente)
+                              </span>
+                            )}
+                            {!tipoRelacion && (
+                              <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
+                                🔧 TRABAJO EXTRA
+                              </span>
+                            )}
                             {row.obraId && (
                               <div className="text-muted mt-1" style={{fontSize: '0.75em'}}>
                                 <i className="fas fa-link me-1"></i>
@@ -1975,6 +2100,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         </div>
                       </td>
                     </tr>
+                    </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -2172,7 +2298,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           }}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 };
 

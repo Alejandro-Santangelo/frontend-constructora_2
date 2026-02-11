@@ -63,6 +63,38 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState(null);
+  const [obrasDisponibles, setObrasDisponibles] = useState([]);
+  const [loadingObras, setLoadingObras] = useState(false);
+
+  // Cargar nombres de obras disponibles al montar el componente
+  useEffect(() => {
+    const cargarObras = async () => {
+      if (!empresaSeleccionada?.id) return;
+
+      setLoadingObras(true);
+      try {
+        const presupuestos = await apiService.presupuestosNoCliente.getAll(empresaSeleccionada.id);
+        const lista = Array.isArray(presupuestos) ? presupuestos : (presupuestos.datos || presupuestos.content || []);
+
+        // Extraer nombres de obras únicos (filtrar vacíos y duplicados)
+        const nombresUnicos = [...new Set(
+          lista
+            .map(p => p.nombreObra)
+            .filter(nombre => nombre && nombre.trim() !== '')
+        )].sort();
+
+        setObrasDisponibles(nombresUnicos);
+      } catch (error) {
+        console.error('❌ Error cargando nombres de obras:', error);
+      } finally {
+        setLoadingObras(false);
+      }
+    };
+
+    if (show) {
+      cargarObras();
+    }
+  }, [show, empresaSeleccionada]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -331,16 +363,36 @@ const BusquedaAvanzadaPresupuestosModal = ({ show, onClose, onSelectPresupuesto,
                   <div className="row g-2">
                     {/* Primera fila: Nombre de la Obra */}
                     <div className="col-md-12">
-                      <label className="form-label fw-semibold text-dark">Nombre de la Obra</label>
-                      <input
-                        type="text"
+                      <label className="form-label fw-semibold text-dark">
+                        Nombre de la Obra
+                        {loadingObras && <span className="ms-2 text-muted small"><i className="fas fa-spinner fa-spin"></i> Cargando...</span>}
+                      </label>
+                      <select
                         name="nombreObra"
-                        className="form-control form-control-sm"
+                        className="form-select form-select-sm"
                         value={form.nombreObra}
                         onChange={handleChange}
-                        placeholder="Ej: Refacción Oficinas, Ampliación Casa..."
-                        disabled={searching}
-                      />
+                        disabled={searching || loadingObras}
+                      >
+                        <option value="">-- Todas las obras --</option>
+                        {obrasDisponibles.map((nombreObra, index) => (
+                          <option key={index} value={nombreObra}>
+                            {nombreObra}
+                          </option>
+                        ))}
+                      </select>
+                      {!loadingObras && obrasDisponibles.length === 0 && (
+                        <small className="text-muted d-block mt-1">
+                          <i className="bi bi-info-circle me-1"></i>
+                          No hay obras registradas
+                        </small>
+                      )}
+                      {!loadingObras && obrasDisponibles.length > 0 && (
+                        <small className="text-muted d-block mt-1">
+                          <i className="bi bi-check-circle me-1"></i>
+                          {obrasDisponibles.length} obra{obrasDisponibles.length !== 1 ? 's' : ''} disponible{obrasDisponibles.length !== 1 ? 's' : ''}
+                        </small>
+                      )}
                     </div>
 
                     {/* Segunda fila: Barrio, Calle - más anchos */}

@@ -57,11 +57,21 @@ const ConfiguracionPresupuestoSection = ({
   const [ocultarHonorariosEnPDF, setOcultarHonorariosEnPDF] = useState(true); // NUEVO: Controla si se oculta en PDF (marcado por defecto)
   const [rubroSeleccionado, setRubroSeleccionado] = useState(''); // NUEVO: Para seleccionar rubro específico
 
+  // ✨ NUEVOS ESTADOS PARA APLICACIÓN GLOBAL
+  const [aplicarGlobalHonorarios, setAplicarGlobalHonorarios] = useState(false); // Switch para aplicar mismo % a todos
+  const [valorGlobalHonorarios, setValorGlobalHonorarios] = useState(''); // Valor global a aplicar
+  const [tipoGlobalHonorarios, setTipoGlobalHonorarios] = useState('porcentaje'); // Tipo: 'porcentaje' o 'fijo'
+
   // ========== ESTADOS PARA MAYORES COSTOS (CLON EXACTO DE HONORARIOS) ==========
   const [mostrarMayoresCostos, setMostrarMayoresCostos] = useState(false); // Colapsado por defecto
   const [configuracionMayoresCostosAceptada, setConfiguracionMayoresCostosAceptada] = useState(false);
   const [ocultarMayoresCostosEnPDF, setOcultarMayoresCostosEnPDF] = useState(true); // NUEVO: Controla si se oculta en PDF (marcado por defecto)
   const [rubroMayoresCostosSeleccionado, setRubroMayoresCostosSeleccionado] = useState(''); // NUEVO: Para seleccionar rubro específico
+
+  // ✨ NUEVOS ESTADOS PARA APLICACIÓN GLOBAL DE MAYORES COSTOS
+  const [aplicarGlobalMayoresCostos, setAplicarGlobalMayoresCostos] = useState(false); // Switch para aplicar mismo % a todos
+  const [valorGlobalMayoresCostos, setValorGlobalMayoresCostos] = useState(''); // Valor global a aplicar
+  const [tipoGlobalMayoresCostos, setTipoGlobalMayoresCostos] = useState('porcentaje'); // Tipo: 'porcentaje' o 'fijo'
 
   // ========== ESTADOS PARA COLAPSAR TARJETAS DE ESCASO USO ==========
   const [colapsadoProfesionalesHonorarios, setColapsadoProfesionalesHonorarios] = useState(true); // Colapsado por defecto
@@ -212,6 +222,21 @@ const ConfiguracionPresupuestoSection = ({
     setConfiguracionAceptada(false);
   };
 
+  // ✨ useEffect para aplicar valor global cuando cambia el tipo
+  useEffect(() => {
+    if (aplicarGlobalHonorarios && valorGlobalHonorarios && onHonorariosChange) {
+      const nuevoHonorarios = {
+        ...honorariosActual,
+        jornales: { ...honorariosActual.jornales, tipo: tipoGlobalHonorarios, valor: valorGlobalHonorarios },
+        profesionales: { ...honorariosActual.profesionales, tipo: tipoGlobalHonorarios, valor: valorGlobalHonorarios },
+        materiales: { ...honorariosActual.materiales, tipo: tipoGlobalHonorarios, valor: valorGlobalHonorarios },
+        otrosCostos: { ...honorariosActual.otrosCostos, tipo: tipoGlobalHonorarios, valor: valorGlobalHonorarios },
+        configuracionPresupuesto: { ...honorariosActual.configuracionPresupuesto, tipo: tipoGlobalHonorarios, valor: valorGlobalHonorarios }
+      };
+      onHonorariosChange(nuevoHonorarios);
+    }
+  }, [tipoGlobalHonorarios]); // Solo cuando cambia el tipo
+
   // FUNCIÓN SET MAYORES COSTOS - CLON EXACTO DE HONORARIOS
   const setMayoresCostos = (updater) => {
     if (onMayoresCostosChange) {
@@ -226,6 +251,30 @@ const ConfiguracionPresupuestoSection = ({
     // Resetear el estado de configuración aceptada cuando se edita cualquier campo
     setConfiguracionMayoresCostosAceptada(false);
   };
+
+  // ✨ useEffect para inicializar mayores costos con valores por defecto si no existen
+  useEffect(() => {
+    if (onMayoresCostosChange && (!mayoresCostos || !mayoresCostos.jornales || typeof mayoresCostos.jornales.activo === 'undefined')) {
+      // Solo inicializar si los valores no están definidos correctamente
+      onMayoresCostosChange(mayoresCostosActual);
+    }
+  }, []); // Solo al montar el componente
+
+  // ✨ useEffect para aplicar valor global de mayores costos cuando cambia el tipo
+  useEffect(() => {
+    if (aplicarGlobalMayoresCostos && valorGlobalMayoresCostos && onMayoresCostosChange) {
+      const nuevoMayoresCostos = {
+        ...mayoresCostosActual,
+        jornales: { ...mayoresCostosActual.jornales, tipo: tipoGlobalMayoresCostos, valor: valorGlobalMayoresCostos },
+        profesionales: { ...mayoresCostosActual.profesionales, tipo: tipoGlobalMayoresCostos, valor: valorGlobalMayoresCostos },
+        materiales: { ...mayoresCostosActual.materiales, tipo: tipoGlobalMayoresCostos, valor: valorGlobalMayoresCostos },
+        otrosCostos: { ...mayoresCostosActual.otrosCostos, tipo: tipoGlobalMayoresCostos, valor: valorGlobalMayoresCostos },
+        configuracionPresupuesto: { ...mayoresCostosActual.configuracionPresupuesto, tipo: tipoGlobalMayoresCostos, valor: valorGlobalMayoresCostos },
+        honorarios: { ...mayoresCostosActual.honorarios, tipo: tipoGlobalMayoresCostos, valor: valorGlobalMayoresCostos }
+      };
+      onMayoresCostosChange(nuevoMayoresCostos);
+    }
+  }, [tipoGlobalMayoresCostos]); // Solo cuando cambia el tipo
 
   // Determinar el rubro actual para cargar valores guardados
   const rubroActual = honorariosActual?.nombreRubroImportado ||
@@ -3151,14 +3200,71 @@ const ConfiguracionPresupuestoSection = ({
 
                 return hayValores && (
                   <div className="mt-4 border rounded p-3 bg-white">
-                    <h6 className="text-success mb-3">
-                      📊 Resumen de Honorarios
-                      {resumen.rubroEspecifico && (
-                        <span className="ms-2 badge bg-info text-white">
-                          Rubro: {resumen.rubroEspecifico}
-                        </span>
-                      )}
-                    </h6>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h6 className="text-success mb-0">
+                        📊 Resumen de Honorarios
+                        {resumen.rubroEspecifico && (
+                          <span className="ms-2 badge bg-info text-white">
+                            Rubro: {resumen.rubroEspecifico}
+                          </span>
+                        )}
+                      </h6>
+
+                      {/* ✨ Switch para aplicar mismo % a todos los items */}
+                      <div className="d-flex align-items-center gap-2">
+                        <div className="form-check form-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="switchGlobalHonorarios"
+                            checked={aplicarGlobalHonorarios}
+                            onChange={(e) => setAplicarGlobalHonorarios(e.target.checked)}
+                          />
+                          <label className="form-check-label small fw-bold text-muted" htmlFor="switchGlobalHonorarios">
+                            Asignar el mismo % a todos los items
+                          </label>
+                        </div>
+
+                        {/* Input global - solo visible si el switch está activado */}
+                        {aplicarGlobalHonorarios && (
+                          <div className="d-flex gap-1 align-items-center" style={{minWidth: '150px'}}>
+                            <select
+                              className="form-select form-select-sm"
+                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                              value={tipoGlobalHonorarios}
+                              onChange={(e) => setTipoGlobalHonorarios(e.target.value)}
+                            >
+                              <option value="porcentaje">%</option>
+                              <option value="fijo">$</option>
+                            </select>
+                            <input
+                              type="number"
+                              className="form-control form-control-sm"
+                              placeholder="Valor"
+                              value={valorGlobalHonorarios}
+                              onChange={(e) => {
+                                const valor = e.target.value;
+                                setValorGlobalHonorarios(valor);
+
+                                // Aplicar automáticamente a todos los items
+                                if (valor && onHonorariosChange) {
+                                  const nuevoHonorarios = {
+                                    ...honorariosActual,
+                                    jornales: { ...honorariosActual.jornales, tipo: tipoGlobalHonorarios, valor: valor },
+                                    profesionales: { ...honorariosActual.profesionales, tipo: tipoGlobalHonorarios, valor: valor },
+                                    materiales: { ...honorariosActual.materiales, tipo: tipoGlobalHonorarios, valor: valor },
+                                    otrosCostos: { ...honorariosActual.otrosCostos, tipo: tipoGlobalHonorarios, valor: valor },
+                                    configuracionPresupuesto: { ...honorariosActual.configuracionPresupuesto, tipo: tipoGlobalHonorarios, valor: valor }
+                                  };
+                                  onHonorariosChange(nuevoHonorarios);
+                                }
+                              }}
+                              style={{fontSize: '11px', padding: '4px', width: '80px'}}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
                     <div className="row g-3 mb-3">
                       {/* Jornales */}
@@ -3790,14 +3896,72 @@ const ConfiguracionPresupuestoSection = ({
 
                 return hayValores && (
                   <div className="mt-4 border rounded p-3 bg-white">
-                    <h6 className="text-success mb-3">
-                      📊 Resumen de Mayores Costos
-                      {resumen.rubroEspecifico && (
-                        <span className="ms-2 badge bg-info text-white">
-                          Rubro: {resumen.rubroEspecifico}
-                        </span>
-                      )}
-                    </h6>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h6 className="text-success mb-0">
+                        📊 Resumen de Mayores Costos
+                        {resumen.rubroEspecifico && (
+                          <span className="ms-2 badge bg-info text-white">
+                            Rubro: {resumen.rubroEspecifico}
+                          </span>
+                        )}
+                      </h6>
+
+                      {/* ✨ Switch para aplicar mismo % a todos los items */}
+                      <div className="d-flex align-items-center gap-2">
+                        <div className="form-check form-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="switchGlobalMayoresCostos"
+                            checked={aplicarGlobalMayoresCostos}
+                            onChange={(e) => setAplicarGlobalMayoresCostos(e.target.checked)}
+                          />
+                          <label className="form-check-label small fw-bold text-muted" htmlFor="switchGlobalMayoresCostos">
+                            Asignar el mismo % a todos los items
+                          </label>
+                        </div>
+
+                        {/* Input global - solo visible si el switch está activado */}
+                        {aplicarGlobalMayoresCostos && (
+                          <div className="d-flex gap-1 align-items-center" style={{minWidth: '150px'}}>
+                            <select
+                              className="form-select form-select-sm"
+                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                              value={tipoGlobalMayoresCostos}
+                              onChange={(e) => setTipoGlobalMayoresCostos(e.target.value)}
+                            >
+                              <option value="porcentaje">%</option>
+                              <option value="fijo">$</option>
+                            </select>
+                            <input
+                              type="number"
+                              className="form-control form-control-sm"
+                              placeholder="Valor"
+                              value={valorGlobalMayoresCostos}
+                              onChange={(e) => {
+                                const valor = e.target.value;
+                                setValorGlobalMayoresCostos(valor);
+
+                                // Aplicar automáticamente a todos los items
+                                if (valor && onMayoresCostosChange) {
+                                  const nuevoMayoresCostos = {
+                                    ...mayoresCostosActual,
+                                    jornales: { ...mayoresCostosActual.jornales, tipo: tipoGlobalMayoresCostos, valor: valor },
+                                    profesionales: { ...mayoresCostosActual.profesionales, tipo: tipoGlobalMayoresCostos, valor: valor },
+                                    materiales: { ...mayoresCostosActual.materiales, tipo: tipoGlobalMayoresCostos, valor: valor },
+                                    otrosCostos: { ...mayoresCostosActual.otrosCostos, tipo: tipoGlobalMayoresCostos, valor: valor },
+                                    configuracionPresupuesto: { ...mayoresCostosActual.configuracionPresupuesto, tipo: tipoGlobalMayoresCostos, valor: valor },
+                                    honorarios: { ...mayoresCostosActual.honorarios, tipo: tipoGlobalMayoresCostos, valor: valor }
+                                  };
+                                  onMayoresCostosChange(nuevoMayoresCostos);
+                                }
+                              }}
+                              style={{fontSize: '11px', padding: '4px', width: '80px'}}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
                     <div className="row g-3 mb-3">
                       {/* Jornales */}
@@ -3810,16 +3974,11 @@ const ConfiguracionPresupuestoSection = ({
                               <input
                                 className="form-check-input"
                                 type="checkbox"
-                                checked={mayoresCostosActual.jornales?.activo ?? true}
-                                onChange={(e) => {
-                                  const nuevoMayoresCostos = {
-                                    ...mayoresCostosActual,
-                                    jornales: { ...mayoresCostosActual.jornales, activo: e.target.checked }
-                                  };
-                                  if (onMayoresCostosChange) {
-                                    onMayoresCostosChange(nuevoMayoresCostos);
-                                  }
-                                }}
+                                checked={mayoresCostosActual.jornales?.activo !== false}
+                                onChange={(e) => setMayoresCostos(prev => ({
+                                  ...prev,
+                                  jornales: { ...prev.jornales, activo: e.target.checked }
+                                }))}
                                 style={{ cursor: 'pointer' }}
                               />
                               <label className="form-check-label small" style={{ fontSize: '10px' }}>
