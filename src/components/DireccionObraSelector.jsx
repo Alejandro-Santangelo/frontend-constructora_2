@@ -25,46 +25,46 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
   const cargarPresupuestos = async () => {
     setLoading(true);
     try {
-      
+
       // Usar el endpoint correcto: getAll en lugar de listarTodos
       const response = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
-      
+
       console.log('📦 Respuesta del backend:', response);
-      
+
       // La respuesta puede venir en diferentes formatos
-      let presupuestosData = Array.isArray(response) ? response : 
-                             response?.datos ? response.datos : 
-                             response?.content ? response.content : 
+      let presupuestosData = Array.isArray(response) ? response :
+                             response?.datos ? response.datos :
+                             response?.content ? response.content :
                              response?.data ? response.data : [];
-      
+
       console.log('✅ Presupuestos cargados (sin filtrar):', presupuestosData.length);
-      
+
       // Log de todos los estados encontrados para debugging
       const estadosEncontrados = [...new Set(presupuestosData.map(p => p.estado))];
       console.log('📊 Estados encontrados en presupuestos:', estadosEncontrados);
-      
+
       // FILTRAR solo presupuestos con estado: APROBADO, EN_EJECUCION
       const estadosPermitidos = ['APROBADO', 'EN_EJECUCION'];
-      
+
       console.log('🔍 Filtrando por estados:', estadosPermitidos);
       console.log('🔍 Total presupuestos antes del filtro:', presupuestosData.length);
-      
+
       presupuestosData = presupuestosData.filter(p => {
         const estadoValido = estadosPermitidos.includes(p.estado);
         console.log(`${estadoValido ? '✅' : '⏭️'} Presupuesto #${p.numeroPresupuesto} - Estado: "${p.estado}" - ${estadoValido ? 'INCLUIDO' : 'FILTRADO'}`);
         return estadoValido;
       });
-      
+
       console.log('✅ Presupuestos después de filtrar por estado:', presupuestosData.length);
       console.log('📋 Presupuestos filtrados completos:', presupuestosData);
-      
+
       setPresupuestos(presupuestosData);
-      
+
       // Extraer direcciones únicas
       const direcciones = extraerDireccionesUnicas(presupuestosData);
       console.log('🏠 Direcciones únicas extraídas:', direcciones.length);
       console.log('📍 Primera dirección:', direcciones[0]);
-      
+
       setDireccionesUnicas(direcciones);
       setFilteredDirecciones(direcciones); // Inicialmente mostrar todas
     } catch (error) {
@@ -83,7 +83,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
    */
   const extraerDireccionesUnicas = (presupuestosData) => {
     console.log('🔧 Extrayendo direcciones de', presupuestosData.length, 'presupuestos');
-    
+
     const direcciones = [];
 
     presupuestosData.forEach((presupuesto, index) => {
@@ -95,7 +95,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
         numeroPresupuesto: presupuesto.numeroPresupuesto,
         estado: presupuesto.estado
       });
-      
+
       // Crear clave única con los 6 campos de dirección + ID del presupuesto
       // Esto permite que múltiples presupuestos con la misma dirección se muestren por separado
       const clave = JSON.stringify({
@@ -129,7 +129,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
           // Guardar la clave para usar como value
           key: clave
         };
-        
+
         console.log('✅ Presupuesto agregado como opción:', direccion);
         direcciones.push(direccion);
       } else {
@@ -146,16 +146,19 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
    */
   const formatearDireccion = (direccion) => {
     const partes = [];
-    
+
+    // Indicador de trabajo extra
+    const prefijoTrabajoExtra = direccion.esTrabajoExtra || direccion.esPresupuestoTrabajoExtra ? '🔧 ' : '';
+
     // Nombre de la obra (si existe)
     if (direccion.nombreObra) {
-      partes.push(`🏗️ ${direccion.nombreObra}`);
+      partes.push(`${prefijoTrabajoExtra}🏗️ ${direccion.nombreObra}`);
     }
-    
+
     // Calle y Altura son obligatorios
     if (direccion.calle) partes.push(direccion.calle);
     if (direccion.altura) partes.push(direccion.altura);
-    
+
     // Los demás son opcionales
     if (direccion.barrio) partes.push(`(Barrio ${direccion.barrio})`);
     if (direccion.torre) partes.push(`Torre ${direccion.torre}`);
@@ -167,7 +170,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
     if (direccion.numeroPresupuesto) info.push(`#${direccion.numeroPresupuesto}`);
     if (direccion.numeroVersion) info.push(`v${direccion.numeroVersion}`);
     if (direccion.estado) info.push(direccion.estado);
-    
+
     const infoStr = info.length > 0 ? ` [${info.join(' - ')}]` : '';
 
     return partes.length > 0 ? partes.join(', ') + infoStr : 'Sin dirección';
@@ -175,7 +178,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
 
   const handleChange = (e) => {
     const selectedKey = e.target.value;
-    
+
     if (!selectedKey) {
       onChange(null);
       return;
@@ -183,7 +186,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
 
     // Buscar la dirección seleccionada
     const direccion = filteredDirecciones.find(d => d.key === selectedKey);
-    
+
     if (direccion && onChange) {
       onChange(direccion);
     }
@@ -191,7 +194,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
 
   const handleSelectFromBusqueda = (presupuesto) => {
     console.log('📌 Presupuesto seleccionado desde búsqueda:', presupuesto);
-    
+
     // Crear objeto de dirección compatible
     const direccion = {
       barrio: presupuesto.direccionObraBarrio || null,
@@ -214,19 +217,19 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
         depto: presupuesto.direccionObraDepartamento || ''
       })
     };
-    
+
     // Agregar a la lista si no existe
     const exists = direccionesUnicas.find(d => d.key === direccion.key);
     if (!exists) {
       setDireccionesUnicas(prev => [...prev, direccion]);
       setFilteredDirecciones(prev => [...prev, direccion]);
     }
-    
+
     // Seleccionar la dirección
     if (onChange) {
       onChange(direccion);
     }
-    
+
     // Cerrar modal
     setShowBusquedaModal(false);
   };
@@ -248,7 +251,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
           </button>
         </div>
       )}
-      
+
       {readOnly && value ? (
         <div className="alert alert-info mb-0">
           <div className="d-flex align-items-start">
@@ -284,7 +287,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
           <option value="">
             {loading ? 'Cargando direcciones...' : 'Seleccione una dirección'}
           </option>
-          
+
           {filteredDirecciones.map((direccion, index) => (
             <option key={index} value={direccion.key}>
               {formatearDireccion(direccion)}
@@ -317,7 +320,7 @@ const DireccionObraSelector = ({ value, onChange, required = false, label = "Dir
             {value.piso && ` • Piso: ${value.piso}`}
             {value.depto && ` • Depto: ${value.depto}`}
             <br/>
-            <strong>Presupuesto:</strong> #{value.numeroPresupuesto || value.presupuestoNoClienteId} 
+            <strong>Presupuesto:</strong> #{value.numeroPresupuesto || value.presupuestoNoClienteId}
             {value.numeroVersion && ` • Versión: ${value.numeroVersion}`}
             {value.estado && ` • Estado: ${value.estado}`}
           </small>

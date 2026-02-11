@@ -81,6 +81,9 @@ const ObrasPage = ({ showNotification }) => {
   // Estado local para controlar obra seleccionada desde tabla
   const [selectedObraId, setSelectedObraId] = React.useState(null);
 
+  // 🔧 Estado para rastrear relación: obra padre -> obras de trabajo extra
+  const [mapObraPadre, setMapObraPadre] = React.useState({});
+
   // Estado para modal de presupuestos
   const [mostrarModalPresupuestos, setMostrarModalPresupuestos] = React.useState(false);
   const [obraParaPresupuestos, setObraParaPresupuestos] = React.useState(null);
@@ -576,6 +579,38 @@ const ObrasPage = ({ showNotification }) => {
   useEffect(() => {
     inicializadoRef.current = false;
   }, [empresaId]);
+
+  // 🔧 Construir mapa de relaciones obra padre -> obras trabajo extra
+  useEffect(() => {
+    if (!obras || obras.length === 0) {
+      setMapObraPadre({});
+      return;
+    }
+
+    const mapa = {};
+    obras.forEach(obra => {
+      if (obra.esTrabajoExtra) {
+        // 🔍 El backend debería enviar obraPadreId indicando qué obra generó este trabajo extra
+        // Este valor proviene del presupuesto que creó esta obra (campo obraId del presupuesto)
+        const obraPadreId = obra.obraPadreId || obra.obra_padre_id || obra.idObraPadre;
+
+        if (obraPadreId) {
+          if (!mapa[obraPadreId]) {
+            mapa[obraPadreId] = [];
+          }
+          mapa[obraPadreId].push(obra.id);
+          console.log(`🔗 Obra ${obra.id} (${obra.nombre}) es trabajo extra de obra ${obraPadreId}`);
+        } else {
+          console.warn(`⚠️ Obra ${obra.id} (${obra.nombre}) marcada como trabajo extra pero sin obraPadreId`);
+        }
+      }
+    });
+
+    setMapObraPadre(mapa);
+    if (Object.keys(mapa).length > 0) {
+      console.log('📊 Mapa de obras padre construido:', mapa);
+    }
+  }, [obras]);
 
   // Cargar obras cuando cambie el filtro de estado
   useEffect(() => {
@@ -4133,14 +4168,47 @@ const ObrasPage = ({ showNotification }) => {
                           </tr>
                         </thead>
                         <tbody>
-                          {[...obras]
-                            .sort((a, b) => {
-                              // Obras CANCELADO al final
-                              if (a.estado === 'CANCELADO' && b.estado !== 'CANCELADO') return 1;
-                              if (a.estado !== 'CANCELADO' && b.estado === 'CANCELADO') return -1;
-                              return 0; // Mantener orden original para las demás
-                            })
-                            .map(obra => {
+                          {(() => {
+                            // 🎯 ORDENAMIENTO INTELIGENTE: Agrupar obras de trabajo extra con sus obras padre
+                            const obrasNormales = obras.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO');
+                            const obrasTrabajoExtra = obras.filter(o => o.esTrabajoExtra && o.estado !== 'CANCELADO');
+                            const obrasCanceladas = obras.filter(o => o.estado === 'CANCELADO');
+
+                            const listaOrdenada = [];
+
+                            // Para cada obra normal, agregar la obra y sus trabajos extra
+                            obrasNormales.forEach(obra => {
+                              listaOrdenada.push(obra);
+
+                              // Buscar trabajos extra de esta obra
+                              const trabajosExtraDeEstaObra = obrasTrabajoExtra.filter(te => {
+                                const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre;
+                                return obraPadreId === obra.id;
+                              });
+
+                              if (trabajosExtraDeEstaObra.length > 0) {
+                                // Ordenar trabajos extra por ID descendente
+                                trabajosExtraDeEstaObra.sort((a, b) => b.id - a.id);
+                                listaOrdenada.push(...trabajosExtraDeEstaObra);
+                              }
+                            });
+
+                            // Agregar trabajos extra huérfanos (sin obra padre identificada)
+                            const trabajosExtraHuerfanos = obrasTrabajoExtra.filter(te => {
+                              const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre;
+                              return !obraPadreId || !obrasNormales.find(o => o.id === obraPadreId);
+                            });
+
+                            if (trabajosExtraHuerfanos.length > 0) {
+                              trabajosExtraHuerfanos.sort((a, b) => b.id - a.id);
+                              listaOrdenada.push(...trabajosExtraHuerfanos);
+                            }
+
+                            // Agregar obras canceladas al final
+                            listaOrdenada.push(...obrasCanceladas);
+
+                            return listaOrdenada;
+                          })().map(obra => {
                             const obraId = obra.id;
                             const isSelected = selectedObraId && obraId && selectedObraId === obraId;
 
@@ -4156,7 +4224,13 @@ const ObrasPage = ({ showNotification }) => {
                                     setSelectedObraId(obraId);
                                   }
                                 }}
-                                style={{ cursor: 'pointer' }}
+                                style={{
+                                  cursor: 'pointer',
+                                  ...(obra.esTrabajoExtra && {
+                                    borderLeft: '4px solid #ffc107',
+                                    backgroundColor: isSelected ? '' : '#fffbf0'
+                                  })
+                                }}
                                 className={`hover-row ${isSelected ? 'table-primary' : ''}`}
                               >
                                 <td
@@ -4179,10 +4253,27 @@ const ObrasPage = ({ showNotification }) => {
                                   </button>
                                 </td>
                                 <td>
+                                  {obra.esTrabajoExtra && (
+                                    <span className="text-warning me-1" title="Trabajo extra de obra anterior">
+                                      <i className="fas fa-level-up-alt" style={{transform: 'rotate(90deg)', fontSize: '0.8em'}}></i>
+                                    </span>
+                                  )}
                                   {isSelected && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
                                   {obraId}
                               </td>
-                              <td>{obra.nombre}</td>
+                              <td>
+                                {obra.nombre}
+                                {obra.esTrabajoExtra && (
+                                  <div className="mt-1">
+                                    <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
+                                      🔧 TRABAJO EXTRA{(() => {
+                                        const obraPadreId = obra.obraPadreId || obra.obra_padre_id || obra.idObraPadre;
+                                        return obraPadreId ? ` de #${obraPadreId}` : '';
+                                      })()}
+                                    </span>
+                                  </div>
+                                )}
+                              </td>
                               <td>
                                 <small className="text-muted">{formatearDireccionObra(obra)}</small>
                               </td>
@@ -5326,7 +5417,14 @@ const ObrasPage = ({ showNotification }) => {
                                 {isSelected && <i className="fas fa-check-circle text-success ms-1" title="Seleccionado para editar"></i>}
                               </td>
                               <td className="small align-middle">{row.numeroPresupuesto || row.id || '-'}</td>
-                              <td className="small fw-bold text-dark">{row.nombreObra || row.nombre || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}</td>
+                              <td className="small fw-bold text-dark">
+                                {row.nombreObra || row.nombre || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}
+                                {row.esTrabajoExtra && (
+                                  <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.65rem', padding: '2px 6px'}}>
+                                    🔧 EXTRA
+                                  </span>
+                                )}
+                              </td>
                               <td className="small text-muted">{formatearDireccionObra(obraParaTrabajosExtra)}</td>
                               <td className="small">
                                 {(obraParaTrabajosExtra.nombreSolicitante || obraParaTrabajosExtra.telefono || obraParaTrabajosExtra.mail) ? (

@@ -144,6 +144,10 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const [abrirEmailDespuesDePDF, setAbrirEmailDespuesDePDF] = useState(false);
   const [forzarModoLectura, setForzarModoLectura] = useState(false);
   const [mostrarModalSeleccionEnvio, setMostrarModalSeleccionEnvio] = useState(false);
+  // Estado para almacenar nombres de obras vinculadas a trabajos extra
+  const [nombresObras, setNombresObras] = useState({});
+  // Estado para almacenar relación obraId -> numeroPresupuesto padre
+  const [mapObraAPresupuesto, setMapObraAPresupuesto] = useState({});
 
   // Función para cargar filtros por defecto desde localStorage
   const cargarFiltrosPorDefecto = () => {
@@ -239,6 +243,40 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       console.log('📊 Cargando datos completos para', listaFiltrada.length, 'presupuestos...');
       console.log('🔍 IDs a cargar:', listaFiltrada.map(p => ({ id: p.id, num: p.numeroPresupuesto, ver: p.numeroVersion, nombre: p.nombreObra })));
 
+      // 🔧 Cargar nombres de obras para presupuestos de trabajo extra
+      const obrasIds = listaFiltrada
+        .filter(p => p.esPresupuestoTrabajoExtra && p.obraId)
+        .map(p => p.obraId);
+
+      const mapObraAPresupuesto = {}; // Mapa: obraId -> numeroPresupuesto que creó esa obra
+
+      if (obrasIds.length > 0) {
+        const nombresObrasTemp = {};
+        for (const obraId of obrasIds) {
+          try {
+            const obra = await apiService.obras.getById(obraId, empresaId);
+            nombresObrasTemp[obraId] = obra.nombre || obra.nombreObra || `Obra #${obraId}`;
+
+            // 🔍 Guardar qué presupuesto creó esta obra
+            // El backend debería devolver presupuesto_id o presupuestoNoClienteId
+            const presupuestoQueCreoObra = obra.presupuesto_id || obra.presupuestoNoClienteId || obra.presupuestoId;
+            if (presupuestoQueCreoObra) {
+              // Buscar el numeroPresupuesto correspondiente
+              const presupuestoPadre = listaFiltrada.find(p => p.id === presupuestoQueCreoObra);
+              if (presupuestoPadre) {
+                mapObraAPresupuesto[obraId] = presupuestoPadre.numeroPresupuesto;
+                console.log(`🔗 Obra ${obraId} fue creada por presupuesto #${presupuestoPadre.numeroPresupuesto}`);
+              }
+            }
+          } catch (error) {
+            console.warn(`⚠️ No se pudo cargar nombre de obra ${obraId}:`, error);
+            nombresObrasTemp[obraId] = `Obra #${obraId}`;
+          }
+        }
+        setNombresObras(nombresObrasTemp);
+        setMapObraAPresupuesto(mapObraAPresupuesto);
+      }
+
       const presupuestosCompletos = await Promise.all(
         listaFiltrada.map(async (p) => {
           try {
@@ -317,10 +355,47 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         })
       );
 
-      // Ordenar por número de presupuesto (descendente)
-      const listaOrdenada = presupuestosCompletos.sort((a, b) => {
-        return b.numeroPresupuesto - a.numeroPresupuesto;
+      // 🎯 ORDENAMIENTO INTELIGENTE: Agrupar trabajos extra con sus presupuestos padres
+      // 1. Separar presupuestos normales de trabajos extra
+      const presupuestosNormales = presupuestosCompletos.filter(p => !p.esPresupuestoTrabajoExtra);
+      const trabajosExtra = presupuestosCompletos.filter(p => p.esPresupuestoTrabajoExtra);
+
+      // 2. Ordenar presupuestos normales por número (descendente)
+      presupuestosNormales.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
+
+      // 3. Construir lista final intercalando trabajos extra después de sus presupuestos padres
+      const listaOrdenada = [];
+      presupuestosNormales.forEach(presupuesto => {
+        // Agregar el presupuesto normal
+        listaOrdenada.push(presupuesto);
+
+        // Buscar trabajos extra asociados a este presupuesto
+        const trabajosExtraAsociados = trabajosExtra.filter(te => {
+          // Un trabajo extra está asociado si su obra fue creada por este presupuesto
+          const numeroPresupuestoPadre = mapObraAPresupuesto[te.obraId];
+          return numeroPresupuestoPadre === presupuesto.numeroPresupuesto;
+        });
+
+        // Agregar trabajos extra justo después del presupuesto padre
+        if (trabajosExtraAsociados.length > 0) {
+          // Ordenar los trabajos extra por su número de presupuesto (descendente)
+          trabajosExtraAsociados.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
+          listaOrdenada.push(...trabajosExtraAsociados);
+          console.log(`📎 Presupuesto #${presupuesto.numeroPresupuesto} tiene ${trabajosExtraAsociados.length} trabajo(s) extra asociado(s)`);
+        }
       });
+
+      // 4. Agregar trabajos extra huérfanos (sin presupuesto padre identificado) al final
+      const trabajosExtraHuerfanos = trabajosExtra.filter(te => {
+        const numeroPresupuestoPadre = mapObraAPresupuesto[te.obraId];
+        return !numeroPresupuestoPadre || !presupuestosNormales.find(p => p.numeroPresupuesto === numeroPresupuestoPadre);
+      });
+
+      if (trabajosExtraHuerfanos.length > 0) {
+        console.log(`⚠️ ${trabajosExtraHuerfanos.length} trabajo(s) extra sin presupuesto padre identificado`);
+        trabajosExtraHuerfanos.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
+        listaOrdenada.push(...trabajosExtraHuerfanos);
+      }
 
       // Aplicar filtros de búsqueda
       const listaConFiltrosBusqueda = listaOrdenada.filter(presupuesto => {
@@ -463,6 +538,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       console.log(`🔍 Intentando cargar presupuesto ID: ${selectedId}`);
       const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
       console.log(`✅ Presupuesto cargado exitosamente:`, presupuesto);
+      console.log('🔍 [handleEditar] Campos de obra en respuesta:', {
+        obraId: presupuesto.obraId,
+        idObra: presupuesto.idObra,
+        obra_id: presupuesto.obra_id
+      });
 
       // Si el presupuesto NO está en BORRADOR ni A_ENVIAR, mostrar confirmación
       if (presupuesto.estado !== 'BORRADOR' && presupuesto.estado !== 'A_ENVIAR') {
@@ -479,11 +559,23 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       }
 
       // ✅ Normalizar nombres de campos (backend puede usar obraId o idObra)
+      // 🔧 Si es trabajo extra, NO cargar clienteId (solo debe tener obraId)
       const presupuestoNormalizado = {
         ...presupuesto,
         obraId: presupuesto.obraId || presupuesto.idObra || null,
-        clienteId: presupuesto.clienteId || presupuesto.idCliente || null
+        clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null)
       };
+
+      const debugNormalizado = {
+        id: presupuestoNormalizado.id,
+        obraId: presupuestoNormalizado.obraId,
+        clienteId: presupuestoNormalizado.clienteId,
+        esPresupuestoTrabajoExtra: presupuestoNormalizado.esPresupuestoTrabajoExtra,
+        timestamp: new Date().toISOString()
+      };
+      window.DEBUG_PRESUPUESTO_NORMALIZADO = debugNormalizado;
+      console.log('🔍 [handleEditar] Presupuesto normalizado para modal:', debugNormalizado);
+      console.log('💡 Para ver el estado en consola ejecuta: DEBUG_PRESUPUESTO_NORMALIZADO');
 
       // Abrir modal en modo edición (SIN marcar _soloLectura)
       setPresupuestoData(presupuestoNormalizado);
@@ -577,7 +669,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       // Cargar el presupuesto completo y abrir el MISMO modal de edición
       const presupuestoCompleto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
 
-      setPresupuestoData(presupuestoCompleto);
+      // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
+      const presupuestoNormalizado = {
+        ...presupuestoCompleto,
+        obraId: presupuestoCompleto.obraId || presupuestoCompleto.idObra || null,
+        clienteId: presupuestoCompleto.esPresupuestoTrabajoExtra ? null : (presupuestoCompleto.clienteId || presupuestoCompleto.idCliente || null)
+      };
+
+      setPresupuestoData(presupuestoNormalizado);
 
       if (tipo === 'whatsapp') {
         // ✅ ACTIVAR FLAGS PARA WHATSAPP
@@ -605,7 +704,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     try {
       // Cargar el presupuesto completo y abrir modal de edición
       const presupuestoCompleto = await api.presupuestosNoCliente.getById(presupuesto.id, empresaId);
-      setPresupuestoData(presupuestoCompleto);
+
+      // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
+      const presupuestoNormalizado = {
+        ...presupuestoCompleto,
+        obraId: presupuestoCompleto.obraId || presupuestoCompleto.idObra || null,
+        clienteId: presupuestoCompleto.esPresupuestoTrabajoExtra ? null : (presupuestoCompleto.clienteId || presupuestoCompleto.idCliente || null)
+      };
+
+      setPresupuestoData(presupuestoNormalizado);
       setShowEditarModal(true);
     } catch (error) {
       showNotification && showNotification('Error al cargar el presupuesto: ' + error.message, 'danger');
@@ -1106,10 +1213,25 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             });
           }
 
-          // Eliminar ID para que el backend lo cree como nuevo registro
+          // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra e idObra ANTES de eliminar ID
+          const esTrabajoExtra = presupuestoData.esPresupuestoTrabajoExtra;
+          const obraIdOriginal = presupuestoData.idObra || presupuestoData.obraId;
+
+          // Eliminar ID para que el backend lo cree como nuevo registro (nueva versión)
           delete presupuesto.id;
           delete presupuesto._shouldCreateNewVersion; // Limpiar flag interno
           delete presupuesto._preservarEstado; // Limpiar flag interno
+
+          // 🔧 RESTAURAR campos de trabajo extra después de eliminar ID
+          if (esTrabajoExtra) {
+            presupuesto.esPresupuestoTrabajoExtra = true;
+            console.log('🔧 RESTAURANDO esPresupuestoTrabajoExtra = true en nueva versión');
+          }
+          if (obraIdOriginal) {
+            presupuesto.idObra = obraIdOriginal;
+            presupuesto.obraId = obraIdOriginal;
+            console.log('🔧 RESTAURANDO idObra =', obraIdOriginal, 'en nueva versión');
+          }
 
           // ✅ UX MEJORADA: Si tiene nombreObra pero falta calle/altura, usar valores genéricos
           if (presupuesto.nombreObra && presupuesto.nombreObra.trim() !== '') {
@@ -1128,6 +1250,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             estado: presupuesto.estado,
             nombreObra: presupuesto.nombreObra,
             totalGeneral: presupuesto.totalGeneral
+          });
+          console.log('🔧 Campos trabajo extra:', {
+            esPresupuestoTrabajoExtra: presupuesto.esPresupuestoTrabajoExtra,
+            idObra: presupuesto.idObra,
+            obraId: presupuesto.obraId
           });
           console.log('📦 itemsCalculadora:', presupuesto.itemsCalculadora?.length || 0, 'items');
           if (presupuesto.itemsCalculadora && presupuesto.itemsCalculadora.length > 0) {
@@ -1195,6 +1322,17 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           presupuesto.numeroVersion = presupuestoData.numeroVersion || presupuestoData.version || 1;
           presupuesto.numeroPresupuesto = presupuestoData.numeroPresupuesto;
 
+          // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra e idObra del presupuesto original
+          if (presupuestoData.esPresupuestoTrabajoExtra) {
+            presupuesto.esPresupuestoTrabajoExtra = true;
+            console.log('🔧 PRESERVANDO esPresupuestoTrabajoExtra = true desde presupuestoData');
+          }
+          if (presupuestoData.idObra || presupuestoData.obraId) {
+            presupuesto.idObra = presupuestoData.idObra || presupuestoData.obraId;
+            presupuesto.obraId = presupuestoData.idObra || presupuestoData.obraId;
+            console.log('🔧 PRESERVANDO idObra =', presupuesto.idObra, 'desde presupuestoData');
+          }
+
           delete presupuesto._shouldCreateNewVersion; // Limpiar flag interno
           delete presupuesto._preservarEstado; // Limpiar flag interno
 
@@ -1207,6 +1345,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
               presupuesto.direccionObraAltura = 'S/N';
             }
           }
+
+          console.log('🔧 [UPDATE] Campos trabajo extra que se envían:', {
+            id: presupuesto.id,
+            esPresupuestoTrabajoExtra: presupuesto.esPresupuestoTrabajoExtra,
+            idObra: presupuesto.idObra,
+            obraId: presupuesto.obraId
+          });
 
           // Actualizar el presupuesto existente usando el endpoint PUT por ID
           await api.presupuestosNoCliente.update(presupuestoData.id, presupuesto, empresaId);
@@ -1238,7 +1383,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         // Determinar estado inicial según el tipo de presupuesto
         const esSemanal = presupuesto.tipoPresupuesto === 'TRABAJOS_SEMANALES';
         presupuesto.estado = esSemanal ? 'OBRA_A_CONFIRMAR' : 'BORRADOR';
-        presupuesto.obraId = null; // No tiene obra asociada
+
+        // 🔧 IMPORTANTE: NO anular obraId si es trabajo extra (debe preservarse)
+        // Solo anularlo si NO es trabajo extra
+        if (!presupuesto.esPresupuestoTrabajoExtra) {
+          presupuesto.obraId = null; // No tiene obra asociada (presupuesto normal)
+        }
+        // Si ES trabajo extra, mantener el obraId que viene del form
 
         // ✅ UX MEJORADA: Si tiene nombreObra pero falta calle/altura, usar valores genéricos
         if (presupuesto.nombreObra && presupuesto.nombreObra.trim() !== '') {
@@ -1250,7 +1401,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           }
         }
 
-        console.log('📤 Enviando presupuesto nuevo al backend...');
+        console.log('� [CREATE] Campos trabajo extra que se envían:', {
+          esPresupuestoTrabajoExtra: presupuesto.esPresupuestoTrabajoExtra,
+          idObra: presupuesto.idObra,
+          obraId: presupuesto.obraId
+        });
+
+        console.log('�📤 Enviando presupuesto nuevo al backend...');
         const respuesta = await api.presupuestosNoCliente.create(presupuesto, empresaId);
         const presupuestoCreado = respuesta;
 
@@ -1312,7 +1469,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   };
 
   const handleSeleccionarPresupuestoDelListado = (presupuesto) => {
-    setPresupuestoData(presupuesto);
+    // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
+    const presupuestoNormalizado = {
+      ...presupuesto,
+      obraId: presupuesto.obraId || presupuesto.idObra || null,
+      clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null)
+    };
+
+    setPresupuestoData(presupuestoNormalizado);
     setShowListarModal(false);
     setTimeout(() => {
       setShowEditarModal(true);
@@ -1374,9 +1538,16 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
     try {
       const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
-      // FORZAR modo solo lectura mediante la propiedad _soloLectura
-      presupuesto._soloLectura = true;
-      setPresupuestoData(presupuesto);
+
+      // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
+      const presupuestoNormalizado = {
+        ...presupuesto,
+        obraId: presupuesto.obraId || presupuesto.idObra || null,
+        clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null),
+        _soloLectura: true // FORZAR modo solo lectura
+      };
+
+      setPresupuestoData(presupuestoNormalizado);
       setShowEditarModal(true);
     } catch (error) {
       showNotification && showNotification(
@@ -1396,9 +1567,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     try {
       const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
 
-      // Marcar con flag especial para modo edición limitada
-      presupuesto._editarSoloFechas = true;
-      setPresupuestoData(presupuesto);
+      // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
+      const presupuestoNormalizado = {
+        ...presupuesto,
+        obraId: presupuesto.obraId || presupuesto.idObra || null,
+        clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null),
+        _editarSoloFechas: true // Marcar con flag especial para modo edición limitada
+      };
+
+      setPresupuestoData(presupuestoNormalizado);
       setShowEditarModal(true);
 
       showNotification && showNotification(
@@ -1533,7 +1710,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       }}
                       style={{
                         cursor: 'pointer',
-                        ...(isSelected && { backgroundColor: '#cfe2ff !important' })
+                        ...(isSelected && { backgroundColor: '#cfe2ff !important' }),
+                        ...(row.esPresupuestoTrabajoExtra && {
+                          borderLeft: '4px solid #ffc107',
+                          backgroundColor: isSelected ? '#cfe2ff' : '#fffbf0'
+                        })
                       }}
                       className={`${
                         isSelected
@@ -1550,6 +1731,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       }
                     >
                       <td className="small">
+                        {row.esPresupuestoTrabajoExtra && (
+                          <span className="text-warning me-1" title="Trabajo extra del presupuesto anterior">
+                            <i className="fas fa-level-up-alt" style={{transform: 'rotate(90deg)', fontSize: '0.8em'}}></i>
+                          </span>
+                        )}
                         {isSelected && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
                         {row.numeroPresupuesto || '-'}
                         {row.tipoPresupuesto === 'TRABAJOS_SEMANALES' && <span className="badge bg-success ms-1" style={{fontSize: '0.7em', padding: '3px 5px'}} title="Trabajos Semanales">📅 Semanal</span>}
@@ -1558,7 +1744,23 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       <td className="small text-center">{row.numeroVersion || '-'}</td>
                       <td className="small">{row.fechaEmision}</td>
                       <td className="small fw-bold text-dark">{row.nombreSolicitante || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}</td>
-                      <td className="small fw-bold text-dark">{row.nombreObra || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}</td>
+                      <td className="small fw-bold text-dark">
+                        {row.nombreObra || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}
+                        {row.esPresupuestoTrabajoExtra && (
+                          <div className="mt-1">
+                            <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
+                              🔧 TRABAJO EXTRA
+                              {mapObraAPresupuesto[row.obraId] && ` de #${mapObraAPresupuesto[row.obraId]}`}
+                            </span>
+                            {row.obraId && (
+                              <div className="text-muted mt-1" style={{fontSize: '0.75em'}}>
+                                <i className="fas fa-link me-1"></i>
+                                Obra: {nombresObras[row.obraId] || `ID ${row.obraId}`}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="small" style={{minWidth: '150px', maxWidth: '250px'}}>
                         {row.direccionObraCalle ? (
                           <div>
@@ -1933,7 +2135,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           onAbrirPresupuestoParaPDF={(presupuesto) => {
             console.log('📱 onAbrirPresupuestoParaPDF llamado - Configurando para WhatsApp', presupuesto.id);
             setShowEnviarPresupuestoModal(false);
-            setPresupuestoData(presupuesto);
+
+            // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
+            const presupuestoNormalizado = {
+              ...presupuesto,
+              obraId: presupuesto.obraId || presupuesto.idObra || null,
+              clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null)
+            };
+
+            setPresupuestoData(presupuestoNormalizado);
             setAutoGenerarPDF(true);
             setAbrirWhatsAppDespuesDePDF(true); // ✅ Activar flag de WhatsApp
             setAbrirEmailDespuesDePDF(false);
@@ -1946,7 +2156,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           }}
           onAbrirPresupuestoParaEmail={(presupuesto) => {
             setShowEnviarPresupuestoModal(false);
-            setPresupuestoData(presupuesto);
+
+            // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
+            const presupuestoNormalizado = {
+              ...presupuesto,
+              obraId: presupuesto.obraId || presupuesto.idObra || null,
+              clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null)
+            };
+
+            setPresupuestoData(presupuestoNormalizado);
             setAutoGenerarPDF(true);
             setAbrirWhatsAppDespuesDePDF(false);
             setAbrirEmailDespuesDePDF(true); // ✅ Activar flag de Email

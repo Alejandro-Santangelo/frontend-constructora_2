@@ -9,7 +9,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
   const [error, setError] = useState(null);
   // Obtener todas las obras del store
   const obras = useSelector(state => state.obras.obras || []);
-  
+
   // Filtros
   const [filtroVersion, setFiltroVersion] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
@@ -36,7 +36,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
       // Si hay filtroObraId, pasarlo al backend para filtrar directamente
       const response = await apiService.presupuestosNoCliente.getAll(empresaId, filtroObraId || null);
       const lista = Array.isArray(response) ? response : (response.datos || response.content || []);
-      
+
       setPresupuestos(lista);
       setPresupuestosFiltrados(lista);
     } catch (err) {
@@ -86,7 +86,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
 
   // Obtener versiones únicas para el select
   const versionesUnicas = [...new Set(presupuestos.map(p => p.numeroVersion))].sort((a, b) => a - b);
-  
+
   // Obtener estados únicos para el select
   const estadosUnicos = [...new Set(presupuestos.map(p => p.estado || 'A enviar'))].sort();
 
@@ -130,8 +130,8 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
                         <i className="fas fa-filter me-2"></i>
                         Filtros
                       </h6>
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         className="btn btn-sm btn-outline-secondary"
                         onClick={limpiarFiltros}
                       >
@@ -159,7 +159,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
                       {/* Filtro por versión */}
                       <div className="col-md-3">
                         <label className="form-label">Versión</label>
-                        <select 
+                        <select
                           className="form-select form-select-sm"
                           value={filtroVersion}
                           onChange={(e) => setFiltroVersion(e.target.value)}
@@ -173,7 +173,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
                       {/* Filtro por estado */}
                       <div className="col-md-3">
                         <label className="form-label">Estado</label>
-                        <select 
+                        <select
                           className="form-select form-select-sm"
                           value={filtroEstado}
                           onChange={(e) => setFiltroEstado(e.target.value)}
@@ -187,7 +187,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
                       {/* Filtro por fecha desde */}
                       <div className="col-md-3">
                         <label className="form-label">Fecha creación desde</label>
-                        <input 
+                        <input
                           type="date"
                           className="form-control form-control-sm"
                           value={filtroFechaDesde}
@@ -197,7 +197,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
                       {/* Filtro por fecha hasta */}
                       <div className="col-md-3">
                         <label className="form-label">Fecha creación hasta</label>
-                        <input 
+                        <input
                           type="date"
                           className="form-control form-control-sm"
                           value={filtroFechaHasta}
@@ -254,7 +254,7 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
                         const obra = obras.find(o => o.id === p.idObra);
                         const nombreObra = obra?.nombreObra || p.nombreObra || '-';
                         const puedeEditarFechas = p.estado === 'APROBADO' || p.estado === 'EN_EJECUCION';
-                        
+
                         return (
                           <tr key={p.id}>
                             <td>{p.id}</td>
@@ -263,7 +263,21 @@ const ListarTodosPresupuestosNoClienteModal = ({ show, onClose, empresaId, apiSe
                               <span className="badge bg-secondary">{p.numeroVersion || 1}</span>
                             </td>
                             <td>{p.nombreSolicitante || '-'}</td>
-                            <td>{nombreObra}</td>
+                            <td>
+                              {nombreObra}
+                              {p.esPresupuestoTrabajoExtra && (
+                                <div className="mt-1">
+                                  <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '2px 5px'}}>
+                                    🔧 TRABAJO EXTRA
+                                  </span>
+                                  {p.obraId && (
+                                    <div className="text-muted" style={{fontSize: '0.7em'}}>
+                                      Obra ID: {p.obraId}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                             <td>
                               {[
                                 p.direccionObraCalle,

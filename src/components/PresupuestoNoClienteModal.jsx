@@ -119,15 +119,30 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // 🔑 Mapear obraId desde obra_id si viene de BD (normalización)
     obraId: safeInitial.obraId ?? safeInitial.obra_id ?? null,
-    clienteId: safeInitial.clienteId || null, // ✨ Nuevo: ID del cliente seleccionado
+    // 🔧 Si es trabajo extra, NO cargar clienteId (solo debe tener obraId)
+    clienteId: (safeInitial.esPresupuestoTrabajoExtra) ? null : (safeInitial.clienteId || null),
     nombreObraManual: safeInitial.nombreObraManual || safeInitial.nombreObra || '',
     obraSeleccionadaParaCopiar: null, // ✨ Flag para distinguir si se seleccionó obra (sin vincular, solo copiar datos)
+    esPresupuestoTrabajoExtra: safeInitial.esPresupuestoTrabajoExtra || false, // 🔧 Marca si es un trabajo extra (vinculado a obra existente)
 
     // 🆕 Modos de carga (global/detalle) - Siempre iniciar en 'global' (Modo Global)
     modoCargaJornales: normalizeModoCarga(safeInitial.modoCargaJornales, 'global'),
     modoCargaMateriales: normalizeModoCarga(safeInitial.modoCargaMateriales, 'global'),
     modoCargaGastos: normalizeModoCarga(safeInitial.modoCargaGastos, 'global'),
   }));
+
+  // 🔍 DEBUG: Log al inicializar el modal y guardar en variable global para debug
+  const debugInfo = {
+    id: safeInitial.id,
+    obraId: safeInitial.obraId ?? safeInitial.obra_id,
+    clienteId: safeInitial.clienteId,
+    esPresupuestoTrabajoExtra: safeInitial.esPresupuestoTrabajoExtra,
+    nombreObraManual: safeInitial.nombreObraManual,
+    timestamp: new Date().toISOString()
+  };
+  window.DEBUG_PRESUPUESTO_MODAL = debugInfo;
+  console.log('🔍 [PresupuestoNoClienteModal] Estado inicial del form:', debugInfo);
+  console.log('💡 Para ver el estado en consola ejecuta: DEBUG_PRESUPUESTO_MODAL');
 
   // Estado para guardar el valor protegido del nombre de obra
   // SOLO se protege cuando se selecciona una obra existente en el selector
@@ -1076,11 +1091,20 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // useEffect para cargar nombres de cliente y obra vinculados (modo edición)
   useEffect(() => {
-    console.log('🚩 [useEffect-1035] Ejecutado');
+    console.log('🚩 [useEffect-cargarNombres] Ejecutado', {
+      show,
+      'form.id': form.id,
+      'form.clienteId': form.clienteId,
+      'form.obraId': form.obraId,
+      'form.esPresupuestoTrabajoExtra': form.esPresupuestoTrabajoExtra
+    });
+
     if (show && (form.id || initialData?.id)) {
       // Usar form o initialData como fuente
       const clienteId = form.clienteId || initialData?.clienteId || initialData?.cliente_id;
       const obraId = form.obraId || initialData?.obraId || initialData?.obra_id;
+
+      console.log('🔍 [useEffect-cargarNombres] IDs detectados:', { clienteId, obraId });
 
       // Cargar nombre del cliente si existe clienteId
       if (clienteId) {
@@ -1114,6 +1138,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       // Cargar nombre de la obra si existe obraId
       if (obraId) {
+        console.log('🏗️ [useEffect-cargarNombres] Cargando nombre de obra ID:', obraId);
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
         fetch(`${apiUrl}/api/obras/${obraId}?empresaId=${empresaSeleccionada?.id}`)
           .then(res => {
@@ -1131,10 +1156,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                           descripcion ||
                           `Obra ID: ${obraId}`;
 
+            console.log('✅ [useEffect-cargarNombres] Nombre de obra cargado:', nombre);
             setNombreObraVinculado(nombre);
           })
           .catch(error => {
-            console.error('Error cargando obra:', error);
+            console.error('❌ Error cargando obra:', error);
             setNombreObraVinculado(`Obra ID: ${obraId}`);
           });
       }
@@ -1186,7 +1212,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // Si no hay obraId, limpiar
     if (!obraId) {
-      setForm(f => ({ ...f, clienteId: null, obraId: null, obraSeleccionadaParaCopiar: null }));
+      setForm(f => ({ ...f, clienteId: null, obraId: null, obraSeleccionadaParaCopiar: null, esPresupuestoTrabajoExtra: false }));
       return;
     }
 
@@ -1217,10 +1243,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       // Rellenar campos de dirección con los datos de la obra
       setForm(f => ({
         ...f,
-        // ✅ Si es un presupuesto existente con obraId, mantenerlo. Si es nuevo, copiar datos sin vincular
-        obraId: f.id && f.obraId ? f.obraId : null,
+        // 🔧 CORREGIDO: Si es nuevo presupuesto, VINCULAR a la obra (asignar obraId)
+        // Si es presupuesto existente, mantener obraId actual
+        obraId: !f.id ? obraId : (f.obraId || null),
         clienteId: f.id && f.clienteId ? f.clienteId : (clienteIdDeObra || null),
         obraSeleccionadaParaCopiar: f.id ? null : obraId, // Solo marcar si es nuevo
+        esPresupuestoTrabajoExtra: !f.id ? true : f.esPresupuestoTrabajoExtra, // 🔧 Marcar automáticamente como trabajo extra si es nuevo
         direccionObraCalle: obraSeleccionada.direccion_obra_calle || obraSeleccionada.direccionObraCalle || obraSeleccionada.calle || f.direccionObraCalle,
         direccionObraAltura: obraSeleccionada.direccion_obra_altura || obraSeleccionada.direccionObraAltura || obraSeleccionada.altura || f.direccionObraAltura,
         direccionObraBarrio: obraSeleccionada.direccion_obra_barrio || obraSeleccionada.direccionObraBarrio || obraSeleccionada.barrio || f.direccionObraBarrio,
@@ -7022,6 +7050,32 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('ℹ️ idObra NO presente en form - se creará obra nueva al aprobar');
     }
 
+// 🔧 CRÍTICO: PRESERVAR esPresupuestoTrabajoExtra
+    // Si tiene idObra, ES un trabajo extra (incluso si el flag está en false por error)
+    // Si el flag está en true, preservarlo SIEMPRE
+    if (form.id && initialData?.esPresupuestoTrabajoExtra) {
+      // Modo EDICIÓN: preservar el flag original del presupuesto guardado
+      payload.esPresupuestoTrabajoExtra = true;
+      console.log('🔧 MODO EDICIÓN: Preservando esPresupuestoTrabajoExtra = true desde initialData');
+    } else if (payload.idObra || payload.obraId) {
+      // Si tiene idObra, DEBE ser trabajo extra
+      payload.esPresupuestoTrabajoExtra = true;
+      console.log('🔧 FORZANDO esPresupuestoTrabajoExtra = true porque tiene idObra');
+    } else {
+      // Nuevo presupuesto sin obra vinculada
+      payload.esPresupuestoTrabajoExtra = form.esPresupuestoTrabajoExtra || false;
+      console.log('🔧 esPresupuestoTrabajoExtra desde form:', payload.esPresupuestoTrabajoExtra);
+    }
+
+    // 🔍 DEBUG COMPLETO: Mostrar datos de trabajo extra que se enviarán
+    console.log('🔧🔍 DATOS DE TRABAJO EXTRA EN PAYLOAD:', {
+      esPresupuestoTrabajoExtra: payload.esPresupuestoTrabajoExtra,
+      idObra: payload.idObra,
+      obraId: payload.obraId,
+      'form.id': form.id,
+      'initialData?.esPresupuestoTrabajoExtra': initialData?.esPresupuestoTrabajoExtra
+    });
+
     payload.direccionObraBarrio = payload.direccionObraBarrio || '';
     payload.direccionObraTorre = payload.direccionObraTorre || '';
     payload.direccionObraCalle = payload.direccionObraCalle || '';
@@ -7032,7 +7086,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     payload.direccionObraProvincia = payload.direccionObraProvincia || '';
     payload.direccionObraCodigoPostal = payload.direccionObraCodigoPostal || '';
 
-    // SIEMPRE mapear nombreObraManual a nombreObra (el backend lo requiere)
+    // 🔧 CRÍTICO: nombreObra es para LA NUEVA OBRA que se generará desde este presupuesto
+    // NO debe afectar a la obra padre (si es trabajo extra)
     // Si el usuario lo completó, usar ese valor
     // Si está vacío, generar automáticamente desde la dirección
     if (form.nombreObraManual && form.nombreObraManual.trim() !== '') {
@@ -7050,6 +7105,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       payload.nombreObra = partes.join(' ').trim() || 'Obra sin nombre';
       console.log('✅ nombreObra generado automáticamente:', payload.nombreObra);
+    }
+
+    // ⚠️ IMPORTANTE: nombreObra e idObra son INDEPENDIENTES
+    // idObra = referencia a obra PADRE (si es trabajo extra)
+    // nombreObra = nombre para la NUEVA obra que se creará al aprobar ESTE presupuesto
+    if (payload.esPresupuestoTrabajoExtra) {
+      console.log('⚠️ TRABAJO EXTRA: nombreObra NO modifica la obra padre (ID:', payload.idObra + ')');
+      console.log('   nombreObra será usado para crear la NUEVA obra cuando se apruebe este presupuesto');
     }
 
     payload.profesionales = payload.profesionales.map(p => {
@@ -8574,27 +8637,65 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     <div className="col-12">
                           {/* Si es modo EDICIÓN y tiene vinculación, mostrar solo label de solo lectura */}
                           {(form.id || initialData?.id) && (form.clienteId || initialData?.clienteId || form.obraId || initialData?.obraId) ? (
+                            (() => {
+                              console.log('🔍 [Render-Vinculación] Mostrando alert de vinculación:', {
+                                'form.id': form.id,
+                                'form.obraId': form.obraId,
+                                'form.clienteId': form.clienteId,
+                                'form.esPresupuestoTrabajoExtra': form.esPresupuestoTrabajoExtra,
+                                nombreObraVinculado,
+                                nombreClienteVinculado
+                              });
+                              return null;
+                            })()
+                          ) : null}
+                          {(form.id || initialData?.id) && (form.clienteId || initialData?.clienteId || form.obraId || initialData?.obraId) ? (
                             <div className="alert alert-info mb-3" style={{backgroundColor: '#e7f3ff', borderLeft: '4px solid #0d6efd'}}>
                               <h6 className="fw-bold mb-3" style={{color: '#0d6efd'}}>
                                 <i className="fas fa-link me-2"></i>
                                 Presupuesto Vinculado
-                              </h6>
-                              {(form.clienteId || initialData?.clienteId) && (
-                                <div className="mb-2 p-2 bg-white rounded">
-                                  <i className="fas fa-user me-2 text-primary"></i>
-                                  <strong>Cliente:</strong>
-                                  <span className="ms-2" style={{fontSize: '1.05em'}}>
-                                    {nombreClienteVinculado || `Cargando...`}
+                                {form.esPresupuestoTrabajoExtra && (
+                                  <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.8rem', padding: '4px 10px'}}>
+                                    🔧 TRABAJO EXTRA
                                   </span>
-                                </div>
-                              )}
-                              {(form.obraId || initialData?.obraId) && (
+                                )}
+                              </h6>
+                              {/* 🔧 Si es trabajo extra, mostrar SOLO la obra (ignorar cliente) */}
+                              {form.esPresupuestoTrabajoExtra ? (
                                 <div className="mb-2 p-2 bg-white rounded">
                                   <i className="fas fa-building me-2 text-success"></i>
                                   <strong>Obra:</strong>
                                   <span className="ms-2" style={{fontSize: '1.05em'}}>
                                     {nombreObraVinculado || `Cargando...`}
                                   </span>
+                                </div>
+                              ) : (
+                                <>
+                                  {/* Si NO es trabajo extra, mostrar cliente u obra según corresponda */}
+                                  {(form.clienteId || initialData?.clienteId) && (
+                                    <div className="mb-2 p-2 bg-white rounded">
+                                      <i className="fas fa-user me-2 text-primary"></i>
+                                      <strong>Cliente:</strong>
+                                      <span className="ms-2" style={{fontSize: '1.05em'}}>
+                                        {nombreClienteVinculado || `Cargando...`}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {(form.obraId || initialData?.obraId) && (
+                                    <div className="mb-2 p-2 bg-white rounded">
+                                      <i className="fas fa-building me-2 text-success"></i>
+                                      <strong>Obra:</strong>
+                                      <span className="ms-2" style={{fontSize: '1.05em'}}>
+                                        {nombreObraVinculado || `Cargando...`}
+                                      </span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {form.esPresupuestoTrabajoExtra && (
+                                <div className="alert alert-warning d-flex align-items-center gap-2 mt-2 mb-0" style={{padding: '8px 12px', fontSize: '0.9rem', borderRadius: '8px', backgroundColor: '#fff3cd'}}>
+                                  <span style={{fontSize: '1.2rem'}}>🔧</span>
+                                  <strong>TRABAJO EXTRA:</strong> Este presupuesto está marcado como trabajo extra de la obra vinculada
                                 </div>
                               )}
                               <small className="text-muted d-block mt-2">
@@ -8709,7 +8810,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     className="btn btn-sm btn-outline-danger"
                                     onClick={() => {
                                       console.log('🔄 Limpiando obra manualmente');
-                                      setForm(f => ({ ...f, obraId: null, obraSeleccionadaParaCopiar: null, clienteId: null }));
+                                      setForm(f => ({ ...f, obraId: null, obraSeleccionadaParaCopiar: null, clienteId: null, esPresupuestoTrabajoExtra: false }));
                                     }}
                                     title="Limpiar obra seleccionada"
                                     disabled={soloLectura}
@@ -8722,6 +8823,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 <small className="text-success d-block mt-1">
                                   ✅ Obra {form.obraId ? 'vinculada' : 'seleccionada'} - {form.obraId ? 'Este presupuesto está asociado a esta Obra' : 'Se creará un nuevo Presupuesto asociado a esta Obra'}
                                 </small>
+                              )}
+                              {form.esPresupuestoTrabajoExtra && (
+                                <div className="alert alert-warning d-flex align-items-center gap-2 mt-2 mb-0" style={{padding: '8px 12px', fontSize: '0.9rem', borderRadius: '8px'}}>
+                                  <span style={{fontSize: '1.2rem'}}>🔧</span>
+                                  <strong>TRABAJO EXTRA:</strong> Este presupuesto está marcado como trabajo extra de la obra seleccionada
+                                </div>
                               )}
                             </div>
                           </label>
