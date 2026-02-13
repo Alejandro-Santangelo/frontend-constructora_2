@@ -123,7 +123,32 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     clienteId: (safeInitial.esPresupuestoTrabajoExtra) ? null : (safeInitial.clienteId || null),
     nombreObraManual: safeInitial.nombreObraManual || safeInitial.nombreObra || '',
     obraSeleccionadaParaCopiar: null, // ✨ Flag para distinguir si se seleccionó obra (sin vincular, solo copiar datos)
-    esPresupuestoTrabajoExtra: safeInitial.esPresupuestoTrabajoExtra || false, // 🔧 Marca si es un trabajo extra (vinculado a obra existente)
+    // 🔧 CRÍTICO: Asegurar que esPresupuestoTrabajoExtra se inicialice correctamente
+    esPresupuestoTrabajoExtra: (() => {
+      // Si modoTrabajoExtra está activo, SIEMPRE debe ser true
+      if (modoTrabajoExtra) {
+        console.log('🔧 [INIT] MODO TRABAJO EXTRA ACTIVO → forzando esPresupuestoTrabajoExtra = true');
+        return true;
+      }
+
+      // Si viene en initialData, verificar su valor
+      const valorInicial = safeInitial.esPresupuestoTrabajoExtra;
+      const valor = valorInicial === true ||
+                    valorInicial === 'V' ||
+                    valorInicial === 1;
+
+      console.log('🔧 [INIT] esPresupuestoTrabajoExtra:', {
+        valorOriginal: valorInicial,
+        valorFinal: valor,
+        obraId: safeInitial.obraId,
+        modoTrabajoExtra,
+        tipoValor: typeof valorInicial
+      });
+      return valor;
+    })(),
+
+    // 🆕 ID del trabajo extra padre (si estamos creando un trabajo extra dentro de otro trabajo extra)
+    _trabajoExtraPadreId: safeInitial._trabajoExtraPadreId || null,
 
     // 🆕 Modos de carga (global/detalle) - Siempre iniciar en 'global' (Modo Global)
     modoCargaJornales: normalizeModoCarga(safeInitial.modoCargaJornales, 'global'),
@@ -131,13 +156,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     modoCargaGastos: normalizeModoCarga(safeInitial.modoCargaGastos, 'global'),
   }));
 
+  // 🔍 DEBUG CRÍTICO: Verificar valor inmediatamente después de inicialización
+  console.log('🚨 [ESTADO INICIAL] form.esPresupuestoTrabajoExtra =', form.esPresupuestoTrabajoExtra, '| modoTrabajoExtra =', modoTrabajoExtra);
+
   // 🔍 DEBUG: Log al inicializar el modal y guardar en variable global para debug
   const debugInfo = {
     id: safeInitial.id,
     obraId: safeInitial.obraId ?? safeInitial.obra_id,
     clienteId: safeInitial.clienteId,
     esPresupuestoTrabajoExtra: safeInitial.esPresupuestoTrabajoExtra,
+    esPresupuestoTrabajoExtra_FORM: form.esPresupuestoTrabajoExtra,
     nombreObraManual: safeInitial.nombreObraManual,
+    modoTrabajoExtra,
     timestamp: new Date().toISOString()
   };
   window.DEBUG_PRESUPUESTO_MODAL = debugInfo;
@@ -884,11 +914,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       clienteId: safeData.clienteId || safeData.idCliente || safeData.cliente_id || null,
       nombreObraManual: safeData.nombreObraManual || safeData.nombreObra || safeData.nombre_obra || '',
       obraSeleccionadaParaCopiar: null,
+      // 🔧 Convertir 'V' (varchar de BD) a true boolean
+      esPresupuestoTrabajoExtra: (() => {
+        // Si modoTrabajoExtra está activo, SIEMPRE debe ser true
+        if (modoTrabajoExtra) {
+          console.log('🔧 [useEffect] MODO TRABAJO EXTRA ACTIVO → forzando esPresupuestoTrabajoExtra = true');
+          return true;
+        }
 
-      // 🆕 Modos de carga (global/detalle) - Persistencia de UI
-      modoCargaJornales: normalizeModoCarga(safeData.modoCargaJornales, safeData.id ? 'detalle' : 'global'),
-      modoCargaMateriales: normalizeModoCarga(safeData.modoCargaMateriales, safeData.id ? 'detalle' : 'global'),
-      modoCargaGastos: normalizeModoCarga(safeData.modoCargaGastos, safeData.id ? 'detalle' : 'global'),
+        const valorInicial = safeData.esPresupuestoTrabajoExtra;
+        const valor = valorInicial === true ||
+                      valorInicial === 'V' ||
+                      valorInicial === 1;
+
+        console.log('🔧 [useEffect] esPresupuestoTrabajoExtra:', {
+          valorOriginal: valorInicial,
+          valorFinal: valor,
+          tipoValor: typeof valorInicial
+        });
+        return valor;
+      })(),
     });
 
     // Colapsar secciones automáticamente si ya tienen items agregados (modo edición)
@@ -1033,14 +1078,58 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         .then(res => res.json())
         .then(data => {
           const obras = Array.isArray(data) ? data : [];
-          setObrasDisponibles(obras);
+
+          // 🔧 FILTRAR: Excluir la obra/subobra actual si estamos editando un trabajo extra
+          // para evitar que una subobra pueda seleccionarse a sí misma como trabajo extra
+          let obrasFiltradas = obras;
+
+          if (form.esPresupuestoTrabajoExtra) {
+            // IDs a excluir de la lista
+            const idsAExcluir = [];
+
+            // 1. Si estamos EDITANDO un trabajo extra, excluir la obra a la que pertenece
+            //    (form.obraId es el ID de la obra, NO del presupuesto)
+            if (form.id && form.obraId) {
+              idsAExcluir.push(form.obraId);
+              console.log('🔍 Excluyendo trabajo extra actual - obraId:', form.obraId);
+            }
+
+            // 2. Si estamos creando un trabajo extra dentro de otro (subobra),
+            //    excluir el trabajo extra padre para evitar recursión
+            if (form._trabajoExtraPadreId) {
+              idsAExcluir.push(form._trabajoExtraPadreId);
+              console.log('🔍 Excluyendo trabajo extra padre - _trabajoExtraPadreId:', form._trabajoExtraPadreId);
+            }
+
+            // 3. 🆕 Excluir TODAS las obras que son trabajos extra
+            //    (los trabajos extra solo deberían vincularse a obras principales)
+            obrasFiltradas = obras.filter(obra => {
+              // Excluir por ID específico
+              if (idsAExcluir.includes(obra.id)) {
+                console.log('❌ Excluyendo obra por ID:', obra.nombre, 'ID:', obra.id);
+                return false;
+              }
+
+              // Excluir si es trabajo extra
+              const esTrabajoExtra = obra.esObraTrabajoExtra || obra.es_obra_trabajo_extra || false;
+              if (esTrabajoExtra) {
+                console.log('❌ Excluyendo trabajo extra de la lista:', obra.nombre, 'ID:', obra.id);
+                return false;
+              }
+
+              return true;
+            });
+            console.log(`✅ Obras disponibles filtradas: ${obrasFiltradas.length} de ${obras.length} (excluidos trabajos extra y ${idsAExcluir.length} IDs)`);
+          }
+
+          setObrasDisponibles(obrasFiltradas);
         })
         .catch(error => {
           console.error('❌ Error cargando obras:', error);
           setObrasDisponibles([]);
         });
     }
-  }, [show, form.idEmpresa, soloLectura]);
+  }, [show, form.idEmpresa, soloLectura, form.esPresupuestoTrabajoExtra, form.id, form.obraId, form._trabajoExtraPadreId]);
 
   // 📚 useEffect para cargar catálogos (Materiales, Jornales, Gastos) cuando se abre el modal
   useEffect(() => {
@@ -1171,17 +1260,25 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             return res.json();
           })
           .then(obra => {
+            // 🔧 Priorizar el nombre de la obra por sobre la dirección
+            const nombreObra = obra.nombre?.trim() || obra.nombreObra?.trim();
             const nombreManual = obra.nombreObraManual?.trim();
             const direccion = `${obra.direccionObraCalle || ''} ${obra.direccionObraAltura || ''}`.trim();
             const descripcion = obra.descripcion?.trim();
 
-            // Prioridad de fallbacks
-            const nombre = nombreManual ||
+            // Prioridad de fallbacks: nombre > nombreManual > dirección > descripción
+            const nombre = nombreObra ||
+                          nombreManual ||
                           direccion ||
                           descripcion ||
                           `Obra ID: ${obraId}`;
 
-            console.log('✅ [useEffect-cargarNombres] Nombre de obra cargado:', nombre);
+            console.log('✅ [useEffect-cargarNombres] Nombre de obra cargado:', nombre, {
+              nombreObra,
+              nombreManual,
+              direccion,
+              descripcion
+            });
             setNombreObraVinculado(nombre);
           })
           .catch(error => {
@@ -4855,6 +4952,17 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       obraId: si.obraId || null,
       nombreObraManual: si.nombreObraManual || si.nombreObra || '',
+
+      // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra
+      esPresupuestoTrabajoExtra: (() => {
+        // Si modoTrabajoExtra está activo, SIEMPRE debe ser true
+        if (modoTrabajoExtra) {
+          return true;
+        }
+        // Si viene en initialData, verificar su valor
+        const valorInicial = si.esPresupuestoTrabajoExtra;
+        return valorInicial === true || valorInicial === 'V' || valorInicial === 1;
+      })(),
     });
 
 
@@ -7077,8 +7185,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
 // 🔧 CRÍTICO: PRESERVAR esPresupuestoTrabajoExtra
     // Si tiene idObra, ES un trabajo extra (incluso si el flag está en false por error)
-    // Si el flag está en true, preservarlo SIEMPRE
-    if (form.id && initialData?.esPresupuestoTrabajoExtra) {
+    // Si el flag está en true (o 'V'), preservarlo SIEMPRE
+    if (form.id && (initialData?.esPresupuestoTrabajoExtra === true || initialData?.esPresupuestoTrabajoExtra === 'V')) {
       // Modo EDICIÓN: preservar el flag original del presupuesto guardado
       payload.esPresupuestoTrabajoExtra = true;
       console.log('🔧 MODO EDICIÓN: Preservando esPresupuestoTrabajoExtra = true desde initialData');
@@ -8341,6 +8449,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       });
     }
 
+    // 🧹 LIMPIAR campos internos del frontend (que empiezan con "_")
+    // Estos campos son solo para control interno y no deben enviarse al backend
+    Object.keys(payload).forEach(key => {
+      if (key.startsWith('_')) {
+        console.log(`🗑️ Eliminando campo interno del payload: ${key}`);
+        delete payload[key];
+      }
+    });
+
     return payload;
   };
 
@@ -8478,11 +8595,23 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     <>
                       <i className="fas fa-lock me-2 text-warning"></i>
                       Ver Presupuesto - Solo Lectura
+                      {form.esPresupuestoTrabajoExtra && (
+                        <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.9rem'}}>
+                          🔧 TRABAJO EXTRA
+                        </span>
+                      )}
                     </>
                   ) : (
-                    initialData && initialData.id
-                      ? (form.tipoPresupuesto === 'TRABAJOS_SEMANALES' ? 'Editar Trabajos Semanales' : 'Editar Presupuesto')
-                      : (form.tipoPresupuesto === 'TRABAJOS_SEMANALES' ? 'Nuevo Trabajos Semanales' : 'Nuevo Presupuesto')
+                    <>
+                      {initialData && initialData.id
+                        ? (form.tipoPresupuesto === 'TRABAJOS_SEMANALES' ? 'Editar Trabajos Semanales' : 'Editar Presupuesto')
+                        : (form.tipoPresupuesto === 'TRABAJOS_SEMANALES' ? 'Nuevo Trabajos Semanales' : 'Nuevo Presupuesto')}
+                      {form.esPresupuestoTrabajoExtra && (
+                        <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.9rem'}}>
+                          🔧 TRABAJO EXTRA
+                        </span>
+                      )}
+                    </>
                   )}
                 </h5>
 
@@ -8605,7 +8734,70 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
                 {/* Nombre de la obra - ANTES de Vincular a Cliente */}
                 <div className="col-12 mb-3">
-                  <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 6}}>Nombre de la obra
+                  <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 6}}>
+                    Nombre de la obra
+                    {/* 🔧 CHECKBOX TRABAJO EXTRA - Visible y prominente */}
+                    {(form.obraId || form.obraSeleccionadaParaCopiar || form.esPresupuestoTrabajoExtra) && (() => {
+                      // 🔍 DEBUG: Ver el valor actual del checkbox en render
+                      console.log('🎯 [RENDER CHECKBOX] Estado actual:', {
+                        'form.esPresupuestoTrabajoExtra': form.esPresupuestoTrabajoExtra,
+                        'tipo': typeof form.esPresupuestoTrabajoExtra,
+                        'modoTrabajoExtra': modoTrabajoExtra,
+                        'form.obraId': form.obraId,
+                        'checked_será': form.esPresupuestoTrabajoExtra || false
+                      });
+                      return (
+                      <div className="d-inline-flex align-items-center gap-2 ms-3">
+                        <div className="form-check form-switch" style={{fontSize: '1.1rem'}}>
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="checkboxTrabajoExtra"
+                            checked={form.esPresupuestoTrabajoExtra || false}
+                            onChange={(e) => {
+                              console.log('🔧 Checkbox Trabajo Extra cambiado a:', e.target.checked);
+                              setForm(f => ({
+                                ...f,
+                                esPresupuestoTrabajoExtra: e.target.checked
+                              }));
+                            }}
+                            disabled={soloLectura}
+                            style={{
+                              width: '48px',
+                              height: '24px',
+                              cursor: soloLectura ? 'not-allowed' : 'pointer'
+                            }}
+                          />
+                          <label
+                            className="form-check-label fw-bold"
+                            htmlFor="checkboxTrabajoExtra"
+                            style={{
+                              color: form.esPresupuestoTrabajoExtra ? '#ff6b00' : '#6c757d',
+                              fontSize: '1rem',
+                              cursor: soloLectura ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            🔧 Trabajo Extra
+                          </label>
+                        </div>
+                        {form.esPresupuestoTrabajoExtra && (
+                          <span
+                            className="badge bg-warning text-dark"
+                            style={{
+                              fontSize: '0.85rem',
+                              padding: '6px 12px',
+                              fontWeight: 'bold',
+                              animation: 'pulse 2s infinite'
+                            }}
+                          >
+                            <i className="fas fa-tools me-1"></i>
+                            TRABAJO EXTRA
+                          </span>
+                        )}
+                      </div>
+                      );
+                    })()}
+                  </label>
                     <input
                       type="text"
                       name="nombreObraManual"
@@ -8652,7 +8844,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                         💡 Puedes agregar texto adicional, pero no borrar: "{nombreObraProtegido}"
                       </small>
                     )}
-                  </label>
                 </div>
 
                 {/* Primera fila: 5 columnas iguales, agregando Nombre de obra */}
@@ -8734,6 +8925,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               {!modoTrabajoExtra && (
                               <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 8}}>
                                 Vincular a Cliente Existente
+                                {form.clienteId && (
+                                  <span className="badge bg-primary ms-2" style={{fontSize: '0.85rem'}}>
+                                    <i className="fas fa-user me-1"></i>Cliente Vinculado
+                                  </span>
+                                )}
 
                                 {/* Selector de Cliente */}
                                 <div className="mb-2">
@@ -8818,6 +9014,17 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   className="form-select"
                                   placeholder="Seleccionar obra para copiar datos..."
                                   disabled={soloLectura || !!form.clienteId}
+                                  excludeObraIds={(() => {
+                                    // Construir array de IDs a excluir solo si es trabajo extra
+                                    if (!form.esPresupuestoTrabajoExtra) return [];
+                                    const idsAExcluir = [];
+                                    // Excluir la obra actual (si estamos editando un trabajo extra)
+                                    if (form.id && form.obraId) idsAExcluir.push(form.obraId);
+                                    // Excluir el trabajo extra padre (si estamos creando dentro de otro)
+                                    if (form._trabajoExtraPadreId) idsAExcluir.push(form._trabajoExtraPadreId);
+                                    return idsAExcluir;
+                                  })()}
+                                  excludeTrabajosExtra={form.esPresupuestoTrabajoExtra}
                                   style={{
                                     opacity: form.clienteId ? 0.5 : 1,
                                     backgroundColor: form.clienteId ? '#f8f9fa' : 'white',
@@ -8850,9 +9057,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 </small>
                               )}
                               {form.esPresupuestoTrabajoExtra && (
-                                <div className="alert alert-warning d-flex align-items-center gap-2 mt-2 mb-0" style={{padding: '8px 12px', fontSize: '0.9rem', borderRadius: '8px'}}>
+                                <div className="alert alert-warning d-flex align-items-center gap-2 mt-2 mb-0" style={{padding: '8px 12px', fontSize: '0.9rem', borderRadius: '8px', backgroundColor: '#fff3cd', border: '2px solid #ff6b00'}}>
                                   <span style={{fontSize: '1.2rem'}}>🔧</span>
-                                  <strong>TRABAJO EXTRA:</strong> Este presupuesto está marcado como trabajo extra de la obra seleccionada
+                                  <div>
+                                    <strong>TRABAJO EXTRA:</strong> Este presupuesto está marcado como trabajo extra de la obra seleccionada.
+                                    <div className="mt-1" style={{fontSize: '0.85rem'}}>
+                                      <i className="fas fa-info-circle me-1"></i>
+                                      El sistema lo identificará y gestionará como un presupuesto de trabajo extra vinculado a la obra.
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                             </div>

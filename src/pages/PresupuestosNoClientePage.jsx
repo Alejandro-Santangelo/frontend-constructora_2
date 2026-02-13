@@ -97,6 +97,19 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     return dias;
   };
 
+  // 🎨 Función para ajustar brillo de un color (oscurecer/aclarar)
+  const adjustColorBrightness = (color, percent) => {
+    const num = parseInt(color.replace("#", ""), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+      (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+      (B < 255 ? B < 1 ? 0 : B : 255))
+      .toString(16).slice(1);
+  };
+
   // Determinar si debe mostrar alerta de inicio próximo
   const obtenerAlertaInicio = (presupuesto) => {
     if (presupuesto.estado !== 'APROBADO' || !presupuesto.fechaProbableInicio) return null;
@@ -355,35 +368,112 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         })
       );
 
-      // 🎯 AGRUPACIÓN INTELIGENTE POR CLIENTE: Agrupar TODOS los presupuestos por cliente_id
-      console.log('📊 Agrupando presupuestos por cliente_id...');
+      // 🎯 AGRUPACIÓN INTELIGENTE: Agrupar por obra_id (presupuestos aprobados + trabajos extra) O por cliente_id
+      console.log('📊 Agrupando presupuestos por obraId (aprobados + trabajos extra) y clienteId...');
 
-      // 1. Agrupar presupuestos por cliente_id
+      // 1. Agrupar presupuestos por obraId o por clienteId
       const gruposPorCliente = {};
+      const gruposPorObra = {}; // 🆕 Para agrupar por obra (presupuestos aprobados + trabajos extra)
       const presupuestosSinCliente = [];
 
+      // � Agrupar presupuestos
+      // 🔧 Agrupar presupuestos - VERSIÓN CORREGIDA
       presupuestosCompletos.forEach(p => {
-        if (p.clienteId) {
-          if (!gruposPorCliente[p.clienteId]) {
-            gruposPorCliente[p.clienteId] = [];
+        // 🔧 Si tiene obraId (presupuesto aprobado que creó la obra, NO trabajo extra)
+        if (p.obraId && !p.esPresupuestoTrabajoExtra) {
+          const keyObra = `obra_${p.obraId}`;
+          if (!gruposPorObra[keyObra]) {
+            gruposPorObra[keyObra] = {
+              tipo: 'obra',
+              obraId: p.obraId,
+              presupuestos: []
+            };
           }
-          gruposPorCliente[p.clienteId].push(p);
-        } else {
-          presupuestosSinCliente.push(p);
+          gruposPorObra[keyObra].presupuestos.push(p);
+        }
+        // 🔧 Si NO tiene obraId, agrupar por clienteId
+        else if (p.clienteId && !p.esPresupuestoTrabajoExtra) {
+          if (!gruposPorCliente[p.clienteId]) {
+            gruposPorCliente[p.clienteId] = {
+              tipo: 'cliente',
+              clienteId: p.clienteId,
+              presupuestos: []
+            };
+          }
+          gruposPorCliente[p.clienteId].presupuestos.push(p);
         }
       });
 
-      // 2. Ordenar presupuestos dentro de cada grupo por número (descendente)
+      // 🆕 SEGUNDO PASO: Agregar trabajos extra a los grupos existentes
+      presupuestosCompletos.forEach(p => {
+        if (p.esPresupuestoTrabajoExtra) {
+          // Buscar grupo por obraId si existe
+          if (p.obraId) {
+            const keyObra = `obra_${p.obraId}`;
+            if (gruposPorObra[keyObra]) {
+              gruposPorObra[keyObra].presupuestos.push(p);
+              return;
+            }
+          }
+
+          // Si no encontró por obraId, buscar por clienteId
+          if (p.clienteId) {
+            // Buscar un presupuesto padre del mismo cliente que tenga obra
+            const presupuestoPadre = presupuestosCompletos.find(pp =>
+              !pp.esPresupuestoTrabajoExtra && pp.clienteId === p.clienteId && pp.obraId
+            );
+
+            if (presupuestoPadre) {
+              const keyObra = `obra_${presupuestoPadre.obraId}`;
+              if (gruposPorObra[keyObra]) {
+                gruposPorObra[keyObra].presupuestos.push(p);
+                return;
+              }
+            }
+
+            // Si no encuentra presupuesto padre con obra, agrupar por cliente
+            if (gruposPorCliente[p.clienteId]) {
+              gruposPorCliente[p.clienteId].presupuestos.push(p);
+            } else {
+              // Crear grupo de cliente si no existe
+              gruposPorCliente[p.clienteId] = {
+                tipo: 'cliente',
+                clienteId: p.clienteId,
+                presupuestos: [p]
+              };
+            }
+          }
+        }
+      });
+
+      // 2. Ordenar presupuestos dentro de cada grupo
+      // IMPORTANTE: Presupuesto padre (NO trabajo extra) arriba, trabajos extra abajo
       Object.values(gruposPorCliente).forEach(grupo => {
-        grupo.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
+        grupo.presupuestos.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
+      });
+      Object.values(gruposPorObra).forEach(grupo => {
+        grupo.presupuestos.sort((a, b) => {
+          // Prioridad 1: Presupuestos padre (NO trabajo extra) primero
+          if (!a.esPresupuestoTrabajoExtra && b.esPresupuestoTrabajoExtra) return -1;
+          if (a.esPresupuestoTrabajoExtra && !b.esPresupuestoTrabajoExtra) return 1;
+          // Prioridad 2: Si ambos son del mismo tipo, ordenar por número descendente
+          return b.numeroPresupuesto - a.numeroPresupuesto;
+        });
       });
 
       // 3. Ordenar grupos por el número de presupuesto más alto de cada grupo
-      const gruposOrdenados = Object.entries(gruposPorCliente)
-        .map(([clienteId, presupuestos]) => ({
+      const gruposOrdenadosClientes = Object.entries(gruposPorCliente)
+        .map(([clienteId, grupo]) => ({
+          ...grupo,
           clienteId,
-          presupuestos,
-          maxNumeroPresupuesto: Math.max(...presupuestos.map(p => p.numeroPresupuesto || 0))
+          maxNumeroPresupuesto: Math.max(...grupo.presupuestos.map(p => p.numeroPresupuesto || 0))
+        }))
+        .sort((a, b) => b.maxNumeroPresupuesto - a.maxNumeroPresupuesto);
+
+      const gruposOrdenadosObras = Object.entries(gruposPorObra)
+        .map(([keyObra, grupo]) => ({
+          ...grupo,
+          maxNumeroPresupuesto: Math.max(...grupo.presupuestos.map(p => p.numeroPresupuesto || 0))
         }))
         .sort((a, b) => b.maxNumeroPresupuesto - a.maxNumeroPresupuesto);
 
@@ -391,7 +481,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       const listaOrdenada = [];
       let grupoIndex = 0;
 
-      gruposOrdenados.forEach(grupo => {
+      // 🔧 Procesar grupos de clientes
+      gruposOrdenadosClientes.forEach(grupo => {
         console.log(`📦 Grupo cliente ${grupo.clienteId}: ${grupo.presupuestos.length} presupuesto(s)`);
 
         grupo.presupuestos.forEach((presupuesto, indexEnGrupo) => {
@@ -399,7 +490,28 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           listaOrdenada.push({
             ...presupuesto,
             _grupoCliente: grupo.clienteId,
+            _grupoTipo: 'cliente',
             _grupoIndex: grupoIndex,
+            _primerEnGrupo: indexEnGrupo === 0,
+            _ultimoEnGrupo: indexEnGrupo === grupo.presupuestos.length - 1,
+            _totalEnGrupo: grupo.presupuestos.length
+          });
+        });
+
+        grupoIndex++;
+      });
+
+      // 🔧 Procesar grupos de obras (trabajos extra)
+      gruposOrdenadosObras.forEach(grupo => {
+        console.log(`🏗️ Grupo obra ${grupo.obraId}: ${grupo.presupuestos.length} trabajo(s) extra`);
+
+        grupo.presupuestos.forEach((presupuesto, indexEnGrupo) => {
+          // Agregar metadatos del grupo al presupuesto
+          listaOrdenada.push({
+            ...presupuesto,
+            _grupoObra: grupo.obraId,
+            _grupoTipo: 'obra',
+            _grupoIndex: grupoIndex + 2, // 🎨 Offset para sincronizar colores con página de Obras
             _primerEnGrupo: indexEnGrupo === 0,
             _ultimoEnGrupo: indexEnGrupo === grupo.presupuestos.length - 1,
             _totalEnGrupo: grupo.presupuestos.length
@@ -914,9 +1026,71 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
       // ✅ LÓGICA INTELIGENTE: Detectar escenario
       const tieneObraAsociada = presupuestoActual.obraId !== null && presupuestoActual.obraId !== undefined;
+      const esTrabajoExtra = presupuestoActual.esPresupuestoTrabajoExtra === true ||
+                             presupuestoActual.esPresupuestoTrabajoExtra === 'V' ||
+                             presupuestoActual.esPresupuestoTrabajoExtra === 1;
 
-      // ESCENARIO 1: Presupuesto CON obra asociada → Solo aprobar (sin crear nada)
-      if (tieneObraAsociada) {
+      // 🔧 ESCENARIO ESPECIAL: TRABAJO EXTRA
+      // Los trabajos extra SIEMPRE crean una nueva SUB-OBRA, incluso si ya tienen obraId (obra padre)
+      // Ejemplo: Obra Padre "Cabañas de Tomas" → Trabajo Extra 1 crea Obra "Cabaña 1"
+      //          Obra Padre "Cabañas de Tomas" → Trabajo Extra 2 crea Obra "Cabaña 2"
+      if (esTrabajoExtra && tieneObraAsociada) {
+        // Validar que tenga nombre de obra
+        const tieneNombreObra = presupuestoActual.nombreObra && presupuestoActual.nombreObra.trim() !== '';
+
+        if (!tieneNombreObra) {
+          showNotification && showNotification(
+            '⚠️ Error: El trabajo extra debe tener un NOMBRE DE OBRA\n\n' +
+            'Ejemplo: "Cabaña 1", "Cabaña 2", "Ampliación Norte", etc.\n\n' +
+            'Este nombre se usará para crear la sub-obra dentro de la obra padre.',
+            'warning'
+          );
+          return;
+        }
+
+        const confirmar = window.confirm(
+          `🔧 APROBAR TRABAJO EXTRA y CREAR SUB-OBRA\n\n` +
+          `Presupuesto: #${presupuestoActual.numeroPresupuesto} v${presupuestoActual.numeroVersion}\n` +
+          `Nombre de sub-obra: "${presupuestoActual.nombreObra}"\n` +
+          `Obra padre: ID ${presupuestoActual.obraId}\n` +
+          `Monto: $${(presupuestoActual.totalFinal || presupuestoActual.montoTotal || 0).toLocaleString('es-AR')}\n\n` +
+          `Se creará una NUEVA OBRA vinculada a la obra padre.\n` +
+          `Esta sub-obra tendrá sus propios:\n` +
+          `  ✓ Profesionales y jornales\n` +
+          `  ✓ Materiales\n` +
+          `  ✓ Gastos generales\n` +
+          `  ✓ Control de costos independiente\n\n` +
+          `¿Desea continuar?`
+        );
+
+        if (!confirmar) return;
+
+        // Llamar al endpoint - el backend debe crear SUB-OBRA
+        const response = await api.post(
+          `/api/v1/presupuestos-no-cliente/${selectedId}/aprobar-y-crear-obra`,
+          {},
+          {
+            params: { empresaId },
+            headers: { 'X-Tenant-ID': empresaId, 'Content-Type': 'application/json' }
+          }
+        );
+
+        const respuestaData = response.data || response;
+        const nuevaObraId = respuestaData?.obraId || respuestaData?.id;
+        const mensaje = respuestaData?.mensaje || respuestaData?.message;
+
+        showNotification && showNotification(
+          mensaje || `✅ Trabajo Extra aprobado\n🏗️ Sub-obra "${presupuestoActual.nombreObra}" creada (ID: ${nuevaObraId})\n📎 Vinculada a obra padre ID: ${presupuestoActual.obraId}`,
+          'success'
+        );
+
+        loadList();
+        return;
+      }
+
+      // ESCENARIO 1: Presupuesto normal CON obra ya asignada → Solo aprobar (sin crear nada)
+      // Esto aplica SOLO para presupuestos que NO son trabajos extra
+      if (tieneObraAsociada && !esTrabajoExtra) {
         const confirmar = window.confirm(
           `¿Aprobar presupuesto #${presupuestoActual.numeroPresupuesto} v${presupuestoActual.numeroVersion}?\n\n` +
           `Obra asociada: ID ${presupuestoActual.obraId}\n` +
@@ -1734,14 +1908,18 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     const isSelected = selectedId && rowId && selectedId === rowId;
 
                     // Determinar información de grupo para estilos visuales
-                    const perteneceAGrupo = row._grupoCliente !== null;
+                    const perteneceAGrupo = (row._grupoCliente !== null || row._grupoObra !== null) && row._totalEnGrupo > 1;
                     const esPrimerEnGrupo = row._primerEnGrupo;
                     const esUltimoEnGrupo = row._ultimoEnGrupo;
                     const grupoIndex = row._grupoIndex || 0;
                     const totalEnGrupo = row._totalEnGrupo || 1;
+                    const grupoTipo = row._grupoTipo || null;
 
                     // Verificar si es un cambio de grupo (comparar con el anterior)
-                    const esCambioDeGrupo = index > 0 && list[index - 1]._grupoCliente !== row._grupoCliente;
+                    const esCambioDeGrupo = index > 0 && (
+                      list[index - 1]._grupoCliente !== row._grupoCliente ||
+                      list[index - 1]._grupoObra !== row._grupoObra
+                    );
 
                     // Colores alternados para grupos (más visibles)
                     const coloresGrupo = [
@@ -1752,7 +1930,28 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       '#f8d7da', // Rosa claro
                       '#e7d6ff'  // Púrpura claro
                     ];
-                    const colorGrupo = perteneceAGrupo ? coloresGrupo[grupoIndex % coloresGrupo.length] : '#ffffff';
+
+                    // 🎨 Color base del grupo
+                    const colorBaseGrupo = coloresGrupo[grupoIndex % coloresGrupo.length];
+
+                    // 🎨 Alternar tonalidades - cada elemento del grupo con color diferente
+                    let colorGrupo = '#ffffff'; // Default: fondo blanco
+
+                    if (perteneceAGrupo) {
+                      // Calcular índice dentro del grupo específico
+                      const elementosDelMismoGrupo = list.filter((item, idx) =>
+                        idx <= index &&
+                        item._grupoIndex === row._grupoIndex &&
+                        (item._grupoCliente !== null || item._grupoObra !== null) &&
+                        item._totalEnGrupo > 1
+                      );
+                      const indexEnGrupo = elementosDelMismoGrupo.length - 1;
+
+                      // Aplicar diferentes tonalidades según posición en el grupo
+                      const porcentajeOscurecimiento = indexEnGrupo * -12; // -0%, -12%, -24%, etc.
+                      colorGrupo = adjustColorBrightness(colorBaseGrupo, porcentajeOscurecimiento);
+                    }
+                    // Si NO pertenece a grupo, mantener fondo blanco
 
                     // Determinar la relación con el presupuesto anterior (para trabajos extra)
                     let tipoRelacion = null;
@@ -1777,13 +1976,28 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     <React.Fragment key={rowId}>
                       {/* Separador visual entre grupos */}
                       {esCambioDeGrupo && (
-                        <tr style={{ height: '8px', backgroundColor: '#495057' }}>
+                        <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
                           <td colSpan="11" style={{
                             padding: 0,
                             height: '8px',
-                            borderTop: '2px solid #343a40',
-                            borderBottom: '2px solid #343a40',
-                            backgroundColor: '#6c757d'
+                            borderTop: '3px solid #212529',
+                            borderBottom: '3px solid #212529',
+                            backgroundColor: '#495057'
+                          }}></td>
+                        </tr>
+                      )}
+
+                      {/* 🔴 Línea roja delgada entre presupuestos del mismo grupo */}
+                      {index > 0 && perteneceAGrupo &&
+                       list[index - 1] &&
+                       list[index - 1]._grupoIndex === row._grupoIndex &&
+                       !esCambioDeGrupo && (
+                        <tr style={{ height: '6px', backgroundColor: '#ffcc99' }}>  {/* Naranja suave */}
+                          <td colSpan="11" style={{
+                            padding: 0,
+                            height: '6px',
+                            borderTop: '2px solid #dc3545',
+                            backgroundColor: '#ffcc99'  /* Naranja suave */
                           }}></td>
                         </tr>
                       )}
@@ -1799,7 +2013,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       }}
                       style={{
                         cursor: 'pointer',
-                        backgroundColor: isSelected ? '#cfe2ff' : (row.esPresupuestoTrabajoExtra ? '#fffbf0' : colorGrupo),
+                        backgroundColor: isSelected ? '#cfe2ff' : colorGrupo,
                         borderLeft: row.esPresupuestoTrabajoExtra
                           ? '5px solid #ffc107'
                           : (perteneceAGrupo ? '4px solid #6c757d' : 'none'),
@@ -1808,11 +2022,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       className={`${
                         isSelected
                           ? 'table-primary'
-                          : !esEditable
-                            ? 'table-secondary opacity-75'
-                            : esSemanal
-                              ? 'table-info'
-                              : ''
+                          : perteneceAGrupo
+                            ? '' // NO aplicar clases de color cuando pertenece a grupo
+                            : !esEditable
+                              ? 'table-secondary opacity-75'
+                              : esSemanal
+                                ? 'table-info'
+                                : ''
                       }`}
                       title={esEditable
                         ? `Clic para seleccionar presupuesto ${row.numeroPresupuesto || rowId} - Editable`
@@ -1820,13 +2036,23 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       }
                     >
                       <td className="small">
-                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
+                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && grupoTipo === 'cliente' && (
                           <span className="text-primary me-1" title={`Grupo de ${totalEnGrupo} presupuesto(s) del mismo cliente`}>
                             <i className="fas fa-users" style={{fontSize: '0.9em', fontWeight: 'bold'}}></i>
                           </span>
                         )}
-                        {perteneceAGrupo && !esPrimerEnGrupo && totalEnGrupo > 1 && (
+                        {perteneceAGrupo && !esPrimerEnGrupo && totalEnGrupo > 1 && grupoTipo === 'cliente' && (
                           <span className="text-info me-1" title="Mismo cliente que el presupuesto anterior">
+                            <i className="fas fa-level-down-alt" style={{fontSize: '0.7em'}}></i>
+                          </span>
+                        )}
+                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && grupoTipo === 'obra' && (
+                          <span className="text-warning me-1" title={`Grupo de ${totalEnGrupo} trabajo(s) extra de la misma obra`}>
+                            <i className="fas fa-building" style={{fontSize: '0.9em', fontWeight: 'bold'}}></i>
+                          </span>
+                        )}
+                        {perteneceAGrupo && !esPrimerEnGrupo && totalEnGrupo > 1 && grupoTipo === 'obra' && (
+                          <span className="text-warning me-1" title="Trabajo extra de la misma obra que el anterior">
                             <i className="fas fa-level-down-alt" style={{fontSize: '0.7em'}}></i>
                           </span>
                         )}
@@ -1845,7 +2071,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       <td className="small fw-bold text-dark">{row.nombreSolicitante || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}</td>
                       <td className="small fw-bold text-dark">
                         {row.nombreObra || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}
-                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
+                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && grupoTipo === 'cliente' && (
                           <div className="mt-1">
                             <span className="badge" style={{
                               fontSize: '0.7em',
@@ -1857,6 +2083,21 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                             }}>
                               <i className="fas fa-users me-1"></i>
                               GRUPO: {row.nombreSolicitante} ({totalEnGrupo} presupuesto{totalEnGrupo > 1 ? 's' : ''})
+                            </span>
+                          </div>
+                        )}
+                        {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && grupoTipo === 'obra' && (
+                          <div className="mt-1">
+                            <span className="badge" style={{
+                              fontSize: '0.7em',
+                              padding: '4px 8px',
+                              backgroundColor: '#17a2b8',
+                              color: '#fff',
+                              fontWeight: 'bold',
+                              border: '1px solid #138496'
+                            }}>
+                              <i className="fas fa-building me-1"></i>
+                              OBRA: {nombresObras[row.obraId] || `ID ${row.obraId}`} ({totalEnGrupo} presupuesto{totalEnGrupo > 1 ? 's' : ''})
                             </span>
                           </div>
                         )}
@@ -1967,100 +2208,69 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         </span>
                       </td>
                       <td className="small">
+                        {/* Determinar modo basado en itemsCalculadora */}
                         {(() => {
-                          // Detectar tipo usando la misma lógica que ObrasPage.jsx
-                          let tieneElementosGlobales = false;
-                          let tieneElementosEspecificos = false;
-
-                          console.log(`🔍 TABLA - Analizando presupuesto ${row.versionActiva} de ${row.nombreObra}`);
-
-                          if (row.itemsCalculadora && row.itemsCalculadora.length > 0) {
-                            row.itemsCalculadora.forEach((item, idx) => {
-                              console.log(`  📦 Item ${idx}:`, item.tipoProfesional || item.nombre);
-
-                              // Revisar jornales
-                              if (item.jornales && item.jornales.length > 0) {
-                                item.jornales.forEach(j => {
-                                  const rol = (j.rol || '').toUpperCase();
-                                  console.log(`    👷 Jornal: "${rol}"`);
-                                  if (rol.includes('PRESUPUESTO GLOBAL') || rol.includes('PARA LA OBRA')) {
-                                    console.log('      ✅ GLOBAL detectado');
-                                    tieneElementosGlobales = true;
-                                  } else if (rol && !rol.includes('PRESUPUESTO GLOBAL') && !rol.includes('PARA LA OBRA')) {
-                                    console.log('      ❌ ESPECÍFICO marcado');
-                                    tieneElementosEspecificos = true;
-                                  }
-                                });
-                              }
-
-                              // Revisar materiales
-                              if (item.materialesLista && item.materialesLista.length > 0) {
-                                item.materialesLista.forEach(m => {
-                                  const nombre = (m.nombre || m.descripcion || '').toLowerCase();
-                                  console.log(`    📦 Material: "${nombre}"`);
-                                  if (nombre.includes('para la') || nombre.includes('para el') ||
-                                      nombre.includes('presupuesto global') || nombre.includes('materiales para')) {
-                                    console.log('      ✅ GLOBAL detectado');
-                                    tieneElementosGlobales = true;
-                                  } else if (nombre && nombre !== 'sin nombre' && !nombre.includes('presupuesto global') && !nombre.includes('para la') && !nombre.includes('para el')) {
-                                    console.log('      ❌ ESPECÍFICO marcado');
-                                    tieneElementosEspecificos = true;
-                                  } else {
-                                    console.log('      ⏭️ Ignorado (sin nombre o vacío)');
-                                  }
-                                });
-                              }
-
-                              // Revisar gastos generales
-                              if (item.gastosGenerales && item.gastosGenerales.length > 0) {
-                                item.gastosGenerales.forEach(g => {
-                                  const desc = (g.descripcion || '').toLowerCase();
-                                  console.log(`    💰 Gasto: "${desc}"`);
-                                  if (desc.includes('para la') || desc.includes('para el') ||
-                                      desc.includes('presupuesto global') || (desc.includes('gastos') && desc.includes('para'))) {
-                                    console.log('      ✅ GLOBAL detectado');
-                                    tieneElementosGlobales = true;
-                                  } else if (desc && !desc.includes('presupuesto global') && !desc.includes('para la') && !desc.includes('para el')) {
-                                    console.log('      ❌ ESPECÍFICO marcado');
-                                    tieneElementosEspecificos = true;
-                                  }
-                                });
-                              }
-
-                              // Revisar otros costos
-                              if (item.otrosCostosLista && item.otrosCostosLista.length > 0) {
-                                item.otrosCostosLista.forEach(o => {
-                                  const desc = (o.descripcion || '').toLowerCase();
-                                  if (desc.includes('para la') || desc.includes('para el') ||
-                                      desc.includes('presupuesto global')) {
-                                    tieneElementosGlobales = true;
-                                  } else if (desc && !desc.includes('presupuesto global') && !desc.includes('para la') && !desc.includes('para el')) {
-                                    tieneElementosEspecificos = true;
-                                  }
-                                });
-                              }
-                            });
+                          // Si no tiene items, mostrar "Sin items"
+                          if (!row.itemsCalculadora || row.itemsCalculadora.length === 0) {
+                            return (
+                              <span className="badge bg-light text-dark" style={{ fontSize: '0.7em' }}>
+                                <i className="fas fa-question me-1"></i>
+                                Sin items
+                              </span>
+                            );
                           }
 
-                          const esGlobal = tieneElementosGlobales && !tieneElementosEspecificos;
-                          console.log(`🎯 RESULTADO: tieneGlobales=${tieneElementosGlobales}, tieneEspecificos=${tieneElementosEspecificos}, esGlobal=${esGlobal}`);
+                          // Verificar si hay elementos con indicadores de modo global
+                          let esGlobal = false;
 
-                          return esGlobal ? (
-                            <span className="badge bg-secondary text-white" style={{ fontSize: '0.7em' }}>
-                              <i className="fas fa-globe me-1"></i>
-                              Global
-                            </span>
-                          ) : (tieneElementosEspecificos || tieneElementosGlobales) ? (
-                            <span className="badge bg-info text-white" style={{ fontSize: '0.7em' }}>
-                              <i className="fas fa-list me-1"></i>
-                              Detallado
-                            </span>
-                          ) : (
-                            <span className="badge bg-light text-dark" style={{ fontSize: '0.7em' }}>
-                              <i className="fas fa-question me-1"></i>
-                              Sin items
-                            </span>
-                          );
+                          row.itemsCalculadora.forEach(item => {
+                            // Revisar jornales
+                            if (item.jornales && item.jornales.length > 0) {
+                              item.jornales.forEach(j => {
+                                const rol = (j.rol || '').toUpperCase();
+                                if (rol.includes('PRESUPUESTO GLOBAL') || rol.includes('PARA LA OBRA')) {
+                                  esGlobal = true;
+                                }
+                              });
+                            }
+
+                            // Revisar materiales
+                            if (item.materialesLista && item.materialesLista.length > 0) {
+                              item.materialesLista.forEach(m => {
+                                const nombre = (m.nombre || m.descripcion || '').toLowerCase();
+                                if (nombre.includes('presupuesto global') || nombre.includes('para la obra') ||
+                                    nombre.includes('materiales para la')) {
+                                  esGlobal = true;
+                                }
+                              });
+                            }
+
+                            // Revisar gastos
+                            if (item.gastosGenerales && item.gastosGenerales.length > 0) {
+                              item.gastosGenerales.forEach(g => {
+                                const desc = (g.descripcion || '').toLowerCase();
+                                if (desc.includes('presupuesto global') || desc.includes('para la obra')) {
+                                  esGlobal = true;
+                                }
+                              });
+                            }
+                          });
+
+                          if (esGlobal) {
+                            return (
+                              <span className="badge bg-secondary text-white" style={{ fontSize: '0.7em' }}>
+                                <i className="fas fa-globe me-1"></i>
+                                Global
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span className="badge bg-info text-white" style={{ fontSize: '0.7em' }}>
+                                <i className="fas fa-list me-1"></i>
+                                Detallado
+                              </span>
+                            );
+                          }
                         })()}
                       </td>
                       <td>

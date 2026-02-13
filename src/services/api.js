@@ -907,10 +907,22 @@ export const apiService = {
   presupuestosNoCliente: {
     // IMPORTANTE: Este módulo usa /api/v1/ como prefijo
     // URLs finales: http://localhost:8080/api/v1/presupuestos-no-cliente
-    // Soporta filtrado por empresaId y obraId
-    getAll: (empresaId, obraId = null) => {
+    // Soporta filtrado por empresaId, obraId y esPresupuestoTrabajoExtra
+    getAll: (empresaId, filtros = null) => {
       const params = { empresaId };
-      if (obraId) params.obraId = obraId;
+
+      // Si filtros es un objeto, agregar cada propiedad a params
+      if (filtros && typeof filtros === 'object') {
+        Object.keys(filtros).forEach(key => {
+          if (filtros[key] !== null && filtros[key] !== undefined) {
+            params[key] = filtros[key];
+          }
+        });
+      } else if (filtros) {
+        // Compatibilidad: si filtros es un valor simple, tratarlo como obraId
+        params.obraId = filtros;
+      }
+
       return apiService.get('/api/v1/presupuestos-no-cliente', params);
     },
     getById: (id, empresaId) => apiService.get(`/api/v1/presupuestos-no-cliente/${id}`, { empresaId }),

@@ -942,9 +942,10 @@ const ObrasPage = ({ showNotification }) => {
             // Cambiar estado a A_ENVIAR o ENVIADO
             if (trabajoExtraSeleccionado.estado === 'BORRADOR') {
               // Actualizar estado a A_ENVIAR
-              api.trabajosExtra.update(trabajoExtraSeleccionado.id, {
+              api.presupuestosNoCliente.update(trabajoExtraSeleccionado.id, {
                 ...trabajoExtraSeleccionado,
-                estado: 'A_ENVIAR'
+                estado: 'A_ENVIAR',
+                esPresupuestoTrabajoExtra: true
               }, empresaId)
                 .then(() => {
                   showNotification('✅ Trabajo extra marcado como listo para enviar', 'success');
@@ -966,9 +967,10 @@ const ObrasPage = ({ showNotification }) => {
           if (trabajoExtraSeleccionado) {
             // Cambiar estado a A_ENVIAR
             if (trabajoExtraSeleccionado.estado === 'BORRADOR') {
-              api.trabajosExtra.update(trabajoExtraSeleccionado.id, {
+              api.presupuestosNoCliente.update(trabajoExtraSeleccionado.id, {
                 ...trabajoExtraSeleccionado,
-                estado: 'A_ENVIAR'
+                estado: 'A_ENVIAR',
+                esPresupuestoTrabajoExtra: true
               }, empresaId)
                 .then(() => {
                   showNotification('✅ Trabajo extra marcado como "Listo para Enviar"', 'success');
@@ -1022,9 +1024,10 @@ const ObrasPage = ({ showNotification }) => {
           if (trabajoExtraSeleccionado) {
             // Cambiar estado a APROBADO
             if (trabajoExtraSeleccionado.estado === 'ENVIADO' || trabajoExtraSeleccionado.estado === 'A_ENVIAR') {
-              api.trabajosExtra.update(trabajoExtraSeleccionado.id, {
+              api.presupuestosNoCliente.update(trabajoExtraSeleccionado.id, {
                 ...trabajoExtraSeleccionado,
-                estado: 'APROBADO'
+                estado: 'APROBADO',
+                esPresupuestoTrabajoExtra: true
               }, empresaId)
                 .then(() => {
                   showNotification('✅ Trabajo extra aprobado exitosamente', 'success');
@@ -1802,8 +1805,6 @@ const ObrasPage = ({ showNotification }) => {
   };
 
   const cargarTrabajosExtra = async (obra) => {
-    console.log('📥 cargarTrabajosExtra llamado con obra:', obra?.id, obra?.nombre);
-
     if (!obra) {
       console.warn('⚠️ No hay obra para cargar trabajos extra');
       return;
@@ -1811,41 +1812,25 @@ const ObrasPage = ({ showNotification }) => {
 
     try {
       setLoadingTrabajosExtra(true);
-      console.log('🔍 Llamando a API con empresaId:', empresaSeleccionada.id, 'obraId:', obra.id);
-      const data = await api.trabajosExtra.getAll(empresaSeleccionada.id, { obraId: obra.id });
-      console.log('📦 Trabajos extra recibidos:', data?.length || 0, data);
+      // 🔧 Usar _obraOriginalId si estamos dentro de un trabajo extra, sino usar id directamente
+      const obraIdParaAPI = obra._obraOriginalId || obra.id;
+      const data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId: obraIdParaAPI, esPresupuestoTrabajoExtra: true });
 
-      // � DEBUG: Ver qué días trae cada trabajo extra del backend
-      if (Array.isArray(data) && data.length > 0) {
-        data.forEach((t, idx) => {
-          console.log(`🔍 [BACKEND] Trabajo Extra ${idx + 1} - ID: ${t.id}, Nombre: ${t.nombreObra || t.nombre}:`, {
-            tiempoEstimadoTerminacion: t.tiempoEstimadoTerminacion,
-            obra_id: t.obra_id,
-            obraId: t.obraId,
-            fechaProbableInicio: t.fechaProbableInicio
-          });
-        });
-      }
+      // 🔧 FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+      const soloTrabajosExtra = (Array.isArray(data) ? data : []).filter(p =>
+        p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
+      );
 
-      // �🔑 Normalizar datos para asegurar que tienen obraId
-      const dataNormalizada = (Array.isArray(data) ? data : []).map(normalizarTrabajoExtra);
+      // 🔑 Normalizar datos para asegurar que tienen obraId
+      const dataNormalizada = soloTrabajosExtra.map(normalizarTrabajoExtra);
 
       // ✅ EXTRAER DATOS DE ITEMSCALCULADORA para trabajos extra
       // Los trabajos extra NO usan tablas relacionales, todo está en itemsCalculadora[]
       const trabajosEnriquecidos = await Promise.all(dataNormalizada.map(async (trabajo) => {
         try {
-          console.log(`📦 Procesando trabajo extra ${trabajo.id}: ${trabajo.nombre || trabajo.nombreObra}`);
-
           // 🔑 EXTRAER profesionales, materiales y gastos de itemsCalculadora[]
           const { profesionales: profesionalesReales, materiales: materialesReales, gastosGenerales: gastosReales } =
             extraerDatosDeItemsCalculadora(trabajo);
-
-          // DEBUG: Mostrar lo que se extrajo
-          console.log(`  ✅ Trabajo Extra ${trabajo.id}:`, {
-            profesionales: profesionalesReales.length,
-            materiales: materialesReales.length,
-            gastos: gastosReales.length
-          });
 
           // NOTA: Para trabajos extra, NO llamamos a APIs relacionales
           // porque los datos YA ESTÁN en itemsCalculadora[] que viene del backend
@@ -1872,23 +1857,25 @@ const ObrasPage = ({ showNotification }) => {
         }
       }));
 
-      console.log('🔍 DEBUG Trabajos Extra con Asignaciones Reales:', trabajosEnriquecidos);
-      trabajosEnriquecidos.forEach((t, idx) => {
-        console.log(`📋 Trabajo ${idx + 1} - ${t.nombreObra || t.nombre}:`, {
-          id: t.id,
-          estado: t.estado,
-          estadoOriginal: t.estado,
-          profesionalesAsignados: t.profesionales?.length || 0,
-          materialesAsignados: t.materiales?.length || 0,
-          gastosAsignados: t.gastosGenerales?.length || 0
-        });
-      });
+      // 🔧 FILTRAR: Si estamos dentro de un trabajo extra gestionando sus sub-trabajos extra,
+      // excluir el trabajo extra actual de la lista para evitar que aparezca a sí mismo
+      let trabajosFiltrados = trabajosEnriquecidos;
 
-      console.log('🔥 [cargarTrabajosExtra] Actualizando estado con trabajos enriquecidos:', trabajosEnriquecidos);
-      console.log('🔍 Estados de trabajos extra cargados:', trabajosEnriquecidos.map(t => ({id: t.id, estado: t.estado, nombre: t.nombre})));
-      setTrabajosExtra(trabajosEnriquecidos);
+      const esTrabajoExtra = obra._esTrabajoExtra || obra.esObraTrabajoExtra || obra.es_obra_trabajo_extra || obra.esTrabajoExtra;
+
+      if (esTrabajoExtra && trabajoExtraId) {
+        trabajosFiltrados = trabajosEnriquecidos.filter(t => {
+          // Comparar con múltiples campos posibles para asegurar que excluimos el trabajo extra correcto
+          const excluir = t.id === trabajoExtraId ||
+                         t.id_trabajo_extra === trabajoExtraId ||
+                         t.obraId === trabajoExtraId ||
+                         (t.presupuestoNoClienteId && t.presupuestoNoClienteId === trabajoExtraId);
+          return !excluir;
+        });
+      }
+
+      setTrabajosExtra(trabajosFiltrados);
       setObraParaTrabajosExtra(obra);
-      console.log('✅ [cargarTrabajosExtra] Estado actualizado');
     } catch (error) {
       console.error('Error cargando trabajos extra:', error);
       console.error('Error status:', error.status);
@@ -1933,7 +1920,7 @@ const ObrasPage = ({ showNotification }) => {
     }
 
     try {
-      await api.trabajosExtra.delete(trabajoId, empresaSeleccionada.id);
+      await api.presupuestosNoCliente.delete(trabajoId, empresaSeleccionada.id);
       showNotification('Trabajo extra eliminado exitosamente', 'success');
       await cargarTrabajosExtra(obraParaTrabajosExtra);
     } catch (error) {
@@ -1949,202 +1936,61 @@ const ObrasPage = ({ showNotification }) => {
 
   const handleGuardadoTrabajoExtra = async (datosPresupuesto) => {
     try {
-      console.log('💾 Guardando trabajo extra (presupuesto completo recibido):', datosPresupuesto);
+      console.log('💾 Guardando trabajo extra como presupuestoNoCliente:', datosPresupuesto);
       console.log('📝 Trabajo extra en edición:', trabajoExtraEditar);
 
-      // ✅ LIMPIAR Y TRANSFORMAR datos para el backend de trabajos-extra
-      // El backend de trabajos-extra NO usa itemsCalculadora, solo necesita campos básicos
-      const trabajoExtraData = {
-        // Campos básicos del presupuesto
-        nombre: datosPresupuesto.nombreObra || datosPresupuesto.nombreObraManual || 'Trabajo Extra',
-        descripcion: datosPresupuesto.descripcion || datosPresupuesto.observaciones,
-        observaciones: datosPresupuesto.observaciones,
-
-        // Vinculación con obra
+      // ✅ USAR EL FORMATO DE PRESUPUESTO NO CLIENTE (el modal ya lo prepara correctamente)
+      // El modal PresupuestoNoClienteModal ya envía los datos en el formato correcto
+      const presupuestoData = {
+        ...datosPresupuesto,
+        // 🔧 CRÍTICO: Marcar como trabajo extra
+        esPresupuestoTrabajoExtra: true,
+        // Asegurar que tenga obraId
         obraId: obraParaTrabajosExtra?.id || datosPresupuesto.obraId,
-        idObra: obraParaTrabajosExtra?.id || datosPresupuesto.obraId,
-
-        // Datos temporales y financieros
-        fechaProbableInicio: datosPresupuesto.fechaProbableInicio,
-        tiempoEstimadoTerminacion: datosPresupuesto.tiempoEstimadoTerminacion,
-        fechaCreacion: datosPresupuesto.fechaCreacion,
-        vencimiento: datosPresupuesto.vencimiento,
-
-        // Totales calculados
-        precioTotal: datosPresupuesto.precioTotal || 0,
-        importeJornales: datosPresupuesto.importeJornales || 0,
-        importeMateriales: datosPresupuesto.importeMateriales || 0,
-        importeGastosGenerales: datosPresupuesto.importeGastosGenerales || 0,
-        jornalesTotales: datosPresupuesto.jornalesTotales || 0,
-        totalHonorarios: datosPresupuesto.totalHonorarios || 0,
-        totalMayoresCostos: datosPresupuesto.totalMayoresCostos || 0,
-
-        // ✅ HONORARIOS - Persistir configuración completa
-        honorariosAplicarATodos: datosPresupuesto.honorariosAplicarATodos,
-        honorariosValorGeneral: datosPresupuesto.honorariosValorGeneral,
-        honorariosTipoGeneral: datosPresupuesto.honorariosTipoGeneral,
-
-        honorariosJornalesActivo: datosPresupuesto.honorariosJornalesActivo,
-        honorariosJornalesTipo: datosPresupuesto.honorariosJornalesTipo,
-        honorariosJornalesValor: datosPresupuesto.honorariosJornalesValor,
-
-        honorariosProfesionalesActivo: datosPresupuesto.honorariosProfesionalesActivo,
-        honorariosProfesionalesTipo: datosPresupuesto.honorariosProfesionalesTipo,
-        honorariosProfesionalesValor: datosPresupuesto.honorariosProfesionalesValor,
-
-        honorariosMaterialesActivo: datosPresupuesto.honorariosMaterialesActivo,
-        honorariosMaterialesTipo: datosPresupuesto.honorariosMaterialesTipo,
-        honorariosMaterialesValor: datosPresupuesto.honorariosMaterialesValor,
-
-        honorariosOtrosCostosActivo: datosPresupuesto.honorariosOtrosCostosActivo,
-        honorariosOtrosCostosTipo: datosPresupuesto.honorariosOtrosCostosTipo,
-        honorariosOtrosCostosValor: datosPresupuesto.honorariosOtrosCostosValor,
-
-        honorariosConfiguracionPresupuestoActivo: datosPresupuesto.honorariosConfiguracionPresupuestoActivo,
-        honorariosConfiguracionPresupuestoTipo: datosPresupuesto.honorariosConfiguracionPresupuestoTipo,
-        honorariosConfiguracionPresupuestoValor: datosPresupuesto.honorariosConfiguracionPresupuestoValor,
-
-        // ✅ MAYORES COSTOS - Persistir configuración completa
-        mayoresCostosAplicarValorGeneral: datosPresupuesto.mayoresCostosAplicarValorGeneral,
-        mayoresCostosValorGeneral: datosPresupuesto.mayoresCostosValorGeneral,
-        mayoresCostosTipoGeneral: datosPresupuesto.mayoresCostosTipoGeneral,
-        mayoresCostosGeneralImportado: datosPresupuesto.mayoresCostosGeneralImportado,
-        mayoresCostosRubroImportado: datosPresupuesto.mayoresCostosRubroImportado,
-        mayoresCostosNombreRubroImportado: datosPresupuesto.mayoresCostosNombreRubroImportado,
-        mayoresCostosExplicacion: datosPresupuesto.mayoresCostosExplicacion,
-
-        mayoresCostosJornalesActivo: datosPresupuesto.mayoresCostosJornalesActivo,
-        mayoresCostosJornalesTipo: datosPresupuesto.mayoresCostosJornalesTipo,
-        mayoresCostosJornalesValor: datosPresupuesto.mayoresCostosJornalesValor,
-
-        mayoresCostosProfesionalesActivo: datosPresupuesto.mayoresCostosProfesionalesActivo,
-        mayoresCostosProfesionalesTipo: datosPresupuesto.mayoresCostosProfesionalesTipo,
-        mayoresCostosProfesionalesValor: datosPresupuesto.mayoresCostosProfesionalesValor,
-
-        mayoresCostosMaterialesActivo: datosPresupuesto.mayoresCostosMaterialesActivo,
-        mayoresCostosMaterialesTipo: datosPresupuesto.mayoresCostosMaterialesTipo,
-        mayoresCostosMaterialesValor: datosPresupuesto.mayoresCostosMaterialesValor,
-
-        mayoresCostosOtrosCostosActivo: datosPresupuesto.mayoresCostosOtrosCostosActivo,
-        mayoresCostosOtrosCostosTipo: datosPresupuesto.mayoresCostosOtrosCostosTipo,
-        mayoresCostosOtrosCostosValor: datosPresupuesto.mayoresCostosOtrosCostosValor,
-
-        mayoresCostosConfiguracionPresupuestoActivo: datosPresupuesto.mayoresCostosConfiguracionPresupuestoActivo,
-        mayoresCostosConfiguracionPresupuestoTipo: datosPresupuesto.mayoresCostosConfiguracionPresupuestoTipo,
-        mayoresCostosConfiguracionPresupuestoValor: datosPresupuesto.mayoresCostosConfiguracionPresupuestoValor,
-
-        mayoresCostosHonorariosActivo: datosPresupuesto.mayoresCostosHonorariosActivo,
-        mayoresCostosHonorariosTipo: datosPresupuesto.mayoresCostosHonorariosTipo,
-        mayoresCostosHonorariosValor: datosPresupuesto.mayoresCostosHonorariosValor,
-
-        // Estado
-        estado: datosPresupuesto.estado || 'BORRADOR',
-        esTrabajExtra: true,
-
-        // ✅ LIMPIAR itemsCalculadora - eliminar profesionales vacíos/inválidos
-        itemsCalculadora: (datosPresupuesto.itemsCalculadora || []).map(item => {
-          const itemLimpio = { ...item };
-
-          // Limpiar array de jornales - eliminar los que no tienen datos válidos
-          if (itemLimpio.jornales && Array.isArray(itemLimpio.jornales)) {
-            itemLimpio.jornales = itemLimpio.jornales.filter(jornal => {
-              // Mantener solo si tiene datos válidos
-              return jornal.cantidad > 0 || jornal.valorUnitario > 0 || jornal.total > 0;
-            });
-          }
-
-          // Limpiar array de profesionales si existe
-          if (itemLimpio.profesionales && Array.isArray(itemLimpio.profesionales)) {
-            itemLimpio.profesionales = itemLimpio.profesionales.filter(prof => {
-              // Mantener solo si tiene nombre y tipo válidos
-              return prof.nombre && prof.nombre.trim() && prof.tipo && prof.tipo.trim();
-            });
-          }
-
-          return itemLimpio;
-        })
+        idObra: obraParaTrabajosExtra?.id || datosPresupuesto.idObra,
+        // Empresa
+        idEmpresa: empresaSeleccionada?.id || datosPresupuesto.idEmpresa
       };
 
-      console.log('🔗 ObraId vinculada al trabajo extra:', trabajoExtraData.obraId, '(Obra:', obraParaTrabajosExtra?.nombre || 'sin nombre', ')');
-
-      console.log('📦 Datos limpiados para trabajo extra:', trabajoExtraData);
-      console.log('🧹 Items calculadora a enviar (limpiados):', trabajoExtraData.itemsCalculadora?.length || 0);
-      console.log('📅 Fechas incluidas:', {
-        fechaProbableInicio: trabajoExtraData.fechaProbableInicio,
-        tiempoEstimadoTerminacion: trabajoExtraData.tiempoEstimadoTerminacion,
-        fechaCreacion: trabajoExtraData.fechaCreacion,
-        vencimiento: trabajoExtraData.vencimiento
-      });
+      console.log('🔗 ObraId vinculada al trabajo extra:', presupuestoData.obraId, '(Obra:', obraParaTrabajosExtra?.nombre || 'sin nombre', ')');
+      console.log('📦 Datos para presupuesto no cliente (trabajo extra):', presupuestoData);
 
       let response;
 
       // Detectar si es edición o creación
       if (trabajoExtraEditar && trabajoExtraEditar.id) {
-        // EDITAR trabajo extra existente
-        console.log('✏️ Editando trabajo extra ID:', trabajoExtraEditar.id);
+        // EDITAR presupuesto existente (trabajo extra)
+        console.log('✏️ Editando presupuesto trabajo extra ID:', trabajoExtraEditar.id);
         console.log('🔑 Empresa seleccionada ID:', empresaSeleccionada.id);
-        console.log('📤 Enviando PUT a /api/v1/trabajos-extra/' + trabajoExtraEditar.id);
+        console.log('📤 Enviando PUT a /api/v1/presupuestos-no-cliente/' + trabajoExtraEditar.id);
 
-        // 🔍 LOG DETALLADO DE DATOS QUE SE ENVÍAN (después de limpieza)
-        console.log('📦 DATOS COMPLETOS A ENVIAR (LIMPIADOS):', JSON.stringify(trabajoExtraData, null, 2));
-        console.log('📋 ItemsCalculadora estructurados (después de limpieza):', trabajoExtraData.itemsCalculadora?.map(item => ({
-          tipoProfesional: item.tipoProfesional,
-          descripcion: item.descripcion,
-          jornalesCount: item.jornales?.length || 0,
-          materialesCount: item.materialesLista?.length || 0,
-          gastosGeneralesCount: item.gastosGenerales?.length || 0,
-          profesionalesCount: item.profesionales?.length || 0,
-          // Detalles de cada jornal después de filtrado
-          jornalesValidos: item.jornales?.map(j => ({
-            rol: j.rol,
-            cantidad: j.cantidad,
-            valorUnitario: j.valorUnitario,
-            total: j.total
-          })),
-          // Detalles de cada profesional después de filtrado
-          profesionalesValidos: item.profesionales?.map(p => ({
-            nombre: p.nombre,
-            tipo: p.tipo
-          }))
-        })));
-
-        response = await api.trabajosExtra.update(
+        response = await api.presupuestosNoCliente.update(
           trabajoExtraEditar.id,
-          trabajoExtraData,
+          presupuestoData,
           empresaSeleccionada.id
         );
-        console.log('✅ Trabajo extra actualizado:', response);
-        console.log('📅 Fechas en respuesta:', {
-          fechaProbableInicio: response?.fechaProbableInicio,
-          tiempoEstimadoTerminacion: response?.tiempoEstimadoTerminacion
-        });
+        console.log('✅ Presupuesto trabajo extra actualizado:', response);
         showNotification('Trabajo extra actualizado exitosamente', 'success');
       } else {
-        // CREAR nuevo trabajo extra
-        console.log('➕ Creando nuevo trabajo extra');
-        response = await api.trabajosExtra.create(trabajoExtraData, empresaSeleccionada.id);
-        console.log('✅ Trabajo extra creado:', response);
+        // CREAR nuevo presupuesto (trabajo extra)
+        console.log('➕ Creando nuevo presupuesto trabajo extra');
+        console.log('📤 Enviando POST a /api/v1/presupuestos-no-cliente');
+
+        response = await api.presupuestosNoCliente.create(presupuestoData, empresaSeleccionada.id);
+        console.log('✅ Presupuesto trabajo extra creado:', response);
         showNotification('Trabajo extra creado exitosamente', 'success');
       }
 
-      // Recargar los trabajos extra
+      // Recargar los trabajos extra (ahora desde presupuestos-no-cliente con filtro)
       console.log('🔄 Recargando trabajos extra para obra:', obraParaTrabajosExtra?.id, obraParaTrabajosExtra?.nombre);
-      console.log('🔑 empresaSeleccionada:', empresaSeleccionada?.id);
-      console.log('📍 Llamando a cargarTrabajosExtra...');
-
-      // 🔑 Normalizar respuesta del backend antes de almacenarla
-      const responseNormalizada = normalizarTrabajoExtra(response);
-      console.log('✅ Respuesta normalizada:', responseNormalizada);
-
       await cargarTrabajosExtra(obraParaTrabajosExtra);
       console.log('✅ Trabajos extra recargados correctamente');
-      console.log('📊 Total de trabajos extra después de recargar:', trabajosExtra.length);
 
       // Cerrar el modal
       setMostrarModalTrabajoExtra(false);
       setTrabajoExtraEditar(null);
 
-      return responseNormalizada; // Retornar la respuesta normalizada para el modal
+      return response;
     } catch (error) {
       console.error('❌ Error al guardar trabajo extra:', error);
       console.error('❌ Detalles del error:', {
@@ -2153,7 +1999,7 @@ const ObrasPage = ({ showNotification }) => {
         status: error.response?.status
       });
       showNotification('Error al guardar el trabajo extra: ' + (error.message || 'Error desconocido'), 'error');
-      throw error; // Re-lanzar para que el modal lo maneje
+      throw error;
     }
   };
 
@@ -2171,7 +2017,10 @@ const ObrasPage = ({ showNotification }) => {
       // Normalizar campos para evitar errores de validación si faltan
       if (!trabajoNormalizado.nombre) trabajoNormalizado.nombre = trabajoNormalizado.nombreObra || 'Trabajo Extra';
 
-      const response = await api.trabajosExtra.update(trabajoNormalizado.id, trabajoNormalizado, empresaId);
+      const response = await api.presupuestosNoCliente.update(trabajoNormalizado.id, {
+        ...trabajoNormalizado,
+        esPresupuestoTrabajoExtra: true
+      }, empresaId);
       showNotification(`Estado actualizado a ${nuevoEstado}`, 'success');
 
       // Recargar lista
@@ -3312,10 +3161,24 @@ const ObrasPage = ({ showNotification }) => {
         }),
 
         // Trabajos Extra
-        api.trabajosExtra.getAll(empresaId, { obraId }).then(data => {
-          const trabajosArray = Array.isArray(data) ? data : [];
+        api.presupuestosNoCliente.getAll(empresaId, { obraId, esPresupuestoTrabajoExtra: true }).then(data => {
+          // 🔧 FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+          let trabajosArray = (Array.isArray(data) ? data : []).filter(p =>
+            p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
+          );
+
+          // 🔧 FILTRAR: Si estamos dentro de un trabajo extra (obraId es un trabajo extra),
+          // excluir ese trabajo extra de su propia lista
+          const obraActual = obras.find(o => o.id === obraId);
+          const esTrabajoExtra = obraActual?.esTrabajoExtra || obraActual?._esTrabajoExtra || obraActual?.esObraTrabajoExtra;
+          if (esTrabajoExtra) {
+            trabajosArray = trabajosArray.filter(t => {
+              const excluir = t.id === obraId || t.id_trabajo_extra === obraId || t.obraId === obraId || t.presupuestoNoClienteId === obraId;
+              return !excluir;
+            });
+          }
+
           const count = trabajosArray.length;
-          console.log('  📊 Trabajos Extra:', count);
 
           // Guardar los datos completos de trabajos extra
           setDatosAsignacionesPorObra(prev => ({
@@ -4150,7 +4013,15 @@ const ObrasPage = ({ showNotification }) => {
                       <p>No hay obras para mostrar.</p>
                     </div>
                   ) : (
-                    <div className="table-responsive" style={{margin: '0'}}>
+                    <>
+                      {/* Estilos personalizados para hover celeste */}
+                      <style>{`
+                        .table-hover tbody tr:hover td {
+                          background-color: #d1ecf1 !important;
+                        }
+                      `}</style>
+
+                      <div className="table-responsive" style={{margin: '0'}}>
                       <table className="table table-striped table-hover" style={{marginBottom: '0'}}>
                         <thead className="table-light" onClick={(e) => { e.stopPropagation(); setSelectedObraId(null); }} style={{ cursor: 'pointer' }} title="Clic para deseleccionar">
                           <tr>
@@ -4170,50 +4041,179 @@ const ObrasPage = ({ showNotification }) => {
                         <tbody>
                           {(() => {
                             // 🎯 ORDENAMIENTO INTELIGENTE: Agrupar obras de trabajo extra con sus obras padre
-                            const obrasNormales = obras.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO');
+                            const obrasNormales = obras.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
                             const obrasTrabajoExtra = obras.filter(o => o.esTrabajoExtra && o.estado !== 'CANCELADO');
                             const obrasCanceladas = obras.filter(o => o.estado === 'CANCELADO');
 
                             const listaOrdenada = [];
 
-                            // Para cada obra normal, agregar la obra y sus trabajos extra
-                            obrasNormales.forEach(obra => {
-                              listaOrdenada.push(obra);
+                            // 🎨 Para cada obra normal, agregar la obra y sus trabajos extra con metadatos de grupo
+                            let grupoIndex = 2; // 🎨 Sincronizar con índice de grupos de obra en página de Presupuestos
 
+                            obrasNormales.forEach(obraPadre => {
                               // Buscar trabajos extra de esta obra
                               const trabajosExtraDeEstaObra = obrasTrabajoExtra.filter(te => {
                                 const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre;
-                                return obraPadreId === obra.id;
+                                return obraPadreId === obraPadre.id;
                               });
 
-                              if (trabajosExtraDeEstaObra.length > 0) {
-                                // Ordenar trabajos extra por ID descendente
-                                trabajosExtraDeEstaObra.sort((a, b) => b.id - a.id);
-                                listaOrdenada.push(...trabajosExtraDeEstaObra);
+                              const tieneSubObras = trabajosExtraDeEstaObra.length > 0;
+                              const totalEnGrupo = tieneSubObras ? trabajosExtraDeEstaObra.length + 1 : 1;
+
+                              // 🏢 Agregar obra PADRE primero (ARRIBA)
+                              listaOrdenada.push({
+                                ...obraPadre,
+                                _grupoObra: tieneSubObras ? obraPadre.id : null,
+                                _grupoTipo: 'obra',
+                                _grupoIndex: grupoIndex,
+                                _primerEnGrupo: true,
+                                _ultimoEnGrupo: !tieneSubObras,
+                                _totalEnGrupo: totalEnGrupo
+                              });
+
+                              if (tieneSubObras) {
+                                // 🔧 Ordenar trabajos extra por ID ASCENDENTE (del más antiguo al más nuevo)
+                                // Esto asegura que las sub-obras aparezcan DEBAJO de la obra padre
+                                trabajosExtraDeEstaObra.sort((a, b) => a.id - b.id);
+
+                                // Agregar SUB-OBRAS debajo de la obra padre
+                                trabajosExtraDeEstaObra.forEach((te, idx) => {
+                                  listaOrdenada.push({
+                                    ...te,
+                                    _grupoObra: obraPadre.id,
+                                    _grupoTipo: 'trabajoExtra',
+                                    _grupoIndex: grupoIndex,
+                                    _primerEnGrupo: false,
+                                    _ultimoEnGrupo: idx === trabajosExtraDeEstaObra.length - 1,
+                                    _totalEnGrupo: totalEnGrupo
+                                  });
+                                });
+
+                                grupoIndex++;
+                              } else if (!tieneSubObras) {
+                                grupoIndex++;
                               }
                             });
 
-                            // Agregar trabajos extra huérfanos (sin obra padre identificada)
+                            // Agregar trabajos extra huérfanos (sin obra padre)
                             const trabajosExtraHuerfanos = obrasTrabajoExtra.filter(te => {
                               const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre;
-                              return !obraPadreId || !obrasNormales.find(o => o.id === obraPadreId);
+                              return !obraPadreId || !obrasNormales.find(op => op.id === obraPadreId);
                             });
 
                             if (trabajosExtraHuerfanos.length > 0) {
                               trabajosExtraHuerfanos.sort((a, b) => b.id - a.id);
-                              listaOrdenada.push(...trabajosExtraHuerfanos);
+                              trabajosExtraHuerfanos.forEach(te => {
+                                listaOrdenada.push({
+                                  ...te,
+                                  _grupoObra: null,
+                                  _grupoIndex: grupoIndex,
+                                  _primerEnGrupo: true,
+                                  _ultimoEnGrupo: true,
+                                  _totalEnGrupo: 1
+                                });
+                                grupoIndex++;
+                              });
                             }
 
                             // Agregar obras canceladas al final
-                            listaOrdenada.push(...obrasCanceladas);
+                            obrasCanceladas.forEach(oc => {
+                              listaOrdenada.push({
+                                ...oc,
+                                _grupoObra: null,
+                                _grupoIndex: grupoIndex,
+                                _primerEnGrupo: true,
+                                _ultimoEnGrupo: true,
+                                _totalEnGrupo: 1
+                              });
+                              grupoIndex++;
+                            });
 
                             return listaOrdenada;
-                          })().map(obra => {
+                          })().map((obra, index, array) => {
                             const obraId = obra.id;
                             const isSelected = selectedObraId && obraId && selectedObraId === obraId;
 
+                            // 🎨 Determinar información de grupo para estilos visuales
+                            const perteneceAGrupo = obra._grupoObra !== null;
+                            const esPrimerEnGrupo = obra._primerEnGrupo;
+                            const esUltimoEnGrupo = obra._ultimoEnGrupo;
+                            const grupoIndex = obra._grupoIndex || 0;
+                            const totalEnGrupo = obra._totalEnGrupo || 1;
+
+                            // 🔥 Verificar si es un cambio de grupo (comparar grupoIndex con el anterior)
+                            const esCambioDeGrupo = index > 0 && (
+                              array[index - 1]._grupoIndex !== obra._grupoIndex
+                            );
+
+                            // Colores alternados para grupos (más visibles)
+                            const coloresGrupo = [
+                              '#e9ecef', // Gris claro
+                              '#d1e7ff', // Azul claro
+                              '#ffe8cc', // Naranja claro
+                              '#d4edda', // Verde claro
+                              '#f8d7da', // Rosa claro
+                              '#e7d6ff'  // Púrpura claro
+                            ];
+
+                            // 💡 Función helper para ajustar brillo (oscurecer/aclarar)
+                            const adjustColorBrightness = (color, percent) => {
+                              const num = parseInt(color.replace("#", ""), 16);
+                              const amt = Math.round(2.55 * percent);
+                              const R = (num >> 16) + amt;
+                              const G = (num >> 8 & 0x00FF) + amt;
+                              const B = (num & 0x0000FF) + amt;
+                              return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+                                (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+                                (B < 255 ? B < 1 ? 0 : B : 255))
+                                .toString(16).slice(1);
+                            };
+
+                            // 🎨 Color base del grupo
+                            const colorBaseGrupo = coloresGrupo[grupoIndex % coloresGrupo.length];
+
+                            // 🎨 Alternar tonalidades dentro del grupo
+                            let colorGrupo = '#ffffff';
+
+                            if (perteneceAGrupo) {
+                              // Más simple: Si es el primero del grupo -> color claro, si no -> color oscuro
+                              if (obra._primerEnGrupo) {
+                                colorGrupo = colorBaseGrupo;
+                              } else {
+                                colorGrupo = adjustColorBrightness(colorBaseGrupo, -15);
+                              }
+                            }
+
                             return (
                             <React.Fragment key={obraId}>
+                              {/* 🎨 Separador visual entre grupos - se muestra ANTES del primer elemento del nuevo grupo */}
+                              {esCambioDeGrupo && index > 0 && (
+                                <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
+                                  <td colSpan="11" style={{
+                                    padding: 0,
+                                    height: '8px',
+                                    borderTop: '3px solid #212529',
+                                    borderBottom: '3px solid #212529',
+                                    backgroundColor: '#495057'
+                                  }}></td>
+                                </tr>
+                              )}
+
+                              {/* 🔴 Línea delgada entre obras del mismo grupo */}
+                              {index > 0 && perteneceAGrupo &&
+                               array[index - 1] &&
+                               array[index - 1]._grupoIndex === obra._grupoIndex &&
+                               !esCambioDeGrupo && (
+                                <tr style={{ height: '6px', backgroundColor: '#ffcc99' }}>  {/* Naranja suave */}
+                                  <td colSpan="11" style={{
+                                    padding: 0,
+                                    height: '6px',
+                                    borderTop: '2px solid #dc3545',
+                                    backgroundColor: '#ffcc99'  /* Naranja suave */
+                                  }}></td>
+                                </tr>
+                              )}
+
                               <tr
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -4226,12 +4226,13 @@ const ObrasPage = ({ showNotification }) => {
                                 }}
                                 style={{
                                   cursor: 'pointer',
-                                  ...(obra.esTrabajoExtra && {
-                                    borderLeft: '4px solid #ffc107',
-                                    backgroundColor: isSelected ? '' : '#fffbf0'
-                                  })
+                                  backgroundColor: isSelected ? '#cfe2ff' : colorGrupo,
+                                  borderLeft: obra.esTrabajoExtra
+                                    ? '5px solid #ffc107'
+                                    : (perteneceAGrupo ? '4px solid #6c757d' : 'none'),
+                                  transition: 'all 0.2s ease'
                                 }}
-                                className={`hover-row ${isSelected ? 'table-primary' : ''}`}
+                                className={`${perteneceAGrupo ? '' : 'hover-row'} ${isSelected ? 'table-primary' : ''}`}
                               >
                                 <td
                                   onClick={(e) => toggleObraExpandida(obra.id, e)}
@@ -4253,6 +4254,16 @@ const ObrasPage = ({ showNotification }) => {
                                   </button>
                                 </td>
                                 <td>
+                                  {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
+                                    <span className="text-primary me-1" title={`Grupo de ${totalEnGrupo} obra(s) (1 padre + ${totalEnGrupo - 1} sub-obra(s))`}>
+                                      <i className="fas fa-building" style={{fontSize: '0.9em', fontWeight: 'bold'}}></i>
+                                    </span>
+                                  )}
+                                  {perteneceAGrupo && !esPrimerEnGrupo && totalEnGrupo > 1 && (
+                                    <span className="text-warning me-1" title="Sub-obra del grupo anterior">
+                                      <i className="fas fa-level-down-alt" style={{fontSize: '0.7em'}}></i>
+                                    </span>
+                                  )}
                                   {obra.esTrabajoExtra && (
                                     <span className="text-warning me-1" title="Trabajo extra de obra anterior">
                                       <i className="fas fa-level-up-alt" style={{transform: 'rotate(90deg)', fontSize: '0.8em'}}></i>
@@ -4263,6 +4274,21 @@ const ObrasPage = ({ showNotification }) => {
                               </td>
                               <td>
                                 {obra.nombre}
+                                {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
+                                  <div className="mt-1">
+                                    <span className="badge" style={{
+                                      fontSize: '0.7em',
+                                      padding: '4px 8px',
+                                      backgroundColor: '#17a2b8',
+                                      color: '#fff',
+                                      fontWeight: 'bold',
+                                      border: '1px solid #138496'
+                                    }}>
+                                      <i className="fas fa-building me-1"></i>
+                                      OBRA PADRE: {totalEnGrupo - 1} sub-obra{totalEnGrupo - 1 > 1 ? 's' : ''}
+                                    </span>
+                                  </div>
+                                )}
                                 {obra.esTrabajoExtra && (
                                   <div className="mt-1">
                                     <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
@@ -4503,6 +4529,12 @@ const ObrasPage = ({ showNotification }) => {
                                           className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
                                           onClick={(e) => {
                                             e.stopPropagation();
+                                            console.log('🔍 Click en Gestionar Trabajos Extra - Objeto obra:', obra);
+                                            console.log('🔍 Propiedades de trabajo extra:', {
+                                              esObraTrabajoExtra: obra.esObraTrabajoExtra,
+                                              es_obra_trabajo_extra: obra.es_obra_trabajo_extra,
+                                              id: obra.id
+                                            });
                                             setSelectedObraId(obra.id);
                                             setObraParaTrabajosExtra(obra);
                                             cargarTrabajosExtra(obra);
@@ -4684,6 +4716,7 @@ const ObrasPage = ({ showNotification }) => {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -5806,7 +5839,9 @@ const ObrasPage = ({ showNotification }) => {
                                                   tiempoEstimadoTerminacion: trabajoExtraActualizado.tiempoEstimadoTerminacion || 0,
                                                   _esTrabajoExtra: true,
                                                   _trabajoExtraId: trabajoExtraActualizado.id,
-                                                  _obraOriginalId: obraParaTrabajosExtra.id
+                                                  // Usar _obraOriginalId si existe (trabajo extra dentro de trabajo extra),
+                                                  // sino usar id directamente
+                                                  _obraOriginalId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
                                                 };
                                                 setObraParaConfigurar(trabajoParaConfigurar);
                                                 setMostrarModalConfiguracionObra(true);
@@ -5866,14 +5901,33 @@ const ObrasPage = ({ showNotification }) => {
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             // Crear objeto de trabajo extra como si fuera una obra para gestionar sus sub-trabajos
+                                            // 🔧 CRÍTICO: Obtener el ID numérico de la obra original (nunca usar IDs tipo "te_X")
+                                            const obraOriginalIdNumerico = obraParaTrabajosExtra._obraOriginalId ||
+                                              (typeof obraParaTrabajosExtra.id === 'number' ? obraParaTrabajosExtra.id : null);
+
+                                            if (!obraOriginalIdNumerico) {
+                                              console.error('❌ No se pudo determinar el ID de la obra original');
+                                              showNotification('Error: No se pudo determinar la obra original', 'error');
+                                              return;
+                                            }
+
+                                            // 🔧 CRÍTICO: Usar el ID correcto del trabajo extra (puede venir como id_trabajo_extra o id)
+                                            const trabajoExtraIdReal = row.id_trabajo_extra || row.presupuestoNoClienteId || row.id;
+
                                             const trabajoComoObra = {
                                               ...obraParaTrabajosExtra,
-                                              id: `te_${row.id}`,
+                                              id: `te_${trabajoExtraIdReal}`,
                                               nombre: row.nombreObra || row.nombre,
                                               _esTrabajoExtra: true,
-                                              _trabajoExtraId: row.id,
-                                              _obraOriginalId: obraParaTrabajosExtra.id
+                                              _trabajoExtraId: trabajoExtraIdReal,
+                                              _obraOriginalId: obraOriginalIdNumerico
                                             };
+                                            console.log('🔍 Gestionar trabajos extra del trabajo extra:', {
+                                              trabajoExtraId: trabajoExtraIdReal,
+                                              obraOriginalId: obraOriginalIdNumerico,
+                                              row,
+                                              trabajoComoObra
+                                            });
                                             setSelectedObraId(trabajoComoObra.id);
                                             setObraParaTrabajosExtra(trabajoComoObra);
                                             cargarTrabajosExtra(trabajoComoObra);
@@ -5903,7 +5957,7 @@ const ObrasPage = ({ showNotification }) => {
                                             try {
                                               // ✅ CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
                                               console.log('🔍 Cargando presupuesto completo del trabajo extra ID:', row.id);
-                                              const presupuestoCompleto = await api.trabajosExtra.getById(row.id, empresaId);
+                                              const presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
                                               console.log('✅ Presupuesto completo cargado:', presupuestoCompleto);
 
                                               // ✅ BUSCAR trabajo extra actualizado del estado (con asignaciones reales)
@@ -5936,7 +5990,9 @@ const ObrasPage = ({ showNotification }) => {
                                                 profesionales: asignaciones,
                                                 _esTrabajoExtra: true,
                                                 _trabajoExtraId: row.id,
-                                                _obraOriginalId: obraParaTrabajosExtra.id
+                                                // Usar _obraOriginalId si existe (cuando estamos dentro de un trabajo extra),
+                                                // sino usar id directamente
+                                                _obraOriginalId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
                                               };
 
                                               console.log('🔍 DEBUG - Trabajo Extra para profesionales:', {
@@ -5982,7 +6038,7 @@ const ObrasPage = ({ showNotification }) => {
                                             try {
                                               // ✅ CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
                                               console.log('🔍 Cargando presupuesto completo del trabajo extra ID:', row.id);
-                                              const presupuestoCompleto = await api.trabajosExtra.getById(row.id, empresaId);
+                                              const presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
                                               console.log('✅ Presupuesto completo cargado:', presupuestoCompleto);
 
                                               // Usar el presupuesto completo como si fuera una obra
@@ -6009,7 +6065,9 @@ const ObrasPage = ({ showNotification }) => {
                                                 materiales: presupuestoCompleto.materiales || [],
                                                 _esTrabajoExtra: true,
                                                 _trabajoExtraId: row.id,
-                                                _obraOriginalId: obraParaTrabajosExtra.id
+                                                // Usar _obraOriginalId si existe (cuando estamos dentro de un trabajo extra),
+                                                // sino usar id directamente
+                                                _obraOriginalId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
                                               };
                                               setObraParaAsignarMateriales(trabajoParaMateriales);
                                               setMostrarModalAsignarMateriales(true);
@@ -6046,7 +6104,7 @@ const ObrasPage = ({ showNotification }) => {
                                             try {
                                               // ✅ CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
                                               console.log('🔍 Cargando presupuesto completo del trabajo extra ID:', row.id);
-                                              const presupuestoCompleto = await api.trabajosExtra.getById(row.id, empresaId);
+                                              const presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
                                               console.log('✅ Presupuesto completo cargado:', presupuestoCompleto);
 
                                               // Usar el presupuesto completo como si fuera una obra
@@ -6074,7 +6132,9 @@ const ObrasPage = ({ showNotification }) => {
                                                 gastosGenerales: presupuestoCompleto.gastosGenerales || [],
                                                 _esTrabajoExtra: true,
                                                 _trabajoExtraId: row.id,
-                                                _obraOriginalId: obraParaTrabajosExtra.id
+                                                // Usar _obraOriginalId si existe (cuando estamos dentro de un trabajo extra),
+                                                // sino usar id directamente
+                                                _obraOriginalId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
                                               };
                                               setObraParaAsignarGastos(trabajoParaGastos);
                                               setMostrarModalAsignarGastos(true);
@@ -6135,7 +6195,7 @@ const ObrasPage = ({ showNotification }) => {
                                                 presupuestoCompleto = { ...row, ...trabajoExtraEnEstado };
                                               } else {
                                                 console.log('🔍 [Cronograma TE] Cargando presupuesto completo del trabajo extra ID:', row.id);
-                                                presupuestoCompleto = await api.trabajosExtra.getById(row.id, empresaId);
+                                                presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
                                               }
 
                                               console.log('✅ [Cronograma TE] Presupuesto resuelto:', {
@@ -6145,7 +6205,9 @@ const ObrasPage = ({ showNotification }) => {
 
                                               // Crear objeto independiente para trabajo extra
                                               const trabajoParaEtapas = {
-                                                id: row.obraId || obraParaTrabajosExtra.id, // ID de la obra real (NO el ID del trabajo extra)
+                                                // Usar _obraOriginalId si existe (trabajo extra dentro de trabajo extra),
+                                                // sino verificar row.obraId, sino obraParaTrabajosExtra.id
+                                                id: row.obraId || obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id,
                                                 _idVisualizacion: `te_${row.id}`, // ID único para visualización
                                                 nombre: row.nombreObra || row.nombre,
                                                 fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || row.fechaProbableInicio,
@@ -6161,9 +6223,9 @@ const ObrasPage = ({ showNotification }) => {
                                                 _esTrabajoExtra: true,
                                                 _trabajoExtraId: row.id,
                                                 _trabajoExtraPresupuestoId: row.id, // ID del presupuesto del trabajo extra
-                                                _obraOriginalId: row.obraId || obraParaTrabajosExtra.id,
+                                                _obraOriginalId: row.obraId || obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id,
                                                 _trabajoExtraNombre: row.nombreObra || row.nombre,
-                                                obraId: row.obraId || obraParaTrabajosExtra.id,
+                                                obraId: row.obraId || obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id,
                                                 // 🔥 IMPORTANTE: Usar el presupuesto actualizado (puede ser del estado o del backend)
                                                 presupuestoNoCliente: presupuestoCompleto
                                               };
@@ -7043,7 +7105,8 @@ const ObrasPage = ({ showNotification }) => {
             if (obraParaAsignarProfesionales?._esTrabajoExtra && obraParaTrabajosExtra) {
               console.log('🔄 [Profesionales] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarProfesionales.id,
-                obraId: obraParaTrabajosExtra.id
+                // Si estamos dentro de un trabajo extra, usar el ID de la obra original
+                obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
               console.log('✅ [Profesionales] Trabajos extra recargados');
@@ -7069,7 +7132,8 @@ const ObrasPage = ({ showNotification }) => {
             if (obraParaAsignarMateriales?._esTrabajoExtra && obraParaTrabajosExtra) {
               console.log('🔄 [Materiales] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarMateriales.id,
-                obraId: obraParaTrabajosExtra.id
+                // Si estamos dentro de un trabajo extra, usar el ID de la obra original
+                obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
               console.log('✅ [Materiales] Trabajos extra recargados');
@@ -7093,7 +7157,8 @@ const ObrasPage = ({ showNotification }) => {
             if (obraParaAsignarMateriales?._esTrabajoExtra && obraParaTrabajosExtra) {
               console.log('🔄 [Materiales Success] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarMateriales.id,
-                obraId: obraParaTrabajosExtra.id
+                // Si estamos dentro de un trabajo extra, usar el ID de la obra original
+                obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
               console.log('✅ [Materiales Success] Trabajos extra recargados');
@@ -7114,7 +7179,8 @@ const ObrasPage = ({ showNotification }) => {
             if (obraParaAsignarGastos?._esTrabajoExtra && obraParaTrabajosExtra) {
               console.log('🔄 [Gastos] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarGastos.id,
-                obraId: obraParaTrabajosExtra.id
+                // Si estamos dentro de un trabajo extra, usar el ID de la obra original
+                obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
               console.log('✅ [Gastos] Trabajos extra recargados');
@@ -7136,7 +7202,8 @@ const ObrasPage = ({ showNotification }) => {
             if (obraParaAsignarGastos?._esTrabajoExtra && obraParaTrabajosExtra) {
               console.log('🔄 [Gastos Success] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarGastos.id,
-                obraId: obraParaTrabajosExtra.id
+                // Si estamos dentro de un trabajo extra, usar el ID de la obra original
+                obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
               console.log('✅ [Gastos Success] Trabajos extra recargados');
@@ -7481,11 +7548,19 @@ const ObrasPage = ({ showNotification }) => {
             id: trabajoExtraEditar?.id_trabajo_extra || trabajoExtraEditar?.id || null,
 
             // IDs y empresa
-            obraId: obraParaTrabajosExtra.id,
-            idObra: obraParaTrabajosExtra.id,
+            // Si estamos dentro de un trabajo extra, usar el ID de la obra original
+            obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id,
+            idObra: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id,
             clienteId: obraParaTrabajosExtra.clienteId || null,
             idEmpresa: empresaSeleccionada.id,
             nombreEmpresa: empresaSeleccionada.nombreEmpresa,
+
+            // 🔧 CRÍTICO: Marcar como trabajo extra
+            esPresupuestoTrabajoExtra: true,
+
+            // 🆕 Si estamos creando un trabajo extra dentro de otro trabajo extra (subobra),
+            // pasar el ID del trabajo extra padre para excluirlo de la lista
+            _trabajoExtraPadreId: obraParaTrabajosExtra._trabajoExtraId || null,
 
             // Si está editando, usar datos del trabajo extra; si no, usar datos de la obra
             nombreObraManual: trabajoExtraEditar?.nombre || obraParaTrabajosExtra.nombre || '',

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-const ObraSelector = ({ empresaId, value, onChange, onClick, required = false, className = "form-select", placeholder = "Seleccionar obra...", style, disabled }) => {
+const ObraSelector = ({ empresaId, value, onChange, onClick, required = false, className = "form-select", placeholder = "Seleccionar obra...", style, disabled, excludeObraId = null, excludeObraIds = [], excludeTrabajosExtra = false }) => {
   const [obras, setObras] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -24,8 +24,16 @@ const ObraSelector = ({ empresaId, value, onChange, onClick, required = false, c
 
           // 🔧 FILTROS:
           // 1. Excluir obras canceladas/eliminadas
-          // ⚠️ TODO: El backend no devuelve correctamente esObraTrabajoExtra, por ahora mostrar todas
+          // 2. Excluir obra(s) específicas si se proporcionan excludeObraId o excludeObraIds
           const estadosExcluidos = ['CANCELADO', 'CANCELADA', 'ELIMINADO', 'ELIMINADA'];
+
+          // Combinar IDs a excluir (excludeObraId + excludeObraIds)
+          const idsAExcluir = [];
+          if (excludeObraId) idsAExcluir.push(excludeObraId);
+          if (Array.isArray(excludeObraIds) && excludeObraIds.length > 0) {
+            idsAExcluir.push(...excludeObraIds);
+          }
+
           const obrasFiltradas = obrasArray.filter(obra => {
             const nombreObra = obra.nombre || obra.nombreObra || obra.nombre_obra || 'Sin nombre';
 
@@ -35,10 +43,25 @@ const ObraSelector = ({ empresaId, value, onChange, onClick, required = false, c
               return false;
             }
 
+            // 🆕 Excluir obras específicas si se proporcionan
+            if (idsAExcluir.length > 0 && idsAExcluir.includes(obra.id || obra.idObra)) {
+              console.log(`⚠️ Excluyendo obra por excludeObraId(s): ${nombreObra} (ID: ${obra.id || obra.idObra})`);
+              return false;
+            }
+
+            // 🆕 Excluir trabajos extra si se solicita (para evitar vincular trabajo extra a otro trabajo extra)
+            if (excludeTrabajosExtra) {
+              const esTrabajoExtra = obra.esObraTrabajoExtra || obra.es_obra_trabajo_extra || false;
+              if (esTrabajoExtra) {
+                console.log(`⚠️ Excluyendo trabajo extra: ${nombreObra} (ID: ${obra.id || obra.idObra})`);
+                return false;
+              }
+            }
+
             return true;
           });
 
-          console.log(`✅ Obras principales disponibles (excluidos: estados no válidos):`, obrasFiltradas.length);
+          console.log(`✅ Obras principales disponibles (excluidos: estados no válidos y ${idsAExcluir.length} IDs):`, obrasFiltradas.length);
           setObras(obrasFiltradas);
           setLoading(false);
         })
@@ -50,7 +73,7 @@ const ObraSelector = ({ empresaId, value, onChange, onClick, required = false, c
     } else {
       setObras([]);
     }
-  }, [empresaId]);
+  }, [empresaId, excludeObraId, JSON.stringify(excludeObraIds), excludeTrabajosExtra]);
 
   if (loading) {
     return (
