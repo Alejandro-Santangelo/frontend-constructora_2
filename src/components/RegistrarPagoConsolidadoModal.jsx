@@ -2171,13 +2171,48 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                         </div>
                       ) : (
                         <>
-                          {/* Agrupar profesionales por obra */}
-                          {presupuestos.map((presupuesto, presupuestoIdx) => {
+                          {/* 🆕 Agrupar presupuestos con sus subobras */}
+                          {(() => {
+                            const presupuestosConSubobras = [];
+                            const subobrasYaAgregadas = new Set();
+
+                            // Ordenar por nombre para mantener consistencia
+                            const presupuestosOrdenados = [...presupuestos].sort((a, b) =>
+                              (a.nombreObra || '').localeCompare(b.nombreObra || '')
+                            );
+
+                            presupuestosOrdenados.forEach(presupuesto => {
+                              if (subobrasYaAgregadas.has(presupuesto.id)) return;
+
+                              // Buscar subobras: presupuestos cuyo nombre contiene el nombre de este presupuesto
+                              const subobras = presupuestosOrdenados.filter(posibleSubobra => {
+                                if (posibleSubobra.id === presupuesto.id) return false;
+
+                                // Detectar si es subobra: el nombre incluye el nombre de la obra padre
+                                const nombreObra = presupuesto.nombreObra || '';
+                                const nombrePosibleSubobra = posibleSubobra.nombreObra || '';
+
+                                const esSubobra = nombrePosibleSubobra.startsWith(nombreObra + ' ') ||
+                                                nombrePosibleSubobra.includes(nombreObra + ' ');
+                                return esSubobra;
+                              });
+
+                              // Marcar subobras como ya procesadas
+                              subobras.forEach(sub => subobrasYaAgregadas.add(sub.id));
+
+                              presupuestosConSubobras.push({
+                                ...presupuesto,
+                                subobras
+                              });
+                            });
+
+                            return presupuestosConSubobras;
+                          })().map((presupuesto, presupuestoIdx, presupuestosArray) => {
                             const profesionalesObra = profesionalesFiltradosPorSemana.filter(
                               p => p.presupuestoId === presupuesto.id
                             );
 
-                            if (profesionalesObra.length === 0) return null;
+                            if (profesionalesObra.length === 0 && (!presupuesto.subobras || presupuesto.subobras.length === 0)) return null;
 
                             const totalAPagarObra = profesionalesObra.reduce((sum, p) => sum + (p.importeCalculado || 0), 0);
                             const totalPagadoObra = profesionalesObra.reduce((sum, p) => sum + (p.totalPagado || 0), 0);
@@ -2390,8 +2425,119 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                   </div>
                                 </div>
 
-                                {/* Separador entre obras (excepto la última) */}
-                                {presupuestoIdx < presupuestos.length - 1 && <hr className="my-4" />}
+                                {/* Renderizar subobras */}
+                                {presupuesto.subobras && presupuesto.subobras.map((subobra, subobraIdx) => {
+                                  const profesionalesSubobra = profesionalesFiltradosPorSemana.filter(
+                                    p => p.presupuestoId === subobra.id
+                                  );
+
+                                  if (profesionalesSubobra.length === 0) return null;
+
+                                  const totalAPagarSubobra = profesionalesSubobra.reduce((sum, p) => sum + (p.importeCalculado || 0), 0);
+                                  const totalPagadoSubobra = profesionalesSubobra.reduce((sum, p) => sum + (p.totalPagado || 0), 0);
+                                  const saldoSubobra = totalAPagarSubobra - totalPagadoSubobra;
+
+                                  return (
+                                    <div key={subobra.id} className="mt-3 ms-4">
+                                      {/* Encabezado de Subobra */}
+                                      <div className="card border-secondary border-opacity-50">
+                                        <div className="card-header bg-secondary bg-opacity-10">
+                                          <div className="d-flex justify-content-between align-items-center">
+                                            <div>
+                                              <h6 className="mb-0">
+                                                <i className="bi bi-diagram-3 me-2 text-primary"></i>
+                                                {subobra.nombreObra}
+                                              </h6>
+                                              <small className="text-muted">
+                                                <i className="bi bi-geo-alt me-1"></i>
+                                                {subobra.direccionObra}
+                                              </small>
+                                            </div>
+                                            <div className="text-end">
+                                              <div className="badge bg-secondary">
+                                                {profesionalesSubobra.length} profesional(es)
+                                              </div>
+                                              <div className="mt-1">
+                                                <small className="text-muted">Saldo: </small>
+                                                <strong>${saldoSubobra.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="card-body p-0">
+                                          <div className="table-responsive">
+                                            <table className="table table-hover table-bordered mb-0 table-sm">
+                                              <tbody>
+                                                {profesionalesSubobra.map((prof, profIdx) => {
+                                                  const esSeleccionado = profesionalesSeleccionados.some(
+                                                    p => (p.uniqueId || `${p.presupuestoId}-${p.profesionalId || p.id}`) === (prof.uniqueId || `${prof.presupuestoId}-${prof.profesionalId || prof.id}`)
+                                                  );
+
+                                                  const diasTrabajados = prof.diasTrabajadosConFeriados || prof.diasTrabajados || 0;
+                                                  const diasHabiles = prof.diasHabiles !== undefined ? prof.diasHabiles : diasTrabajados;
+                                                  const totalFeriados = diasTrabajados - diasHabiles;
+                                                  const hayFeriados = totalFeriados > 0;
+                                                  const diasAUsar = mostrarSoloHabiles ? diasHabiles : diasTrabajados;
+
+                                                  const totalAPagar = mostrarSoloHabiles
+                                                    ? (diasHabiles * (prof.tarifaPorDia || prof.precioJornal || 0))
+                                                    : (prof.importeCalculado || 0);
+                                                  const estaPagado = (prof.totalPagado || 0) >= (prof.importeCalculado || 0) - 0.01;
+                                                  const saldoPendiente = (prof.importeCalculado || 0) - (prof.totalPagado || 0);
+                                                  const saldoAjustado = mostrarSoloHabiles
+                                                    ? totalAPagar - (prof.totalPagado || 0)
+                                                    : saldoPendiente;
+
+                                                  return (
+                                                    <tr key={prof.uniqueId || profIdx} className={esSeleccionado ? 'table-active' : ''}>
+                                                      <td style={{width:'120px'}}>{prof.tipoProfesional}</td>
+                                                      <td style={{width:'150px'}}>{prof.nombreCompleto || prof.nombre || 'Sin nombre'}</td>
+                                                      <td className="text-center" style={{width:'120px'}}>
+                                                        <span className="fw-bold">{diasAUsar}</span>
+                                                      </td>
+                                                      <td className="text-end" style={{width:'120px'}}>${(prof.tarifaPorDia || prof.precioJornal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                                      <td className="text-end fw-bold" style={{width:'120px'}}>
+                                                        ${totalAPagar.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                      </td>
+                                                      <td className="text-end text-success" style={{width:'120px'}}>${(prof.totalPagado || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                                      <td className="text-end text-danger" style={{width:'120px'}}>
+                                                        ${saldoAjustado.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                      </td>
+                                                      <td className="text-center" style={{width:'100px'}}>
+                                                        {estaPagado ? (
+                                                          <span className="badge bg-success">✅ Completo</span>
+                                                        ) : prof.totalPagado > 0 ? (
+                                                          <span className="badge bg-warning text-dark">⚠️ Parcial</span>
+                                                        ) : (
+                                                          <span className="badge bg-danger">❌ Pendiente</span>
+                                                        )}
+                                                      </td>
+                                                      <td className="text-center" style={{width:'80px'}}>
+                                                        <input
+                                                          type="checkbox"
+                                                          className="form-check-input"
+                                                          checked={esSeleccionado}
+                                                          onChange={() => handleToggleProfesional(prof)}
+                                                          disabled={estaPagado}
+                                                        />
+                                                      </td>
+                                                    </tr>
+                                                  );
+                                                })}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+
+                                {/* Separador entre grupos de obras - línea negra */}
+                                {presupuestoIdx < presupuestosArray.length - 1 && (
+                                  <hr style={{borderTop: '3px solid #000', margin: '1.5rem 0'}} />
+                                )}
                               </div>
                             );
                           })}

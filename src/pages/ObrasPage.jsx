@@ -1986,6 +1986,53 @@ const ObrasPage = ({ showNotification }) => {
       await cargarTrabajosExtra(obraParaTrabajosExtra);
       console.log('✅ Trabajos extra recargados correctamente');
 
+      // 🏗️ AUTO-GENERAR OBRA SI EL PRESUPUESTO ESTÁ APROBADO
+      if (presupuestoData.estado === 'APROBADO') {
+        console.log('🏗️ Presupuesto APROBADO detectado - Generando obra automáticamente...');
+        try {
+          // Obtener el ID del presupuesto guardado
+          const presupuestoId = response?.data?.id || response?.id || trabajoExtraEditar?.id;
+
+          const obraData = {
+            nombre: presupuestoData.nombreObra || presupuestoData.nombreObraManual || `Trabajo Extra #${presupuestoId}`,
+            direccion: presupuestoData.direccionObraCalle || obraParaTrabajosExtra?.direccion || 'Dirección no especificada',
+            direccionObraCalle: presupuestoData.direccionObraCalle || '',
+            direccionObraAltura: presupuestoData.direccionObraAltura || '',
+            direccionObraBarrio: presupuestoData.direccionObraBarrio || '',
+            direccionObraLocalidad: presupuestoData.direccionObraLocalidad || '',
+            direccionObraProvincia: presupuestoData.direccionObraProvincia || '',
+            direccionObraCodigoPostal: presupuestoData.direccionObraCodigoPostal || '',
+            idEmpresa: empresaId,
+            clienteId: presupuestoData.clienteId || obraParaTrabajosExtra?.clienteId,
+            estado: 'APROBADO', // Obra en estado aprobado, lista para ejecución
+            esTrabajoExtra: true, // 🔧 Marcar como trabajo extra
+            obraPadreId: obraParaTrabajosExtra?.id, // Referencia a la obra padre
+            nombreSolicitante: presupuestoData.nombreSolicitante || '',
+            telefono: presupuestoData.telefono || '',
+            mail: presupuestoData.mail || '',
+            // Referencias para trazabilidad
+            presupuestoOriginalId: presupuestoId,
+            observaciones: `Obra generada automáticamente desde trabajo extra aprobado #${presupuestoId}.\n${presupuestoData.observaciones || ''}`
+          };
+
+          console.log('📤 Creando obra automáticamente:', obraData);
+          const obraCreada = await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
+          console.log('✅ Obra creada automáticamente:', obraCreada);
+
+          showNotification('✅ Presupuesto aprobado y obra creada automáticamente', 'success');
+
+          // Recargar lista de obras principales para mostrar la nueva obra
+          await dispatch(fetchObrasPorEmpresa(empresaId));
+          console.log('✅ Lista de obras recargada');
+        } catch (errorObra) {
+          console.error('❌ Error al crear obra automáticamente:', errorObra);
+          showNotification(
+            '⚠️ Presupuesto guardado pero error al crear obra automáticamente: ' + (errorObra.message || 'Error desconocido'),
+            'warning'
+          );
+        }
+      }
+
       // Cerrar el modal
       setMostrarModalTrabajoExtra(false);
       setTrabajoExtraEditar(null);
@@ -4041,9 +4088,41 @@ const ObrasPage = ({ showNotification }) => {
                         <tbody>
                           {(() => {
                             // 🎯 ORDENAMIENTO INTELIGENTE: Agrupar obras de trabajo extra con sus obras padre
-                            const obrasNormales = obras.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
-                            const obrasTrabajoExtra = obras.filter(o => o.esTrabajoExtra && o.estado !== 'CANCELADO');
+                            // 🔍 Detección de subobras por NOMBRE (además del flag esTrabajoExtra)
+                            const todasObrasActivas = obras.filter(o => o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
                             const obrasCanceladas = obras.filter(o => o.estado === 'CANCELADO');
+
+                            // 🔍 Marcar subobras detectadas por patrón de nombre
+                            const subobrasDetectadas = new Set();
+                            todasObrasActivas.forEach(posibleSubobra => {
+                              todasObrasActivas.forEach(posiblePadre => {
+                                if (posibleSubobra.id !== posiblePadre.id) {
+                                  const nombreSubobra = (posibleSubobra.nombre || '').trim();
+                                  const nombrePadre = (posiblePadre.nombre || '').trim();
+                                  // Detectar si el nombre de la posible subobra empieza con el nombre del padre + espacio
+                                  if (nombreSubobra && nombrePadre && nombreSubobra.startsWith(nombrePadre + ' ')) {
+                                    subobrasDetectadas.add(posibleSubobra.id);
+                                    // Asignar referencia de obra padre si no existe
+                                    if (!posibleSubobra.obraPadreId && !posibleSubobra.obra_padre_id && !posibleSubobra.idObraPadre) {
+                                      posibleSubobra._obraPadreDetectada = posiblePadre.id;
+                                    }
+                                  }
+                                }
+                              });
+                            });
+
+                            // Separar obras normales de trabajos extra (incluyendo detección automática)
+                            const obrasNormales = todasObrasActivas.filter(o => {
+                              const esTrabajoExtraExplicito = o.esTrabajoExtra;
+                              const esSubobraDetectada = subobrasDetectadas.has(o.id);
+                              return !esTrabajoExtraExplicito && !esSubobraDetectada;
+                            }).sort((a, b) => a.id - b.id);
+
+                            const obrasTrabajoExtra = todasObrasActivas.filter(o => {
+                              const esTrabajoExtraExplicito = o.esTrabajoExtra;
+                              const esSubobraDetectada = subobrasDetectadas.has(o.id);
+                              return esTrabajoExtraExplicito || esSubobraDetectada;
+                            });
 
                             const listaOrdenada = [];
 
@@ -4051,9 +4130,9 @@ const ObrasPage = ({ showNotification }) => {
                             let grupoIndex = 2; // 🎨 Sincronizar con índice de grupos de obra en página de Presupuestos
 
                             obrasNormales.forEach(obraPadre => {
-                              // Buscar trabajos extra de esta obra
+                              // Buscar trabajos extra de esta obra (por ID o por detección de nombre)
                               const trabajosExtraDeEstaObra = obrasTrabajoExtra.filter(te => {
-                                const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre;
+                                const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre || te._obraPadreDetectada;
                                 return obraPadreId === obraPadre.id;
                               });
 
@@ -4097,7 +4176,7 @@ const ObrasPage = ({ showNotification }) => {
 
                             // Agregar trabajos extra huérfanos (sin obra padre)
                             const trabajosExtraHuerfanos = obrasTrabajoExtra.filter(te => {
-                              const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre;
+                              const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre || te._obraPadreDetectada;
                               return !obraPadreId || !obrasNormales.find(op => op.id === obraPadreId);
                             });
 
@@ -4133,6 +4212,9 @@ const ObrasPage = ({ showNotification }) => {
                           })().map((obra, index, array) => {
                             const obraId = obra.id;
                             const isSelected = selectedObraId && obraId && selectedObraId === obraId;
+
+                            // 🔍 Determinar si es subobra/trabajo extra (explícito o detectado)
+                            const esSubobra = obra.esTrabajoExtra || obra._grupoTipo === 'trabajoExtra';
 
                             // 🎨 Determinar información de grupo para estilos visuales
                             const perteneceAGrupo = obra._grupoObra !== null;
@@ -4217,6 +4299,7 @@ const ObrasPage = ({ showNotification }) => {
                               <tr
                                 onClick={(e) => {
                                   e.stopPropagation();
+
                                   // Toggle: si ya está seleccionado, deseleccionar; si no, seleccionar
                                   if (isSelected) {
                                     setSelectedObraId(null);
@@ -4227,7 +4310,7 @@ const ObrasPage = ({ showNotification }) => {
                                 style={{
                                   cursor: 'pointer',
                                   backgroundColor: isSelected ? '#cfe2ff' : colorGrupo,
-                                  borderLeft: obra.esTrabajoExtra
+                                  borderLeft: esSubobra
                                     ? '5px solid #ffc107'
                                     : (perteneceAGrupo ? '4px solid #6c757d' : 'none'),
                                   transition: 'all 0.2s ease'
@@ -4264,7 +4347,7 @@ const ObrasPage = ({ showNotification }) => {
                                       <i className="fas fa-level-down-alt" style={{fontSize: '0.7em'}}></i>
                                     </span>
                                   )}
-                                  {obra.esTrabajoExtra && (
+                                  {esSubobra && (
                                     <span className="text-warning me-1" title="Trabajo extra de obra anterior">
                                       <i className="fas fa-level-up-alt" style={{transform: 'rotate(90deg)', fontSize: '0.8em'}}></i>
                                     </span>
@@ -4289,11 +4372,11 @@ const ObrasPage = ({ showNotification }) => {
                                     </span>
                                   </div>
                                 )}
-                                {obra.esTrabajoExtra && (
+                                {esSubobra && (
                                   <div className="mt-1">
                                     <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
                                       🔧 TRABAJO EXTRA{(() => {
-                                        const obraPadreId = obra.obraPadreId || obra.obra_padre_id || obra.idObraPadre;
+                                        const obraPadreId = obra.obraPadreId || obra.obra_padre_id || obra.idObraPadre || obra._obraPadreDetectada;
                                         return obraPadreId ? ` de #${obraPadreId}` : '';
                                       })()}
                                     </span>
@@ -5365,12 +5448,7 @@ const ObrasPage = ({ showNotification }) => {
                   <div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div>
                 </div>
               ) : trabajosExtra.length === 0 ? (
-                <div className="text-center py-4">
-                  <p className="text-muted">
-                    <i className="fas fa-info-circle me-2"></i>
-                    No hay trabajos extra registrados. Usa el botón "Nuevo Trabajo Extra" en el sidebar para crear uno.
-                  </p>
-                </div>
+                null
               ) : (
                 <>
                   <div className="table-responsive" style={{margin: '0'}}>
@@ -7285,6 +7363,57 @@ const ObrasPage = ({ showNotification }) => {
               } else {
                 // Guardado normal (sin flag de editar solo fechas)
                 showNotification('✅ Presupuesto guardado exitosamente', 'success');
+
+                // 🏗️ AUTO-GENERAR OBRA SI ES TRABAJO EXTRA APROBADO
+                if (presupuesto.esPresupuestoTrabajoExtra && presupuesto.estado === 'APROBADO' && presupuesto.obraId) {
+                  console.log('🏗️ Trabajo Extra APROBADO detectado - Verificando si necesita crear obra...');
+                  try {
+                    // Buscar si ya existe una obra con este presupuestoOriginalId
+                    const obrasExistentes = await api.obras.obtenerObras({ empresaId });
+                    const yaExisteObra = obrasExistentes?.data?.some(o => o.presupuestoOriginalId === presupuesto.id);
+
+                    if (!yaExisteObra) {
+                      console.log('📤 No existe obra para este presupuesto - Creando automáticamente...');
+
+                      const obraData = {
+                        nombre: presupuesto.nombreObra || presupuesto.nombreObraManual || `Trabajo Extra #${presupuesto.id}`,
+                        direccion: presupuesto.direccionObraCalle || 'Dirección no especificada',
+                        direccionObraCalle: presupuesto.direccionObraCalle || '',
+                        direccionObraAltura: presupuesto.direccionObraAltura || '',
+                        direccionObraBarrio: presupuesto.direccionObraBarrio || '',
+                        direccionObraLocalidad: presupuesto.direccionObraLocalidad || '',
+                        direccionObraProvincia: presupuesto.direccionObraProvincia || '',
+                        direccionObraCodigoPostal: presupuesto.direccionObraCodigoPostal || '',
+                        idEmpresa: empresaId,
+                        clienteId: presupuesto.clienteId,
+                        estado: 'APROBADO',
+                        esTrabajoExtra: true,
+                        obraPadreId: presupuesto.obraId,
+                        nombreSolicitante: presupuesto.nombreSolicitante || '',
+                        telefono: presupuesto.telefono || '',
+                        mail: presupuesto.mail || '',
+                        presupuestoOriginalId: presupuesto.id,
+                        observaciones: `Obra generada automáticamente desde trabajo extra aprobado #${presupuesto.id}.\n${presupuesto.observaciones || ''}`
+                      };
+
+                      await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
+                      console.log('✅ Obra creada automáticamente desde presupuesto aprobado');
+
+                      showNotification('✅ Presupuesto aprobado y obra creada automáticamente', 'success');
+
+                      // Recargar obras
+                      await dispatch(fetchObrasPorEmpresa(empresaId));
+                    } else {
+                      console.log('ℹ️ Ya existe una obra para este presupuesto - No se crea duplicada');
+                    }
+                  } catch (errorObra) {
+                    console.error('❌ Error al crear obra automáticamente:', errorObra);
+                    showNotification(
+                      '⚠️ Presupuesto guardado pero error al crear obra: ' + (errorObra.message || 'Error desconocido'),
+                      'warning'
+                    );
+                  }
+                }
               }
 
               setMostrarModalEditarPresupuesto(false);

@@ -99,6 +99,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   // 🆕 Estados para selección de obras en modo consolidado
   const [obrasDisponibles, setObrasDisponibles] = useState([]);
   const [obrasSeleccionadas, setObrasSeleccionadas] = useState(new Set());
+  const [trabajosExtraSeleccionados, setTrabajosExtraSeleccionados] = useState(new Set());
   const [loadingObras, setLoadingObras] = useState(false);
   const [tipoGastoSeleccionado, setTipoGastoSeleccionado] = useState('PROFESIONALES'); // PROFESIONALES, MATERIALES, OTROS_COSTOS
 
@@ -766,6 +767,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const handleCambiarObra = useCallback(() => {
     // Limpiar selecciones de obras
     setObrasSeleccionadas(new Set());
+    setTrabajosExtraSeleccionados(new Set());
 
     setNotification({
       type: 'info',
@@ -777,6 +779,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const handleVolverAtras = useCallback(() => {
     // Limpiar selecciones de obras
     setObrasSeleccionadas(new Set());
+    setTrabajosExtraSeleccionados(new Set());
 
     setNotification({
       type: 'info',
@@ -1014,6 +1017,24 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         // Primera carga: seleccionar todas
         return new Set(obrasConTrabajosExtra.map(o => o.id));
       });
+
+      // 🆕 Seleccionar todos los trabajos extra por defecto
+      setTrabajosExtraSeleccionados(prevSelected => {
+        const todosLosTrabajosExtra = [];
+        obrasConTrabajosExtra.forEach(obra => {
+          if (obra.trabajosExtra && obra.trabajosExtra.length > 0) {
+            obra.trabajosExtra.forEach(te => todosLosTrabajosExtra.push(te.id));
+          }
+        });
+
+        // Si ya hay trabajos extra seleccionados, preservar la selección
+        if (prevSelected.size > 0) {
+          const idsDisponibles = new Set(todosLosTrabajosExtra);
+          return new Set([...prevSelected].filter(id => idsDisponibles.has(id)));
+        }
+        // Primera carga: seleccionar todos
+        return new Set(todosLosTrabajosExtra);
+      });
       } catch (err) {
         console.error('❌ Error cargando obras:', err);
       } finally {
@@ -1120,12 +1141,36 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     });
   };
 
+  // 🆕 Funciones para manejar selección de trabajos extra
+  const toggleTrabajoExtraSeleccion = (trabajoExtraId) => {
+    setTrabajosExtraSeleccionados(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(trabajoExtraId)) {
+        console.log('❌ Deseleccionando trabajo extra ID:', trabajoExtraId);
+        newSet.delete(trabajoExtraId);
+      } else {
+        console.log('✅ Seleccionando trabajo extra ID:', trabajoExtraId);
+        newSet.add(trabajoExtraId);
+      }
+      return newSet;
+    });
+  };
+
   const seleccionarTodasObras = () => {
     setObrasSeleccionadas(new Set(obrasDisponibles.map(o => o.id)));
+    // Seleccionar todos los trabajos extra también
+    const todosLosTrabajosExtra = [];
+    obrasDisponibles.forEach(obra => {
+      if (obra.trabajosExtra && obra.trabajosExtra.length > 0) {
+        obra.trabajosExtra.forEach(te => todosLosTrabajosExtra.push(te.id));
+      }
+    });
+    setTrabajosExtraSeleccionados(new Set(todosLosTrabajosExtra));
   };
 
   const deseleccionarTodasObras = () => {
     setObrasSeleccionadas(new Set());
+    setTrabajosExtraSeleccionados(new Set());
   };
 
   // 🆕 Componente inline para el selector de obras
@@ -1158,6 +1203,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           <h5 className="mb-0">
             <i className="bi bi-building me-2"></i>
             Seleccionar Obras ({obrasSeleccionadas.size} de {obrasDisponibles.length})
+            {trabajosExtraSeleccionados.size > 0 && (
+              <span className="ms-2 badge bg-light text-dark">
+                + {trabajosExtraSeleccionados.size} Trabajo{trabajosExtraSeleccionados.size !== 1 ? 's' : ''} Extra
+              </span>
+            )}
           </h5>
           <div className="btn-group btn-group-sm">
             <button
@@ -1292,7 +1342,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   const esObraPrincipal = item._esObraPrincipal;
                   const esTrabajoExtra = item._esTrabajoExtra;
 
-                  const isSelected = obrasSeleccionadas.has(esObraPrincipal ? item.id : null);
+                  const isSelected = esObraPrincipal
+                    ? obrasSeleccionadas.has(item.id)
+                    : esTrabajoExtra
+                    ? trabajosExtraSeleccionados.has(item.id)
+                    : false;
                   const direccion = esObraPrincipal
                     ? [item.calle, item.altura, item.barrio && `(${item.barrio})`].filter(Boolean).join(' ')
                     : null;
@@ -1420,10 +1474,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         <tr
                           className={isSelected ? 'table-active' : ''}
                           style={{
-                            backgroundColor: isSelected ? undefined : colorGrupo
+                            backgroundColor: isSelected ? undefined : colorGrupo,
+                            cursor: 'pointer'
                           }}
+                          onClick={() => toggleTrabajoExtraSeleccion(item.id)}
                         >
-                          <td></td>
+                          <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="form-check-input"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleTrabajoExtraSeleccion(item.id);
+                              }}
+                            />
+                          </td>
                           <td colSpan="4" className="ps-4">
                             <i className="bi bi-arrow-return-right me-2 text-muted"></i>
                             <small><strong>Trabajo Extra: {item.nombre}</strong></small>
@@ -1468,8 +1534,10 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               debugRows.push(`${idPresupuesto}: $${monto.toLocaleString()}`);
                             }
 
+                            // Solo sumar trabajos extra que estén seleccionados
                             if (o.trabajosExtra && o.trabajosExtra.length > 0) {
-                              const totalTE = o.trabajosExtra.reduce((sum, t) => sum + (t.totalCalculado || 0), 0);
+                              const trabajosExtraSeleccionadosDeEstaObra = o.trabajosExtra.filter(te => trabajosExtraSeleccionados.has(te.id));
+                              const totalTE = trabajosExtraSeleccionadosDeEstaObra.reduce((sum, t) => sum + (t.totalCalculado || 0), 0);
                               totalTrabajosExtra += totalTE;
                             }
                           });
@@ -1836,11 +1904,13 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
               </div>
               <div className="card-body">
                 {(() => {
-                  // 🎯 SIEMPRE usar estadísticas de obras seleccionadas (excepto si no hay ninguna)
+                  // 🎯 Usar la misma lógica que el modal para consistencia
+                  const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
                   const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
+                  const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
 
-                  // Si hay al menos UNA obra seleccionada → usar estadísticasSeleccionadas
-                  const usarSeleccionadas = !ningunnaSeleccionada;
+                  // Solo usar estadísticas seleccionadas si hay selección PARCIAL
+                  const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
                   const stats = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
                   const loading = usarSeleccionadas ? loadingSeleccionadas : loadingConsolidadas;
                   const error = usarSeleccionadas ? errorSeleccionadas : errorConsolidadas;
@@ -1861,6 +1931,66 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     'stats.desglosePorObra': stats?.desglosePorObra,
                     'desglosePorObra.length': stats?.desglosePorObra?.length
                   });
+
+                  // 🆕 Calcular estadísticas basadas en checkboxes individuales
+                  const statsPersonalizadas = (() => {
+                    if (!obrasDisponibles || obrasDisponibles.length === 0) {
+                      return { ...stats };
+                    }
+
+                    const presupuestosUnicos = new Map();
+                    let totalTrabajosExtra = 0;
+                    let cantidadObrasPersonalizada = 0;
+
+                    // Filtrar obras seleccionadas con checkbox
+                    obrasDisponibles
+                      .filter(o => obrasSeleccionadas.has(o.id))
+                      .forEach(o => {
+                        const idPresupuesto = o.presupuestoCompleto?.id
+                          ?? o.presupuestoNoClienteId
+                          ?? o.presupuestoNoCliente?.id;
+
+                        if (!idPresupuesto) return;
+
+                        if (!presupuestosUnicos.has(idPresupuesto)) {
+                          const monto = (
+                            o.presupuestoCompleto?.totalPresupuestoConHonorarios
+                            ?? o.presupuestoCompleto?.totalFinal
+                            ?? o.presupuestoCompleto?.montoTotal
+                            ?? o.totalPresupuestoConHonorarios
+                            ?? o.totalFinal
+                            ?? o.montoTotal
+                            ?? o.totalPresupuesto
+                            ?? 0
+                          );
+                          presupuestosUnicos.set(idPresupuesto, monto);
+                          cantidadObrasPersonalizada++;
+                        }
+
+                        // Solo sumar trabajos extra que estén seleccionados con checkbox
+                        if (o.trabajosExtra && o.trabajosExtra.length > 0) {
+                          const trabajosExtraSeleccionadosDeEstaObra = o.trabajosExtra.filter(te =>
+                            trabajosExtraSeleccionados.has(te.id)
+                          );
+                          const totalTE = trabajosExtraSeleccionadosDeEstaObra.reduce((sum, t) =>
+                            sum + (t.totalCalculado || 0), 0
+                          );
+                          totalTrabajosExtra += totalTE;
+                        }
+                      });
+
+                    const totalBase = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
+                    const totalPresupuestoPersonalizado = totalBase + totalTrabajosExtra;
+
+                    return {
+                      ...stats,
+                      totalPresupuesto: totalPresupuestoPersonalizado,
+                      cantidadObras: cantidadObrasPersonalizada
+                    };
+                  })();
+
+                  // Usar estadísticas personalizadas en lugar de stats
+                  const statsFinales = statsPersonalizadas;
 
                   if (loading) {
                     return (
@@ -1900,12 +2030,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <h6 className="text-muted mt-2 mb-1">Total Presupuestado</h6>
                             <h4 className="text-info mb-0">
                               {(() => {
-                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor totalPresupuesto recibido:', stats.totalPresupuesto);
-                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor formateado:', formatearMoneda(stats.totalPresupuesto));
-                                return formatearMoneda(stats.totalPresupuesto);
+                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor totalPresupuesto recibido:', statsFinales.totalPresupuesto);
+                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor formateado:', formatearMoneda(statsFinales.totalPresupuesto));
+                                return formatearMoneda(statsFinales.totalPresupuesto);
                               })()}
                             </h4>
-                            <small className="text-muted">De {usarSeleccionadas ? obrasSeleccionadas.size : (stats.cantidadObras || obrasDisponibles.length)} obra(s)</small>
+                            <small className="text-muted">De {statsFinales.cantidadObras} obra(s){trabajosExtraSeleccionados.size > 0 ? ` + ${trabajosExtraSeleccionados.size} TE` : ''}</small>
                             <div className="mt-1">
                               <small className="text-info"><i className="bi bi-hand-index"></i></small>
                             </div>
@@ -1920,10 +2050,10 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <i className="bi bi-arrow-down-circle fs-1 text-success"></i>
                             <h6 className="text-muted mt-2 mb-1">Total Cobrado</h6>
                             <h4 className="text-success mb-0">
-                              ${(stats.totalCobradoEmpresa || stats.totalCobrado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              ${(statsFinales.totalCobradoEmpresa || statsFinales.totalCobrado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </h4>
                             <small className="text-muted">
-                              {((stats.totalCobradoEmpresa || stats.totalCobrado || 0) / (stats.totalPresupuesto || 1) * 100).toFixed(1)}% del presupuesto total
+                              {((statsFinales.totalCobradoEmpresa || statsFinales.totalCobrado || 0) / (statsFinales.totalPresupuesto || 1) * 100).toFixed(1)}% del presupuesto total
                             </small>
                             <div className="mt-1">
                               <small className="text-success"><i className="bi bi-hand-index"></i></small>
@@ -1939,10 +2069,10 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <i className="bi bi-arrow-up-circle fs-1 text-danger"></i>
                             <h6 className="text-muted mt-2 mb-1">Total Pagado</h6>
                             <h4 className="text-danger mb-0">
-                              ${stats.totalPagado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              ${statsFinales.totalPagado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </h4>
                             <small className="text-muted">
-                              {stats.porcentajePagado.toFixed(1)}% del presupuesto total
+                              {statsFinales.porcentajePagado.toFixed(1)}% del presupuesto total
                             </small>
                             <div className="mt-1">
                               <small className="text-danger"><i className="bi bi-hand-index"></i></small>
@@ -1958,7 +2088,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <i className="bi bi-wallet2 fs-1 text-warning"></i>
                             <h6 className="text-muted mt-2 mb-1">Total Retirado</h6>
                             <h4 className="text-warning mb-0">
-                              ${(stats.totalRetirado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              ${(statsFinales.totalRetirado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </h4>
                             <small className="text-muted">
                               Retiros personales
@@ -1981,12 +2111,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <i className="bi bi-hourglass-split fs-1 text-warning"></i>
                             <h6 className="text-muted mt-2 mb-1">Saldo por Cobrar</h6>
                             <h4 className="text-warning mb-0">
-                              {formatearMoneda(stats.totalPresupuesto - (stats.totalCobradoEmpresa || stats.totalCobrado || 0))}
+                              {formatearMoneda(statsFinales.totalPresupuesto - (statsFinales.totalCobradoEmpresa || statsFinales.totalCobrado || 0))}
                             </h4>
                             <small className="text-muted">
                               Falta cobrar {(
-                                stats.totalPresupuesto > 0
-                                  ? (100 * (stats.totalPresupuesto - (stats.totalCobradoEmpresa || stats.totalCobrado || 0)) / stats.totalPresupuesto)
+                                statsFinales.totalPresupuesto > 0
+                                  ? (100 * (statsFinales.totalPresupuesto - (statsFinales.totalCobradoEmpresa || statsFinales.totalCobrado || 0)) / statsFinales.totalPresupuesto)
                                   : 0
                               ).toFixed(1)}% del presupuesto
                             </small>
@@ -2034,9 +2164,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                   return <span className="spinner-border spinner-border-sm" role="status"></span>;
                                 }
 
-// Calcular: Total Cobrado - Total Asignado a obras
-                                const totalCobrado = stats.totalCobradoEmpresa || stats.totalCobrado || 0;
-                                const totalAsignado = stats.totalAsignado || 0;
+                                // Calcular: Total Cobrado - Total Asignado a obras
+                                const totalCobrado = statsFinales.totalCobradoEmpresa || statsFinales.totalCobrado || 0;
+                                const totalAsignado = statsFinales.totalAsignado || 0;
                                 const saldoDisponible = totalCobrado - totalAsignado;
 
                                 return formatearMoneda(saldoDisponible);
@@ -2058,14 +2188,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <h6 className="text-muted mt-2 mb-1">Déficit</h6>
                             <h4 className="mb-0 text-danger">
                               {(() => {
-                                // Usar la misma lógica que el modal para determinar qué estadísticas usar
-                                const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
-                                const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
-                                const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
-                                const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
-
-                                const estadisticasActuales = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
-                                const desglose = estadisticasActuales?.desglosePorObra || [];
+                                // Usar statsFinales que ya tiene el cálculo personalizado
+                                const desglose = statsFinales?.desglosePorObra || [];
 
                                 const deficitTotal = desglose.reduce((sum, obra) => {
                                   const balance = (obra.totalCobrado || 0) - (obra.totalPagado || 0) - (obra.totalRetirado || 0);
@@ -2083,14 +2207,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                       </div>
 
                       {/* Alertas Financieras */}
-                      {stats.alertas && stats.alertas.length > 0 && (
+                      {statsFinales.alertas && statsFinales.alertas.length > 0 && (
                         <div className="mt-4">
                           <h6 className="text-muted mb-3">
                             <i className="bi bi-bell-fill me-2"></i>
-                            Alertas {usarSeleccionadas ? 'de Obras Seleccionadas' : 'Consolidadas'} ({stats.alertas.length})
+                            Alertas {usarSeleccionadas ? 'de Obras Seleccionadas' : 'Consolidadas'} ({statsFinales.alertas.length})
                           </h6>
                           <div className="row">
-                            {stats.alertas.map((alerta, index) => (
+                            {statsFinales.alertas.map((alerta, index) => (
                               <div key={index} className="col-md-6 mb-2">
                                 <div className={`alert alert-${alerta.tipo} mb-0 py-2`}>
                                   <div className="d-flex align-items-start">
@@ -2113,7 +2237,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         </div>
                       )}
 
-                      {stats.alertas && stats.alertas.length === 0 && (
+                      {statsFinales.alertas && statsFinales.alertas.length === 0 && (
                         <div className="mt-3 text-center">
                           <p className="text-success small mb-0">
                             <i className="bi bi-check-circle-fill me-1"></i>
@@ -2124,11 +2248,54 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
                       {/* Top 10 Obras por Presupuesto */}
                       {(() => {
-                        const topObras = stats.desglosePorObra
-                          ?.slice(0, 10)
-                          ?.sort((a, b) => b.totalPresupuesto - a.totalPresupuesto) || [];
+                        // 🆕 Agrupar obras con sus subobras
+                        const todasLasObras = statsFinales.desglosePorObra || [];
+                        const obrasConSubobras = [];
+                        const subobrasYaAgregadas = new Set();
+
+                        // Ordenar primero por presupuesto para mantener el ranking
+                        const obrasSorted = [...todasLasObras].sort((a, b) => b.totalPresupuesto - a.totalPresupuesto);
+
+                        obrasSorted.forEach(obra => {
+                          if (subobrasYaAgregadas.has(obra.id)) return;
+
+                          // Buscar subobras: obras cuyo nombre empiece con el nombre de esta obra
+                          const subobras = obrasSorted.filter(posibleSubobra => {
+                            if (posibleSubobra.id === obra.id) return false;
+                            // Detectar si es subobra: el nombre incluye el nombre de la obra padre
+                            const esSubobra = posibleSubobra.nombreObra?.startsWith(obra.nombreObra + ' ') ||
+                                            posibleSubobra.nombreObra?.includes(obra.nombreObra + ' ');
+                            return esSubobra;
+                          });
+
+                          // Marcar subobras como ya procesadas
+                          subobras.forEach(sub => subobrasYaAgregadas.add(sub.id));
+
+                          obrasConSubobras.push({
+                            ...obra,
+                            subobras
+                          });
+                        });
+
+                        const topObras = obrasConSubobras.slice(0, 10);
 
                         if (topObras.length === 0) return null;
+
+                        // Calcular posiciones globales antes del render
+                        let posicionActual = 0;
+                        const obrasConPosicion = topObras.map(obra => {
+                          const posicionObra = posicionActual++;
+                          const subobrasMapeadas = (obra.subobras || []).map(subobra => ({
+                            ...subobra,
+                            posicion: posicionActual++
+                          }));
+
+                          return {
+                            ...obra,
+                            posicion: posicionObra,
+                            subobras: subobrasMapeadas
+                          };
+                        });
 
                         return (
                           <div className="mt-4">
@@ -2154,16 +2321,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {topObras.map((obra, index) => {
+                                      {obrasConPosicion.map((obra, index) => {
                                         const totalTrabajosExtra = obra.trabajosExtra?.reduce((sum, t) => sum + (t.totalCalculado || 0), 0) || 0;
                                         const presupuestoConTE = obra.totalPresupuesto + totalTrabajosExtra;
 
                                         return (
-                                          <React.Fragment key={index}>
+                                          <React.Fragment key={obra.id || index}>
+                                            {/* Obra Principal */}
                                             <tr>
                                               <td>
-                                                <span className={`badge ${index === 0 ? 'bg-warning' : index === 1 ? 'bg-secondary' : index === 2 ? 'bg-info' : 'bg-light text-dark'}`}>
-                                                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}°`}
+                                                <span className={`badge ${obra.posicion === 0 ? 'bg-warning' : obra.posicion === 1 ? 'bg-secondary' : obra.posicion === 2 ? 'bg-info' : 'bg-light text-dark'}`}>
+                                                  {obra.posicion === 0 ? '🥇' : obra.posicion === 1 ? '🥈' : obra.posicion === 2 ? '🥉' : `${obra.posicion + 1}°`}
                                                 </span>
                                               </td>
                                               <td className="fw-bold">{obra.nombreObra}</td>
@@ -2173,8 +2341,30 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                               <td className="text-end">{formatearMoneda(obra.totalRetirado || 0)}</td>
                                               <td className="text-end text-primary fw-bold">{formatearMoneda(obra.saldoDisponible)}</td>
                                             </tr>
+
+                                            {/* Subobras */}
+                                            {obra.subobras && obra.subobras.map((subobra, sIdx) => (
+                                              <tr key={`${obra.id}-subobra-${sIdx}`} className="table-secondary bg-opacity-25">
+                                                <td className="ps-3">
+                                                  <span className="badge bg-light text-dark">
+                                                    {subobra.posicion === 0 ? '🥇' : subobra.posicion === 1 ? '🥈' : subobra.posicion === 2 ? '🥉' : `${subobra.posicion + 1}°`}
+                                                  </span>
+                                                </td>
+                                                <td className="ps-4">
+                                                  <i className="bi bi-diagram-3 me-2 text-primary"></i>
+                                                  <strong>{subobra.nombreObra}</strong>
+                                                </td>
+                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalPresupuesto)}</strong></td>
+                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalCobrado)}</strong></td>
+                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalPagado)}</strong></td>
+                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalRetirado || 0)}</strong></td>
+                                                <td className="text-end text-primary"><strong>{formatearMoneda(subobra.saldoDisponible)}</strong></td>
+                                              </tr>
+                                            ))}
+
+                                            {/* Trabajos Extra */}
                                             {obra.trabajosExtra && obra.trabajosExtra.map((trabajo, tIdx) => (
-                                              <tr key={`${index}-trabajo-${tIdx}`} className="table-active">
+                                              <tr key={`${obra.id}-trabajo-${tIdx}`} className="table-active">
                                                 <td></td>
                                                 <td className="ps-4">
                                                   <i className="bi bi-arrow-return-right me-2 text-muted"></i>
@@ -2189,6 +2379,13 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                                 <td className="text-end"><small>-</small></td>
                                               </tr>
                                             ))}
+
+                                            {/* Separador entre grupos */}
+                                            {index < obrasConPosicion.length - 1 && (
+                                              <tr>
+                                                <td colSpan="7" className="p-0" style={{borderBottom: '3px solid #000 !important', borderTop: '3px solid #000 !important', height: '3px', backgroundColor: '#000'}}></td>
+                                              </tr>
+                                            )}
                                           </React.Fragment>
                                         );
                                       })}

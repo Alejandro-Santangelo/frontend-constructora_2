@@ -401,7 +401,20 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
       console.log('🔍 [ObrasSeleccionadas] Total Presupuesto BASE (sin trabajos extra):', totalPresupuesto.toLocaleString());
 
-      // 🔧 Sumar trabajos extra al presupuesto total
+      // 🔧 Obtener IDs de presupuestos que YA son trabajos extra para evitar duplicados
+      const idsPresupuestosTrabajosExtra = presupuestosCompletos
+        .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
+        .map(p => p.id);
+
+      console.log('🔍 [ObrasSeleccionadas] Presupuestos que YA son trabajos extra:', {
+        cantidad: idsPresupuestosTrabajosExtra.length,
+        ids: idsPresupuestosTrabajosExtra,
+        presupuestos: presupuestosCompletos
+          .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
+          .map(p => ({ id: p.id, nombre: p.nombreObra, total: calcularTotalPresupuestoObra(p) }))
+      });
+
+      // 🔧 Sumar trabajos extra al presupuesto total (solo los que NO están en presupuestos_no_cliente)
       let totalTrabajosExtra = 0;
       const obraIds = presupuestosCompletos.map(p => p.obraId || p.direccionObraId).filter(Boolean);
 
@@ -416,13 +429,20 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                 try {
                   const fullResponse = await api.trabajosExtra.getById(trabajo.id, empresaId);
                   const fullTrabajo = fullResponse.data || fullResponse;
+
+                  // 🔥 EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
+                  if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
+                    console.log(`  ⚠️ [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" (ID: ${fullTrabajo.id}) YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, omitiendo`);
+                    return null; // Marcarlo para filtrarlo
+                  }
+
                   return fullTrabajo;
                 } catch (err) {
                   return trabajo;
                 }
               }));
 
-              const totalObra = trabajosConTotal.reduce((sum, t) => {
+              const totalObra = trabajosConTotal.filter(t => t !== null).reduce((sum, t) => {
                 const parseMontoLocal = (val) => {
                   if (typeof val === 'number') return val;
                   if (!val) return 0;
@@ -540,6 +560,12 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                   const fullResponse = await api.trabajosExtra.getById(trabajo.id, empresaId);
                   const fullTrabajo = fullResponse.data || fullResponse;
 
+                  // 🔥 EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
+                  if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
+                    console.log(`  ⚠️ [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, marcado para omitir`);
+                    return null; // Marcarlo para filtrarlo después
+                  }
+
                   // Calcular total del trabajo extra
                   let totalCalculado = 0;
                   const parseMontoLocal = (val) => {
@@ -590,12 +616,21 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                     totalCalculado
                   };
                 } catch (err) {
+                  // 🔥 EVITAR DUPLICADOS: Verificar también en el catch
+                  if (trabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(trabajo.presupuestoNoClienteId)) {
+                    console.log(`  ⚠️ [ObrasSeleccionadas] Trabajo extra ${trabajo.id} (error) YA fue contado como presupuesto ${trabajo.presupuestoNoClienteId}, omitiendo`);
+                    return null;
+                  }
+
                   return {
                     ...trabajo,
                     totalCalculado: parseFloat(trabajo.totalFinal) || parseFloat(trabajo.montoTotal) || parseFloat(trabajo.totalCalculado) || 0
                   };
                 }
               }));
+
+              // 🔥 Filtrar trabajos extra que ya fueron contados como presupuestos
+              trabajosExtraObra = trabajosExtraObra.filter(te => te !== null);
             } catch (error) {
               console.warn(`⚠️ Error cargando trabajos extra de obra ${obraId}:`, error);
             }

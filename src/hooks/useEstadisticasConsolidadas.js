@@ -216,6 +216,15 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         }))
       });
 
+      console.log('🔍 DIAGNÓSTICO CRÍTICO - Presupuestos únicos:', presupuestosUnicos.map(p => ({
+        id: p.id,
+        nombreObra: p.nombreObra,
+        numeroPresupuesto: p.numeroPresupuesto,
+        esPresupuestoTrabajoExtra: p.esPresupuestoTrabajoExtra || p.es_presupuesto_trabajo_extra,
+        obraId: p.obraId,
+        total: calcularTotalPresupuesto(p)
+      })));
+
       let totalPresupuesto = 0;
       presupuestosUnicos.forEach((presupuesto) => {
         const totalEstePresupuesto = calcularTotalPresupuesto(presupuesto);
@@ -242,7 +251,20 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
       console.log('✅ [useEstadisticasConsolidadas] Total Presupuesto Consolidado (base):', totalPresupuesto);
 
-      // 🔧 Sumar trabajos extra al presupuesto total
+      // 🔧 Obtener IDs de presupuestos que YA son trabajos extra para evitar duplicados
+      const idsPresupuestosTrabajosExtra = presupuestosUnicos
+        .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
+        .map(p => p.id);
+
+      console.log('🔍 DIAGNÓSTICO - Presupuestos que YA son trabajos extra:', {
+        cantidad: idsPresupuestosTrabajosExtra.length,
+        ids: idsPresupuestosTrabajosExtra,
+        presupuestos: presupuestosUnicos
+          .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
+          .map(p => ({ id: p.id, nombre: p.nombreObra, total: calcularTotalPresupuesto(p) }))
+      });
+
+      // 🔧 Sumar trabajos extra al presupuesto total (solo los que NO están en presupuestos_no_cliente)
       let totalTrabajosExtra = 0;
       const obraIds = presupuestosUnicos.map(p => p.obraId || p.direccionObraId).filter(Boolean);
 
@@ -271,13 +293,20 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
                 try {
                   const fullResponse = await api.trabajosExtra.getById(trabajo.id, empresaId);
                   const fullTrabajo = fullResponse.data || fullResponse;
+
+                  // 🔥 EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
+                  if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
+                    console.log(`  ⚠️ Trabajo extra "${fullTrabajo.nombre}" (ID: ${fullTrabajo.id}) YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, omitiendo`);
+                    return null; // Marcarlo para filtrarlo
+                  }
+
                   return fullTrabajo;
                 } catch (err) {
                   return trabajo;
                 }
               }));
 
-              const totalObra = trabajosConTotal.reduce((sum, t) => {
+              const totalObra = trabajosConTotal.filter(t => t !== null).reduce((sum, t) => {
                 // Función auxiliar para parsear montos
                 const parseMontoLocal = (val) => {
                   if (typeof val === 'number') return val;
@@ -349,8 +378,9 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
                 return sum + total;
               }, 0);
 
-              console.log(`🔧 Obra ${obraId}: ${trabajosConTotal.length} trabajo(s) extra = $${totalObra.toLocaleString()}`);
-              console.log(`🔍 DIAGNÓSTICO - Detalle cálculo obra ${obraId}:`, trabajosConTotal.map(t => ({
+              const trabajosValidados = trabajosConTotal.filter(t => t !== null);
+              console.log(`🔧 Obra ${obraId}: ${trabajosValidados.length} trabajo(s) extra = $${totalObra.toLocaleString()}`);
+              console.log(`🔍 DIAGNÓSTICO - Detalle cálculo obra ${obraId}:`, trabajosValidados.map(t => ({
                 nombre: t.nombre,
                 itemsCalculadora: t.itemsCalculadora?.length || 0,
                 totalFinal: t.totalFinal,
@@ -545,6 +575,12 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
                 const fullResponse = await api.trabajosExtra.getById(t.id, empresaId);
                 const fullTrabajo = fullResponse.data || fullResponse;
 
+                // 🔥 EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
+                if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
+                  console.log(`  ⚠️ Trabajo extra "${fullTrabajo.nombre}" YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, marcado para omitir`);
+                  return null; // Marcarlo para filtrarlo después
+                }
+
                 // Calcular total con la misma lógica de RegistrarPagoConsolidadoModal
                 let totalCalculado = 0;
                 let totalHonorarios = 0; // Inicializar fuera del if
@@ -601,9 +637,19 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
                 };
               } catch (err) {
                 console.error(`❌ Error procesando trabajo extra ${t.id}:`, err);
+
+                // 🔥 EVITAR DUPLICADOS: Verificar también en el catch
+                if (t.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(t.presupuestoNoClienteId)) {
+                  console.log(`  ⚠️ Trabajo extra ${t.id} (error) YA fue contado como presupuesto ${t.presupuestoNoClienteId}, omitiendo`);
+                  return null;
+                }
+
                 return { id: t.id, nombre: t.nombre, totalCalculado: parseFloat(t.totalFinal) || 0, totalHonorarios: 0 };
               }
             }));
+
+            // 🔥 Filtrar trabajos extra que ya fueron contados como presupuestos
+            trabajosExtraObra = trabajosExtraObra.filter(te => te !== null);
           }
         } catch (error) {
           console.warn(`⚠️ Error cargando trabajos extra de obra ${presupuesto.obraId}:`, error);
@@ -1024,7 +1070,6 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         desglosePorObra: desglosePorObraConSaldo,
         fechaUltimoCobro
       });
-
     } catch (err) {
       console.error('❌ Error cargando estadísticas consolidadas:', err);
       setError(err.message || 'Error al cargar estadísticas consolidadas');
