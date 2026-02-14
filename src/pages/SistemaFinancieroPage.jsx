@@ -830,10 +830,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
       setLoadingObras(true);
       try {
-        const [responseAprobado, responseEnEjecucion] = await Promise.all([
-          apiService.presupuestosNoCliente.busquedaAvanzada({ estado: 'APROBADO' }, empresaSeleccionada.id),
-          apiService.presupuestosNoCliente.busquedaAvanzada({ estado: 'EN_EJECUCION' }, empresaSeleccionada.id)
-        ]);
+        // 🔧 Obtener TODAS las obras (todos los estados excepto CANCELADO)
+        const response = await apiService.presupuestosNoCliente.getAll(empresaSeleccionada.id);
 
         const extractData = (response) => {
           if (Array.isArray(response)) return response;
@@ -843,27 +841,35 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           return [];
         };
 
-        const presupuestosAprobado = extractData(responseAprobado);
-        const presupuestosEnEjecucion = extractData(responseEnEjecucion);
-        const todosPresupuestos = [...presupuestosAprobado, ...presupuestosEnEjecucion];
+        // Filtrar CANCELADO
+        const todosPresupuestos = extractData(response).filter(p => p.estado !== 'CANCELADO');
 
-        console.log('📦 Total presupuestos recibidos:', todosPresupuestos.length, todosPresupuestos.map(p => ({
-          id: p.id,
-          obraId: p.obraId,
-          nombre: p.nombreObra,
-          version: p.numeroVersion
-        })));
+        // 🎯 PASO 1: Separar trabajos extra ANTES de agrupar
+      const presupuestosNormales = todosPresupuestos.filter(p => {
+        const esTE = p.esPresupuestoTrabajoExtra === true ||
+                     p.esPresupuestoTrabajoExtra === 'V' ||
+                     p.es_obra_trabajo_extra === true;
+        return !esTE;
+      });
 
-      // Agrupar por nombre de obra y obtener la última versión
-      // Agrupar por nombre de obra y conservar SOLO la versión más reciente (mayor numeroVersion)
-      const obrasPorNombre = {};
-      todosPresupuestos.forEach(p => {
-        const nombreObra = p.nombreObra || `${p.direccionObraCalle} ${p.direccionObraAltura}`;
+      const presupuestosTrabajosExtra = todosPresupuestos.filter(p => {
+        const esTE = p.esPresupuestoTrabajoExtra === true ||
+                     p.esPresupuestoTrabajoExtra === 'V' ||
+                     p.es_obra_trabajo_extra === true;
+        return esTE;
+      });
+
+      // 🎯 PASO 2: Agrupar SOLO obras normales por obraId y obtener la última versión
+      const obrasPorObraId = {};
+      presupuestosNormales.forEach(p => {
+        const obraId = p.obraId || p.direccionObraId;
+        if (!obraId) return; // Saltar presupuestos sin obra asociada
+
         const version = p.numeroVersion || p.version || 0;
-        if (!obrasPorNombre[nombreObra] || version > (obrasPorNombre[nombreObra].numeroVersion || 0)) {
-          obrasPorNombre[nombreObra] = {
+        if (!obrasPorObraId[obraId] || version > (obrasPorObraId[obraId].numeroVersion || 0)) {
+          obrasPorObraId[obraId] = {
             id: p.id, // El id es el del presupuesto más reciente
-            nombreObra: nombreObra,
+            nombreObra: p.nombreObra || `${p.direccionObraCalle} ${p.direccionObraAltura}`,
             numeroPresupuesto: p.numeroPresupuesto,
             numeroVersion: version,
             estado: p.estado,
@@ -879,122 +885,135 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           };
         }
       });
-      // Solo la última versión de cada obra
-      const obrasArray = Object.values(obrasPorNombre);
-      console.log('🏗️ Obras agrupadas:', obrasArray.length, obrasArray.map(o => ({
-        id: o.id,
-        obraId: o.presupuestoCompleto?.obraId,
-        direccionObraId: o.presupuestoCompleto?.direccionObraId,
-        nombre: o.nombreObra
-      })));
 
-      // Cargar trabajos extra para cada obra
-      console.log('🔧 Iniciando carga de trabajos extra para', obrasArray.length, 'obras');
-      const obrasConTrabajosExtra = await Promise.all(obrasArray.map(async (obra) => {
+      const obrasNormales = Object.values(obrasPorObraId);
+
+      // 🎯 PASO 3: Convertir trabajos extra a formato simplificado (última versión por obraId)
+      const trabajosExtraPorObraId = {};
+      presupuestosTrabajosExtra.forEach(p => {
+        const obraId = p.obraId || p.direccionObraId;
+        if (!obraId) return;
+
+        const version = p.numeroVersion || p.version || 0;
+        if (!trabajosExtraPorObraId[obraId] || version > (trabajosExtraPorObraId[obraId].numeroVersion || 0)) {
+          trabajosExtraPorObraId[obraId] = {
+            id: p.id,
+            nombreObra: p.nombreObra || `${p.direccionObraCalle} ${p.direccionObraAltura}`,
+            numeroPresupuesto: p.numeroPresupuesto,
+            numeroVersion: version,
+            estado: p.estado,
+            calle: p.direccionObraCalle || '',
+            altura: p.direccionObraAltura || '',
+            barrio: p.direccionObraBarrio || null,
+            totalPresupuesto: p.totalPresupuestoConHonorarios || p.totalFinal || p.montoTotal || p.total || 0,
+            presupuestoCompleto: p
+          };
+        }
+      });
+
+      const obrasTrabajoExtra = Object.values(trabajosExtraPorObraId);
+
+      // 🔧 CARGAR trabajos extra SOLO para obras normales
+      const obrasConTrabajosExtra = [];
+
+      for (const obra of obrasNormales) {
         const obraId = obra.presupuestoCompleto?.obraId || obra.presupuestoCompleto?.direccionObraId;
-        console.log(`🔍 Obra "${obra.nombreObra}": obraId=${obraId}`);
 
         if (!obraId) {
-          console.warn(`⚠️ Obra "${obra.nombreObra}" no tiene obraId`);
-          return {...obra, trabajosExtra: []};
+          obrasConTrabajosExtra.push({
+            ...obra,
+            trabajosExtra: [],
+            esTrabajoExtra: false
+          });
+          continue;
         }
 
         try {
-          console.log(`🔄 Llamando apiService.trabajosExtra.getAll(${empresaSeleccionada.id}, { obraId: ${obraId} })`);
-          const response = await apiService.trabajosExtra.getAll(empresaSeleccionada.id, { obraId });
-          console.log(`📡 Respuesta recibida:`, response);
-          const trabajos = Array.isArray(response) ? response : response?.data || [];
-          console.log(`📦 Obra "${obra.nombreObra}": ${trabajos.length} trabajo(s) extra encontrado(s)`, trabajos);
+          // 🎯 Buscar trabajos extra que pertenecen a esta obra usando 3 métodos:
+          // 1. Por obra_origen_id (campo en presupuesto del trabajo extra)
+          // 2. Por dirección (calle + altura coinciden)
+          // 3. Por nombre similar
 
-          const trabajosConTotal = await Promise.all(trabajos.map(async (trabajo) => {
-            try {
-              const fullResponse = await apiService.trabajosExtra.getById(trabajo.id, empresaSeleccionada.id);
-              const fullTrabajo = fullResponse.data || fullResponse;
+          const obraDireccion = `${obra.calle || ''} ${obra.altura || ''}`.trim().toLowerCase();
 
-              let totalCalculado = 0;
-              if (fullTrabajo.itemsCalculadora && Array.isArray(fullTrabajo.itemsCalculadora) && fullTrabajo.itemsCalculadora.length > 0) {
-                const parseMontoLocal = (val) => {
-                  if (typeof val === 'number') return val;
-                  if (!val) return 0;
-                  let str = String(val).trim().replace(/[^0-9.,-]/g, '');
-                  if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
-                  return parseFloat(str) || 0;
-                };
+          const trabajosDeEstaObra = obrasTrabajoExtra.filter(te => {
+            const teDireccion = `${te.calle || ''} ${te.altura || ''}`.trim().toLowerCase();
 
-                let subtotalJornales = 0, subtotalMateriales = 0, subtotalOtros = 0;
-                fullTrabajo.itemsCalculadora.forEach((item) => {
-                  let jorItem = parseMontoLocal(item.subtotalManoObra) || 0;
-                  if (jorItem === 0 && item.jornales && Array.isArray(item.jornales)) {
-                    jorItem = item.jornales.reduce((s, j) => s + (parseMontoLocal(j.subtotal) || parseMontoLocal(j.importe) || 0), 0);
-                  }
-                  subtotalJornales += jorItem;
-                  subtotalMateriales += parseMontoLocal(item.subtotalMateriales) || 0;
-                  subtotalOtros += parseMontoLocal(item.subtotalGastosGenerales) || 0;
-                });
+            // Método 1: Por obra_origen_id (ID de la obra en tabla obras) - DEPRECADO, no viene en API
+            const obraIdTablaObras = obra.presupuestoCompleto?.obraId; // El obraId apunta a la fila en tabla obras
+            const obraPadreId = te.presupuestoCompleto?.obraOrigenId ||
+                               te.presupuestoCompleto?.obra_origen_id ||
+                               te.presupuestoCompleto?.obraPadreId ||
+                               te.presupuestoCompleto?.obra_padre_id;
 
-                const subtotalBase = subtotalJornales + subtotalMateriales + subtotalOtros;
-                let totalHonorarios = 0;
-                if (fullTrabajo.honorarios && typeof fullTrabajo.honorarios === 'object') {
-                  const conf = fullTrabajo.honorarios;
-                  if (conf.jornalesActivo && conf.jornalesValor) totalHonorarios += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
-                  if (conf.materialesActivo && conf.materialesValor) totalHonorarios += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
-                  if (conf.otrosCostosActivo && conf.otrosCostosValor) totalHonorarios += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
-                }
-
-                let totalMC = 0;
-                if (fullTrabajo.mayoresCostos && typeof fullTrabajo.mayoresCostos === 'object') {
-                  const conf = fullTrabajo.mayoresCostos;
-                  if (conf.jornalesActivo && conf.jornalesValor) totalMC += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
-                  if (conf.materialesActivo && conf.materialesValor) totalMC += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
-                  if (conf.otrosCostosActivo && conf.otrosCostosValor) totalMC += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
-                  if (conf.honorariosActivo && conf.honorariosValor && totalHonorarios > 0) totalMC += totalHonorarios * (parseFloat(conf.honorariosValor) / 100);
-                }
-
-                totalCalculado = subtotalBase + totalHonorarios + totalMC;
-              } else {
-                totalCalculado = parseFloat(fullTrabajo.totalFinal) || parseFloat(fullTrabajo.montoTotal) || 0;
-              }
-
-              return {
-                id: fullTrabajo.id,
-                nombre: fullTrabajo.nombre,
-                totalCalculado: totalCalculado
-              };
-            } catch (err) {
-              return { id: trabajo.id, nombre: trabajo.nombre, totalCalculado: parseFloat(trabajo.totalFinal) || 0 };
+            if (obraIdTablaObras && obraPadreId === obraIdTablaObras) {
+              return true;
             }
-          }));
 
-          return {...obra, trabajosExtra: trabajosConTotal};
-        } catch (error) {
-          console.error(`❌ Error cargando trabajos extra de obra "${obra.nombreObra}" (obraId: ${obraId}):`, {
-            error: error,
-            mensaje: error.message,
-            response: error.response,
-            stack: error.stack
+            // Método 2: Por dirección exacta
+            if (obraDireccion && teDireccion && obraDireccion === teDireccion && te.nombreObra !== obra.nombreObra) {
+              return true;
+            }
+
+            // Método 3: Por nombre contenido (trabajo extra contiene nombre de obra padre)
+            const obraNombreLower = obra.nombreObra?.toLowerCase() || '';
+            const teNombreLower = te.nombreObra?.toLowerCase() || '';
+            if (obraNombreLower && teNombreLower.includes(obraNombreLower) && teNombreLower !== obraNombreLower) {
+              return true;
+            }
+
+            return false;
           });
-          return {...obra, trabajosExtra: []};
-        }
-      }));
 
-      console.log('✅ Obras con trabajos extra cargadas:', obrasConTrabajosExtra.map(o => ({
-        nombre: o.nombreObra,
-        cantidadTrabajosExtra: o.trabajosExtra?.length || 0,
-        trabajosExtra: o.trabajosExtra?.map(t => ({nombre: t.nombre, total: t.totalCalculado}))
-      })));
+          const trabajosConTotal = trabajosDeEstaObra.map(te => {
+            const totalCalculado = parseFloat(te.totalPresupuesto)
+              || parseFloat(te.presupuestoCompleto?.totalPresupuestoConHonorarios)
+              || parseFloat(te.presupuestoCompleto?.totalFinal)
+              || parseFloat(te.presupuestoCompleto?.montoTotal)
+              || parseFloat(te.presupuestoCompleto?.total)
+              || 0;
+
+            return {
+              id: te.id,
+              nombre: te.nombreObra,
+              numeroPresupuesto: te.numeroPresupuesto,
+              numeroVersion: te.numeroVersion,
+              estado: te.estado,
+              totalCalculado: totalCalculado,
+              obraId: te.presupuestoCompleto?.obraId || te.presupuestoCompleto?.direccionObraId,
+              obraPadreId: te.presupuestoCompleto?.obraOrigenId || te.presupuestoCompleto?.obra_origen_id,
+              esTrabajoExtra: true,
+              presupuestoCompleto: te.presupuestoCompleto
+            };
+          });
+
+          obrasConTrabajosExtra.push({
+            ...obra,
+            trabajosExtra: trabajosConTotal,
+            esTrabajoExtra: false
+          });
+
+        } catch (error) {
+          console.error(`❌ Error procesando obra "${obra.nombreObra}":`, error);
+          obrasConTrabajosExtra.push({
+            ...obra,
+            trabajosExtra: [],
+            esTrabajoExtra: false
+          });
+        }
+      }
 
       setObrasDisponibles(obrasConTrabajosExtra);
       // Seleccionar todas por defecto SOLO en la primera carga
       setObrasSeleccionadas(prevSelected => {
         // Si ya hay obras seleccionadas, preservar la selección
         if (prevSelected.size > 0) {
-          const idsDisponibles = new Set(obrasArray.map(o => o.id));
+          const idsDisponibles = new Set(obrasConTrabajosExtra.map(o => o.id));
           return new Set([...prevSelected].filter(id => idsDisponibles.has(id)));
         }
         // Primera carga: seleccionar todas
-        return new Set(obrasArray.map(o => o.id));
+        return new Set(obrasConTrabajosExtra.map(o => o.id));
       });
-      // (Opcional) console.log(`✅ Cargadas ${obrasArray.length} obras (última versión)`);
       } catch (err) {
         console.error('❌ Error cargando obras:', err);
       } finally {
@@ -1005,7 +1024,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     cargarObras();
   }, [modoConsolidado, empresaSeleccionada]);
 
+  // 🔄 DESHABILITADO: Este useEffect causa bucle infinito y sobrescribe la lógica correcta
   // 🔄 Recargar obras cuando hay cambios financieros (cobros/pagos)
+  /*
   useEffect(() => {
     if (!modoConsolidado || !empresaSeleccionada) return;
 
@@ -1077,6 +1098,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
     return () => clearTimeout(recargarObrasTimeout);
   }, [refreshTrigger, modoConsolidado, empresaSeleccionada]);
+  */
 
   // 🆕 Funciones para manejar selección de obras
   const toggleObraSeleccion = (obraId) => {
@@ -1181,71 +1203,236 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                 </tr>
               </thead>
               <tbody>
-                {obrasDisponibles.map(obra => {
-                  const isSelected = obrasSeleccionadas.has(obra.id);
-                  const direccion = [obra.calle, obra.altura, obra.barrio && `(${obra.barrio})`]
-                    .filter(Boolean)
-                    .join(' ');
+                {(() => {
+                  // 🎯 AGRUPAMIENTO igual que en ObrasPage
+                  const obrasNormales = obrasDisponibles.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
+                  const obrasCanceladas = obrasDisponibles.filter(o => o.estado === 'CANCELADO');
 
-                  const presupuestoBase = obra.presupuestoCompleto?.totalPresupuestoConHonorarios
-                    ?? obra.presupuestoCompleto?.totalFinal
-                    ?? obra.presupuestoCompleto?.montoTotal
-                    ?? obra.totalPresupuestoConHonorarios
-                    ?? obra.totalFinal
-                    ?? obra.montoTotal
-                    ?? obra.totalPresupuesto
-                    ?? 0;
+                  const listaOrdenada = [];
+                  let grupoIndex = 0;
+
+                  // Agregar obras normales CON sus trabajos extra expandidos
+                  obrasNormales.forEach(obra => {
+                    const tieneSubObras = obra.trabajosExtra && obra.trabajosExtra.length > 0;
+                    const totalEnGrupo = tieneSubObras ? obra.trabajosExtra.length + 1 : 1;
+
+                    // Agregar OBRA PADRE
+                    listaOrdenada.push({
+                      ...obra,
+                      _grupoIndex: grupoIndex,
+                      _primerEnGrupo: true,
+                      _ultimoEnGrupo: !tieneSubObras,
+                      _totalEnGrupo: totalEnGrupo,
+                      _esObraPrincipal: true,
+                      _esTrabajoExtra: false
+                    });
+
+                    // Agregar TRABAJOS EXTRA como filas separadas
+                    if (tieneSubObras) {
+                      obra.trabajosExtra.sort((a, b) => a.id - b.id);
+                      obra.trabajosExtra.forEach((trabajo, idx) => {
+                        listaOrdenada.push({
+                          ...trabajo,
+                          // Preservar info de la obra padre
+                          obraPadreNombre: obra.nombreObra,
+                          obraPadreCalle: obra.calle,
+                          obraPadreAltura: obra.altura,
+                          obraPadreBarrio: obra.barrio,
+                          // Metadatos de grupo
+                          _grupoIndex: grupoIndex,
+                          _primerEnGrupo: false,
+                          _ultimoEnGrupo: idx === obra.trabajosExtra.length - 1,
+                          _totalEnGrupo: totalEnGrupo,
+                          _esObraPrincipal: false,
+                          _esTrabajoExtra: true
+                        });
+                      });
+                    }
+
+                    grupoIndex++;
+                  });
+
+                  // Agregar obras canceladas
+                  obrasCanceladas.forEach(oc => {
+                    const tieneTrabajosExtra = oc.trabajosExtra && oc.trabajosExtra.length > 0;
+                    const totalEnGrupo = tieneTrabajosExtra ? oc.trabajosExtra.length + 1 : 1;
+
+                    listaOrdenada.push({
+                      ...oc,
+                      _grupoIndex: grupoIndex,
+                      _primerEnGrupo: true,
+                      _ultimoEnGrupo: !tieneTrabajosExtra,
+                      _totalEnGrupo: totalEnGrupo,
+                      _esObraPrincipal: true,
+                      _esTrabajoExtra: false
+                    });
+
+                    if (tieneTrabajosExtra) {
+                      oc.trabajosExtra.forEach((trabajo, idx) => {
+                        listaOrdenada.push({
+                          ...trabajo,
+                          obraPadreNombre: oc.nombreObra,
+                          _grupoIndex: grupoIndex,
+                          _primerEnGrupo: false,
+                          _ultimoEnGrupo: idx === oc.trabajosExtra.length - 1,
+                          _totalEnGrupo: totalEnGrupo,
+                          _esObraPrincipal: false,
+                          _esTrabajoExtra: true
+                        });
+                      });
+                    }
+
+                    grupoIndex++;
+                  });
+
+                  return listaOrdenada;
+                })().map((item, index, array) => {
+                  // Si es obra principal, renderizar como antes
+                  // Si es trabajo extra, renderizar como sub-fila
+                  const esObraPrincipal = item._esObraPrincipal;
+                  const esTrabajoExtra = item._esTrabajoExtra;
+
+                  const isSelected = obrasSeleccionadas.has(esObraPrincipal ? item.id : null);
+                  const direccion = esObraPrincipal
+                    ? [item.calle, item.altura, item.barrio && `(${item.barrio})`].filter(Boolean).join(' ')
+                    : null;
+
+                  const presupuestoBase = esObraPrincipal
+                    ? (item.presupuestoCompleto?.totalPresupuestoConHonorarios
+                      ?? item.presupuestoCompleto?.totalFinal
+                      ?? item.presupuestoCompleto?.montoTotal
+                      ?? item.totalPresupuestoConHonorarios
+                      ?? item.totalFinal
+                      ?? item.montoTotal
+                      ?? item.totalPresupuesto
+                      ?? 0)
+                    : (item.totalCalculado || 0);
+
+                  // 🎨 Determinar información de grupo para estilos visuales
+                  const grupoIndex = item._grupoIndex || 0;
+                  const totalEnGrupo = item._totalEnGrupo || 1;
+                  const perteneceAGrupo = totalEnGrupo > 1;
+
+                  // 🔥 Verificar si es un cambio de grupo
+                  const esCambioDeGrupo = index > 0 && (
+                    array[index - 1]._grupoIndex !== item._grupoIndex
+                  );
+
+                  // Colores alternados para grupos
+                  const coloresGrupo = [
+                    '#e9ecef', // Gris claro
+                    '#d1e7ff', // Azul claro
+                    '#ffe8cc', // Naranja claro
+                    '#d4edda', // Verde claro
+                    '#f8d7da', // Rosa claro
+                    '#e7d6ff'  // Púrpura claro
+                  ];
+
+                  // 💡 Función helper para ajustar brillo
+                  const adjustColorBrightness = (color, percent) => {
+                    const num = parseInt(color.replace("#", ""), 16);
+                    const amt = Math.round(2.55 * percent);
+                    const R = (num >> 16) + amt;
+                    const G = (num >> 8 & 0x00FF) + amt;
+                    const B = (num & 0x0000FF) + amt;
+                    return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+                      (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+                      (B < 255 ? B < 1 ? 0 : B : 255))
+                      .toString(16).slice(1);
+                  };
+
+                  // 🎨 Color base del grupo
+                  const colorBaseGrupo = coloresGrupo[grupoIndex % coloresGrupo.length];
+
+                  // Para trabajos extra, usar color más oscuro
+                  let colorGrupo = '#ffffff';
+                  if (perteneceAGrupo) {
+                    if (esObraPrincipal) {
+                      colorGrupo = colorBaseGrupo;
+                    } else {
+                      colorGrupo = adjustColorBrightness(colorBaseGrupo, -15);
+                    }
+                  }
+
+                  // KEY único para cada fila
+                  const key = esObraPrincipal ? `obra-${item.id}` : `te-${item.id}-${index}`;
 
                   return (
-                    <React.Fragment key={obra.id}>
-                      <tr
-                        className={isSelected ? 'table-active' : ''}
-                        style={{cursor: 'pointer'}}
-                        onClick={() => toggleObraSeleccion(obra.id)}
-                      >
-                        <td className="text-center" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            className="form-check-input"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              toggleObraSeleccion(obra.id);
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <strong>{obra.nombreObra}</strong>
-                          <br />
-                          <small className="text-muted">#{obra.numeroPresupuesto}</small>
-                        </td>
-                        <td>
-                          <small>{direccion}</small>
-                        </td>
-                        <td className="text-center">
-                          <span className={`badge ${obra.estado === 'APROBADO' ? 'bg-success' : 'bg-info'}`}>
-                            {obra.estado}
-                          </span>
-                        </td>
-                        <td className="text-center">
-                          <span className="badge bg-secondary">v{obra.numeroVersion}</span>
-                        </td>
-                        <td className="text-end">
-                          <strong>{formatearMoneda(presupuestoBase)}</strong>
-                        </td>
-                      </tr>
-                      {obra.trabajosExtra && obra.trabajosExtra.map((trabajo, tIdx) => (
-                        <tr key={`${obra.id}-trabajo-${tIdx}`} className={isSelected ? 'table-active' : ''}>
+                    <React.Fragment key={key}>
+                      {/* 🎨 Separador visual entre grupos */}
+                      {esCambioDeGrupo && index > 0 && (
+                        <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
+                          <td colSpan="6" style={{
+                            padding: 0,
+                            height: '8px',
+                            borderTop: '3px solid #212529',
+                            borderBottom: '3px solid #212529',
+                            backgroundColor: '#495057'
+                          }}></td>
+                        </tr>
+                      )}
+
+                      {/* Renderizar OBRA PRINCIPAL */}
+                      {esObraPrincipal && (
+                        <tr
+                          className={isSelected ? 'table-active' : ''}
+                          style={{
+                            cursor: 'pointer',
+                            backgroundColor: isSelected ? undefined : colorGrupo
+                          }}
+                          onClick={() => toggleObraSeleccion(item.id)}
+                        >
+                          <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="form-check-input"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleObraSeleccion(item.id);
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <strong>{item.nombreObra}</strong>
+                            <br />
+                            <small className="text-muted">#{item.numeroPresupuesto}</small>
+                          </td>
+                          <td>
+                            <small>{direccion}</small>
+                          </td>
+                          <td className="text-center">
+                            <span className={`badge ${item.estado === 'APROBADO' ? 'bg-success' : 'bg-info'}`}>
+                              {item.estado}
+                            </span>
+                          </td>
+                          <td className="text-center">
+                            <span className="badge bg-secondary">v{item.numeroVersion}</span>
+                          </td>
+                          <td className="text-end">
+                            <strong>{formatearMoneda(presupuestoBase)}</strong>
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* Renderizar TRABAJO EXTRA */}
+                      {esTrabajoExtra && (
+                        <tr
+                          className={isSelected ? 'table-active' : ''}
+                          style={{
+                            backgroundColor: isSelected ? undefined : colorGrupo
+                          }}
+                        >
                           <td></td>
                           <td colSpan="4" className="ps-4">
                             <i className="bi bi-arrow-return-right me-2 text-muted"></i>
-                            <small><strong>Trabajo Extra: {trabajo.nombre}</strong></small>
+                            <small><strong>Trabajo Extra: {item.nombre}</strong></small>
                           </td>
                           <td className="text-end">
-                            <small><strong>{formatearMoneda(trabajo.totalCalculado || 0)}</strong></small>
+                            <small><strong>{formatearMoneda(presupuestoBase)}</strong></small>
                           </td>
                         </tr>
-                      ))}
+                      )}
                     </React.Fragment>
                   );
                 })}
@@ -2312,13 +2499,78 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         </tr>
                       </thead>
                       <tbody>
-                        {presupuestosAprobados
-                          .sort((a, b) => b.id - a.id)
-                          .map((obra) => {
-                            const presupuestoId = obra.presupuestoNoClienteId || obra.presupuestoNoCliente?.id;
+                        {(() => {
+                          // 🎯 ORDENAMIENTO INTELIGENTE: Agrupar obras normales y canceladas
+                          const obrasNormales = presupuestosAprobados.filter(o => o.estado !== 'CANCELADO').sort((a, b) => (b.id - a.id));
+                          const obrasCanceladas = presupuestosAprobados.filter(o => o.estado === 'CANCELADO');
 
-                            return (
-                          <tr key={obra.id}>
+                          const listaOrdenada = [];
+                          let grupoIndex = 0;
+
+                          // Agregar obras normales
+                          obrasNormales.forEach(obra => {
+                            listaOrdenada.push({
+                              ...obra,
+                              _grupoIndex: grupoIndex,
+                              _primerEnGrupo: true,
+                              _ultimoEnGrupo: true,
+                              _totalEnGrupo: 1
+                            });
+                            grupoIndex++;
+                          });
+
+                          // Agregar obras canceladas
+                          obrasCanceladas.forEach(oc => {
+                            listaOrdenada.push({
+                              ...oc,
+                              _grupoIndex: grupoIndex,
+                              _primerEnGrupo: true,
+                              _ultimoEnGrupo: true,
+                              _totalEnGrupo: 1
+                            });
+                            grupoIndex++;
+                          });
+
+                          return listaOrdenada;
+                        })().map((obra, index, array) => {
+                          const presupuestoId = obra.presupuestoNoClienteId || obra.presupuestoNoCliente?.id;
+
+                          // 🎨 Determinar información de grupo para estilos visuales
+                          const grupoIndex = obra._grupoIndex || 0;
+
+                          // 🔥 Verificar si es un cambio de grupo
+                          const esCambioDeGrupo = index > 0 && (
+                            array[index - 1]._grupoIndex !== obra._grupoIndex
+                          );
+
+                          // Colores alternados para grupos
+                          const coloresGrupo = [
+                            '#e9ecef', // Gris claro
+                            '#d1e7ff', // Azul claro
+                            '#ffe8cc', // Naranja claro
+                            '#d4edda', // Verde claro
+                            '#f8d7da', // Rosa claro
+                            '#e7d6ff'  // Púrpura claro
+                          ];
+
+                          // 🎨 Color base del grupo
+                          const colorGrupo = coloresGrupo[grupoIndex % coloresGrupo.length];
+
+                          return (
+                            <React.Fragment key={obra.id}>
+                              {/* 🎨 Separador visual entre grupos */}
+                              {esCambioDeGrupo && index > 0 && (
+                                <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
+                                  <td colSpan="7" style={{
+                                    padding: 0,
+                                    height: '8px',
+                                    borderTop: '3px solid #212529',
+                                    borderBottom: '3px solid #212529',
+                                    backgroundColor: '#495057'
+                                  }}></td>
+                                </tr>
+                              )}
+                          <tr style={{ backgroundColor: colorGrupo }}>
                             <td className="fw-bold">#{obra.id}</td>
                             <td>{obra.nombre || obra.nombreObra || 'Sin nombre'}</td>
                             <td className="text-muted small">
@@ -2361,6 +2613,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               </button>
                             </td>
                           </tr>
+                            </React.Fragment>
                             );
                           })}
                       </tbody>
