@@ -174,16 +174,17 @@ const ConfiguracionPresupuestoSection = ({
     configuracionPresupuesto: { activo: true, tipo: 'porcentaje', valor: '' },
     honorarios: { activo: true, tipo: 'porcentaje', valor: '' }
   };
+
   const mayoresCostosActual = {
     ...defaultsMayoresCostos,
-    ...(mayoresCostos || {}),
     generalImportado: (mayoresCostos && typeof mayoresCostos.generalImportado !== 'undefined') ? mayoresCostos.generalImportado : false,
     explicacion: mayoresCostos?.explicacion || '', // Preservar explicación
     jornales: {
-      ...defaultsMayoresCostos.jornales,
-      ...(mayoresCostos?.jornales || {}),
-      activo: (mayoresCostos?.jornales?.activo === false) ? false : true, // ✅ true por defecto, false solo si está explícito
-      porRol: { ...defaultsMayoresCostos.jornales.porRol, ...(mayoresCostos?.jornales?.porRol || {}) }
+      tipo: mayoresCostos?.jornales?.tipo || defaultsMayoresCostos.jornales.tipo,
+      valor: mayoresCostos?.jornales?.valor || defaultsMayoresCostos.jornales.valor,
+      modoAplicacion: mayoresCostos?.jornales?.modoAplicacion || defaultsMayoresCostos.jornales.modoAplicacion,
+      porRol: { ...defaultsMayoresCostos.jornales.porRol, ...(mayoresCostos?.jornales?.porRol || {}) },
+      activo: true // ✅ SIEMPRE true - Forzado para todos los presupuestos
     },
     profesionales: {
       ...defaultsMayoresCostos.profesionales,

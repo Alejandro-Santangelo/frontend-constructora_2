@@ -97,7 +97,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         configuracionPresupuesto: mc.configuracionPresupuesto || { activo: true, tipo: 'porcentaje', valor: '' },
         honorarios: mc.honorarios || { activo: true, tipo: 'porcentaje', valor: '' },
         jornales: {
-          activo: (mc.jornales?.activo === false) ? false : true, // ✅ true por defecto, false solo si está explícitamente desmarcado
+          activo: true, // ✅ SIEMPRE true - IGNORAR valor de initialData para datos legacy
           tipo: mc.jornales?.tipo || 'porcentaje',
           valor: mc.jornales?.valor || '',
           modoAplicacion: mc.jornales?.modoAplicacion || 'todos',
@@ -687,7 +687,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               valor: safeData.honorarios.configuracionPresupuestoValor || ''
             },
             jornales: {
-              activo: safeData.honorarios.jornalesActivo ?? false,
+              activo: true, // ✅ SIEMPRE true por defecto - IGNORAR valor de BD para datos legacy
               tipo: safeData.honorarios.jornalesTipo || 'porcentaje',
               valor: safeData.honorarios.jornalesValor ?? '',
               modoAplicacion: 'todos',
@@ -729,9 +729,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             valor: safeData.honorariosConfiguracionPresupuestoValor || ''
           },
           jornales: {
-            activo: safeData.honorariosJornalesActivo ?? false,
-            tipo: safeData.honorariosJornalesTipo || 'porcentaje',
-            valor: safeData.honorariosJornalesValor ?? '',
+          activo: true, // ✅ SIEMPRE true por defecto - IGNORAR valor de BD para datos legacy
             modoAplicacion: 'todos',
             porRol: {}
           }
@@ -796,10 +794,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
            if (!mayoresObj.jornales) {
              mayoresObj.jornales = { activo: true, tipo: 'porcentaje', valor: '', modoAplicacion: 'todos', porRol: {} };
            } else {
-             // ✅ FORCE TRUE: Asegurar que Jornales arranque activo SIEMPRE por defecto
+             // ✅ true por defecto, false SOLO si usuario lo desmarcó explícitamente
              mayoresObj.jornales = {
                ...mayoresObj.jornales,
-               activo: (mayoresObj.jornales.activo === false) ? false : true, // true por defecto, false solo si está explícito
+               activo: (mayoresObj.jornales.activo === false) ? false : true,
                modoAplicacion: mayoresObj.jornales.modoAplicacion || 'todos',
                porRol: mayoresObj.jornales.porRol || {}
              };
@@ -833,7 +831,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             valor: safeData.mayoresCostosConfiguracionPresupuestoValor || ''
           },
           jornales: {
-            activo: (safeData.mayoresCostosJornalesActivo === false) ? false : true, // ✅ true por defecto, false solo si está explícito
+            activo: true, // ✅ SIEMPRE true por defecto - IGNORAR valor de BD para datos legacy
             tipo: safeData.mayoresCostosJornalesTipo || 'porcentaje',
             valor: safeData.mayoresCostosJornalesValor || '',
             modoAplicacion: 'todos',
@@ -6495,7 +6493,20 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       } else {
         setForm(prev => ({ ...prev, [name]: value }));
       }
-    } else {
+    }
+    // 🔄 Si cambia el estado del presupuesto, sincronizar con la obra si es trabajo extra
+    else if (name === 'estado') {
+      setForm(prev => ({ ...prev, [name]: value }));
+
+      // Sincronizar con la obra de forma asíncrona (sin bloquear la UI)
+      if ((form.obraId || initialData?.obraId) && (form.esPresupuestoTrabajoExtra || initialData?.esPresupuestoTrabajoExtra)) {
+        const obraId = form.obraId || initialData?.obraId;
+        sincronizarEstadoConObra(value, obraId).catch(err => {
+          console.error('❌ Error al sincronizar estado con obra:', err);
+        });
+      }
+    }
+    else {
       setForm(prev => ({ ...prev, [name]: value }));
     }
 
@@ -6803,6 +6814,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       setForm(prev => ({ ...prev, estado: 'ENVIADO' }));
       console.log('✅ Estado local actualizado a ENVIADO');
 
+      // 🔄 Sincronizar estado con obra si es trabajo extra
+      if (form.obraId) {
+        await sincronizarEstadoConObra('ENVIADO', form.obraId);
+      }
+
       // Notificar al componente padre para refrescar la lista (solo si onSuccess existe)
       if (typeof onSuccess === 'function') {
         console.log('📡 Notificando al componente padre...');
@@ -6912,11 +6928,56 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       setForm(prev => ({ ...prev, estado: 'ENVIADO' }));
       console.log('✅ Estado trabajo extra actualizado localmente a ENVIADO');
+
+      // 🔄 Sincronizar estado con obra (la obra misma del trabajo extra)
+      if (form.obraId) {
+        await sincronizarEstadoConObra('ENVIADO', form.obraId);
+      }
+
     } catch (error) {
       console.error('❌ Error al marcar trabajo extra como ENVIADO:', error);
       console.error('❌ Error response:', error.response?.data);
       console.error('❌ Error stack:', error.stack);
       alert(`❌ Error al actualizar estado del trabajo extra: ${error.response?.data?.message || error.message}`);
+    }
+  };
+
+  /**
+   * Sincroniza el estado de la obra de trabajo extra con el estado del presupuesto
+   * Se ejecuta automáticamente después de guardar el presupuesto
+   */
+  const sincronizarEstadoConObra = async (presupuestoEstado, presupuestoObraId) => {
+    // Validar que sea un trabajo extra con obra vinculada
+    if (!presupuestoObraId) {
+      console.log('ℹ️ No se sincroniza estado con obra: presupuesto sin obraId');
+      return;
+    }
+
+    if (!form.esPresupuestoTrabajoExtra && !initialData?.esPresupuestoTrabajoExtra) {
+      console.log('ℹ️ No se sincroniza estado con obra: no es un presupuesto de trabajo extra');
+      return;
+    }
+
+    if (!empresaSeleccionada?.id) {
+      console.warn('⚠️ No se puede sincronizar estado con obra: falta empresaId');
+      return;
+    }
+
+    try {
+      console.log('🔄 Sincronizando estado de obra con presupuesto:', {
+        obraId: presupuestoObraId,
+        nuevoEstado: presupuestoEstado,
+        empresaId: empresaSeleccionada.id
+      });
+
+      // Actualizar estado de la obra usando el endpoint específico
+      await apiService.obras.cambiarEstado(presupuestoObraId, presupuestoEstado, empresaSeleccionada.id);
+
+      console.log('✅ Estado de la obra actualizado exitosamente a:', presupuestoEstado);
+    } catch (error) {
+      console.error('❌ Error al sincronizar estado con obra:', error);
+      console.error('❌ Detalles:', error.response?.data);
+      // No mostramos alert para no interrumpir el flujo, solo loggeamos el error
     }
   };
 
@@ -7009,7 +7070,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     try {
       const resultado = await onSave(datosCompletos);
 
-      // � Guardar configuración de valores por defecto en localStorage para futuros presupuestos
+      // 🔄 Sincronizar estado de la obra si es un trabajo extra
+      if (datosCompletos.obraId || datosCompletos.idObra) {
+        const obraId = datosCompletos.obraId || datosCompletos.idObra;
+        await sincronizarEstadoConObra(datosCompletos.estado, obraId);
+      }
+
+      // 💾 Guardar configuración de valores por defecto en localStorage para futuros presupuestos
       try {
         const configAGuardar = {
           honorarios: {

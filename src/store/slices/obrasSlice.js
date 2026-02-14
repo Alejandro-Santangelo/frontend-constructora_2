@@ -52,11 +52,11 @@ export const fetchTodasObras = createAsyncThunk(
   async (empresaId, { rejectWithValue }) => {
     try {
       console.log('🔄 Fetching todas las obras con empresaId:', empresaId);
-      
+
       // Usar apiService para que pase por los interceptores de axios
       // que inyectan automáticamente el empresaId
       const data = await apiService.obras.getAll(empresaId);
-      
+
       console.log('✅ Obras obtenidas exitosamente:', data?.length, 'obras');
       return data;
     } catch (error) {
@@ -89,7 +89,7 @@ export const fetchObrasPorCliente = createAsyncThunk(
       const response = await fetch(url);
       if (!response.ok) {
         const errorText = await response.text();
-        
+
         // Si es error 500 y el mensaje contiene "No static resource", problema de configuración
         if (response.status === 500 && errorText.includes('No static resource')) {
           if (!window.obraBackendWarningShown) {
@@ -98,7 +98,7 @@ export const fetchObrasPorCliente = createAsyncThunk(
           }
           return [];
         }
-        
+
         throw new Error('Error fetching obras por cliente');
       }
       return await response.json();
@@ -107,7 +107,7 @@ export const fetchObrasPorCliente = createAsyncThunk(
       if (error.message.includes('No static resource')) {
         return [];
       }
-      
+
       console.error('❌ Error en fetchObrasPorCliente:', error);
       return rejectWithValue(error.message);
     }
@@ -140,7 +140,7 @@ export const fetchObrasActivas = createAsyncThunk(
         console.warn('⚠️ Backend de obras activas no disponible.');
         return [];
       }
-      
+
       return rejectWithValue(error.message);
     }
   }
@@ -152,7 +152,7 @@ export const createObra = createAsyncThunk(
   async (obraData, { rejectWithValue }) => {
     try {
       console.log('🔄 Creando obra:', obraData);
-      
+
   // URL correcta confirmada por Swagger: /api/obras
   const response = await fetch('/api/obras', {
         method: 'POST',
@@ -162,16 +162,16 @@ export const createObra = createAsyncThunk(
         },
         body: JSON.stringify(obraData)
       });
-      
+
       console.log('📡 Response status:', response.status);
       console.log('📡 Request URL final:', response.url);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ Error response body:', errorText);
         throw new Error(`HTTP ${response.status}: ${errorText || 'Error creating obra'}`);
       }
-      
+
       const data = await response.json();
       console.log('✅ Obra creada exitosamente:', data);
       return data;
@@ -194,7 +194,7 @@ export const updateObra = createAsyncThunk(
         },
         body: JSON.stringify(obraData)
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Error ${response.status}: ${errorText}`);
@@ -214,12 +214,12 @@ export const deleteObra = createAsyncThunk(
   const response = await fetch(`/api/obras/${id}`, {
         method: 'DELETE'
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Error ${response.status}: ${errorText}`);
       }
-      
+
       return id; // Retornar el ID para removerlo del state
     } catch (error) {
       return rejectWithValue(error.message);
@@ -230,17 +230,59 @@ export const deleteObra = createAsyncThunk(
 // Cambiar estado de obra
 export const cambiarEstadoObra = createAsyncThunk(
   'obras/cambiarEstadoObra',
-  async ({ id, estado }, { rejectWithValue }) => {
+  async ({ id, estado }, { rejectWithValue, getState }) => {
     try {
-  const response = await fetch(`/api/obras/${id}/estado?estado=${encodeURIComponent(estado)}`, {
+      // 1. Cambiar estado de la obra
+      const response = await fetch(`/api/obras/${id}/estado?estado=${encodeURIComponent(estado)}`, {
         method: 'PATCH'
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Error ${response.status}: ${errorText}`);
       }
-      return await response.json();
+
+      const obraActualizada = await response.json();
+
+      // 2. 🔄 Sincronizar estado con presupuestos vinculados a esta obra
+      try {
+        console.log('🔄 Sincronizando presupuestos vinculados a la obra:', { obraId: id, nuevoEstado: estado });
+
+        // Obtener empresaId del estado actual o de la obra actualizada
+        const empresaId = obraActualizada.idEmpresa || obraActualizada.empresaId;
+
+        if (!empresaId) {
+          console.warn('⚠️ No se puede sincronizar presupuestos: falta empresaId');
+          return obraActualizada;
+        }
+
+        // Obtener presupuestos vinculados a esta obra usando el método getAll con filtro obraId
+        const presupuestos = await apiService.presupuestosNoCliente.getAll(empresaId, { obraId: id });
+
+        if (presupuestos && presupuestos.length > 0) {
+          console.log(`📋 Encontrados ${presupuestos.length} presupuesto(s) vinculado(s) a actualizar`);
+
+          // Actualizar estado de cada presupuesto vinculado usando apiService
+          const promesasActualizacion = presupuestos.map(presupuesto =>
+            apiService.presupuestosNoCliente.actualizarEstado(presupuesto.id, estado, empresaId)
+              .catch(err => {
+                console.error(`❌ Error actualizando presupuesto ${presupuesto.id}:`, err);
+                return null; // Continuar con los demás aunque uno falle
+              })
+          );
+
+          const resultados = await Promise.all(promesasActualizacion);
+          const exitosos = resultados.filter(r => r !== null).length;
+          console.log(`✅ ${exitosos}/${presupuestos.length} presupuestos sincronizados exitosamente`);
+        } else {
+          console.log('ℹ️ No hay presupuestos vinculados a esta obra');
+        }
+      } catch (syncError) {
+        // No fallar si la sincronización falla, solo loggear
+        console.warn('⚠️ Error al sincronizar presupuestos vinculados:', syncError);
+      }
+
+      return obraActualizada;
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -271,7 +313,7 @@ export const fetchEstadosDisponibles = createAsyncThunk(
   const response = await fetch('/api/obras/estados');
       if (!response.ok) {
         const errorText = await response.text();
-        
+
         // Si es error 500 y el mensaje contiene "No static resource", endpoint no existe
         if (response.status === 500 && errorText.includes('No static resource')) {
           console.warn('⚠️ Endpoint de estados de obras no implementado. Usando estados por defecto.');
@@ -286,7 +328,7 @@ export const fetchEstadosDisponibles = createAsyncThunk(
             'CANCELADO'
           ];
         }
-        
+
         console.error('Error fetching estados:', response.status, errorText);
         // Si falla por otra razón, usar los estados por defecto
         return [
@@ -357,7 +399,7 @@ export const actualizarPorcentajeGananciaTodos = createAsyncThunk(
   const response = await fetch(`/api/obras/${obraId}/actualizar-porcentaje-ganancia-todos?porcentaje=${porcentaje}`, {
         method: 'PUT'
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Error ${response.status}: ${errorText}`);
@@ -377,7 +419,7 @@ export const actualizarPorcentajeGananciaProfesional = createAsyncThunk(
   const response = await fetch(`/api/obras/${obraId}/actualizar-porcentaje-ganancia-profesional?profesionalId=${profesionalId}&porcentaje=${porcentaje}`, {
         method: 'PUT'
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Error ${response.status}: ${errorText}`);
@@ -409,7 +451,7 @@ const initialState = {
     'SUSPENDIDO',
     'CANCELADO'
   ],
-  
+
   // Estados de carga
   loading: false,
   loadingEstadisticas: false,
@@ -417,15 +459,15 @@ const initialState = {
   creating: false,
   updating: false,
   deleting: false,
-  
+
   // Errores
   error: null,
-  
+
   // UI states
   activeTab: 'lista',
   empresaId: '1',
   estadoFilter: 'todas',
-  
+
   // Filtros y configuración
   currentView: 'todas', // 'todas', 'empresa', 'cliente', 'estado', 'activas'
 };
@@ -476,7 +518,7 @@ const obrasSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      
+
       // Fetch todas las obras
       .addCase(fetchTodasObras.pending, (state) => {
         state.loading = true;
@@ -491,7 +533,7 @@ const obrasSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      
+
       // Fetch obras por empresa
       .addCase(fetchObrasPorEmpresa.pending, (state) => {
         state.loading = true;
@@ -500,7 +542,7 @@ const obrasSlice = createSlice({
       .addCase(fetchObrasPorEmpresa.fulfilled, (state, action) => {
         state.loading = false;
         console.log('📋 fetchObrasPorEmpresa.fulfilled - payload:', action.payload);
-        
+
         // Manejar diferentes formatos de respuesta
         let obrasArray = [];
         if (Array.isArray(action.payload)) {
@@ -512,7 +554,7 @@ const obrasSlice = createSlice({
         } else if (action.payload?.data && Array.isArray(action.payload.data)) {
           obrasArray = action.payload.data;
         }
-        
+
         console.log('📋 Obras procesadas:', obrasArray.length, 'items');
         state.obras = obrasArray;
         state.currentView = 'empresa';
@@ -521,7 +563,7 @@ const obrasSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      
+
       // Fetch obras por cliente
       .addCase(fetchObrasPorCliente.pending, (state) => {
         state.loading = true;
@@ -536,7 +578,7 @@ const obrasSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      
+
       // Fetch obras por estado
       .addCase(fetchObrasPorEstado.pending, (state) => {
         state.loading = true;
@@ -551,7 +593,7 @@ const obrasSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      
+
       // Fetch obras activas
       .addCase(fetchObrasActivas.pending, (state) => {
         state.loading = true;
@@ -566,7 +608,7 @@ const obrasSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      
+
       // Create obra
       .addCase(createObra.pending, (state) => {
         state.creating = true;
@@ -580,7 +622,7 @@ const obrasSlice = createSlice({
         state.creating = false;
         state.error = action.payload;
       })
-      
+
       // Update obra
       .addCase(updateObra.pending, (state) => {
         state.updating = true;
@@ -598,7 +640,7 @@ const obrasSlice = createSlice({
         state.updating = false;
         state.error = action.payload;
       })
-      
+
       // Delete obra
       .addCase(deleteObra.pending, (state) => {
         state.deleting = true;
@@ -612,7 +654,7 @@ const obrasSlice = createSlice({
         state.deleting = false;
         state.error = action.payload;
       })
-      
+
       // Cambiar estado obra
       .addCase(cambiarEstadoObra.pending, (state) => {
         state.updating = true;
@@ -629,7 +671,7 @@ const obrasSlice = createSlice({
         state.updating = false;
         state.error = action.payload;
       })
-      
+
       // Fetch estadísticas
       .addCase(fetchEstadisticasObras.pending, (state) => {
         state.loadingEstadisticas = true;
@@ -643,12 +685,12 @@ const obrasSlice = createSlice({
         state.loadingEstadisticas = false;
         state.error = action.payload;
       })
-      
+
       // Fetch estados disponibles
       .addCase(fetchEstadosDisponibles.fulfilled, (state, action) => {
         state.estadosDisponibles = action.payload;
       })
-      
+
       // Fetch profesionales asignados
       .addCase(fetchProfesionalesAsignados.pending, (state) => {
         state.loadingProfesionales = true;
@@ -662,12 +704,12 @@ const obrasSlice = createSlice({
         state.loadingProfesionales = false;
         state.error = action.payload;
       })
-      
+
       // Actualizar porcentaje ganancia todos
       .addCase(actualizarPorcentajeGananciaTodos.fulfilled, (state, action) => {
         state.profesionalesAsignados = action.payload;
       })
-      
+
       // Actualizar porcentaje ganancia profesional
       .addCase(actualizarPorcentajeGananciaProfesional.fulfilled, (state, action) => {
         const index = state.profesionalesAsignados.findIndex(prof => prof.id === action.payload.id);
@@ -675,7 +717,7 @@ const obrasSlice = createSlice({
           state.profesionalesAsignados[index] = action.payload;
         }
       })
-      
+
       // Crear presupuesto
       .addCase(crearPresupuesto.pending, (state) => {
         state.creating = true;
@@ -724,5 +766,5 @@ export const selectEstadisticas = (state) => state.obras.estadisticas;
 export const selectCurrentView = (state) => state.obras.currentView;
 
 // Selector para obtener obra por ID
-export const selectObraById = (state, obraId) => 
+export const selectObraById = (state, obraId) =>
   state.obras.obras.find(obra => obra.id === obraId);
