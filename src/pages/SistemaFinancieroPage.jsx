@@ -19,6 +19,7 @@ import NotificationToast from '../components/NotificationToast';
 import apiService from '../services/api';
 import { getTipoProfesionalBadgeClass, ordenarPorRubro } from '../utils/badgeColors';
 import { obtenerDistribucionPorObra } from '../services/cobrosEmpresaService';
+import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 
 const STORAGE_KEY = 'sistemaFinanciero_obraSeleccionada';
 
@@ -100,6 +101,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const [obrasDisponibles, setObrasDisponibles] = useState([]);
   const [obrasSeleccionadas, setObrasSeleccionadas] = useState(new Set());
   const [trabajosExtraSeleccionados, setTrabajosExtraSeleccionados] = useState(new Set());
+  const [trabajosAdicionalesDisponibles, setTrabajosAdicionalesDisponibles] = useState([]);
+  const [trabajosAdicionalesSeleccionados, setTrabajosAdicionalesSeleccionados] = useState(new Set());
   const [loadingObras, setLoadingObras] = useState(false);
   const [tipoGastoSeleccionado, setTipoGastoSeleccionado] = useState('PROFESIONALES'); // PROFESIONALES, MATERIALES, OTROS_COSTOS
 
@@ -872,6 +875,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         if (!obrasPorObraId[obraId] || version > (obrasPorObraId[obraId].numeroVersion || 0)) {
           obrasPorObraId[obraId] = {
             id: p.id, // El id es el del presupuesto más reciente
+            obraId: obraId, // ✅ ID de la obra en tabla obras (para trabajos adicionales)
             nombreObra: p.nombreObra || `${p.direccionObraCalle} ${p.direccionObraAltura}`,
             numeroPresupuesto: p.numeroPresupuesto,
             numeroVersion: version,
@@ -901,6 +905,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         if (!trabajosExtraPorObraId[obraId] || version > (trabajosExtraPorObraId[obraId].numeroVersion || 0)) {
           trabajosExtraPorObraId[obraId] = {
             id: p.id,
+            obraId: obraId, // ✅ ID de la obra en tabla obras
             nombreObra: p.nombreObra || `${p.direccionObraCalle} ${p.direccionObraAltura}`,
             numeroPresupuesto: p.numeroPresupuesto,
             numeroVersion: version,
@@ -1045,6 +1050,33 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     cargarObras();
   }, [modoConsolidado, empresaSeleccionada]);
 
+  // 🆕 Cargar trabajos adicionales cuando cambia la empresa
+  useEffect(() => {
+    const cargarTrabajosAdicionales = async () => {
+      if (!empresaSeleccionada?.id) return;
+
+      try {
+        const trabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaSeleccionada.id);
+        setTrabajosAdicionalesDisponibles(trabajosAdicionales || []);
+
+        // Seleccionar todos por defecto en la primera carga
+        setTrabajosAdicionalesSeleccionados(prevSelected => {
+          if (prevSelected.size > 0) {
+            const idsDisponibles = new Set(trabajosAdicionales.map(ta => ta.id));
+            return new Set([...prevSelected].filter(id => idsDisponibles.has(id)));
+          }
+          return new Set(trabajosAdicionales.map(ta => ta.id));
+        });
+      } catch (error) {
+        console.error('❌ Error cargando trabajos adicionales:', error);
+        setTrabajosAdicionalesDisponibles([]);
+      }
+    };
+
+    cargarTrabajosAdicionales();
+  }, [empresaSeleccionada]);
+
+
   // 🔄 DESHABILITADO: Este useEffect causa bucle infinito y sobrescribe la lógica correcta
   // 🔄 Recargar obras cuando hay cambios financieros (cobros/pagos)
   /*
@@ -1156,6 +1188,18 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     });
   };
 
+  const toggleTrabajoAdicionalSeleccion = (trabajoAdicionalId) => {
+    setTrabajosAdicionalesSeleccionados(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(trabajoAdicionalId)) {
+        newSet.delete(trabajoAdicionalId);
+      } else {
+        newSet.add(trabajoAdicionalId);
+      }
+      return newSet;
+    });
+  };
+
   const seleccionarTodasObras = () => {
     setObrasSeleccionadas(new Set(obrasDisponibles.map(o => o.id)));
     // Seleccionar todos los trabajos extra también
@@ -1166,11 +1210,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
     });
     setTrabajosExtraSeleccionados(new Set(todosLosTrabajosExtra));
+    // Seleccionar todos los trabajos adicionales
+    setTrabajosAdicionalesSeleccionados(new Set(trabajosAdicionalesDisponibles.map(ta => ta.id)));
   };
 
   const deseleccionarTodasObras = () => {
     setObrasSeleccionadas(new Set());
     setTrabajosExtraSeleccionados(new Set());
+    setTrabajosAdicionalesSeleccionados(new Set());
   };
 
   // 🆕 Componente inline para el selector de obras
@@ -1206,6 +1253,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             {trabajosExtraSeleccionados.size > 0 && (
               <span className="ms-2 badge bg-light text-dark">
                 + {trabajosExtraSeleccionados.size} Trabajo{trabajosExtraSeleccionados.size !== 1 ? 's' : ''} Extra
+              </span>
+            )}
+            {trabajosAdicionalesSeleccionados.size > 0 && (
+              <span className="ms-2 badge bg-info text-white">
+                + {trabajosAdicionalesSeleccionados.size} Trabajo{trabajosAdicionalesSeleccionados.size !== 1 ? 's' : ''} Adicional{trabajosAdicionalesSeleccionados.size !== 1 ? 'es' : ''}
               </span>
             )}
           </h5>
@@ -1255,46 +1307,110 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
               <tbody>
                 {(() => {
                   // 🎯 AGRUPAMIENTO igual que en ObrasPage
+                  console.log('🔍 obrasDisponibles COMPLETO:', obrasDisponibles.map(o => ({id: o.id, obraId: o.obraId, nombre: o.nombreObra, esTrabajoExtra: o.esTrabajoExtra, estado: o.estado})));
                   const obrasNormales = obrasDisponibles.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
                   const obrasCanceladas = obrasDisponibles.filter(o => o.estado === 'CANCELADO');
 
                   const listaOrdenada = [];
                   let grupoIndex = 0;
 
-                  // Agregar obras normales CON sus trabajos extra expandidos
+                  console.log('🔍 trabajosAdicionalesDisponibles:', trabajosAdicionalesDisponibles);
+                  console.log('🔍 Cantidad de TA disponibles:', trabajosAdicionalesDisponibles.length);
+                  console.log('🔍 obrasNormales:', obrasNormales.map(o => ({id: o.id, obraId: o.obraId, nombre: o.nombreObra, esTrabajoExtra: o.esTrabajoExtra})));
+
+                  // Agregar obras normales CON sus trabajos extra Y trabajos adicionales expandidos
                   obrasNormales.forEach(obra => {
+                    console.log(`🔍 Procesando obra: ${obra.nombreObra} (presupuestoId: ${obra.id}, obraId: ${obra.obraId})`);
                     const tieneSubObras = obra.trabajosExtra && obra.trabajosExtra.length > 0;
-                    const totalEnGrupo = tieneSubObras ? obra.trabajosExtra.length + 1 : 1;
+
+                    // Contar trabajos adicionales de la obra y de sus trabajos extra
+                    const trabajosAdicionalesObra = trabajosAdicionalesDisponibles.filter(ta => ta.obraId === obra.obraId && !ta.trabajoExtraId);
+                    console.log(`🔍 Obra ${obra.nombreObra} (obraId: ${obra.obraId}) - TA directos:`, trabajosAdicionalesObra);
+                    let totalTrabajosAdicionales = trabajosAdicionalesObra.length;
+
+                    let totalEnGrupo = 1 + (obra.trabajosExtra?.length || 0) + trabajosAdicionalesObra.length;
+
+                    // Si hay trabajos extra, contar sus trabajos adicionales
+                    if (tieneSubObras) {
+                      obra.trabajosExtra.forEach(te => {
+                        const trabajosAdicionalesTE = trabajosAdicionalesDisponibles.filter(ta => ta.trabajoExtraId === te.obraId);
+                        totalTrabajosAdicionales += trabajosAdicionalesTE.length;
+                        totalEnGrupo += trabajosAdicionalesTE.length;
+                      });
+                    }
 
                     // Agregar OBRA PADRE
                     listaOrdenada.push({
                       ...obra,
                       _grupoIndex: grupoIndex,
                       _primerEnGrupo: true,
-                      _ultimoEnGrupo: !tieneSubObras,
+                      _ultimoEnGrupo: totalEnGrupo === 1,
                       _totalEnGrupo: totalEnGrupo,
                       _esObraPrincipal: true,
-                      _esTrabajoExtra: false
+                      _esTrabajoExtra: false,
+                      _esTrabajoAdicional: false
                     });
 
                     // Agregar TRABAJOS EXTRA como filas separadas
                     if (tieneSubObras) {
+                      console.log(`🔍 Obra ${obra.nombreObra} (obraId ${obra.obraId}) - Trabajos Extra:`, obra.trabajosExtra.map(te => ({id: te.id, obraId: te.obraId, nombre: te.nombre})));
                       obra.trabajosExtra.sort((a, b) => a.id - b.id);
                       obra.trabajosExtra.forEach((trabajo, idx) => {
+                        const trabajosAdicionalesTE = trabajosAdicionalesDisponibles.filter(ta => ta.trabajoExtraId === trabajo.obraId);
+                        console.log(`🔍 Trabajo Extra ${trabajo.nombre} (presupuestoId ${trabajo.id}, obraId ${trabajo.obraId}) - TA encontrados:`, trabajosAdicionalesTE);
+                        const esUltimoTE = idx === obra.trabajosExtra.length - 1;
+                        const tieneTA = trabajosAdicionalesTE.length > 0;
+
                         listaOrdenada.push({
                           ...trabajo,
-                          // Preservar info de la obra padre
                           obraPadreNombre: obra.nombreObra,
                           obraPadreCalle: obra.calle,
                           obraPadreAltura: obra.altura,
                           obraPadreBarrio: obra.barrio,
-                          // Metadatos de grupo
                           _grupoIndex: grupoIndex,
                           _primerEnGrupo: false,
-                          _ultimoEnGrupo: idx === obra.trabajosExtra.length - 1,
+                          _ultimoEnGrupo: esUltimoTE && !tieneTA && trabajosAdicionalesObra.length === 0,
                           _totalEnGrupo: totalEnGrupo,
                           _esObraPrincipal: false,
-                          _esTrabajoExtra: true
+                          _esTrabajoExtra: true,
+                          _esTrabajoAdicional: false
+                        });
+
+                        // Agregar trabajos adicionales de este trabajo extra
+                        if (tieneTA) {
+                          trabajosAdicionalesTE.forEach((ta, taIdx) => {
+                            listaOrdenada.push({
+                              ...ta,
+                              obraPadreNombre: obra.nombreObra,
+                              trabajoExtraPadreNombre: trabajo.nombre,
+                              _grupoIndex: grupoIndex,
+                              _primerEnGrupo: false,
+                              _ultimoEnGrupo: esUltimoTE && taIdx === trabajosAdicionalesTE.length - 1 && trabajosAdicionalesObra.length === 0,
+                              _totalEnGrupo: totalEnGrupo,
+                              _esObraPrincipal: false,
+                              _esTrabajoExtra: false,
+                              _esTrabajoAdicional: true,
+                              _perteneceTrabajoExtra: true
+                            });
+                          });
+                        }
+                      });
+                    }
+
+                    // Agregar trabajos adicionales de la obra (no pertenecen a trabajo extra)
+                    if (trabajosAdicionalesObra.length > 0) {
+                      trabajosAdicionalesObra.forEach((ta, taIdx) => {
+                        listaOrdenada.push({
+                          ...ta,
+                          obraPadreNombre: obra.nombreObra,
+                          _grupoIndex: grupoIndex,
+                          _primerEnGrupo: false,
+                          _ultimoEnGrupo: taIdx === trabajosAdicionalesObra.length - 1,
+                          _totalEnGrupo: totalEnGrupo,
+                          _esObraPrincipal: false,
+                          _esTrabajoExtra: false,
+                          _esTrabajoAdicional: true,
+                          _perteneceTrabajoExtra: false
                         });
                       });
                     }
@@ -1302,32 +1418,84 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     grupoIndex++;
                   });
 
-                  // Agregar obras canceladas
+                  // Agregar obras canceladas con la misma lógica
                   obrasCanceladas.forEach(oc => {
                     const tieneTrabajosExtra = oc.trabajosExtra && oc.trabajosExtra.length > 0;
-                    const totalEnGrupo = tieneTrabajosExtra ? oc.trabajosExtra.length + 1 : 1;
+                    const trabajosAdicionalesObra = trabajosAdicionalesDisponibles.filter(ta => ta.obraId === oc.obraId && !ta.trabajoExtraId);
+
+                    let totalEnGrupo = 1 + (oc.trabajosExtra?.length || 0) + trabajosAdicionalesObra.length;
+
+                    if (tieneTrabajosExtra) {
+                      oc.trabajosExtra.forEach(te => {
+                        const trabajosAdicionalesTE = trabajosAdicionalesDisponibles.filter(ta => ta.trabajoExtraId === te.obraId);
+                        totalEnGrupo += trabajosAdicionalesTE.length;
+                      });
+                    }
 
                     listaOrdenada.push({
                       ...oc,
                       _grupoIndex: grupoIndex,
                       _primerEnGrupo: true,
-                      _ultimoEnGrupo: !tieneTrabajosExtra,
+                      _ultimoEnGrupo: totalEnGrupo === 1,
                       _totalEnGrupo: totalEnGrupo,
                       _esObraPrincipal: true,
-                      _esTrabajoExtra: false
+                      _esTrabajoExtra: false,
+                      _esTrabajoAdicional: false
                     });
 
                     if (tieneTrabajosExtra) {
                       oc.trabajosExtra.forEach((trabajo, idx) => {
+                        const trabajosAdicionalesTE = trabajosAdicionalesDisponibles.filter(ta => ta.trabajoExtraId === trabajo.obraId);
+                        const esUltimoTE = idx === oc.trabajosExtra.length - 1;
+                        const tieneTA = trabajosAdicionalesTE.length > 0;
+
                         listaOrdenada.push({
                           ...trabajo,
                           obraPadreNombre: oc.nombreObra,
                           _grupoIndex: grupoIndex,
                           _primerEnGrupo: false,
-                          _ultimoEnGrupo: idx === oc.trabajosExtra.length - 1,
+                          _ultimoEnGrupo: esUltimoTE && !tieneTA && trabajosAdicionalesObra.length === 0,
                           _totalEnGrupo: totalEnGrupo,
                           _esObraPrincipal: false,
-                          _esTrabajoExtra: true
+                          _esTrabajoExtra: true,
+                          _esTrabajoAdicional: false
+                        });
+
+                        // Agregar trabajos adicionales de este trabajo extra
+                        if (tieneTA) {
+                          trabajosAdicionalesTE.forEach((ta, taIdx) => {
+                            listaOrdenada.push({
+                              ...ta,
+                              obraPadreNombre: oc.nombreObra,
+                              trabajoExtraPadreNombre: trabajo.nombre,
+                              _grupoIndex: grupoIndex,
+                              _primerEnGrupo: false,
+                              _ultimoEnGrupo: esUltimoTE && taIdx === trabajosAdicionalesTE.length - 1 && trabajosAdicionalesObra.length === 0,
+                              _totalEnGrupo: totalEnGrupo,
+                              _esObraPrincipal: false,
+                              _esTrabajoExtra: false,
+                              _esTrabajoAdicional: true,
+                              _perteneceTrabajoExtra: true
+                            });
+                          });
+                        }
+                      });
+                    }
+
+                    // Agregar trabajos adicionales de la obra cancelada
+                    if (trabajosAdicionalesObra.length > 0) {
+                      trabajosAdicionalesObra.forEach((ta, taIdx) => {
+                        listaOrdenada.push({
+                          ...ta,
+                          obraPadreNombre: oc.nombreObra,
+                          _grupoIndex: grupoIndex,
+                          _primerEnGrupo: false,
+                          _ultimoEnGrupo: taIdx === trabajosAdicionalesObra.length - 1,
+                          _totalEnGrupo: totalEnGrupo,
+                          _esObraPrincipal: false,
+                          _esTrabajoExtra: false,
+                          _esTrabajoAdicional: true,
+                          _perteneceTrabajoExtra: false
                         });
                       });
                     }
@@ -1335,17 +1503,25 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     grupoIndex++;
                   });
 
+                  console.log('🔍 LISTA ORDENADA:', listaOrdenada);
+                  console.log('🔍 Trabajos Adicionales en lista:', listaOrdenada.filter(item => item._esTrabajoAdicional));
+                  console.log('🔍 Total items en lista:', listaOrdenada.length);
+
                   return listaOrdenada;
                 })().map((item, index, array) => {
                   // Si es obra principal, renderizar como antes
                   // Si es trabajo extra, renderizar como sub-fila
+                  // Si es trabajo adicional, renderizar como sub-sub-fila
                   const esObraPrincipal = item._esObraPrincipal;
                   const esTrabajoExtra = item._esTrabajoExtra;
+                  const esTrabajoAdicional = item._esTrabajoAdicional;
 
                   const isSelected = esObraPrincipal
                     ? obrasSeleccionadas.has(item.id)
                     : esTrabajoExtra
                     ? trabajosExtraSeleccionados.has(item.id)
+                    : esTrabajoAdicional
+                    ? trabajosAdicionalesSeleccionados.has(item.id)
                     : false;
                   const direccion = esObraPrincipal
                     ? [item.calle, item.altura, item.barrio && `(${item.barrio})`].filter(Boolean).join(' ')
@@ -1398,18 +1574,34 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   // 🎨 Color base del grupo
                   const colorBaseGrupo = coloresGrupo[grupoIndex % coloresGrupo.length];
 
-                  // Para trabajos extra, usar color más oscuro
+                  // Para trabajos extra y adicionales, usar colores más oscuros
                   let colorGrupo = '#ffffff';
                   if (perteneceAGrupo) {
                     if (esObraPrincipal) {
                       colorGrupo = colorBaseGrupo;
-                    } else {
+                    } else if (esTrabajoExtra) {
                       colorGrupo = adjustColorBrightness(colorBaseGrupo, -15);
+                    } else if (esTrabajoAdicional) {
+                      // Trabajos adicionales aún más oscuros
+                      colorGrupo = adjustColorBrightness(colorBaseGrupo, -25);
                     }
                   }
 
                   // KEY único para cada fila
-                  const key = esObraPrincipal ? `obra-${item.id}` : `te-${item.id}-${index}`;
+                  const key = esObraPrincipal
+                    ? `obra-${item.id}`
+                    : esTrabajoExtra
+                    ? `te-${item.id}-${index}`
+                    : `ta-${item.id}-${index}`;
+
+                  if (esTrabajoAdicional) {
+                    console.log('🔍 RENDERIZANDO TA:', item.nombre, {
+                      esTrabajoAdicional,
+                      perteneceTrabajoExtra: item._perteneceTrabajoExtra,
+                      id: item.id,
+                      importe: item.importe
+                    });
+                  }
 
                   return (
                     <React.Fragment key={key}>
@@ -1499,6 +1691,43 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                           </td>
                         </tr>
                       )}
+
+                      {/* Renderizar TRABAJO ADICIONAL */}
+                      {esTrabajoAdicional && (
+                        <tr
+                          className={isSelected ? 'table-active' : ''}
+                          style={{
+                            backgroundColor: isSelected ? undefined : colorGrupo,
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => toggleTrabajoAdicionalSeleccion(item.id)}
+                        >
+                          <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="form-check-input"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleTrabajoAdicionalSeleccion(item.id);
+                              }}
+                            />
+                          </td>
+                          <td colSpan="4" className={item._perteneceTrabajoExtra ? 'ps-5' : 'ps-4'}>
+                            <i className="bi bi-arrow-return-right me-2 text-muted"></i>
+                            {item._perteneceTrabajoExtra && (
+                              <i className="bi bi-arrow-return-right me-2 text-info"></i>
+                            )}
+                            <small className="text-info"><strong>Trabajo Adicional: {item.nombre}</strong></small>
+                            {item._perteneceTrabajoExtra && item.trabajoExtraPadreNombre && (
+                              <small className="text-muted ms-2">(de {item.trabajoExtraPadreNombre})</small>
+                            )}
+                          </td>
+                          <td className="text-end">
+                            <small><strong>{formatearMoneda(item.importe || 0)}</strong></small>
+                          </td>
+                        </tr>
+                      )}
                     </React.Fragment>
                   );
                 })}
@@ -1511,6 +1740,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         const presupuestosUnicos = new Map();
                         const debugRows = [];
                         let totalTrabajosExtra = 0;
+                        let totalTrabajosAdicionales = 0;
 
                         obrasDisponibles
                           .filter(o => obrasSeleccionadas.has(o.id))
@@ -1542,16 +1772,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             }
                           });
 
+                        // Sumar trabajos adicionales seleccionados
+                        const trabajosAdicionalesSeleccionadosArray = trabajosAdicionalesDisponibles
+                          .filter(ta => trabajosAdicionalesSeleccionados.has(ta.id));
+                        totalTrabajosAdicionales = trabajosAdicionalesSeleccionadosArray.reduce((sum, ta) => sum + (ta.importe || 0), 0);
+
                         const totalBase = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
-                        const totalConTrabajosExtra = totalBase + totalTrabajosExtra;
+                        const totalCompleto = totalBase + totalTrabajosExtra + totalTrabajosAdicionales;
 
                         return (
                           <>
-                            {formatearMoneda(totalConTrabajosExtra)}
+                            {formatearMoneda(totalCompleto)}
                             <div style={{fontSize: '0.8em', color: '#888', marginTop: 4}}>
                               <span>IDs sumados: </span>
                               {debugRows.join(' | ')}
                               {totalTrabajosExtra > 0 && ` + TE: $${totalTrabajosExtra.toLocaleString()}`}
+                              {totalTrabajosAdicionales > 0 && ` + TA: $${totalTrabajosAdicionales.toLocaleString()}`}
                             </div>
                           </>
                         );
@@ -1940,6 +2176,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
                     const presupuestosUnicos = new Map();
                     let totalTrabajosExtra = 0;
+                    let totalTrabajosAdicionales = 0;
                     let cantidadObrasPersonalizada = 0;
 
                     // Filtrar obras seleccionadas con checkbox
@@ -1979,8 +2216,13 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         }
                       });
 
+                    // Sumar trabajos adicionales seleccionados
+                    const trabajosAdicionalesSeleccionadosArray = trabajosAdicionalesDisponibles
+                      .filter(ta => trabajosAdicionalesSeleccionados.has(ta.id));
+                    totalTrabajosAdicionales = trabajosAdicionalesSeleccionadosArray.reduce((sum, ta) => sum + (ta.importe || 0), 0);
+
                     const totalBase = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
-                    const totalPresupuestoPersonalizado = totalBase + totalTrabajosExtra;
+                    const totalPresupuestoPersonalizado = totalBase + totalTrabajosExtra + totalTrabajosAdicionales;
 
                     return {
                       ...stats,
@@ -2035,7 +2277,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                 return formatearMoneda(statsFinales.totalPresupuesto);
                               })()}
                             </h4>
-                            <small className="text-muted">De {statsFinales.cantidadObras} obra(s){trabajosExtraSeleccionados.size > 0 ? ` + ${trabajosExtraSeleccionados.size} TE` : ''}</small>
+                            <small className="text-muted">
+                              De {statsFinales.cantidadObras} obra(s)
+                              {trabajosExtraSeleccionados.size > 0 ? ` + ${trabajosExtraSeleccionados.size} TE` : ''}
+                              {trabajosAdicionalesSeleccionados.size > 0 ? ` + ${trabajosAdicionalesSeleccionados.size} TA` : ''}
+                            </small>
                             <div className="mt-1">
                               <small className="text-info"><i className="bi bi-hand-index"></i></small>
                             </div>

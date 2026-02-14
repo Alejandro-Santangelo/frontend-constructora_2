@@ -112,6 +112,20 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas }) =
                   <div>
                     <i className="bi bi-info-circle me-2"></i>
                     <strong>Vista consolidada:</strong> Mostrando distribución de cobros en <strong>{distribucionPorObra.length} obra(s)</strong>
+                    {estadisticas && ((estadisticas.cantidadTrabajosExtra || 0) > 0 || (estadisticas.cantidadTrabajosAdicionales || 0) > 0) && (
+                      <>
+                        {(estadisticas.cantidadTrabajosExtra || 0) > 0 && (
+                          <span className="ms-1 text-warning">
+                            + <strong>{estadisticas.cantidadTrabajosExtra} TE</strong>
+                          </span>
+                        )}
+                        {(estadisticas.cantidadTrabajosAdicionales || 0) > 0 && (
+                          <span className="ms-1 text-info">
+                            + <strong>{estadisticas.cantidadTrabajosAdicionales} TA</strong>
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
                   <div className="mt-3">
                     <div className="row text-center">

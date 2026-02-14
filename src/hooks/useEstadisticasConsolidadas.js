@@ -6,6 +6,7 @@ import { listarPagosConsolidadosPorPresupuesto } from '../services/pagosConsolid
 import { obtenerAsignacionesDeObra } from '../services/asignacionesCobroObraService';
 import { obtenerSaldoDisponible } from '../services/retirosPersonalesService';
 import { obtenerResumenCobrosEmpresa } from '../services/cobrosEmpresaService';
+import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 
 /**
@@ -26,6 +27,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
     porcentajePagado: 0,
     porcentajeDisponible: 0,
     cantidadObras: 0,
+    cantidadTrabajosExtra: 0, // 🆕 Cantidad de trabajos extra
+    cantidadTrabajosAdicionales: 0, // 🆕 Cantidad de trabajos adicionales
     cantidadCobros: 0,
     cantidadPagos: 0,
     cobrosPendientes: 0,
@@ -52,6 +55,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         porcentajePagado: 0,
         porcentajeDisponible: 0,
         cantidadObras: 0,
+        cantidadTrabajosExtra: 0,
+        cantidadTrabajosAdicionales: 0,
         cantidadCobros: 0,
         cantidadPagos: 0,
         cobrosPendientes: 0,
@@ -158,6 +163,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         porcentajePagado: 0,
         porcentajeDisponible: 0,
         cantidadObras: 0,
+        cantidadTrabajosExtra: 0,
+        cantidadTrabajosAdicionales: 0,
         cantidadCobros: 0,
         cantidadPagos: 0,
         cobrosPendientes: 0,
@@ -266,6 +273,12 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
       // 🔧 Sumar trabajos extra al presupuesto total (solo los que NO están en presupuestos_no_cliente)
       let totalTrabajosExtra = 0;
+      let cantidadTrabajosExtra = 0;
+
+      // Variables para trabajos adicionales
+      let totalTrabajosAdicionales = 0;
+      let cantidadTrabajosAdicionales = 0;
+
       const obraIds = presupuestosUnicos.map(p => p.obraId || p.direccionObraId).filter(Boolean);
 
       console.log('🔍 DIAGNÓSTICO TRABAJOS EXTRA - Presupuestos únicos:', presupuestosUnicos.map(p => ({
@@ -379,6 +392,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
               }, 0);
 
               const trabajosValidados = trabajosConTotal.filter(t => t !== null);
+              cantidadTrabajosExtra += trabajosValidados.length; // 🆕 Contar cantidad de trabajos extra
               console.log(`🔧 Obra ${obraId}: ${trabajosValidados.length} trabajo(s) extra = $${totalObra.toLocaleString()}`);
               console.log(`🔍 DIAGNÓSTICO - Detalle cálculo obra ${obraId}:`, trabajosValidados.map(t => ({
                 nombre: t.nombre,
@@ -400,7 +414,24 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
           console.log('🔍 DIAGNÓSTICO - Total Presupuesto ANTES de sumar trabajos extra:', totalPresupuesto.toLocaleString());
           totalPresupuesto += totalTrabajosExtra;
           console.log('🔍 DIAGNÓSTICO - Total Presupuesto DESPUÉS de sumar trabajos extra:', totalPresupuesto.toLocaleString());
-          console.log('✅ Total Presupuesto FINAL (base + trabajos extra):', totalPresupuesto.toLocaleString());
+
+          // 🆕 CARGAR Y SUMAR TRABAJOS ADICIONALES
+          try {
+            console.log('🔄 Cargando trabajos adicionales para empresa:', empresaId);
+            const trabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
+            totalTrabajosAdicionales = trabajosAdicionales.reduce((sum, ta) => sum + (ta.importe || 0), 0);
+            cantidadTrabajosAdicionales = trabajosAdicionales.length; // 🆕 Contar cantidad
+
+            console.log('✅ Total de trabajos adicionales:', totalTrabajosAdicionales.toLocaleString());
+            console.log('✅ Cantidad de trabajos adicionales:', cantidadTrabajosAdicionales);
+            console.log('🔍 DIAGNÓSTICO - Total Presupuesto ANTES de sumar trabajos adicionales:', totalPresupuesto.toLocaleString());
+            totalPresupuesto += totalTrabajosAdicionales;
+            console.log('🔍 DIAGNÓSTICO - Total Presupuesto DESPUÉS de sumar trabajos adicionales:', totalPresupuesto.toLocaleString());
+          } catch (error) {
+            console.warn('⚠️ Error cargando trabajos adicionales:', error);
+          }
+
+          console.log('✅ Total Presupuesto FINAL (base + trabajos extra + trabajos adicionales):', totalPresupuesto.toLocaleString());
         } catch (error) {
           console.warn('⚠️ Error cargando trabajos extra para presupuesto:', error);
         }
@@ -1062,6 +1093,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         porcentajePagado,
         porcentajeDisponible,
         cantidadObras: presupuestosUnicos.length,
+        cantidadTrabajosExtra, // 🆕 Cantidad de trabajos extra
+        cantidadTrabajosAdicionales, // 🆕 Cantidad de trabajos adicionales
         cantidadCobros,
         cantidadPagos,
         cobrosPendientes,

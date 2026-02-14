@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  registrarPago, 
+import {
+  registrarPago,
   listarPagosPorProfesional,
-  formatearMoneda 
+  formatearMoneda
 } from '../services/pagosProfesionalObraService';
 import { registrarPagosConsolidadosBatch, listarPagosConsolidadosPorPresupuesto } from '../services/pagosConsolidadosService';
 import { useEmpresa } from '../EmpresaContext';
@@ -17,17 +17,17 @@ import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 
 const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTrigger }) => {
   const { empresaSeleccionada } = useEmpresa();
-  
+
   // Hook de estadísticas consolidadas
-  const { 
-    estadisticas, 
-    loading: loadingEstadisticas 
+  const {
+    estadisticas,
+    loading: loadingEstadisticas
   } = useEstadisticasConsolidadas(
     empresaSeleccionada?.id,
     refreshTrigger,
     show // solo activo cuando el modal está abierto
   );
-  
+
   const [tipoGasto, setTipoGasto] = useState('PROFESIONALES');
   const [profesionales, setProfesionales] = useState([]);
   const [materiales, setMateriales] = useState([]);
@@ -38,7 +38,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
   const [materialesSuspendidos, setMaterialesSuspendidos] = useState(new Set());
   const [otrosCostosSuspendidos, setOtrosCostosSuspendidos] = useState(new Set());
   const [loading, setLoading] = useState(false);
-  
+
   // 🔒 Flag para evitar cargas duplicadas
   const cargandoRef = React.useRef(false);
 
@@ -60,16 +60,16 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
   // 🚌 SINCRONIZACIÓN AUTOMÁTICA: Escuchar eventos financieros
   useEffect(() => {
     if (!show) return;
-    
+
     // console.log('🎧 SistemaFinancieroConsolidado: Suscribiendo a eventos financieros...');
-    
+
     const handleFinancialEvent = (eventData) => {
       // console.log('📡 Evento financiero recibido en modal consolidado, recargando...', eventData);
       if (!cargandoRef.current) {
         cargarTodosLosPresupuestos();
       }
     };
-    
+
     // Suscribirse a eventos de pagos y cobros
     const unsubscribers = [
       eventBus.on(FINANCIAL_EVENTS.PAGO_REGISTRADO, handleFinancialEvent),
@@ -77,7 +77,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
       eventBus.on(FINANCIAL_EVENTS.PAGO_ELIMINADO, handleFinancialEvent),
       eventBus.on(FINANCIAL_EVENTS.PAGO_CONSOLIDADO_REGISTRADO, handleFinancialEvent),
     ];
-    
+
     // Cleanup
     return () => {
       // console.log('🔇 SistemaFinancieroConsolidado: Desuscribiendo de eventos');
@@ -91,17 +91,17 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
       // console.log('⏳ [Consolidado] Ya hay una carga en progreso, ignorando...');
       return;
     }
-    
+
     cargandoRef.current = true;
     // console.log('🔄 [Consolidado] Iniciando carga de todos los presupuestos');
     setCargandoDatos(true);
-    
+
     try {
       const [responseAprobado, responseEnEjecucion] = await Promise.all([
         api.presupuestosNoCliente.busquedaAvanzada({ estado: 'APROBADO' }, empresaSeleccionada.id),
         api.presupuestosNoCliente.busquedaAvanzada({ estado: 'EN_EJECUCION' }, empresaSeleccionada.id)
       ]);
-      
+
       const extractData = (response) => {
         if (Array.isArray(response)) return response;
         if (response?.datos && Array.isArray(response.datos)) return response.datos;
@@ -109,11 +109,11 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
         if (response?.data && Array.isArray(response.data)) return response.data;
         return [];
       };
-      
+
       const presupuestosAprobado = extractData(responseAprobado);
       const presupuestosEnEjecucion = extractData(responseEnEjecucion);
       const todosPresupuestos = [...presupuestosAprobado, ...presupuestosEnEjecucion];
-      
+
       if (todosPresupuestos.length === 0) {
         setError('No hay presupuestos APROBADOS o EN_EJECUCION.');
         setProfesionales([]);
@@ -128,7 +128,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
 
       // 💰 Consultar pagos consolidados existentes para cada presupuesto
       const todosPagosConsolidados = await Promise.all(
-        presupuestosCompletos.map(p => 
+        presupuestosCompletos.map(p =>
           listarPagosConsolidadosPorPresupuesto(p.id, empresaSeleccionada.id)
             .catch(err => {
               console.warn(`⚠️ Error cargando pagos para presupuesto ${p.id}:`, err);
@@ -151,14 +151,14 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
       presupuestosCompletos.forEach((presupuesto) => {
         const itemsCalculadora = presupuesto.itemsCalculadora || [];
         const nombreObra = presupuesto.nombreObra || presupuesto.direccionObra?.direccion || `Presupuesto #${presupuesto.numeroPresupuesto}`;
-        
+
         itemsCalculadora.forEach((item) => {
           if (item.profesionales && Array.isArray(item.profesionales)) {
             item.profesionales.forEach((prof, profIdx) => {
               contadorProfesionales++;
               const idUnico = `${presupuesto.id}-${prof.id}-${contadorProfesionales}`;
               const precioTotal = (prof.cantidadJornales || 0) * (prof.importeJornal || 0);
-              
+
               todosProfesionales.push({
                 id: idUnico,
                 profesionalId: prof.id,
@@ -176,13 +176,13 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
             });
           }
         });
-        
+
         itemsCalculadora.forEach((item, itemIdx) => {
           if (item.materialesLista && Array.isArray(item.materialesLista)) {
             item.materialesLista.forEach((mat, matIdx) => {
               // 🔍 Buscar si existe un pago para este material
               const pagosPresupuesto = pagosMap[presupuesto.id] || [];
-              const pagoExistente = pagosPresupuesto.find(pago => 
+              const pagoExistente = pagosPresupuesto.find(pago =>
                 pago.tipoPago === 'MATERIALES' &&
                 pago.itemCalculadoraId === item.id &&
                 pago.materialCalculadoraId === mat.id
@@ -206,14 +206,14 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
             });
           }
         });
-        
+
         // 📋 OTROS COSTOS: Gastos Generales desde subtotalGastosGenerales
         itemsCalculadora.forEach((item, itemIdx) => {
           if (item.subtotalGastosGenerales && parseFloat(item.subtotalGastosGenerales) > 0) {
             // 🔍 Buscar si existe un pago para este gasto general
             const pagosPresupuesto = pagosMap[presupuesto.id] || [];
             const nombreGasto = item.descripcionGastosGenerales || `Gastos Generales - ${item.tipoProfesional}`;
-            const pagoExistente = pagosPresupuesto.find(pago => 
+            const pagoExistente = pagosPresupuesto.find(pago =>
               pago.tipoPago === 'GASTOS_GENERALES' &&
               pago.itemCalculadoraId === item.id &&
               pago.materialCalculadoraId === null
@@ -235,23 +235,23 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
           }
         });
       });
-      
+
       // console.log('📊 RESUMEN FINAL:', {
       //   profesionales: todosProfesionales.length,
       //   materiales: todosMateriales.length,
       //   otrosCostos: todosOtrosCostos.length
       // });
-      
+
       setProfesionales(todosProfesionales);
       setMateriales(todosMateriales);
       setOtrosCostos(todosOtrosCostos);
-      
+
       if (todosProfesionales.length > 0) {
         await cargarTotalesPagadosPorProfesional(todosProfesionales);
       }
-      
+
       // console.log('✅ [Consolidado] Carga completada exitosamente');
-      
+
     } catch (err) {
       console.error('❌ Error cargando presupuestos:', err);
       setError('Error al cargar los presupuestos consolidados.');
@@ -267,31 +267,31 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
     const profesionalesConPagos = await Promise.all(
       listaProfesionales.map(async (prof) => {
         if (!prof.profesionalObraId) {
-          return { 
-            ...prof, 
-            totalPagado: 0, 
+          return {
+            ...prof,
+            totalPagado: 0,
             saldoPendiente: prof.precioTotal || 0,
             totalProfesional: prof.precioTotal || 0,
             porcentajeCobrado: 0
           };
         }
-        
+
         try {
           // Consultar pagos de este profesional específico
           const pagos = await listarPagosPorProfesional(prof.profesionalObraId, empresaSeleccionada.id);
-          
+
           // Filtrar solo pagos NO anulados y sumar
           const totalPagado = Array.isArray(pagos)
             ? pagos
                 .filter(pago => pago.estado !== 'ANULADO')
                 .reduce((sum, pago) => sum + (parseFloat(pago.montoFinal) || 0), 0)
             : 0;
-          
+
           const totalProfesional = prof.precioTotal || 0;
           const saldoPendiente = Math.max(0, totalProfesional - totalPagado);
-          
+
           // console.log(`💰 [Consolidado] Prof ${prof.profesionalObraId} (${prof.nombre}): ${pagos?.length || 0} pagos, $${totalPagado} pagado de $${totalProfesional}`);
-          
+
           return {
             ...prof,
             totalPagado,
@@ -301,9 +301,9 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
           };
         } catch (err) {
           console.warn(`⚠️ Error cargando pagos para profesional ${prof.profesionalObraId}:`, err);
-          return { 
-            ...prof, 
-            totalPagado: 0, 
+          return {
+            ...prof,
+            totalPagado: 0,
             saldoPendiente: prof.precioTotal || 0,
             totalProfesional: prof.precioTotal || 0,
             porcentajeCobrado: 0
@@ -311,7 +311,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
         }
       })
     );
-    
+
     setProfesionales(profesionalesConPagos);
   };
 
@@ -353,10 +353,10 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
 
   const handlePagarATodos = async () => {
     // Filtrar profesionales con saldo pendiente y que NO estén suspendidos
-    const profesionalesParaPagar = profesionales.filter(p => 
+    const profesionalesParaPagar = profesionales.filter(p =>
       (p.saldoPendiente || 0) > 0 && !profesionalesSuspendidos.has(p.id)
     );
-    
+
     if (profesionalesParaPagar.length === 0) {
       alert('✅ No hay profesionales para pagar (todos pagados o suspendidos)');
       return;
@@ -364,7 +364,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
 
     const totalPendiente = profesionalesParaPagar.reduce((sum, p) => sum + (p.saldoPendiente || 0), 0);
     const cantidadSuspendidos = profesionalesSuspendidos.size;
-    
+
     const confirmacion = window.confirm(
       `¿Confirmar pago masivo a ${profesionalesParaPagar.length} profesionales?\n\n` +
       `Total a pagar: ${formatearMoneda(totalPendiente)}\n` +
@@ -393,13 +393,13 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
         };
 
         await registrarPago(pagoData, empresaSeleccionada.id);
-        
+
         // 📡 Notificar al contexto centralizado
         eventBus.emit(FINANCIAL_EVENTS.PAGO_REGISTRADO, {
           profesionalObraId: prof.profesionalObraId,
           monto: prof.saldoPendiente
         });
-        
+
         resultados.exitosos.push({ nombre: prof.nombreCompleto, obra: prof.nombreObra, monto: prof.saldoPendiente });
       } catch (err) {
         resultados.fallidos.push({ nombre: prof.nombreCompleto, obra: prof.nombreObra, error: err.message });
@@ -407,7 +407,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
     }
 
     setLoading(false);
-    
+
     const mensaje = `📊 RESULTADO DEL PAGO MASIVO\n\n✅ Exitosos: ${resultados.exitosos.length}\n❌ Fallidos: ${resultados.fallidos.length}`;
     alert(mensaje);
 
@@ -476,7 +476,23 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                         <h2 className="display-6 text-info mb-2">
                           {formatearMoneda(estadisticas.totalPresupuesto || 0)}
                         </h2>
-                        <small className="text-muted">{estadisticas.cantidadObras || 0} obra(s)</small>
+                        <small className="text-muted">
+                          {estadisticas.cantidadObras || 0} obra(s)
+                          {((estadisticas.cantidadTrabajosExtra || 0) > 0 || (estadisticas.cantidadTrabajosAdicionales || 0) > 0) && (
+                            <>
+                              {(estadisticas.cantidadTrabajosExtra || 0) > 0 && (
+                                <span className="ms-2 text-warning">
+                                  + {estadisticas.cantidadTrabajosExtra} TE
+                                </span>
+                              )}
+                              {(estadisticas.cantidadTrabajosAdicionales || 0) > 0 && (
+                                <span className="ms-2 text-info">
+                                  + {estadisticas.cantidadTrabajosAdicionales} TA
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </small>
                       </div>
                     </div>
                   </div>
@@ -493,12 +509,12 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                           {formatearMoneda(estadisticas.totalCobrado || 0)}
                         </h2>
                         <div className="progress mt-2" style={{height: '20px'}}>
-                          <div 
-                            className="progress-bar bg-success" 
-                            role="progressbar" 
+                          <div
+                            className="progress-bar bg-success"
+                            role="progressbar"
                             style={{width: `${estadisticas.porcentajeCobrado || 0}%`}}
-                            aria-valuenow={estadisticas.porcentajeCobrado || 0} 
-                            aria-valuemin="0" 
+                            aria-valuenow={estadisticas.porcentajeCobrado || 0}
+                            aria-valuemin="0"
                             aria-valuemax="100"
                           >
                             {(estadisticas.porcentajeCobrado || 0).toFixed(1)}%
@@ -521,12 +537,12 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                           {formatearMoneda(estadisticas.totalPagado || 0)}
                         </h2>
                         <div className="progress mt-2" style={{height: '20px'}}>
-                          <div 
-                            className="progress-bar bg-danger" 
-                            role="progressbar" 
+                          <div
+                            className="progress-bar bg-danger"
+                            role="progressbar"
                             style={{width: `${estadisticas.porcentajePagado || 0}%`}}
-                            aria-valuenow={estadisticas.porcentajePagado || 0} 
-                            aria-valuemin="0" 
+                            aria-valuenow={estadisticas.porcentajePagado || 0}
+                            aria-valuemin="0"
                             aria-valuemax="100"
                           >
                             {(estadisticas.porcentajePagado || 0).toFixed(1)}%
@@ -591,14 +607,14 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                 profesionales.forEach(p => obrasSet.add(p.nombreObra));
                 materiales.forEach(m => obrasSet.add(m.nombreObra));
                 otrosCostos.forEach(c => obrasSet.add(c.nombreObra));
-                
+
                 const obras = Array.from(obrasSet);
-                
+
                 return obras.map((nombreObra, obraIdx) => {
                   const profesionalesObra = profesionales.filter(p => p.nombreObra === nombreObra);
                   const materialesObra = materiales.filter(m => m.nombreObra === nombreObra);
                   const otrosCostosObra = otrosCostos.filter(c => c.nombreObra === nombreObra);
-                  
+
                   return (
                     <div key={obraIdx} className="card mb-4 border-primary shadow-lg">
                       {/* HEADER DE OBRA */}
@@ -611,7 +627,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                           {profesionalesObra.length} profesionales • {materialesObra.length} materiales • {otrosCostosObra.length} gastos generales
                         </small>
                       </div>
-                      
+
                       <div className="card-body p-4">
                         {/* SECCIÓN PROFESIONALES */}
                         {profesionalesObra.length > 0 && (
@@ -645,13 +661,13 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                                     const totalJornales = (prof.cantidadJornales || 0) * (prof.precioJornal || 0);
                                     const porcentaje = prof.porcentajeCobrado || 0;
                                     const estaSuspendido = profesionalesSuspendidos.has(prof.id);
-                                    
+
                                     return (
-                                      <tr 
-                                        key={prof.id} 
+                                      <tr
+                                        key={prof.id}
                                         className={
-                                          estaSuspendido ? 'table-secondary' : 
-                                          porcentaje >= 100 ? 'table-success' : 
+                                          estaSuspendido ? 'table-secondary' :
+                                          porcentaje >= 100 ? 'table-success' :
                                           porcentaje > 0 ? 'table-warning' : ''
                                         }
                                       >
@@ -843,7 +859,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                           <div className="row">
                             <div className="col-md-12 text-end">
                               <h5 className="mb-0">
-                                💰 TOTAL OBRA: 
+                                💰 TOTAL OBRA:
                                 <strong className="ms-2">
                                   {formatearMoneda(
                                     profesionalesObra.reduce((sum, p) => sum + ((p.cantidadJornales || 0) * (p.precioJornal || 0)), 0) +
@@ -937,7 +953,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                             💸 Pagar a Todos los Profesionales con Saldo Pendiente
                             {profesionales.filter(p => p.saldoPendiente > 0 && !profesionalesSuspendidos.has(p.id)).length > 0 && (
                               <span className="ms-2">
-                                ({profesionales.filter(p => p.saldoPendiente > 0 && !profesionalesSuspendidos.has(p.id)).length} prof. - 
+                                ({profesionales.filter(p => p.saldoPendiente > 0 && !profesionalesSuspendidos.has(p.id)).length} prof. -
                                 Total: {formatearMoneda(profesionales.filter(p => !profesionalesSuspendidos.has(p.id)).reduce((sum, p) => sum + (p.saldoPendiente || 0), 0))})
                               </span>
                             )}
@@ -986,13 +1002,13 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                                 const totalJornales = (prof.cantidadJornales || 0) * (prof.precioJornal || 0);
                                 const porcentaje = prof.porcentajeCobrado || 0;
                                 const estaSuspendido = profesionalesSuspendidos.has(prof.id);
-                                
+
                                 return (
-                                  <tr 
-                                    key={prof.id} 
+                                  <tr
+                                    key={prof.id}
                                     className={
-                                      estaSuspendido ? 'table-secondary' : 
-                                      porcentaje >= 100 ? 'table-success' : 
+                                      estaSuspendido ? 'table-secondary' :
+                                      porcentaje >= 100 ? 'table-success' :
                                       porcentaje > 0 ? 'table-warning' : ''
                                     }
                                   >
@@ -1069,7 +1085,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                         if (!window.confirm(`¿Confirmar pago de ${materialesParaPagar.length} material(es) por un total de ${formatearMoneda(total)}?${materialesSuspendidos.size > 0 ? `\n\n⚠️ ${materialesSuspendidos.size} material(es) suspendido(s) no será(n) pagado(s)` : ''}`)) {
                           return;
                         }
-                        
+
                         setLoading(true);
                         try {
                           // Preparar datos de pagos de materiales
@@ -1077,7 +1093,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                             const cantidad = parseFloat(material.cantidadUnidades) || 1;
                             const monto = parseFloat(material.precioTotal) || 0;
                             const precioUnitario = cantidad > 0 ? (monto / cantidad) : monto;
-                            
+
                             return {
                               presupuestoNoClienteId: material.presupuestoId,
                               itemCalculadoraId: material.itemCalculadoraId, // ID real del item
@@ -1094,38 +1110,38 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                               observaciones: `Pago de material - Obra: ${material.nombreObra}`
                             };
                           });
-                          
+
                           // Registrar pagos en el backend
                           const resultado = await registrarPagosConsolidadosBatch(pagosData, empresaSeleccionada.id);
-                          
+
                           // 📡 Notificar al contexto centralizado
                           eventBus.emit(FINANCIAL_EVENTS.PAGO_CONSOLIDADO_REGISTRADO, {
                             tipo: 'MATERIALES',
                             cantidad: pagosData.length
                           });
-                          
+
                           console.log('✅ Resultado del registro:', resultado);
-                          
+
                           // El backend podría devolver undefined si todo fue exitoso pero sin response body
                           const cantidadRegistrada = resultado?.cantidadRegistrados || pagosData.length;
                           const totalMonto = resultado?.totalMonto || total;
-                          
+
                           if (onSuccess) onSuccess({
                             mensaje: `✅ ${cantidadRegistrada} pago(s) de materiales registrados por ${formatearMoneda(totalMonto)}`
                           });
-                          
+
                           // Recargar datos
                           cargarTodosLosPresupuestos();
                         } catch (error) {
                           console.error('❌ Error registrando pagos de materiales:');
                           console.error('📊 Error completo:', error);
-                          
-                          const errorMsg = error.data?.error 
-                            || error.data?.mensaje 
-                            || error.data?.message 
-                            || error.message 
+
+                          const errorMsg = error.data?.error
+                            || error.data?.mensaje
+                            || error.data?.message
+                            || error.message
                             || 'Error desconocido';
-                          
+
                           alert(`❌ Error al registrar pagos:\n\n${errorMsg}`);
                         } finally {
                           setLoading(false);
@@ -1143,7 +1159,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                           💸 Pagar Todos los Materiales
                           {materiales.filter(m => !m.pagado && !materialesSuspendidos.has(m.id)).length > 0 && (
                             <span className="ms-2">
-                              ({materiales.filter(m => !m.pagado && !materialesSuspendidos.has(m.id)).length} mat. - 
+                              ({materiales.filter(m => !m.pagado && !materialesSuspendidos.has(m.id)).length} mat. -
                               Total: {formatearMoneda(materiales.filter(m => !m.pagado && !materialesSuspendidos.has(m.id)).reduce((sum, m) => sum + (m.precioTotal || 0), 0))})
                             </span>
                           )}
@@ -1252,7 +1268,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                         if (!window.confirm(`¿Confirmar pago de ${costosParaPagar.length} otro(s) costo(s) por un total de ${formatearMoneda(total)}?${otrosCostosSuspendidos.size > 0 ? `\n\n⚠️ ${otrosCostosSuspendidos.size} costo(s) suspendido(s) no será(n) pagado(s)` : ''}`)) {
                           return;
                         }
-                        
+
                         setLoading(true);
                         try {
                           // Preparar datos de pagos consolidados
@@ -1273,38 +1289,38 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                               observaciones: costo.observaciones || `Pago de gastos generales - ${costo.tipo} - Obra: ${costo.nombreObra}`
                             };
                           });
-                          
+
                           // Registrar pagos en el backend
                           const resultado = await registrarPagosConsolidadosBatch(pagosData, empresaSeleccionada.id);
-                          
+
                           // 📡 Notificar al contexto centralizado
                           eventBus.emit(FINANCIAL_EVENTS.PAGO_CONSOLIDADO_REGISTRADO, {
                             tipo: 'GASTOS_GENERALES',
                             cantidad: pagosData.length
                           });
-                          
+
                           console.log('✅ Resultado del registro:', resultado);
-                          
+
                           // El backend podría devolver undefined si todo fue exitoso pero sin response body
                           const cantidadRegistrada = resultado?.cantidadRegistrados || pagosData.length;
                           const totalMonto = resultado?.totalMonto || total;
-                          
+
                           if (onSuccess) onSuccess({
                             mensaje: `✅ ${cantidadRegistrada} pago(s) de gastos generales registrados por ${formatearMoneda(totalMonto)}`
                           });
-                          
+
                           // Recargar datos
                           cargarTodosLosPresupuestos();
                         } catch (error) {
                           console.error('❌ Error registrando pagos de gastos generales:');
                           console.error('📊 Error completo:', error);
-                          
-                          const errorMsg = error.data?.error 
-                            || error.data?.mensaje 
-                            || error.data?.message 
-                            || error.message 
+
+                          const errorMsg = error.data?.error
+                            || error.data?.mensaje
+                            || error.data?.message
+                            || error.message
                             || 'Error desconocido';
-                          
+
                           alert(`❌ Error al registrar pagos:\n\n${errorMsg}`);
                         } finally {
                           setLoading(false);
@@ -1322,7 +1338,7 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
                           💸 Pagar Todos los Gastos Generales
                           {otrosCostos.filter(c => !c.pagado && !otrosCostosSuspendidos.has(c.id)).length > 0 && (
                             <span className="ms-2">
-                              ({otrosCostos.filter(c => !c.pagado && !otrosCostosSuspendidos.has(c.id)).length} costos - 
+                              ({otrosCostos.filter(c => !c.pagado && !otrosCostosSuspendidos.has(c.id)).length} costos -
                               Total: {formatearMoneda(otrosCostos.filter(c => !c.pagado && !otrosCostosSuspendidos.has(c.id)).reduce((sum, c) => sum + (c.precioTotal || 0), 0))})
                             </span>
                           )}
@@ -1419,9 +1435,9 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
           </div>
 
           <div className="modal-footer bg-light">
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-lg" 
+            <button
+              type="button"
+              className="btn btn-secondary btn-lg"
               onClick={onHide}
               disabled={loading}
             >

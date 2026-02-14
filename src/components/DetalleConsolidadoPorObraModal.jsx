@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { formatearMoneda } from '../services/cobrosObraService';
 import { listarPagosConsolidadosPorEmpresa } from '../services/pagosConsolidadosService';
 import apiService from '../services/api';
+import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 
 /**
  * Modal para mostrar el desglose detallado por obra de un concepto financiero
@@ -11,6 +12,87 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   const [mostrandoDetallePagos, setMostrandoDetallePagos] = useState(false);
   const [pagosDetallados, setPagosDetallados] = useState([]);
   const [cargandoPagos, setCargandoPagos] = useState(false);
+  const [trabajosAdicionales, setTrabajosAdicionales] = useState([]);
+  const [cargandoTrabajosAdicionales, setCargandoTrabajosAdicionales] = useState(false);
+  const [trabajosExtra, setTrabajosExtra] = useState(new Map());
+  const [cargandoTrabajosExtra, setCargandoTrabajosExtra] = useState(false);
+
+  // 🆕 Cargar trabajos adicionales y extra cuando se abre el modal
+  useEffect(() => {
+    if (show && empresaSeleccionada?.id && tipo === 'presupuestos') {
+      cargarTrabajosAdicionales();
+      cargarTrabajosExtra();
+    }
+  }, [show, empresaSeleccionada?.id, tipo]);
+
+  const cargarTrabajosAdicionales = async () => {
+    setCargandoTrabajosAdicionales(true);
+    try {
+      const trabajosAd = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaSeleccionada.id);
+      console.log('✅ Trabajos adicionales cargados para modal:', trabajosAd);
+      setTrabajosAdicionales(trabajosAd);
+    } catch (error) {
+      console.warn('⚠️ Error cargando trabajos adicionales para modal:', error);
+      setTrabajosAdicionales([]);
+    } finally {
+      setCargandoTrabajosAdicionales(false);
+    }
+  };
+
+  const cargarTrabajosExtra = async () => {
+    setCargandoTrabajosExtra(true);
+    try {
+      console.log('🔄 Cargando trabajos extra usando presupuestos...', { datos });
+
+      // Usar el mismo método que SistemaFinancieroPage - obtener todos los presupuestos
+      const todosPresupuestos = await apiService.get('/api/v1/presupuestos-no-cliente', {
+        params: { empresaId: empresaSeleccionada.id }
+      });
+
+      const presupuestosArray = Array.isArray(todosPresupuestos) ? todosPresupuestos :
+                               todosPresupuestos?.data ? todosPresupuestos.data : [];
+
+      // Filtrar solo trabajos extra
+      const presupuestosTrabajosExtra = presupuestosArray.filter(p => {
+        return p.esPresupuestoTrabajoExtra === true ||
+               p.esPresupuestoTrabajoExtra === 'V' ||
+               p.es_presupuesto_trabajo_extra === true;
+      });
+
+      console.log('✅ Presupuestos trabajos extra encontrados:', presupuestosTrabajosExtra);
+
+      // Agrupar por obra origen
+      const trabajosExtraMap = new Map();
+
+      presupuestosTrabajosExtra.forEach(te => {
+        const obraOrigenId = te.obraOrigenId || te.obra_origen_id;
+        console.log('🔍 Trabajo extra:', {
+          id: te.id,
+          nombre: te.nombreObra,
+          obraOrigenId,
+          total: te.totalFinal || te.valorTotalIva
+        });
+
+        if (obraOrigenId) {
+          if (!trabajosExtraMap.has(obraOrigenId)) {
+            trabajosExtraMap.set(obraOrigenId, []);
+          }
+          trabajosExtraMap.get(obraOrigenId).push({
+            id: te.id,
+            nombre: te.nombreObra || te.nombre,
+            totalCalculado: te.totalFinal || te.valorTotalIva || te.valorTotal || 0,
+            obraOrigenId,
+            presupuesto: te
+          });
+        }
+      });
+
+      console.log('✅ Trabajos extra organizados por obra origen:', Object.fromEntries(trabajosExtraMap));
+      setTrabajosExtra(new Map());
+    } finally {
+      setCargandoTrabajosExtra(false);
+    }
+  };
 
   if (!show) return null;
 
@@ -133,74 +215,227 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   };
 
   const renderPresupuestos = () => {
-    // Calcular el total incluyendo trabajos extra
-    const totalConTrabajosExtra = datos.reduce((sum, o) => {
-      const presupuestoBase = o.totalPresupuesto || 0;
-      const trabajosExtra = (o.trabajosExtra || []).reduce((s, t) => s + (t.totalCalculado || 0), 0);
-      return sum + presupuestoBase + trabajosExtra;
-    }, 0);
+    // Si tenemos estadisticas consolidadas, usar el total que YA incluye trabajos adicionales
+    // Si no, calcular desde datos (para compatibilidad)
+    const totalCompleto = estadisticas?.totalPresupuesto ||
+      datos.reduce((sum, o) => {
+        const presupuestoBase = o.totalPresupuesto || 0;
+        const trabajosExtra = (o.trabajosExtra || []).reduce((s, t) => s + (t.totalCalculado || 0), 0);
+        return sum + presupuestoBase + trabajosExtra;
+      }, 0);
 
     return (
       <div className="table-responsive">
-        <table className="table table-hover table-striped">
+        <table className="table table-hover">
           <thead className="table-primary">
             <tr>
-              <th>Obra</th>
+              <th>Obra / Trabajo</th>
               <th>Estado</th>
               <th className="text-end">Monto Presupuestado</th>
             </tr>
           </thead>
           <tbody>
-            {datos.map((obra, idx) => (
-              <React.Fragment key={idx}>
-                <tr>
-                  <td>
-                    <strong>{obra.nombreObra}</strong>
-                    <div className="text-muted small">
-                      Presupuesto #{obra.numeroPresupuesto || 'N/A'}
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`badge ${
-                      obra.estado === 'APROBADO' ? 'bg-success' :
-                      obra.estado === 'EN_EJECUCION' ? 'bg-primary' :
-                      'bg-secondary'
-                    }`}>
-                      {obra.estado || 'N/A'}
-                    </span>
-                  </td>
-                  <td className="text-end">
-                    <strong className="text-primary">
-                      {formatearMoneda(obra.totalPresupuesto || 0)}
-                    </strong>
-                  </td>
-                </tr>
-                {/* Mostrar trabajos extra como filas adicionales */}
-                {obra.trabajosExtra && obra.trabajosExtra.length > 0 && obra.trabajosExtra.map((trabajo, tIdx) => (
-                  <tr key={`${idx}-trabajo-${tIdx}`} className="table-active">
-                    <td className="ps-4">
-                      <i className="bi bi-arrow-return-right me-2 text-muted"></i>
-                      <span className="text-muted">Trabajo Extra: {trabajo.nombre}</span>
+            {datos.map((obra, idx) => {
+              const obraIdReal = obra.obraId || obra.id;
+
+              // Encontrar trabajos extra relacionados con esta obra usando la misma lógica que SistemaFinancieroPage
+              const trabajosExtraObra = [];
+              if (trabajosExtra instanceof Map) {
+                // Revisar todos los trabajos extra cargados
+                for (const [obraId, trabajosDeEstaObra] of trabajosExtra) {
+                  trabajosDeEstaObra.forEach(te => {
+                    // Método 1: Por obraOrigenId comparado con obraId de esta obra
+                    const obraPadreId = te.presupuesto?.obraOrigenId ||
+                                       te.presupuesto?.obra_origen_id ||
+                                       te.obraOrigenId;
+
+                    if (obraPadreId && obraPadreId === obraIdReal) {
+                      trabajosExtraObra.push(te);
+                      return;
+                    }
+
+                    // Método 2: Por dirección exacta
+                    const obraDireccion = `${obra.calle || ''} ${obra.altura || ''}`.trim();
+                    const teDireccion = te.presupuesto ?
+                      `${te.presupuesto.direccionObraCalle || ''} ${te.presupuesto.direccionObraAltura || ''}`.trim() : '';
+
+                    if (obraDireccion && teDireccion && obraDireccion === teDireccion && te.nombre !== obra.nombreObra) {
+                      trabajosExtraObra.push(te);
+                      return;
+                    }
+
+                    // Método 3: Por nombre contenido (trabajo extra contiene nombre de obra padre)
+                    const obraNombreLower = obra.nombreObra?.toLowerCase() || '';
+                    const teNombreLower = te.nombre?.toLowerCase() || '';
+                    if (obraNombreLower && teNombreLower.includes(obraNombreLower) && teNombreLower !== obraNombreLower) {
+                      trabajosExtraObra.push(te);
+                    }
+                  });
+                }
+              }
+
+              // Encontrar trabajos adicionales relacionados con esta obra
+              const trabajosAdicionalesObra = trabajosAdicionales.filter(ta =>
+                ta.obraId === obraIdReal || ta.obraId === obra.obraId || ta.obraId === obra.id
+              );
+
+              console.log(`🔍 Modal - Obra ${obra.nombreObra}:`, {
+                obraId: obra.obraId,
+                id: obra.id,
+                obraIdReal,
+                trabajosExtraEncontrados: trabajosExtraObra.length,
+                trabajosAdicionalesEncontrados: trabajosAdicionalesObra.length,
+                trabajosExtraDetalles: trabajosExtraObra.map(te => ({ nombre: te.nombre, obraOrigenId: te.obraOrigenId }))
+              });
+
+              return (
+                <React.Fragment key={idx}>
+                  {/* Obra principal */}
+                  <tr>
+                    <td>
+                      <strong className="text-primary">{obra.nombreObra}</strong>
+                      <div className="text-muted small">
+                        Presupuesto #{obra.numeroPresupuesto || 'N/A'}
+                      </div>
                     </td>
                     <td>
-                      <span className="badge bg-info">EXTRA</span>
-                    </td>
-                    <td className="text-end">
-                      <span className="text-info">
-                        {formatearMoneda(trabajo.totalCalculado || 0)}
+                      <span className={`badge ${
+                        obra.estado === 'APROBADO' ? 'bg-success' :
+                        obra.estado === 'EN_EJECUCION' ? 'bg-primary' :
+                        'bg-secondary'
+                      }`}>
+                        {obra.estado || 'N/A'}
                       </span>
                     </td>
+                    <td className="text-end">
+                      <strong className="text-primary">
+                        {formatearMoneda(obra.totalPresupuesto || 0)}
+                      </strong>
+                    </td>
                   </tr>
-                ))}
-              </React.Fragment>
-            ))}
+
+                  {/* Trabajos extra de esta obra */}
+                  {trabajosExtraObra.length > 0 && trabajosExtraObra.map((trabajo, tIdx) => (
+                    <tr key={`${idx}-trabajo-${tIdx}`} className="table-active">
+                      <td className="ps-4">
+                        <i className="bi bi-arrow-return-right me-2 text-warning"></i>
+                        <span className="text-warning">TE: {trabajo.nombre}</span>
+                      </td>
+                      <td>
+                        <span className="badge bg-warning text-dark">EXTRA</span>
+                      </td>
+                      <td className="text-end">
+                        <span className="text-warning fw-bold">
+                          {formatearMoneda(trabajo.totalCalculado || 0)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {/* Trabajos adicionales de esta obra */}
+                  {trabajosAdicionalesObra.length > 0 && trabajosAdicionalesObra.map((trabajoAd, taIdx) => (
+                    <tr key={`${idx}-trabajo-adicional-${taIdx}`} className="table-active">
+                      <td className="ps-4">
+                        <i className="bi bi-arrow-return-right me-2 text-info"></i>
+                        <span className="text-info">TA: {trabajoAd.descripcion}</span>
+                        <div className="text-muted small ps-4">
+                          Prof: {trabajoAd.nombreProfesional}
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge bg-info">ADICIONAL</span>
+                      </td>
+                      <td className="text-end">
+                        <span className="text-info fw-bold">
+                          {formatearMoneda(trabajoAd.importe || 0)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Línea separadora entre obras (excepto la última) */}
+                  {idx < datos.length - 1 && (
+                    <tr>
+                      <td colSpan="3" className="p-0">
+                        <hr className="border-dark my-2" style={{borderWidth: '1px'}} />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+            {/* Trabajos extra huérfanos (sin obra asociada) */}
+            {Array.from(trabajosExtra.values()).flat().filter(te =>
+              !datos.some(obra => (te.obraId || te.obra_id) === (obra.obraId || obra.id))
+            ).length > 0 && (
+              <>
+                <tr>
+                  <td colSpan="3" className="p-0">
+                    <hr className="border-dark my-2" style={{borderWidth: '1px'}} />
+                  </td>
+                </tr>
+                {Array.from(trabajosExtra.values()).flat()
+                  .filter(te => !datos.some(obra => (te.obraId || te.obra_id) === (obra.obraId || obra.id)))
+                  .map((trabajoExtra, teIdx) => (
+                    <tr key={`trabajo-extra-huerfano-${teIdx}`} className="table-secondary">
+                      <td>
+                        <i className="bi bi-question-circle me-2 text-muted"></i>
+                        <span className="text-warning">TE: {trabajoExtra.nombre}</span>
+                        <div className="text-muted small">
+                          Obra no identificada
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge bg-warning text-dark">EXTRA</span>
+                      </td>
+                      <td className="text-end">
+                        <span className="text-warning fw-bold">
+                          {formatearMoneda(trabajoExtra.totalFinal || trabajoExtra.montoTotal || trabajoExtra.totalCalculado || 0)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+              </>
+            )}
+            {/* Trabajos adicionales huérfanos (sin obra asociada) */}
+            {trabajosAdicionales.filter(ta =>
+              !datos.some(obra => ta.obraId === obra.obraId || ta.obraId === obra.id)
+            ).length > 0 && (
+              <>
+                <tr>
+                  <td colSpan="3" className="p-0">
+                    <hr className="border-dark my-2" style={{borderWidth: '1px'}} />
+                  </td>
+                </tr>
+                {trabajosAdicionales
+                  .filter(ta => !datos.some(obra => ta.obraId === obra.obraId || ta.obraId === obra.id))
+                  .map((trabajoAd, taIdx) => (
+                    <tr key={`trabajo-adicional-huerfano-${taIdx}`} className="table-secondary">
+                      <td>
+                        <i className="bi bi-question-circle me-2 text-muted"></i>
+                        <span className="text-info">TA: {trabajoAd.descripcion}</span>
+                        <div className="text-muted small">
+                          Prof: {trabajoAd.nombreProfesional} | Obra no identificada
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge bg-info">ADICIONAL</span>
+                      </td>
+                      <td className="text-end">
+                        <span className="text-info fw-bold">
+                          {formatearMoneda(trabajoAd.importe || 0)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+              </>
+            )}
           </tbody>
-          <tfoot className="table-light">
+          <tfoot className="table-dark">
             <tr>
-              <td colSpan="2" className="text-end"><strong>TOTAL:</strong></td>
+              <td colSpan="2" className="text-end fw-bold fs-5">TOTAL CONSOLIDADO:</td>
               <td className="text-end">
-                <strong className="text-primary fs-5">
-                  {formatearMoneda(totalConTrabajosExtra)}
+                <strong className="text-light fs-4">
+                  {formatearMoneda(totalCompleto)}
                 </strong>
               </td>
             </tr>
@@ -844,6 +1079,20 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
               <div>
                 <i className="bi bi-info-circle me-2"></i>
                 <strong>Vista consolidada:</strong> Mostrando el desglose de <strong>{datos?.length || 0} obra(s)</strong>
+                {estadisticas && ((estadisticas.cantidadTrabajosExtra || 0) > 0 || (estadisticas.cantidadTrabajosAdicionales || 0) > 0) && (
+                  <>
+                    {(estadisticas.cantidadTrabajosExtra || 0) > 0 && (
+                      <span className="ms-1 text-warning">
+                        + <strong>{estadisticas.cantidadTrabajosExtra} TE</strong>
+                      </span>
+                    )}
+                    {(estadisticas.cantidadTrabajosAdicionales || 0) > 0 && (
+                      <span className="ms-1 text-info">
+                        + <strong>{estadisticas.cantidadTrabajosAdicionales} TA</strong>
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
               {tipo === 'cobros' && estadisticas && (
                 <div className="mt-3 text-center">
