@@ -25,6 +25,7 @@ import DebugPanel from '../components/DebugPanel';
 import api from '../services/api';
 import axios from 'axios';
 import { obtenerAsignacionesSemanalPorObra } from '../services/profesionalesObraService';
+import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 import { calcularSemanasParaDiasHabiles, convertirDiasHabilesASemanasSimple, esDiaHabil } from '../utils/feriadosArgentina';
 import {
@@ -144,6 +145,113 @@ const ObrasPage = ({ showNotification }) => {
   const [abrirWhatsAppTrabajoExtra, setAbrirWhatsAppTrabajoExtra] = React.useState(false);
   const [abrirEmailTrabajoExtra, setAbrirEmailTrabajoExtra] = React.useState(false);
   const [mostrarModalSeleccionEnvioTrabajoExtra, setMostrarModalSeleccionEnvioTrabajoExtra] = React.useState(false);
+
+  // Estados para Trabajos Adicionales
+  const [mostrarModalListaTrabajosAdicionales, setMostrarModalListaTrabajosAdicionales] = React.useState(false);
+  const [mostrarModalTrabajoAdicional, setMostrarModalTrabajoAdicional] = React.useState(false);
+  const [obraParaTrabajosAdicionales, setObraParaTrabajosAdicionales] = React.useState(null);
+  const [trabajoAdicionalEditar, setTrabajoAdicionalEditar] = React.useState(null);
+  const [trabajosAdicionales, setTrabajosAdicionales] = React.useState([]);
+
+  // Estados para profesionales en trabajos adicionales
+  const [profesionalesDisponiblesTA, setProfesionalesDisponiblesTA] = React.useState([]);
+  const [profesionalesSeleccionados, setProfesionalesSeleccionados] = React.useState([]);
+  const [profesionalesAdhoc, setProfesionalesAdhoc] = React.useState([]);
+  const [loadingProfesionalesTA, setLoadingProfesionalesTA] = React.useState(false);
+  const [mostrarFormularioAdhoc, setMostrarFormularioAdhoc] = React.useState(false);
+  const [profesionalAdhocForm, setProfesionalAdhocForm] = React.useState({
+    nombre: '',
+    tipoProfesional: '',
+    honorarioDia: '',
+    telefono: '',
+    email: ''
+  });
+
+  // Cargar profesionales cuando se abre el modal de trabajo adicional
+  React.useEffect(() => {
+    const cargarProfesionales = async () => {
+      if (mostrarModalTrabajoAdicional && empresaId) {
+        setLoadingProfesionalesTA(true);
+        try {
+          const response = await api.profesionales.getAll(empresaId);
+          const profesionalesData = Array.isArray(response) ? response : (response?.data || response?.resultado || []);
+          setProfesionalesDisponiblesTA(profesionalesData);
+          console.log('✅ Profesionales cargados:', profesionalesData.length);
+
+          // Si estamos editando, cargar los profesionales asignados
+          if (trabajoAdicionalEditar && trabajoAdicionalEditar.profesionales) {
+            const profRegistrados = [];
+            const profAdhoc = [];
+
+            trabajoAdicionalEditar.profesionales.forEach(prof => {
+              if (prof.esRegistrado && prof.profesionalId) {
+                // Buscar el profesional completo en la lista
+                const profCompleto = profesionalesData.find(p => p.id === prof.profesionalId);
+                if (profCompleto) {
+                  profRegistrados.push(profCompleto);
+                }
+              } else {
+                // Es ad-hoc
+                profAdhoc.push({
+                  id: prof.id || `adhoc_${Date.now()}_${Math.random()}`,
+                  nombre: prof.nombre,
+                  tipoProfesional: prof.tipoProfesional,
+                  honorario_dia: prof.honorarioDia,
+                  telefono: prof.telefono,
+                  email: prof.email,
+                  _esAdhoc: true
+                });
+              }
+            });
+
+            setProfesionalesSeleccionados(profRegistrados);
+            setProfesionalesAdhoc(profAdhoc);
+            console.log('📋 Profesionales cargados para edición:', { registrados: profRegistrados.length, adhoc: profAdhoc.length });
+          }
+        } catch (error) {
+          console.error('❌ Error cargando profesionales:', error);
+          showNotification('Error al cargar profesionales', 'error');
+          setProfesionalesDisponiblesTA([]);
+        } finally {
+          setLoadingProfesionalesTA(false);
+        }
+      } else if (!mostrarModalTrabajoAdicional) {
+        // Limpiar al cerrar modal
+        setProfesionalesSeleccionados([]);
+        setProfesionalesAdhoc([]);
+        setMostrarFormularioAdhoc(false);
+        setProfesionalAdhocForm({
+          nombre: '',
+          tipoProfesional: '',
+          honorarioDia: '',
+          telefono: '',
+          email: ''
+        });
+      }
+    };
+    cargarProfesionales();
+  }, [mostrarModalTrabajoAdicional, empresaId]);
+
+  // Cargar trabajos adicionales al montar o cuando cambia la empresa
+  React.useEffect(() => {
+    const cargarTrabajosAdicionales = async () => {
+      if (empresaId) {
+        try {
+          const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
+          const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
+          setTrabajosAdicionales(trabajosArray);
+        } catch (error) {
+          console.error('❌ Error al cargar trabajos adicionales:', error);
+          setTrabajosAdicionales([]);
+        }
+      } else {
+        setTrabajosAdicionales([]);
+      }
+    };
+    cargarTrabajosAdicionales();
+  }, [empresaId]);
+
+
 
   // 🐛 DEBUG: Exponer función global para inspeccionar trabajos extra desde consola
   React.useEffect(() => {
@@ -3083,6 +3191,68 @@ const ObrasPage = ({ showNotification }) => {
     return contadoresObras[obraId]?.gastos || 0;
   };
 
+  // Funciones helper para trabajos adicionales
+  const contarTrabajosAdicionalesObra = (obraId) => {
+    if (!Array.isArray(trabajosAdicionales)) return 0;
+    // Filtra trabajos que pertenecen directamente a la obra (sin trabajo extra intermedio)
+    return trabajosAdicionales.filter(ta => ta.obraId === obraId && !ta.trabajoExtraId).length;
+  };
+
+  const contarTrabajosAdicionalesTrabajoExtra = (trabajoExtraId) => {
+    if (!Array.isArray(trabajosAdicionales)) return 0;
+    return trabajosAdicionales.filter(ta => ta.trabajoExtraId === trabajoExtraId).length;
+  };
+
+  const obtenerTrabajosAdicionalesObra = (obraId) => {
+    if (!Array.isArray(trabajosAdicionales)) return [];
+    // Filtra trabajos que pertenecen directamente a la obra (sin trabajo extra intermedio)
+    return trabajosAdicionales.filter(ta => ta.obraId === obraId && !ta.trabajoExtraId);
+  };
+
+  const obtenerTrabajosAdicionalesTrabajoExtra = (trabajoExtraId) => {
+    if (!Array.isArray(trabajosAdicionales)) return [];
+    // Filtra trabajos que pertenecen a un trabajo extra específico
+    return trabajosAdicionales.filter(ta => ta.trabajoExtraId === trabajoExtraId);
+  };
+
+  const handleEliminarTrabajoAdicional = async (trabajoAdicionalId, nombre) => {
+    if (!window.confirm(`¿Está seguro de eliminar el trabajo adicional "${nombre}"?`)) {
+      return;
+    }
+
+    try {
+      showNotification('Eliminando trabajo adicional...', 'info');
+      await trabajosAdicionalesService.eliminarTrabajoAdicional(trabajoAdicionalId);
+
+      // Actualizar lista
+      const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
+      const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
+      setTrabajosAdicionales(trabajosArray);
+
+      showNotification('✅ Trabajo adicional eliminado correctamente', 'success');
+    } catch (error) {
+      console.error('❌ Error al eliminar trabajo adicional:', error);
+      showNotification('Error al eliminar trabajo adicional', 'error');
+    }
+  };
+
+  const handleCambiarEstadoTrabajoAdicional = async (trabajoAdicionalId, nuevoEstado) => {
+    try {
+      showNotification(`Cambiando estado a ${nuevoEstado}...`, 'info');
+      await trabajosAdicionalesService.actualizarEstadoTrabajoAdicional(trabajoAdicionalId, nuevoEstado);
+
+      // Actualizar lista
+      const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
+      const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
+      setTrabajosAdicionales(trabajosArray);
+
+      showNotification('✅ Estado actualizado correctamente', 'success');
+    } catch (error) {
+      console.error('❌ Error al cambiar estado:', error);
+      showNotification('Error al cambiar estado del trabajo adicional', 'error');
+    }
+  };
+
   // 🔥 NUEVA FUNCIONALIDAD: Calcular estado de tiempo de la obra comparando profesionales asignados vs presupuesto
   const calcularEstadoTiempoObra = (obraId) => {
     try {
@@ -4788,14 +4958,157 @@ const ObrasPage = ({ showNotification }) => {
                                           <span className="badge bg-info">{contarEtapasDiariasObra(obra.id)}</span>
                                         </button>
                                       </div>
+
+                                      {/* Trabajos Adicionales */}
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-clipboard-list me-2"></i>
+                                          Trabajos Adicionales
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedObraId(obra.id);
+
+                                            // Si la obra es un trabajo extra, configurar correctamente las propiedades
+                                            if (obra.esTrabajoExtra && obra.obraPadreId) {
+                                              const obraConContextoTrabajoExtra = {
+                                                ...obra,
+                                                id: obra.obraPadreId,  // ID de la obra padre
+                                                _esTrabajoExtra: true,
+                                                _trabajoExtraId: obra.id,  // ID de la obra que es trabajo extra
+                                                _trabajoExtraNombre: obra.nombre
+                                              };
+                                              console.log('🔵 Obra es trabajo extra, configurando contexto:', {
+                                                trabajoExtraId: obra.id,
+                                                obraPadreId: obra.obraPadreId,
+                                                obraConContextoTrabajoExtra
+                                              });
+                                              setObraParaTrabajosAdicionales(obraConContextoTrabajoExtra);
+                                            } else {
+                                              setObraParaTrabajosAdicionales(obra);
+                                            }
+
+                                            setMostrarModalListaTrabajosAdicionales(true);
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-plus-square me-2"></i>
+                                            Gestionar Trabajos Adicionales
+                                          </span>
+                                          <span className="badge bg-primary">
+                                            {(() => {
+                                              // Si es trabajo extra, buscar por trabajoExtraId, sino por obraId
+                                              const count = obra.esTrabajoExtra
+                                                ? trabajosAdicionales.filter(ta => ta.trabajoExtraId === obra.id).length
+                                                : contarTrabajosAdicionalesObra(obra.id);
+                                              console.log(`🏗️ Badge OBRA ${obra.id} (esTE:${!!obra.esTrabajoExtra}): count=${count}, total=${trabajosAdicionales.length}`);
+                                              return count;
+                                            })()}
+                                          </span>
+                                        </button>
+
+                                        {/* Lista de trabajos adicionales */}
+                                        {obtenerTrabajosAdicionalesObra(obra.id).length > 0 && (
+                                          <div className="mt-3">
+                                            {obtenerTrabajosAdicionalesObra(obra.id).map((ta) => (
+                                              <div key={ta.id} className="card mb-2" style={{ borderLeft: '4px solid #667eea' }}>
+                                                <div className="card-body p-2">
+                                                  <div className="d-flex justify-content-between align-items-start">
+                                                    <div className="flex-grow-1">
+                                                      <div className="d-flex align-items-center gap-2 mb-1">
+                                                        <strong className="text-primary">{ta.nombre}</strong>
+                                                        <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO[ta.estado]}`}>
+                                                          <i className={`fas fa-${trabajosAdicionalesService.ICONOS_ESTADO[ta.estado]} me-1`}></i>
+                                                          {ta.estado}
+                                                        </span>
+                                                      </div>
+                                                      <div className="small text-muted">
+                                                        <i className="fas fa-dollar-sign me-1"></i>
+                                                        ${ta.importe?.toFixed(2) || '0.00'}
+                                                        <span className="mx-2">|</span>
+                                                        <i className="fas fa-calendar-day me-1"></i>
+                                                        {ta.diasNecesarios} días
+                                                        <span className="mx-2">|</span>
+                                                        <i className="fas fa-users me-1"></i>
+                                                        {ta.profesionales?.length || 0} profesionales
+                                                      </div>
+                                                    </div>
+                                                    <div className="btn-group btn-group-sm">
+                                                      <button
+                                                        className="btn btn-outline-secondary"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          setTrabajoAdicionalEditar(ta);
+                                                          setObraParaTrabajosAdicionales(obra);
+                                                          setMostrarModalTrabajoAdicional(true);
+                                                        }}
+                                                        title="Editar"
+                                                      >
+                                                        <i className="fas fa-edit"></i>
+                                                      </button>
+                                                      <button
+                                                        className="btn btn-outline-danger"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleEliminarTrabajoAdicional(ta.id, ta.nombre);
+                                                        }}
+                                                        title="Eliminar"
+                                                      >
+                                                        <i className="fas fa-trash"></i>
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                  {ta.estado === 'PENDIENTE' && (
+                                                    <div className="mt-2 d-flex gap-1">
+                                                      <button
+                                                        className="btn btn-xs btn-primary"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleCambiarEstadoTrabajoAdicional(ta.id, 'EN_PROGRESO');
+                                                        }}
+                                                      >
+                                                        Iniciar
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                  {ta.estado === 'EN_PROGRESO' && (
+                                                    <div className="mt-2 d-flex gap-1">
+                                                      <button
+                                                        className="btn btn-xs btn-success"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleCambiarEstadoTrabajoAdicional(ta.id, 'COMPLETADO');
+                                                        }}
+                                                      >
+                                                        Completar
+                                                      </button>
+                                                      <button
+                                                        className="btn btn-xs btn-warning"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleCambiarEstadoTrabajoAdicional(ta.id, 'CANCELADO');
+                                                        }}
+                                                      >
+                                                        Cancelar
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 </td>
                               </tr>
                             )}
                           </React.Fragment>
-                          );
-                          })}
+                        );
+                      })}
                         </tbody>
                       </table>
                     </div>
@@ -5473,9 +5786,11 @@ const ObrasPage = ({ showNotification }) => {
                         const esEditable = row.estado === 'BORRADOR' || row.estado === 'A_ENVIAR';
                         const rowId = row.id;
                         const isSelected = trabajoExtraSeleccionado && rowId && trabajoExtraSeleccionado.id === rowId;
+                        // Incluir contador de trabajos adicionales en la key para forzar re-render
+                        const trabajosAdicionalesCount = contarTrabajosAdicionalesTrabajoExtra(rowId);
 
                         return (
-                          <React.Fragment key={rowId}>
+                          <React.Fragment key={`${rowId}-ta-${trabajosAdicionalesCount}`}>
                             <tr
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -6331,6 +6646,137 @@ const ObrasPage = ({ showNotification }) => {
                                         </button>
                                       </div>
 
+                                      {/* Trabajos Adicionales */}
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-clipboard-list me-2"></i>
+                                          Trabajos Adicionales
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            // Configurar el trabajo extra como obra para trabajos adicionales
+                                            const trabajoExtraComoObra = {
+                                              ...row,
+                                              id: row.obraId || obraParaTrabajosExtra.id, // ID de la obra padre
+                                              _esTrabajoExtra: true,
+                                              _trabajoExtraId: row.id,
+                                              _trabajoExtraNombre: row.nombreObra || row.nombre
+                                            };
+                                            setObraParaTrabajosAdicionales(trabajoExtraComoObra);
+                                            setMostrarModalListaTrabajosAdicionales(true);
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-plus-square me-2"></i>
+Gestionar Trabajos Adicionales
+                                          </span>
+                                          <span className="badge bg-primary">
+                                            {trabajosAdicionales.filter(ta => ta.trabajoExtraId === row.id).length}
+                                          </span>
+                                        </button>
+
+                                        {/* Lista de trabajos adicionales */}
+                                        {obtenerTrabajosAdicionalesTrabajoExtra(row.id).length > 0 && (
+                                          <div className="mt-3">
+                                            {obtenerTrabajosAdicionalesTrabajoExtra(row.id).map((ta) => (
+                                              <div key={ta.id} className="card mb-2" style={{ borderLeft: '4px solid #ff9800' }}>
+                                                <div className="card-body p-2">
+                                                  <div className="d-flex justify-content-between align-items-start">
+                                                    <div className="flex-grow-1">
+                                                      <div className="d-flex align-items-center gap-2 mb-1">
+                                                        <strong className="text-warning">{ta.nombre}</strong>
+                                                        <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO[ta.estado]}`}>
+                                                          <i className={`fas fa-${trabajosAdicionalesService.ICONOS_ESTADO[ta.estado]} me-1`}></i>
+                                                          {ta.estado}
+                                                        </span>
+                                                      </div>
+                                                      <div className="small text-muted">
+                                                        <i className="fas fa-dollar-sign me-1"></i>
+                                                        ${ta.importe?.toFixed(2) || '0.00'}
+                                                        <span className="mx-2">|</span>
+                                                        <i className="fas fa-calendar-day me-1"></i>
+                                                        {ta.diasNecesarios} días
+                                                        <span className="mx-2">|</span>
+                                                        <i className="fas fa-users me-1"></i>
+                                                        {ta.profesionales?.length || 0} profesionales
+                                                      </div>
+                                                    </div>
+                                                    <div className="btn-group btn-group-sm">
+                                                      <button
+                                                        className="btn btn-outline-secondary"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          const trabajoExtraComoObra = {
+                                                            ...row,
+                                                            id: row.obraId || obraParaTrabajosExtra.id,
+                                                            _esTrabajoExtra: true,
+                                                            _trabajoExtraId: row.id,
+                                                            _trabajoExtraNombre: row.nombreObra || row.nombre
+                                                          };
+                                                          setTrabajoAdicionalEditar(ta);
+                                                          setObraParaTrabajosAdicionales(trabajoExtraComoObra);
+                                                          setMostrarModalTrabajoAdicional(true);
+                                                        }}
+                                                        title="Editar"
+                                                      >
+                                                        <i className="fas fa-edit"></i>
+                                                      </button>
+                                                      <button
+                                                        className="btn btn-outline-danger"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleEliminarTrabajoAdicional(ta.id, ta.nombre);
+                                                        }}
+                                                        title="Eliminar"
+                                                      >
+                                                        <i className="fas fa-trash"></i>
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                  {ta.estado === 'PENDIENTE' && (
+                                                    <div className="mt-2 d-flex gap-1">
+                                                      <button
+                                                        className="btn btn-xs btn-primary"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleCambiarEstadoTrabajoAdicional(ta.id, 'EN_PROGRESO');
+                                                        }}
+                                                      >
+                                                        Iniciar
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                  {ta.estado === 'EN_PROGRESO' && (
+                                                    <div className="mt-2 d-flex gap-1">
+                                                      <button
+                                                        className="btn btn-xs btn-success"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleCambiarEstadoTrabajoAdicional(ta.id, 'COMPLETADO');
+                                                        }}
+                                                      >
+                                                        Completar
+                                                      </button>
+                                                      <button
+                                                        className="btn btn-xs btn-warning"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleCambiarEstadoTrabajoAdicional(ta.id, 'CANCELADO');
+                                                        }}
+                                                      >
+                                                        Cancelar
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+
                                       {/* NUEVA SECCIÓN: GESTIÓN DE ESTADO Y CICLO DE VIDA */}
                                       <div className="col-12 mt-4">
                                         <div className="card border-primary">
@@ -6448,15 +6894,7 @@ const ObrasPage = ({ showNotification }) => {
                           </React.Fragment>
                         );
                       })}
-
-                      {/* FILA DE DETALLE EXPANDIBLE (FUERA DEL MAP, PERO DENTRO DE TBODY CON LÓGICA DE RENDERIZADO) */}
-                      {/* Corrección: Debe estar DENTRO del map, pero como React requiere un solo elemento padre, usaremos Fragment o Array */}
-                      {/* Al haber modificado la fila 'tr' arriba, necesitamos renderizar la fila de detalle JUSTO DESPUÉS */}
-                      {/* Como el map retorna un elemento 'tr', no podemos retornar dos 'tr' sin fragmento. */}
-                      {/* Sin embargo, la estructura anterior del map era un solo return. */}
-                      {/* VOY A REFACTORIZAR EL MAP PARA RETORNAR <> <TR/> {EXPANDIDO && <TR/>} </> */}
-
-                    </tbody>
+                      </tbody>
                   </table>
                 </div>
                 </>
@@ -8216,9 +8654,1051 @@ const ObrasPage = ({ showNotification }) => {
         </div>
       )}
 
+      {/* Modal Lista de Trabajos Adicionales */}
+      {mostrarModalListaTrabajosAdicionales && obraParaTrabajosAdicionales && (
+        <div
+          className="modal fade show"
+          style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.6)' }}
+          tabIndex="-1"
+          onClick={() => setMostrarModalListaTrabajosAdicionales(false)}
+        >
+          <div className="modal-dialog modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content" style={{ borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 50px rgba(0,0,0,0.3)' }}>
+              {/* Header */}
+              <div className="modal-header text-white" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderBottom: '3px solid #5a67d8',
+                padding: '1.5rem'
+              }}>
+                <div>
+                  <h5 className="modal-title mb-1">
+                    <i className="fas fa-tasks me-2"></i>
+                    Trabajos Adicionales
+                  </h5>
+                  <p className="mb-0 small opacity-90">
+                    {obraParaTrabajosAdicionales._esTrabajoExtra
+                      ? `Trabajo Extra: ${obraParaTrabajosAdicionales._trabajoExtraNombre}`
+                      : `Obra: ${obraParaTrabajosAdicionales.direccionObra || obraParaTrabajosAdicionales.nombre}`
+                    }
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setMostrarModalListaTrabajosAdicionales(false)}
+                ></button>
+              </div>
+
+              {/* Body */}
+              <div className="modal-body p-4">
+                {/* Botón crear nuevo */}
+                <div className="d-flex justify-content-end mb-3">
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      console.log('🟢 Click en Nuevo Trabajo Adicional desde modal de lista:', {
+                        obraParaTrabajosAdicionales,
+                        _esTrabajoExtra: obraParaTrabajosAdicionales._esTrabajoExtra,
+                        _trabajoExtraId: obraParaTrabajosAdicionales._trabajoExtraId
+                      });
+                      setTrabajoAdicionalEditar(null);
+                      setMostrarModalTrabajoAdicional(true);
+                    }}
+                  >
+                    <i className="fas fa-plus me-2"></i>
+                    Nuevo Trabajo Adicional
+                  </button>
+                </div>
+
+                {/* Lista de trabajos adicionales */}
+                {(() => {
+                  const trabajosFiltrados = obraParaTrabajosAdicionales._esTrabajoExtra
+                    ? obtenerTrabajosAdicionalesTrabajoExtra(obraParaTrabajosAdicionales._trabajoExtraId)
+                    : obtenerTrabajosAdicionalesObra(obraParaTrabajosAdicionales.id);
+
+                  console.log('🔍 DEBUG Modal Trabajos Adicionales:', {
+                    esTrabajoExtra: obraParaTrabajosAdicionales._esTrabajoExtra,
+                    trabajoExtraId: obraParaTrabajosAdicionales._trabajoExtraId,
+                    obraId: obraParaTrabajosAdicionales.id,
+                    totalTrabajosAdicionales: trabajosAdicionales.length,
+                    trabajosAdicionalesCompleto: trabajosAdicionales,
+                    trabajosFiltrados: trabajosFiltrados
+                  });
+
+                  if (trabajosFiltrados.length === 0) {
+                    return (
+                      <div className="text-center py-5">
+                        <i className="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <p className="text-muted">No hay trabajos adicionales registrados</p>
+                        <p className="small text-muted">Haga clic en "Nuevo Trabajo Adicional" para crear uno</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="row g-3">
+                      {trabajosFiltrados.map((ta) => (
+                        <div key={ta.id} className="col-12">
+                          <div className="card" style={{
+                            borderLeft: `4px solid ${obraParaTrabajosAdicionales._esTrabajoExtra ? '#ff9800' : '#667eea'}`,
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                          }}>
+                            <div className="card-body">
+                              <div className="row align-items-start">
+                                {/* Información principal */}
+                                <div className="col-md-8">
+                                  <div className="d-flex align-items-center gap-2 mb-2">
+                                    <h5 className="mb-0 text-primary">{ta.nombre}</h5>
+                                    <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO[ta.estado]}`}>
+                                      <i className={`fas fa-${trabajosAdicionalesService.ICONOS_ESTADO[ta.estado]} me-1`}></i>
+                                      {ta.estado}
+                                    </span>
+                                  </div>
+
+                                  <div className="row g-2 mb-2">
+                                    <div className="col-auto">
+                                      <small className="text-muted">
+                                        <i className="fas fa-dollar-sign me-1"></i>
+                                        <strong>Importe:</strong> ${ta.importe?.toFixed(2) || '0.00'}
+                                      </small>
+                                    </div>
+                                    <div className="col-auto">
+                                      <small className="text-muted">
+                                        <i className="fas fa-calendar-day me-1"></i>
+                                        <strong>Días:</strong> {ta.diasNecesarios}
+                                      </small>
+                                    </div>
+                                    <div className="col-auto">
+                                      <small className="text-muted">
+                                        <i className="fas fa-users me-1"></i>
+                                        <strong>Profesionales:</strong> {ta.profesionales?.length || 0}
+                                      </small>
+                                    </div>
+                                    {ta.fechaInicio && (
+                                      <div className="col-auto">
+                                        <small className="text-muted">
+                                          <i className="fas fa-calendar-alt me-1"></i>
+                                          <strong>Inicio:</strong> {new Date(ta.fechaInicio).toLocaleDateString()}
+                                        </small>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {ta.descripcion && (
+                                    <p className="small text-muted mb-0">
+                                      <i className="fas fa-info-circle me-1"></i>
+                                      {ta.descripcion}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Acciones */}
+                                <div className="col-md-4 text-end">
+                                  <div className="btn-group btn-group-sm mb-2 w-100" role="group">
+                                    <button
+                                      className="btn btn-outline-primary"
+                                      onClick={() => {
+                                        setTrabajoAdicionalEditar(ta);
+                                        setMostrarModalTrabajoAdicional(true);
+                                      }}
+                                      title="Editar"
+                                    >
+                                      <i className="fas fa-edit me-1"></i>
+                                      Editar
+                                    </button>
+                                    <button
+                                      className="btn btn-outline-danger"
+                                      onClick={() => handleEliminarTrabajoAdicional(ta.id, ta.nombre)}
+                                      title="Eliminar"
+                                    >
+                                      <i className="fas fa-trash me-1"></i>
+                                      Eliminar
+                                    </button>
+                                  </div>
+
+                                  {/* Botones de cambio de estado */}
+                                  {ta.estado === 'PENDIENTE' && (
+                                    <button
+                                      className="btn btn-sm btn-primary w-100"
+                                      onClick={() => handleCambiarEstadoTrabajoAdicional(ta.id, 'EN_PROGRESO')}
+                                    >
+                                      <i className="fas fa-play me-1"></i>
+                                      Iniciar Trabajo
+                                    </button>
+                                  )}
+                                  {ta.estado === 'EN_PROGRESO' && (
+                                    <div className="d-flex gap-1">
+                                      <button
+                                        className="btn btn-sm btn-success flex-grow-1"
+                                        onClick={() => handleCambiarEstadoTrabajoAdicional(ta.id, 'COMPLETADO')}
+                                      >
+                                        <i className="fas fa-check me-1"></i>
+                                        Completar
+                                      </button>
+                                      <button
+                                        className="btn btn-sm btn-warning flex-grow-1"
+                                        onClick={() => handleCambiarEstadoTrabajoAdicional(ta.id, 'CANCELADO')}
+                                      >
+                                        <i className="fas fa-times me-1"></i>
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Lista de profesionales */}
+                              {ta.profesionales && ta.profesionales.length > 0 && (
+                                <div className="mt-3 pt-3 border-top">
+                                  <h6 className="small text-muted mb-2">
+                                    <i className="fas fa-hard-hat me-1"></i>
+                                    Profesionales Asignados:
+                                  </h6>
+                                  <div className="d-flex flex-wrap gap-2">
+                                    {ta.profesionales.map((prof, idx) => (
+                                      <span
+                                        key={idx}
+                                        className={`badge ${prof.esRegistrado ? 'bg-info' : 'bg-secondary'}`}
+                                        style={{ fontSize: '0.85rem' }}
+                                      >
+                                        {prof.nombre} - {prof.tipoProfesional}
+                                        {prof.honorarioDia && <> (${parseFloat(prof.honorarioDia).toFixed(2)}/día)</>}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Footer */}
+              <div className="modal-footer bg-light">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setMostrarModalListaTrabajosAdicionales(false)}
+                >
+                  <i className="fas fa-times me-2"></i>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Trabajos Adicionales */}
+      {mostrarModalTrabajoAdicional && obraParaTrabajosAdicionales && (
+        <div
+          className="modal fade show"
+          style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.7)' }}
+          tabIndex="-1"
+          onClick={() => {
+            setMostrarModalTrabajoAdicional(false);
+            // No cerrar el modal de lista, solo el de crear/editar
+          }}
+        >
+          <div className="modal-dialog modal-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content" style={{ borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 50px rgba(0,0,0,0.3)' }}>
+              {/* Header con gradiente */}
+              <div className="modal-header text-white" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderBottom: '3px solid #5a67d8',
+                padding: '1.5rem'
+              }}>
+                <div>
+                  <h4 className="modal-title mb-0" style={{ fontWeight: '600' }}>
+                    <i className="fas fa-clipboard-list me-3" style={{ fontSize: '1.5rem' }}></i>
+                    {trabajoAdicionalEditar ? 'Editar Trabajo Adicional' : 'Nuevo Trabajo Adicional'}
+                  </h4>
+                  <small className="text-white-50 ms-5">Complete la información del trabajo adicional</small>
+                </div>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => {
+                    setMostrarModalTrabajoAdicional(false);
+                    setTrabajoAdicionalEditar(null);
+                  }}
+                  style={{ fontSize: '1.2rem' }}
+                ></button>
+              </div>
+
+              {/* Body */}
+              <div className="modal-body" style={{ padding: '2rem', backgroundColor: '#f8f9fa' }}>
+                {/* Información de la obra/trabajo extra vinculado */}
+                <div className="card mb-4" style={{
+                  border: 'none',
+                  borderRadius: '12px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  background: obraParaTrabajosAdicionales._esTrabajoExtra
+                    ? 'linear-gradient(135deg, #fff5e6 0%, #ffe0b2 100%)'
+                    : 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)'
+                }}>
+                  <div className="card-body py-3">
+                    <div className="d-flex align-items-center">
+                      <div className="me-3" style={{
+                        width: '50px',
+                        height: '50px',
+                        borderRadius: '12px',
+                        background: obraParaTrabajosAdicionales._esTrabajoExtra ? '#ff9800' : '#2196f3',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                      }}>
+                        <i className={`fas fa-${obraParaTrabajosAdicionales._esTrabajoExtra ? 'wrench' : 'building'} text-white`} style={{ fontSize: '1.5rem' }}></i>
+                      </div>
+                      <div>
+                        <div className="fw-bold text-dark" style={{ fontSize: '0.9rem', marginBottom: '2px' }}>
+                          <i className="fas fa-link me-2 text-muted"></i>
+                          Vinculado a:
+                        </div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: '600', color: '#333' }}>
+                          {obraParaTrabajosAdicionales._esTrabajoExtra
+                            ? obraParaTrabajosAdicionales._trabajoExtraNombre
+                            : obraParaTrabajosAdicionales.nombre}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Formulario */}
+                <form
+                  id="formTrabajoAdicional"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    // El submit se maneja desde el botón de guardar
+                  }}
+                >
+                  {/* Sección 1: Información General */}
+                  <div className="card mb-4" style={{ border: 'none', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <div className="card-header" style={{
+                      background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)',
+                      color: 'white',
+                      borderRadius: '12px 12px 0 0',
+                      padding: '1rem 1.5rem'
+                    }}>
+                      <h6 className="mb-0" style={{ fontWeight: '600' }}>
+                        <i className="fas fa-info-circle me-2"></i>
+                        Información General
+                      </h6>
+                    </div>
+                    <div className="card-body p-4">
+                      {/* Nombre de la tarea */}
+                      <div className="mb-4">
+                        <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                          <i className="fas fa-tasks me-2 text-primary"></i>
+                          Nombre de la Tarea Adicional
+                          <span className="text-danger ms-1">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          name="nombre"
+                          className="form-control form-control-lg"
+                          placeholder="Ej: Instalación de sistema eléctrico adicional"
+                          defaultValue={trabajoAdicionalEditar?.nombre || ''}
+                          required
+                          style={{
+                            borderRadius: '10px',
+                            border: '2px solid #e5e7eb',
+                            padding: '0.75rem 1rem',
+                            fontSize: '1rem'
+                          }}
+                        />
+                      </div>
+
+                      <div className="row">
+                        {/* Importe */}
+                        <div className="col-md-4 mb-4">
+                          <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                            <i className="fas fa-dollar-sign me-2 text-success"></i>
+                            Importe
+                            <span className="text-danger ms-1">*</span>
+                          </label>
+                          <div className="input-group" style={{ borderRadius: '10px', overflow: 'hidden' }}>
+                            <span className="input-group-text" style={{
+                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                              color: 'white',
+                              border: 'none',
+                              fontWeight: '600'
+                            }}>
+                              $
+                            </span>
+                            <input
+                              type="number"
+                              name="importe"
+                              className="form-control form-control-lg"
+                              placeholder="0.00"
+                              step="0.01"
+                              min="0"
+                              defaultValue={trabajoAdicionalEditar?.importe || ''}
+                              required
+                              style={{
+                                border: '2px solid #e5e7eb',
+                                borderLeft: 'none',
+                                fontSize: '1rem'
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Días/Jornales necesarios */}
+                        <div className="col-md-4 mb-4">
+                          <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                            <i className="fas fa-calendar-day me-2 text-warning"></i>
+                            Días/Jornales
+                            <span className="text-danger ms-1">*</span>
+                          </label>
+                          <div className="input-group" style={{ borderRadius: '10px', overflow: 'hidden' }}>
+                            <span className="input-group-text" style={{
+                              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                              color: 'white',
+                              border: 'none'
+                            }}>
+                              <i className="fas fa-business-time"></i>
+                            </span>
+                            <input
+                              type="number"
+                              name="diasNecesarios"
+                              className="form-control form-control-lg"
+                              placeholder="5"
+                              min="1"
+                              defaultValue={trabajoAdicionalEditar?.diasNecesarios || ''}
+                              required
+                              style={{
+                                border: '2px solid #e5e7eb',
+                                borderLeft: 'none',
+                                fontSize: '1rem'
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Fecha de Inicio */}
+                        <div className="col-md-4 mb-4">
+                          <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                            <i className="fas fa-calendar-alt me-2 text-info"></i>
+                            Fecha de Inicio
+                            <span className="text-danger ms-1">*</span>
+                          </label>
+                          <div className="input-group" style={{ borderRadius: '10px', overflow: 'hidden' }}>
+                            <span className="input-group-text" style={{
+                              background: 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
+                              color: 'white',
+                              border: 'none'
+                            }}>
+                              <i className="fas fa-clock"></i>
+                            </span>
+                            <input
+                              type="date"
+                              name="fechaInicio"
+                              className="form-control form-control-lg"
+                              defaultValue={trabajoAdicionalEditar?.fechaInicio || ''}
+                              required
+                              style={{
+                                border: '2px solid #e5e7eb',
+                                borderLeft: 'none',
+                                fontSize: '1rem'
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sección 2: Profesionales */}
+                  <div className="card mb-4" style={{ border: 'none', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <div className="card-header" style={{
+                      background: 'linear-gradient(90deg, #ec4899 0%, #db2777 100%)',
+                      color: 'white',
+                      borderRadius: '12px 12px 0 0',
+                      padding: '1rem 1.5rem'
+                    }}>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <h6 className="mb-0" style={{ fontWeight: '600' }}>
+                          <i className="fas fa-users me-2"></i>
+                          Profesionales Asignados
+                        </h6>
+                        <span className="badge bg-white text-dark" style={{ fontSize: '0.85rem' }}>
+                          {profesionalesSeleccionados.length + profesionalesAdhoc.length} seleccionados
+                        </span>
+                      </div>
+                    </div>
+                    <div className="card-body p-4">
+                      {/* Tabs para seleccionar origen */}
+                      <ul className="nav nav-pills mb-3" style={{ gap: '0.5rem' }}>
+                        <li className="nav-item">
+                          <button
+                            className={`nav-link ${!mostrarFormularioAdhoc ? 'active' : ''}`}
+                            onClick={() => setMostrarFormularioAdhoc(false)}
+                            style={{
+                              borderRadius: '8px',
+                              fontWeight: '600',
+                              fontSize: '0.9rem',
+                              background: !mostrarFormularioAdhoc
+                                ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
+                                : '#f3f4f6',
+                              color: !mostrarFormularioAdhoc ? 'white' : '#6b7280',
+                              border: 'none'
+                            }}
+                          >
+                            <i className="fas fa-list me-2"></i>
+                            Seleccionar de Lista
+                          </button>
+                        </li>
+                        <li className="nav-item">
+                          <button
+                            className={`nav-link ${mostrarFormularioAdhoc ? 'active' : ''}`}
+                            onClick={() => setMostrarFormularioAdhoc(true)}
+                            style={{
+                              borderRadius: '8px',
+                              fontWeight: '600',
+                              fontSize: '0.9rem',
+                              background: mostrarFormularioAdhoc
+                                ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
+                                : '#f3f4f6',
+                              color: mostrarFormularioAdhoc ? 'white' : '#6b7280',
+                              border: 'none'
+                            }}
+                          >
+                            <i className="fas fa-user-plus me-2"></i>
+                            Agregar Manualmente
+                          </button>
+                        </li>
+                      </ul>
+
+                      {/* Contenido según tab seleccionado */}
+                      {!mostrarFormularioAdhoc ? (
+                        // TAB 1: Seleccionar de lista
+                        <>
+                          <div className="alert alert-light border-0 mb-3" style={{ borderRadius: '10px', backgroundColor: '#f9fafb' }}>
+                            <small className="text-muted d-flex align-items-center">
+                              <i className="fas fa-info-circle me-2 text-primary"></i>
+                              Seleccione profesionales de su catálogo registrado
+                            </small>
+                          </div>
+
+                          {loadingProfesionalesTA ? (
+                            <div className="text-center py-5">
+                              <div className="spinner-border text-primary" role="status">
+                                <span className="visually-hidden">Cargando...</span>
+                              </div>
+                              <p className="mt-2 text-muted">Cargando profesionales...</p>
+                            </div>
+                          ) : profesionalesDisponiblesTA.length === 0 ? (
+                            <div className="text-muted text-center py-5">
+                              <i className="fas fa-users-slash mb-3" style={{ fontSize: '3rem', opacity: 0.3 }}></i>
+                              <p className="mb-0">No hay profesionales registrados</p>
+                              <small className="text-muted">Use la pestaña "Agregar Manualmente" para añadir nuevos</small>
+                            </div>
+                          ) : (
+                            <div className="border rounded-3" style={{
+                              maxHeight: '300px',
+                              overflowY: 'auto',
+                              backgroundColor: 'white'
+                            }}>
+                              <table className="table table-hover mb-0">
+                                <thead style={{ position: 'sticky', top: 0, backgroundColor: '#f8f9fa', zIndex: 1 }}>
+                                  <tr>
+                                    <th style={{ width: '50px' }}></th>
+                                    <th>Nombre</th>
+                                    <th>Tipo</th>
+                                    <th>Honorario/Día</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {profesionalesDisponiblesTA.map((prof) => {
+                                    const estaSeleccionado = profesionalesSeleccionados.some(p => p.id === prof.id);
+                                    return (
+                                      <tr
+                                        key={prof.id}
+                                        style={{
+                                          backgroundColor: estaSeleccionado ? '#fce7f3' : 'transparent',
+                                          cursor: 'pointer'
+                                        }}
+                                        onClick={() => {
+                                          if (estaSeleccionado) {
+                                            setProfesionalesSeleccionados(prev => prev.filter(p => p.id !== prof.id));
+                                          } else {
+                                            setProfesionalesSeleccionados(prev => [...prev, prof]);
+                                          }
+                                        }}
+                                      >
+                                        <td className="text-center">
+                                          <input
+                                            type="checkbox"
+                                            className="form-check-input"
+                                            checked={estaSeleccionado}
+                                            onChange={() => {}}
+                                            style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                                          />
+                                        </td>
+                                        <td>
+                                          <div className="fw-semibold">{prof.nombre}</div>
+                                          {prof.telefono && (
+                                            <small className="text-muted">
+                                              <i className="fas fa-phone me-1"></i>
+                                              {prof.telefono}
+                                            </small>
+                                          )}
+                                        </td>
+                                        <td>
+                                          <span className="badge bg-primary" style={{ fontSize: '0.75rem' }}>
+                                            {prof.tipoProfesional || 'Sin especificar'}
+                                          </span>
+                                        </td>
+                                        <td className="fw-semibold text-success">
+                                          ${prof.honorario_dia ? parseFloat(prof.honorario_dia).toFixed(2) : '0.00'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        // TAB 2: Agregar manualmente
+                        <>
+                          <div className="alert alert-warning border-0 mb-3" style={{ borderRadius: '10px' }}>
+                            <small className="d-flex align-items-center">
+                              <i className="fas fa-exclamation-triangle me-2"></i>
+                              Los profesionales agregados aquí <strong className="ms-1">NO se guardarán</strong> en su catálogo permanente, solo para este trabajo adicional
+                            </small>
+                          </div>
+
+                          <div className="card" style={{ border: '2px dashed #e5e7eb', borderRadius: '10px' }}>
+                            <div className="card-body p-3">
+                              <div className="row">
+                                <div className="col-md-6 mb-3">
+                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                    <i className="fas fa-user me-1"></i>
+                                    Nombre Completo *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    className="form-control"
+                                    value={profesionalAdhocForm.nombre}
+                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, nombre: e.target.value })}
+                                    placeholder="Ej: Juan Pérez"
+                                    style={{ borderRadius: '8px' }}
+                                  />
+                                </div>
+                                <div className="col-md-6 mb-3">
+                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                    <i className="fas fa-hard-hat me-1"></i>
+                                    Tipo/Especialidad *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    className="form-control"
+                                    value={profesionalAdhocForm.tipoProfesional}
+                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, tipoProfesional: e.target.value })}
+                                    placeholder="Ej: Electricista, Plomero, etc."
+                                    style={{ borderRadius: '8px' }}
+                                  />
+                                </div>
+                                <div className="col-md-4 mb-3">
+                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                    <i className="fas fa-dollar-sign me-1"></i>
+                                    Honorario/Día
+                                  </label>
+                                  <input
+                                    type="number"
+                                    className="form-control"
+                                    value={profesionalAdhocForm.honorarioDia}
+                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, honorarioDia: e.target.value })}
+                                    placeholder="0.00"
+                                    step="0.01"
+                                    min="0"
+                                    style={{ borderRadius: '8px' }}
+                                  />
+                                </div>
+                                <div className="col-md-4 mb-3">
+                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                    <i className="fas fa-phone me-1"></i>
+                                    Teléfono
+                                  </label>
+                                  <input
+                                    type="tel"
+                                    className="form-control"
+                                    value={profesionalAdhocForm.telefono}
+                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, telefono: e.target.value })}
+                                    placeholder="Ej: +54 9 11 1234-5678"
+                                    style={{ borderRadius: '8px' }}
+                                  />
+                                </div>
+                                <div className="col-md-4 mb-3">
+                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                    <i className="fas fa-envelope me-1"></i>
+                                    Email
+                                  </label>
+                                  <input
+                                    type="email"
+                                    className="form-control"
+                                    value={profesionalAdhocForm.email}
+                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, email: e.target.value })}
+                                    placeholder="ejemplo@correo.com"
+                                    style={{ borderRadius: '8px' }}
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="btn btn-primary w-100"
+                                onClick={() => {
+                                  if (!profesionalAdhocForm.nombre || !profesionalAdhocForm.tipoProfesional) {
+                                    showNotification('Complete al menos el nombre y tipo de profesional', 'warning');
+                                    return;
+                                  }
+                                  const nuevoProfesional = {
+                                    id: `adhoc_${Date.now()}`,
+                                    nombre: profesionalAdhocForm.nombre,
+                                    tipoProfesional: profesionalAdhocForm.tipoProfesional,
+                                    honorario_dia: profesionalAdhocForm.honorarioDia || '0',
+                                    telefono: profesionalAdhocForm.telefono,
+                                    email: profesionalAdhocForm.email,
+                                    _esAdhoc: true
+                                  };
+                                  setProfesionalesAdhoc(prev => [...prev, nuevoProfesional]);
+                                  setProfesionalAdhocForm({
+                                    nombre: '',
+                                    tipoProfesional: '',
+                                    honorarioDia: '',
+                                    telefono: '',
+                                    email: ''
+                                  });
+                                  showNotification('Profesional agregado temporalmente', 'success');
+                                }}
+                                style={{
+                                  borderRadius: '8px',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                <i className="fas fa-plus-circle me-2"></i>
+                                Agregar a la Lista Temporal
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Resumen de profesionales seleccionados */}
+                      {(profesionalesSeleccionados.length > 0 || profesionalesAdhoc.length > 0) && (
+                        <div className="mt-4">
+                          <hr />
+                          <h6 className="fw-bold mb-3" style={{ color: '#374151' }}>
+                            <i className="fas fa-check-circle me-2 text-success"></i>
+                            Profesionales que se asignarán ({profesionalesSeleccionados.length + profesionalesAdhoc.length})
+                          </h6>
+
+                          <div className="row g-2">
+                            {profesionalesSeleccionados.map((prof) => (
+                              <div key={prof.id} className="col-md-6">
+                                <div className="card border-0" style={{
+                                  backgroundColor: '#fce7f3',
+                                  borderRadius: '8px'
+                                }}>
+                                  <div className="card-body p-2 d-flex justify-content-between align-items-center">
+                                    <div>
+                                      <div className="fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                        {prof.nombre}
+                                      </div>
+                                      <small className="text-muted">
+                                        <i className="fas fa-hard-hat me-1"></i>
+                                        {prof.tipoProfesional}
+                                      </small>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-danger"
+                                      onClick={() => setProfesionalesSeleccionados(prev => prev.filter(p => p.id !== prof.id))}
+                                      style={{ borderRadius: '6px' }}
+                                    >
+                                      <i className="fas fa-times"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {profesionalesAdhoc.map((prof) => (
+                              <div key={prof.id} className="col-md-6">
+                                <div className="card border-0" style={{
+                                  backgroundColor: '#fef3c7',
+                                  borderRadius: '8px',
+                                  border: '2px dashed #f59e0b'
+                                }}>
+                                  <div className="card-body p-2 d-flex justify-content-between align-items-center">
+                                    <div>
+                                      <div className="fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                        {prof.nombre}
+                                        <span className="badge bg-warning text-dark ms-2" style={{ fontSize: '0.65rem' }}>
+                                          TEMPORAL
+                                        </span>
+                                      </div>
+                                      <small className="text-muted">
+                                        <i className="fas fa-hard-hat me-1"></i>
+                                        {prof.tipoProfesional}
+                                      </small>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-danger"
+                                      onClick={() => setProfesionalesAdhoc(prev => prev.filter(p => p.id !== prof.id))}
+                                      style={{ borderRadius: '6px' }}
+                                    >
+                                      <i className="fas fa-times"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sección 3: Detalles y Observaciones */}
+                  <div className="card mb-0" style={{ border: 'none', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <div className="card-header" style={{
+                      background: 'linear-gradient(90deg, #14b8a6 0%, #0d9488 100%)',
+                      color: 'white',
+                      borderRadius: '12px 12px 0 0',
+                      padding: '1rem 1.5rem'
+                    }}>
+                      <h6 className="mb-0" style={{ fontWeight: '600' }}>
+                        <i className="fas fa-file-alt me-2"></i>
+                        Detalles y Observaciones
+                      </h6>
+                    </div>
+                    <div className="card-body p-4">
+                      {/* Descripción */}
+                      <div className="mb-4">
+                        <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                          <i className="fas fa-align-left me-2 text-primary"></i>
+                          Descripción
+                        </label>
+                        <textarea
+                          name="descripcion"
+                          className="form-control"
+                          rows="4"
+                          placeholder="Describa los detalles del trabajo adicional..."
+                          defaultValue={trabajoAdicionalEditar?.descripcion || ''}
+                          style={{
+                            borderRadius: '10px',
+                            border: '2px solid #e5e7eb',
+                            padding: '1rem',
+                            fontSize: '0.95rem',
+                            resize: 'none'
+                          }}
+                        ></textarea>
+                      </div>
+
+                      {/* Observaciones */}
+                      <div className="mb-0">
+                        <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                          <i className="fas fa-comment-dots me-2 text-warning"></i>
+                          Observaciones
+                        </label>
+                        <textarea
+                          name="observaciones"
+                          className="form-control"
+                          rows="3"
+                          placeholder="Notas adicionales, restricciones, etc..."
+                          defaultValue={trabajoAdicionalEditar?.observaciones || ''}
+                          style={{
+                            borderRadius: '10px',
+                            border: '2px solid #e5e7eb',
+                            padding: '1rem',
+                            fontSize: '0.95rem',
+                            resize: 'none'
+                          }}
+                        ></textarea>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              {/* Footer */}
+              <div className="modal-footer" style={{
+                padding: '1.5rem 2rem',
+                backgroundColor: '#f8f9fa',
+                borderTop: '2px solid #e5e7eb'
+              }}>
+                <button
+                  type="button"
+                  className="btn btn-light btn-lg"
+                  onClick={() => {
+                    setMostrarModalTrabajoAdicional(false);
+                    setTrabajoAdicionalEditar(null);
+                  }}
+                  style={{
+                    borderRadius: '10px',
+                    padding: '0.75rem 2rem',
+                    fontWeight: '600',
+                    border: '2px solid #d1d5db'
+                  }}
+                >
+                  <i className="fas fa-times me-2"></i>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-lg text-white"
+                  onClick={async () => {
+                    // Validar campos requeridos
+                    const form = document.querySelector('#formTrabajoAdicional');
+                    if (!form.checkValidity()) {
+                      form.reportValidity();
+                      return;
+                    }
+
+                    // Recopilar datos del formulario
+                    const formData = new FormData(form);
+                    const todosLosProfesionales = [
+                      ...profesionalesSeleccionados.map(p => ({
+                        profesionalId: p.id,
+                        nombre: p.nombre,
+                        tipoProfesional: p.tipoProfesional,
+                        honorarioDia: p.honorario_dia,
+                        telefono: p.telefono,
+                        email: p.email,
+                        esRegistrado: true
+                      })),
+                      ...profesionalesAdhoc.map(p => ({
+                        profesionalId: null,
+                        nombre: p.nombre,
+                        tipoProfesional: p.tipoProfesional,
+                        honorarioDia: p.honorario_dia,
+                        telefono: p.telefono,
+                        email: p.email,
+                        esRegistrado: false
+                      }))
+                    ];
+
+                    console.log('🟡 Preparando datos antes de enviar:', {
+                      obraParaTrabajosAdicionales,
+                      esTrabajoExtra: obraParaTrabajosAdicionales._esTrabajoExtra,
+                      trabajoExtraId: obraParaTrabajosAdicionales._trabajoExtraId,
+                      obraId: obraParaTrabajosAdicionales.id
+                    });
+
+                    const datosTrabajoAdicional = {
+                      nombre: formData.get('nombre'),
+                      importe: parseFloat(formData.get('importe')),
+                      diasNecesarios: parseInt(formData.get('diasNecesarios')),
+                      fechaInicio: formData.get('fechaInicio'),
+                      descripcion: formData.get('descripcion') || null,
+                      observaciones: formData.get('observaciones') || null,
+                      profesionales: todosLosProfesionales,
+                      // Vinculación: SIEMPRE envía el ID de la obra padre
+                      obraId: obraParaTrabajosAdicionales.id, // ID de la obra padre (siempre presente)
+                      trabajoExtraId: obraParaTrabajosAdicionales._esTrabajoExtra ? obraParaTrabajosAdicionales._trabajoExtraId : null,
+                      empresaId: parseInt(empresaId)
+                    };
+
+                    console.log('📋 Datos del trabajo adicional:', datosTrabajoAdicional);
+
+                    try {
+                      let resultado;
+
+                      if (trabajoAdicionalEditar) {
+                        // Actualizar trabajo adicional existente
+                        showNotification('Actualizando trabajo adicional...', 'info');
+                        resultado = await trabajosAdicionalesService.actualizarTrabajoAdicional(
+                          trabajoAdicionalEditar.id,
+                          datosTrabajoAdicional
+                        );
+                        showNotification('✅ Trabajo adicional actualizado correctamente', 'success');
+                      } else {
+                        // Crear nuevo trabajo adicional
+                        showNotification('Guardando trabajo adicional...', 'info');
+                        resultado = await trabajosAdicionalesService.crearTrabajoAdicional(datosTrabajoAdicional);
+                        showNotification('✅ Trabajo adicional creado correctamente', 'success');
+                      }
+
+                      console.log('✅ Respuesta del servidor:', resultado);
+
+                      // Actualizar lista de trabajos adicionales
+                      const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
+                      const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
+                      setTrabajosAdicionales(trabajosArray);
+                      // Cerrar modal y limpiar
+                      setMostrarModalTrabajoAdicional(false);
+                      setTrabajoAdicionalEditar(null);
+
+                    } catch (error) {
+                      console.error('❌ Error al guardar trabajo adicional:', error);
+
+                      // Manejo de errores específicos
+                      if (error.response) {
+                        const status = error.response.status;
+                        const mensaje = error.response.data?.message || error.response.data?.error || 'Error desconocido';
+
+                        if (status === 400) {
+                          showNotification(`Error de validación: ${mensaje}`, 'error');
+                        } else if (status === 404) {
+                          showNotification(`No encontrado: ${mensaje}`, 'error');
+                        } else if (status === 409) {
+                          showNotification(`Conflicto: ${mensaje}`, 'error');
+                        } else {
+                          showNotification(`Error ${status}: ${mensaje}`, 'error');
+                        }
+                      } else {
+                        showNotification('Error al guardar trabajo adicional. Revise la consola.', 'error');
+                      }
+                    }
+                  }}
+                  style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    border: 'none',
+                    borderRadius: '10px',
+                    padding: '0.75rem 2.5rem',
+                    fontWeight: '600',
+                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)'
+                  }}
+                >
+                  <i className="fas fa-save me-2"></i>
+                  {trabajoAdicionalEditar ? 'Actualizar' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .hover-row:hover {
           background-color: #f5f5f5 !important;
+        }
+
+        /* Botones extra pequeños para acciones de trabajos adicionales */
+        .btn-xs {
+          padding: 0.25rem 0.5rem;
+          font-size: 0.75rem;
+          line-height: 1.2;
+          border-radius: 0.2rem;
+        }
+
+        /* Animación suave para cards de trabajos adicionales */
+        .card[style*="borderLeft"] {
+          transition: box-shadow 0.2s ease;
+        }
+
+        .card[style*="borderLeft"]:hover {
+          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
       `}</style>
     </div>
