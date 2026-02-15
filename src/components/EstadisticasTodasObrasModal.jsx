@@ -4,7 +4,16 @@ import { useEstadisticasConsolidadas } from '../hooks/useEstadisticasConsolidada
 import DetalleConsolidadoPorObraModal from './DetalleConsolidadoPorObraModal';
 import DetalleDistribucionCobrosModal from './DetalleDistribucionCobrosModal';
 
-const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, showNotification }) => {
+const EstadisticasTodasObrasModal = ({
+  empresaId,
+  empresaSeleccionada,
+  onClose,
+  showNotification,
+  obrasDisponibles = [], // ✅ Obras cargadas (incluye obras independientes)
+  obrasSeleccionadas = new Set(), // ✅ IDs de obras seleccionadas
+  trabajosExtraSeleccionados = new Set(), // ✅ Trabajos extra seleccionados
+  trabajosAdicionalesDisponibles = [] // ✅ Trabajos adicionales disponibles
+}) => {
   const [showDesglose, setShowDesglose] = useState(false);
   const [desgloseTipo, setDesgloseTipo] = useState('');
   const [desgloseTitulo, setDesgloseTitulo] = useState('');
@@ -16,8 +25,48 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
     error
   } = useEstadisticasConsolidadas(empresaId, null, true);
 
+  // ✅ Calcular estadísticas personalizadas que incluyan obras independientes
+  const statsPersonalizadas = React.useMemo(() => {
+    if (!estadisticas || obrasDisponibles.length === 0) {
+      return estadisticas;
+    }
+
+    const obrasIndependientes = new Map();
+    let cantidadObrasIndependientes = 0;
+
+    // Filtrar obras independientes (si hay selección, solo las seleccionadas)
+    const obrasIndependientesArray = obrasDisponibles.filter(obra => {
+      if (!obra.esObraIndependiente) return false;
+      // Si hay selección, solo incluir seleccionadas
+      if (obrasSeleccionadas.size > 0) {
+        return obrasSeleccionadas.has(obra.id);
+      }
+      return true; // Si no hay selección, incluir todas
+    });
+
+    obrasIndependientesArray.forEach(obra => {
+      if (!obrasIndependientes.has(obra.id)) {
+        const monto = obra.totalPresupuesto || obra.presupuestoEstimado || 0;
+        obrasIndependientes.set(obra.id, monto);
+        cantidadObrasIndependientes++;
+      }
+    });
+
+    // Calcular total de obras independientes
+    const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
+
+    // Retornar estadísticas con obras independientes incluidas
+    return {
+      ...estadisticas,
+      totalPresupuesto: (estadisticas.totalPresupuesto || 0) + totalIndependientes,
+      cantidadObras: (estadisticas.cantidadObras || 0) + cantidadObrasIndependientes,
+      cantidadObrasConPresupuesto: estadisticas.cantidadObras || 0,
+      cantidadObrasIndependientes
+    };
+  }, [estadisticas, obrasDisponibles, obrasSeleccionadas]);
+
   const abrirDesglose = (tipo, titulo) => {
-    if (!estadisticas?.desglosePorObra || estadisticas.desglosePorObra.length === 0) {
+    if (!statsPersonalizadas?.desglosePorObra || statsPersonalizadas.desglosePorObra.length === 0) {
       showNotification?.('warning', 'No hay datos de desglose disponibles');
       return;
     }
@@ -31,21 +80,21 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
     return `$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
   };
 
-  // Datos para gráficos
+  // Datos para gráficos (usar estadísticas personalizadas)
   const datosDistribucion = [
-    { name: 'Cobrado', value: estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0, color: '#28a745' },
-    { name: 'Por Cobrar', value: estadisticas.totalPresupuesto - (estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0), color: '#ffc107' },
-    { name: 'Pagado', value: estadisticas.totalPagado, color: '#dc3545' }
+    { name: 'Cobrado', value: statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0, color: '#28a745' },
+    { name: 'Por Cobrar', value: statsPersonalizadas.totalPresupuesto - (statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0), color: '#ffc107' },
+    { name: 'Pagado', value: statsPersonalizadas.totalPagado, color: '#dc3545' }
   ].filter(d => d.value > 0);
 
   const datosBarras = [
-    { categoria: 'Presupuesto', monto: estadisticas.totalPresupuesto },
-    { categoria: 'Cobrado', monto: estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0 },
-    { categoria: 'Pagado', monto: estadisticas.totalPagado },
-    { categoria: 'Disponible', monto: estadisticas.saldoDisponible }
+    { categoria: 'Presupuesto', monto: statsPersonalizadas.totalPresupuesto },
+    { categoria: 'Cobrado', monto: statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0 },
+    { categoria: 'Pagado', monto: statsPersonalizadas.totalPagado },
+    { categoria: 'Disponible', monto: statsPersonalizadas.saldoDisponible }
   ];
 
-  const topObras = estadisticas.desglosePorObra
+  const topObras = statsPersonalizadas.desglosePorObra
     ?.slice(0, 10)
     ?.sort((a, b) => b.totalPresupuesto - a.totalPresupuesto) || [];
 
@@ -57,7 +106,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
           <div className="modal-header bg-success text-white">
             <h5 className="modal-title">
               <i className="fas fa-chart-bar me-2"></i>
-              Estadísticas Consolidadas - {estadisticas.cantidadObras} Obra(s)
+              Estadísticas Consolidadas - {statsPersonalizadas.cantidadObras} Obra(s)
             </h5>
             <button type="button" className="btn btn-light btn-sm ms-auto" onClick={onClose}>
               Cerrar
@@ -93,8 +142,8 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     >
                       <i className="bi bi-cash-stack fs-1 text-info"></i>
                       <h6 className="text-muted mt-2 mb-1">Total Presupuestado</h6>
-                      <h4 className="text-info mb-0">{formatearMoneda(estadisticas.totalPresupuesto)}</h4>
-                      <small className="text-muted">De {estadisticas.cantidadObras} obra(s)</small>
+                      <h4 className="text-info mb-0">{formatearMoneda(statsPersonalizadas.totalPresupuesto)}</h4>
+                      <small className="text-muted">De {statsPersonalizadas.cantidadObras} obra(s)</small>
                       <div className="mt-1">
                         <small className="text-info"><i className="bi bi-hand-index"></i></small>
                       </div>
@@ -108,8 +157,8 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     >
                       <i className="bi bi-arrow-down-circle fs-1 text-success"></i>
                       <h6 className="text-muted mt-2 mb-1">Total Cobrado</h6>
-                      <h4 className="text-success mb-0">{formatearMoneda(estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0)}</h4>
-                      <small className="text-muted">{((estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0) / (estadisticas.totalPresupuesto || 1) * 100).toFixed(1)}% del presupuesto total</small>
+                      <h4 className="text-success mb-0">{formatearMoneda(statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0)}</h4>
+                      <small className="text-muted">{((statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0) / (statsPersonalizadas.totalPresupuesto || 1) * 100).toFixed(1)}% del presupuesto total</small>
                       <div className="mt-1">
                         <small className="text-success"><i className="bi bi-hand-index"></i></small>
                       </div>
@@ -123,8 +172,8 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     >
                       <i className="bi bi-arrow-up-circle fs-1 text-danger"></i>
                       <h6 className="text-muted mt-2 mb-1">Total Pagado</h6>
-                      <h4 className="text-danger mb-0">{formatearMoneda(estadisticas.totalPagado)}</h4>
-                      <small className="text-muted">{estadisticas.porcentajePagado.toFixed(1)}% del presupuesto total</small>
+                      <h4 className="text-danger mb-0">{formatearMoneda(statsPersonalizadas.totalPagado)}</h4>
+                      <small className="text-muted">{statsPersonalizadas.porcentajePagado.toFixed(1)}% del presupuesto total</small>
                       <div className="mt-1">
                         <small className="text-danger"><i className="bi bi-hand-index"></i></small>
                       </div>
@@ -137,7 +186,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                     >
                       <i className="bi bi-wallet2 fs-1 text-warning"></i>
                       <h6 className="text-muted mt-2 mb-1">Total Retirado</h6>
-                      <h4 className="text-warning mb-0">{formatearMoneda(estadisticas.totalRetirado || 0)}</h4>
+                      <h4 className="text-warning mb-0">{formatearMoneda(statsPersonalizadas.totalRetirado || 0)}</h4>
                       <small className="text-muted">Retiros personales</small>
                       <div className="mt-1">
                         <small className="text-warning"><i className="bi bi-hand-index"></i></small>
@@ -157,12 +206,12 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                       <i className="bi bi-hourglass-split fs-1 text-warning"></i>
                       <h6 className="text-muted mt-2 mb-1">Saldo por Cobrar</h6>
                       <h4 className="text-warning mb-0">
-                        {formatearMoneda(estadisticas.totalPresupuesto - (estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0))}
+                        {formatearMoneda(statsPersonalizadas.totalPresupuesto - (statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0))}
                       </h4>
                       <small className="text-muted">
                         Falta cobrar {(
-                          estadisticas.totalPresupuesto > 0
-                            ? (100 * (estadisticas.totalPresupuesto - (estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0)) / estadisticas.totalPresupuesto)
+                          statsPersonalizadas.totalPresupuesto > 0
+                            ? (100 * (statsPersonalizadas.totalPresupuesto - (statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0)) / statsPersonalizadas.totalPresupuesto)
                             : 0
                         ).toFixed(1)}% del presupuesto
                       </small>
@@ -181,8 +230,8 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                       <h6 className="text-muted mt-2 mb-1">Saldo disponible del Total Cobrado y Asignaciones por Ítems</h6>
                       <h4 className="text-info mb-0">
                         {(() => {
-                          const totalCobrado = estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0;
-                          const totalAsignado = estadisticas.totalAsignado || 0;
+                          const totalCobrado = statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0;
+                          const totalAsignado = statsPersonalizadas.totalAsignado || 0;
                           return formatearMoneda(totalCobrado - totalAsignado);
                         })()}
                       </h4>
@@ -210,8 +259,8 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                           }
 
                           // Calcular: Total Cobrado - Total Asignado a obras
-                          const totalCobrado = estadisticas.totalCobradoEmpresa || estadisticas.totalCobrado || 0;
-                          const totalAsignado = estadisticas.totalAsignado || 0;
+                          const totalCobrado = statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0;
+                          const totalAsignado = statsPersonalizadas.totalAsignado || 0;
                           const saldoDisponible = totalCobrado - totalAsignado;
                           return formatearMoneda(saldoDisponible);
                         })()}
@@ -233,7 +282,7 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
                       <h4 className="mb-0 text-danger">
                         {(() => {
                           // Calcular suma de déficits individuales (solo obras con balance negativo)
-                          const desglose = estadisticas.desglosePorObra || [];
+                          const desglose = statsPersonalizadas.desglosePorObra || [];
                           const deficitTotal = desglose.reduce((sum, obra) => {
                             const balance = (obra.totalCobrado || 0) - (obra.totalPagado || 0) - (obra.totalRetirado || 0);
                             return balance < 0 ? sum + balance : sum;
@@ -306,14 +355,14 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
 
                 {/* Alertas */}
                 <div className="mt-4">
-                {estadisticas.alertas && estadisticas.alertas.length > 0 && (
+                {statsPersonalizadas.alertas && statsPersonalizadas.alertas.length > 0 && (
                   <div className="mb-4">
                     <h6 className="text-muted mb-3">
                       <i className="bi bi-bell-fill me-2"></i>
-                      Alertas de Obras Seleccionadas ({estadisticas.alertas.length})
+                      Alertas de Obras Seleccionadas ({statsPersonalizadas.alertas.length})
                     </h6>
                     <div className="row">
-                      {estadisticas.alertas.map((alerta, index) => (
+                      {statsPersonalizadas.alertas.map((alerta, index) => (
                         <div key={index} className="col-md-6 mb-2">
                           <div className={`alert alert-${alerta.tipo} mb-0 py-2`}>
                             <div className="d-flex align-items-start">
@@ -398,25 +447,54 @@ const EstadisticasTodasObrasModal = ({ empresaId, empresaSeleccionada, onClose, 
     </div>
 
     {/* Modal de Desglose por Obra */}
-    {showDesglose && (
-      <DetalleConsolidadoPorObraModal
-        show={showDesglose}
-        onHide={() => setShowDesglose(false)}
-        tipo={desgloseTipo}
-        datos={estadisticas?.desglosePorObra || []}
-        titulo={desgloseTitulo}
-        estadisticas={estadisticas}
-        empresaSeleccionada={empresaSeleccionada}
-      />
-    )}
+    {showDesglose && (() => {
+      // ✅ Agregar obras independientes al desglose
+      const desgloseBase = statsPersonalizadas?.desglosePorObra || [];
+      const obrasIndependientesParaDesglose = obrasDisponibles
+        .filter(obra => {
+          if (!obra.esObraIndependiente) return false;
+          // Si hay selección, solo incluir seleccionadas
+          if (obrasSeleccionadas.size > 0) {
+            return obrasSeleccionadas.has(obra.id);
+          }
+          return true; // Si no hay selección, incluir todas
+        })
+        .map(obra => ({
+          id: obra.id,
+          obraId: obra.id,
+          nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
+          numeroPresupuesto: null,
+          estado: obra.estado || 'APROBADO',
+          totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0,
+          esObraIndependiente: true,
+          totalCobrado: 0,
+          totalPagado: 0,
+          totalRetirado: 0,
+          saldoDisponible: 0
+        }));
+
+      const datosDesglose = [...desgloseBase, ...obrasIndependientesParaDesglose];
+
+      return (
+        <DetalleConsolidadoPorObraModal
+          show={showDesglose}
+          onHide={() => setShowDesglose(false)}
+          tipo={desgloseTipo}
+          datos={datosDesglose}
+          titulo={desgloseTitulo}
+          estadisticas={statsPersonalizadas}
+          empresaSeleccionada={empresaSeleccionada}
+        />
+      );
+    })()}
 
     {/* Modal de Distribución de Cobros por Obra */}
     {showDistribucionCobros && (
       <DetalleDistribucionCobrosModal
         show={showDistribucionCobros}
         onHide={() => setShowDistribucionCobros(false)}
-        datos={estadisticas?.desglosePorObra || []}
-        estadisticas={estadisticas}
+        datos={statsPersonalizadas?.desglosePorObra || []}
+        estadisticas={statsPersonalizadas}
       />
     )}
     </>

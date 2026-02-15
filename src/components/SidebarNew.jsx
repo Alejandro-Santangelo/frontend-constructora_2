@@ -194,6 +194,13 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
               <small className="text-white-50 fw-bold">ACCIONES DE OBRAS</small>
             </div>
             <div className="d-flex flex-column gap-2">
+              {/*
+                TEMPORALMENTE COMENTADO - En período de prueba
+                Esta funcionalidad ahora está disponible desde el Dashboard principal
+                como tarjeta "Trabajos - Obras Independientes"
+                Si después de probar el nuevo flujo funciona bien, eliminar este código.
+                Si hay problemas o usuarios prefieren este botón, descomentarlo.
+
               <button
                 className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
                 style={{ backgroundColor: '#4CAF50', border: 'none' }}
@@ -201,6 +208,7 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
               >
                 <i className="fas fa-plus me-2"></i>Nueva Obra sin Presupuesto Detallado
               </button>
+              */}
 
               <button
                 className="btn w-100 text-start py-3 fs-5 fw-semibold"
@@ -255,12 +263,12 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 style={{ backgroundColor: '#FFD700', border: 'none', color: '#000' }}
                 disabled={!obrasControls.selectedId || !obrasControls.esObraManual}
                 onClick={obrasControls.handleEditar}
-                title={!obrasControls.esObraManual ? 'Solo se pueden editar obras creadas manualmente' : 'Editar obra seleccionada'}
+                title={!obrasControls.esObraManual ? 'Solo se pueden editar obras independientes' : 'Editar obra seleccionada'}
               >
                 <i className="fas fa-edit me-2"></i>Editar
                 {obrasControls.selectedId && !obrasControls.esObraManual && (
                   <span className="ms-2 badge bg-danger" style={{ fontSize: '0.7rem' }}>
-                    Solo obras manuales
+                    Solo obras independientes
                   </span>
                 )}
               </button>
@@ -309,14 +317,30 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 style={{ backgroundColor: '#28a745', border: 'none' }}
                 disabled={!obrasControls.selectedId || !obrasControls.esObraManual}
                 onClick={obrasControls.handleEnviarObra}
-                title={!obrasControls.esObraManual ? 'Solo se pueden enviar obras manuales' : 'Enviar información de la obra manual'}
+                title={!obrasControls.esObraManual ? 'Solo se pueden enviar obras independientes' : 'Enviar información de la obra independiente'}
               >
                 <i className="fas fa-paper-plane me-2"></i>Enviar Obra
                 {obrasControls.selectedId && !obrasControls.esObraManual && (
                   <span className="ms-2 badge bg-danger" style={{ fontSize: '0.7rem' }}>
-                    Solo obras manuales
+                    Solo obras independientes
                   </span>
                 )}
+              </button>
+
+              {/* Separador visual */}
+              <hr className="my-2" style={{ borderColor: 'rgba(255,255,255,0.2)' }} />
+
+              {/* Botón Ver Obras Manuales - Siempre visible */}
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#FF6F00', border: 'none' }}
+                onClick={obrasControls.handleVerObrasManuales}
+                title="Ver todas las obras independientes (sin presupuesto previo)"
+              >
+                <i className="fas fa-folder-open me-2"></i>Obras Independientes
+                <span className="ms-2 badge bg-light text-dark" style={{ fontSize: '0.7rem' }}>
+                  {obrasControls.conteoObrasManuales || 0}
+                </span>
               </button>
             </div>
           </div>

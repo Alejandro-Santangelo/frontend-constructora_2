@@ -12,7 +12,13 @@ import { registrarPagoConsolidado, listarPagosConsolidadosPorEmpresa } from '../
  * ✨ Con sincronización automática vía EventBus
  * @param {Array} obrasSeleccionadas - Array de presupuestos seleccionados con checkbox
  */
-const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccionadas = [] }) => {
+const RegistrarPagoConsolidadoModal = ({
+  show,
+  onHide,
+  onSuccess,
+  obrasSeleccionadas = [],
+  obrasOriginales = [] // ✅ Obras completas para detectar independientes
+}) => {
   const { empresaSeleccionada } = useEmpresa();
 
   // 📅 Función auxiliar para calcular número de semana desde fechaAsignacion
@@ -1486,8 +1492,59 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
 
       console.log(`✅ Trabajos adicionales filtrados: ${trabajosFiltrados.length}`);
 
+      // ✅ AGREGAR OBRAS INDEPENDIENTES COMO TRABAJOS ADICIONALES
+      console.log('🏗️ Detectando obras independientes para incluir en trabajos adicionales...');
+
+      // Usar obrasOriginales que contiene las obras completas con flags
+      const obrasIndependientes = obrasOriginales.filter(obra => {
+        // Usar flag esObraIndependiente si está disponible
+        if (obra.hasOwnProperty('esObraIndependiente')) {
+          return obra.esObraIndependiente;
+        }
+
+        // Fallback: detectar obras independientes por ausencia de presupuesto
+        const tienePresupuesto = obra.presupuestoId ||
+                              obra.presupuestoNoClienteId ||
+                              obra.presupuestoNoCliente?.id ||
+                              obra.presupuestoCompleto?.id ||
+                              presupuestosCompletos.some(p => (p.obraId || p.obra_id) === obra.id);
+
+        return !tienePresupuesto; // Es obra independiente
+      });
+
+      console.log(`✅ Encontradas ${obrasIndependientes.length} obras independientes para incluir`);
+
+      // Convertir obras independientes en "trabajos adicionales especiales"
+      const obrasIndependientesComoTrabajos = obrasIndependientes.map(obra => {
+        const montoEstimado = obra.totalPresupuesto || obra.presupuestoEstimado || 0;
+
+        return {
+          id: `obra-independiente-${obra.id}`, // ID único
+          nombre: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
+          descripcion: `Obra Independiente: ${obra.nombreObra || obra.direccion || `Obra ${obra.id}`}`,
+          obraId: obra.id,
+          trabajoExtraId: null,
+          montoEstimado: montoEstimado,
+          importe: montoEstimado,
+          monto: montoEstimado,
+          montoPagado: 0, // Por defecto sin pagos
+          esObraIndependiente: true, // ✅ Flag especial
+          // Información de la obra
+          nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
+          direccionObra: obra.direccion || '',
+          estado: obra.estado || 'APROBADO',
+          fechaCreacion: obra.fechaCreacion || new Date().toISOString()
+        };
+      });
+
+      console.log(`✅ Generados ${obrasIndependientesComoTrabajos.length} trabajos adicionales desde obras independientes`);
+
+      // Combinar trabajos adicionales reales + obras independientes
+      const todosTrabajosCombinadosants = [...trabajosFiltrados, ...obrasIndependientesComoTrabajos];
+
       // Enriquecer cada trabajo con información de la obra
-      const trabajosEnriquecidos = trabajosFiltrados.map(trabajo => {
+      // Enriquecer cada trabajo con información de la obra
+      const trabajosEnriquecidos = todosTrabajosCombinadosants.map(trabajo => {
         // Buscar el presupuesto correspondiente
         let presupuesto = null;
         if (trabajo.obraId) {
@@ -1496,7 +1553,24 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
           );
         }
 
-        // Intentar obtener el importe de varios campos posibles
+        // ✅ Manejo especial para obras independientes
+        if (trabajo.esObraIndependiente) {
+          const montoEstimado = parseFloat(trabajo.montoEstimado || trabajo.importe || trabajo.monto || trabajo.importeEstimado) || 0;
+
+          return {
+            ...trabajo,
+            presupuestoId: null, // No tiene presupuesto
+            totalCalculado: montoEstimado,
+            totalPagado: 0, // Por defecto sin pagos
+            saldo: montoEstimado,
+            estadoPago: 'PENDIENTE',
+            // Mantener información de obra independiente
+            nombreObra: trabajo.nombreObra,
+            direccionObra: trabajo.direccionObra
+          };
+        }
+
+        // Lógica existente para trabajos adicionales normales
         const montoEstimado = parseFloat(trabajo.montoEstimado || trabajo.importe || trabajo.monto || trabajo.importeEstimado) || 0;
         const montoPagado = parseFloat(trabajo.montoPagado || trabajo.importePagado) || 0;
         const saldo = montoEstimado - montoPagado;
@@ -1517,7 +1591,8 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
         };
       });
 
-      console.log(`✅ Total de trabajos adicionales cargados: ${trabajosEnriquecidos.length}`);
+      console.log(`✅ Total de trabajos adicionales cargados (incluyendo obras independientes): ${trabajosEnriquecidos.length}`);
+      console.log(`📊 Desglose: ${trabajosFiltrados.length} trabajos adicionales + ${obrasIndependientesComoTrabajos.length} obras independientes`);
 
       setTodosLosTrabajos(trabajosEnriquecidos);
       return trabajosEnriquecidos;
@@ -2232,8 +2307,15 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                     <button type="button" className={`btn btn-lg ${tabActiva === 'OTROS_COSTOS' ? 'btn-warning' : 'btn-outline-warning'}`} onClick={() => setTabActiva('OTROS_COSTOS')}>
                       📋 Otros Costos ({otrosCostosFiltradosPorSemana.length})
                     </button>
-                    <button type="button" className={`btn btn-lg ${tabActiva === 'TRABAJOS_ADICIONALES' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setTabActiva('TRABAJOS_ADICIONALES')}>
-                      🔧 Trabajos Adicionales ({todosLosTrabajos.length})
+                    <button type="button" className={`btn btn-lg ${tabActiva === 'TRABAJOS_ADICIONALES' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setTabActiva('TRABAJOS_ADICIONALES')} style={{whiteSpace: 'normal', lineHeight: '1.2'}}>
+                      <div>
+                        <div style={{fontSize: '1rem', marginBottom: '2px'}}>
+                          🔧 Trabajos Adicionales ({trabajosExtraFiltradosPorSemana.filter(t => !t.esObraIndependiente).length})
+                        </div>
+                        <div style={{fontSize: '0.85rem', opacity: 0.9}}>
+                          🏗️ Obras Independientes ({trabajosExtraFiltradosPorSemana.filter(t => t.esObraIndependiente === true).length})
+                        </div>
+                      </div>
                     </button>
                   </div>
                 </div>
@@ -2957,6 +3039,186 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                         </div>
                       ) : (
                         <>
+                          {/* 🏗️ OBRAS INDEPENDIENTES (sin presupuesto) */}
+                          {(() => {
+                            const obrasIndependientes = trabajosExtraFiltradosPorSemana.filter(
+                              t => t.esObraIndependiente === true
+                            );
+
+                            if (obrasIndependientes.length === 0) return null;
+
+                            const totalAPagarObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.totalCalculado || 0), 0);
+                            const totalPagadoObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.totalPagado || 0), 0);
+                            const saldoObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.saldo || 0), 0);
+
+                            return (
+                              <div className="mb-4">
+                                {/* Encabezado de Obras Independientes */}
+                                <div className={`card ${saldoObrasIndep === 0 ? 'border-success' : 'border-warning'}`}>
+                                  <div className={`card-header ${saldoObrasIndep === 0 ? 'bg-success' : 'bg-warning'} text-dark`} style={{backgroundColor: saldoObrasIndep === 0 ? undefined : '#ffc107'}}>
+                                    <div className="d-flex justify-content-between align-items-center">
+                                      <div>
+                                        <h6 className="mb-0">
+                                          <i className="bi bi-hammer me-2"></i>
+                                          🏗️ OBRAS INDEPENDIENTES (Sin Presupuesto)
+                                        </h6>
+                                        <small>
+                                          <i className="bi bi-info-circle me-1"></i>
+                                          Obras registradas manualmente sin presupuesto previo
+                                        </small>
+                                      </div>
+                                      <div className="text-end">
+                                        <div className="badge bg-light text-dark">
+                                          {obrasIndependientes.length} obra(s) independiente(s)
+                                        </div>
+                                        <div className="mt-1">
+                                          <small>Saldo: </small>
+                                          <strong>${saldoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="card-body p-0">
+                                    <div className="table-responsive">
+                                      <table className="table table-hover table-bordered mb-0">
+                                        <thead style={{backgroundColor:'#fff3cd'}}>
+                                          <tr>
+                                            <th style={{minWidth:'250px',padding:'8px'}}>Obra Independiente</th>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Importe Estimado</th>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Pagado</th>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Saldo</th>
+                                            <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Estado</th>
+                                            <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>
+                                              <input
+                                                type="checkbox"
+                                                className="form-check-input"
+                                                checked={obrasIndependientes.every(t =>
+                                                  trabajosExtraSeleccionados.includes(t.id)
+                                                )}
+                                                onChange={() => toggleTodosTrabajoObra(obrasIndependientes)}
+                                                disabled={saldoObrasIndep === 0}
+                                              />
+                                            </th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {obrasIndependientes.map((obra) => {
+                                            const totalObra = obra.totalCalculado || 0;
+                                            const totalPagado = obra.totalPagado || 0;
+                                            const saldo = obra.saldo || 0;
+                                            const porcentajePagado = totalObra > 0 ? (totalPagado / totalObra) * 100 : 0;
+                                            const estaSeleccionado = trabajosExtraSeleccionados.includes(obra.id);
+                                            const estaPagado = saldo <= 0;
+
+                                            return (
+                                              <tr key={obra.id}>
+                                                <td style={{padding:'8px'}}>
+                                                  <div className="d-flex align-items-start">
+                                                    <div className="flex-grow-1">
+                                                      <div className="fw-bold">
+                                                        {obra.nombre}
+                                                      </div>
+                                                      {obra.direccion && (
+                                                        <small className="text-muted d-block mt-1">
+                                                          <i className="bi bi-geo-alt me-1"></i>
+                                                          {obra.direccion}
+                                                        </small>
+                                                      )}
+                                                      <div className="mt-1">
+                                                        <span className="badge bg-warning text-dark me-2">
+                                                          🏗️ Obra Independiente
+                                                        </span>
+                                                        <span className="badge bg-info text-white">
+                                                          ℹ️ Sin Presupuesto Previo
+                                                        </span>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                </td>
+
+                                                <td style={{padding:'8px',textAlign:'right'}}>
+                                                  <strong className="text-primary">
+                                                    ${totalObra.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                  </strong>
+                                                  <br />
+                                                  <small className="text-muted">(Estimado)</small>
+                                                </td>
+
+                                                <td style={{padding:'8px',textAlign:'right'}}>
+                                                  <span className="text-success">
+                                                    ${totalPagado.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                  </span>
+                                                </td>
+
+                                                <td style={{padding:'8px',textAlign:'right'}}>
+                                                  <strong className={saldo > 0 ? 'text-warning' : 'text-muted'}>
+                                                    ${saldo.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                  </strong>
+                                                </td>
+
+                                                <td style={{padding:'8px',textAlign:'center'}}>
+                                                  {obra.estadoPago === 'PAGADO_TOTAL' ? (
+                                                    <span className="badge bg-success">✅ Completo</span>
+                                                  ) : obra.estadoPago === 'PAGADO_PARCIAL' ? (
+                                                    <span className="badge bg-warning text-dark">
+                                                      <i className="bi bi-clock-history me-1"></i>
+                                                      Parcial ({porcentajePagado.toFixed(0)}%)
+                                                    </span>
+                                                  ) : (
+                                                    <span className="badge bg-danger">
+                                                      <i className="bi bi-exclamation-circle me-1"></i>
+                                                      Pendiente
+                                                    </span>
+                                                  )}
+                                                </td>
+
+                                                <td style={{padding:'8px',textAlign:'center'}}>
+                                                  <input
+                                                    type="checkbox"
+                                                    className="form-check-input"
+                                                    checked={estaSeleccionado}
+                                                    onChange={() => toggleTrabajoExtra(obra.id)}
+                                                    disabled={estaPagado}
+                                                  />
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+
+                                        <tfoot style={{backgroundColor:'#fff3cd'}}>
+                                          <tr>
+                                            <td style={{padding:'8px',textAlign:'right'}}>
+                                              <strong>TOTAL OBRAS INDEPENDIENTES:</strong>
+                                            </td>
+                                            <td style={{padding:'8px',textAlign:'right'}}>
+                                              <strong className="text-primary">
+                                                ${totalAPagarObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                              </strong>
+                                            </td>
+                                            <td style={{padding:'8px',textAlign:'right'}}>
+                                              <strong className="text-success">
+                                                ${totalPagadoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                              </strong>
+                                            </td>
+                                            <td style={{padding:'8px',textAlign:'right'}}>
+                                              <strong className="text-warning">
+                                                ${saldoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                              </strong>
+                                            </td>
+                                            <td colSpan="2"></td>
+                                          </tr>
+                                        </tfoot>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </div>
+                                <hr className="my-4" />
+                              </div>
+                            );
+                          })()}
+
                           {/* Agrupar trabajos adicionales por obra */}
                           {presupuestos.map((presupuesto, presupuestoIdx) => {
                             // 🔥 Filtrar trabajos adicionales de esta obra

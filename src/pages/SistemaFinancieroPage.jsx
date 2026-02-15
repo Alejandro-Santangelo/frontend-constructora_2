@@ -75,12 +75,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       const stored = sessionStorage.getItem(STORAGE_KEY);
       if (stored) {
         const obra = JSON.parse(stored);
-        // Validar que tenga la estructura correcta con presupuestoNoClienteId
-        if (!obra.direccionObra?.presupuestoNoClienteId) {
-          console.warn('⚠️ Obra en sessionStorage sin presupuestoNoClienteId, limpiando...');
-          sessionStorage.removeItem(STORAGE_KEY);
-          return null;
-        }
+        // ✅ Permitir obras independientes (sin presupuesto)
+        // Ya no validamos presupuestoNoClienteId
         return obra;
       }
       return null;
@@ -176,12 +172,41 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
   // 🆕 Hook para estadísticas de OBRAS SELECCIONADAS (con checkboxes)
   const presupuestosSeleccionadosArray = useMemo(() => {
+    // ✅ Incluir TODAS las obras seleccionadas (con presupuesto Y obras independientes)
     const array = obrasDisponibles
       .filter(obra => obrasSeleccionadas.has(obra.id))
-      .map(obra => obra.presupuestoCompleto) // Siempre usar presupuestoCompleto
+      .map(obra => {
+        // Si tiene presupuesto, usar presupuestoCompleto
+        if (obra.presupuestoCompleto) {
+          return obra.presupuestoCompleto;
+        }
+        // Si es obra independiente, crear estructura compatible
+        if (obra.esObraIndependiente) {
+          return {
+            id: obra.id,
+            obraId: obra.id,
+            nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
+            direccionObraCalle: obra.direccion || '',
+            direccionObraAltura: '',
+            estado: obra.estado || 'APROBADO',
+            totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0,
+            esObraIndependiente: true, // ✅ Flag para identificar en modal
+            // Campos mínimos para compatibilidad
+            itemsCalculadora: [],
+            profesionalesObra: [],
+            materialesAsignados: [],
+            gastosGeneralesAsignados: []
+          };
+        }
+        return null;
+      })
       .filter(Boolean); // Filtrar nulls/undefined
 
-    console.log('📊 [SistemaFinanciero] Presupuestos seleccionados:', array.length, 'de', obrasDisponibles.length);
+    console.log('📊 [SistemaFinanciero] Presupuestos seleccionados (incluyendo obras independientes):', array.length, 'de', obrasDisponibles.length);
+    console.log('📊 Desglose:', {
+      conPresupuesto: array.filter(p => !p.esObraIndependiente).length,
+      obrasIndependientes: array.filter(p => p.esObraIndependiente).length
+    });
     return array;
   }, [obrasDisponibles, obrasSeleccionadas]);
 
@@ -605,14 +630,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
       const todasLasObras = extractData(response);
 
-      // Filtrar por estado APROBADO o EN_EJECUCION y que tengan presupuesto asociado
+      // Filtrar por estado APROBADO o EN_EJECUCION
+      // ✅ AHORA INCLUYE OBRAS INDEPENDIENTES (sin presupuesto)
       const obrasFiltradas = todasLasObras.filter(obra => {
         const tieneEstadoValido = obra.estado === 'APROBADO' || obra.estado === 'EN_EJECUCION';
-        const tienePresupuesto = obra.presupuestoNoClienteId ||
-                                 (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
-
-        // Solo incluir obras con estado válido Y que tengan presupuesto
-        return tieneEstadoValido && tienePresupuesto;
+        // Ya no filtramos por presupuesto - obras independientes también se incluyen
+        return tieneEstadoValido;
       });
 
       setPresupuestosAprobados(obrasFiltradas);
@@ -707,28 +730,31 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       // Si no se encuentra por obraId, usar el presupuestoNoClienteId como fallback
       const presupuestoId = presupuestoMasReciente?.id || obra.presupuestoNoClienteId || obra.presupuestoNoCliente?.id;
 
-      console.log('✅ Presupuesto seleccionado:', {
-        id: presupuestoId,
-        metodo: presupuestoMasReciente ? 'VERSION_MAS_RECIENTE' : 'FALLBACK_OBRA',
-        version: presupuestoMasReciente?.numeroVersion,
-        numeroPresupuesto: presupuestoMasReciente?.numeroPresupuesto
-      });
+      // ✅ Detectar obra independiente (sin presupuesto)
+      const esObraIndependiente = !presupuestoId;
 
-      if (!presupuestoId) {
-        console.error('❌ Obra sin presupuesto asociado');
-        setNotification({
-          type: 'warning',
-          message: 'Esta obra no tiene un presupuesto asociado. Por favor, asigne un presupuesto primero.'
+      if (esObraIndependiente) {
+        console.log('✅ Obra Independiente seleccionada (sin presupuesto detallado):', {
+          id: obra.id,
+          nombre: obra.nombre,
+          presupuestoEstimado: obra.presupuestoEstimado
         });
-        setTimeout(() => setNotification(null), 5000);
-        return;
+      } else {
+        console.log('✅ Presupuesto seleccionado:', {
+          id: presupuestoId,
+          metodo: presupuestoMasReciente ? 'VERSION_MAS_RECIENTE' : 'FALLBACK_OBRA',
+          version: presupuestoMasReciente?.numeroVersion,
+          numeroPresupuesto: presupuestoMasReciente?.numeroPresupuesto
+        });
       }
 
       // Crear objeto con la información de la obra
       const obraFormateada = {
         id: obra.id,
         obraId: obra.id, // ID de la obra
-        presupuestoNoClienteId: presupuestoId, // Referencia al presupuesto MÁS RECIENTE
+        presupuestoNoClienteId: presupuestoId, // Referencia al presupuesto (puede ser null para obras independientes)
+        esObraIndependiente: esObraIndependiente, // ✅ Flag para identificar obras sin presupuesto
+        presupuestoEstimado: obra.presupuestoEstimado || 0, // ✅ Para obras independientes
         nombreObra: obra.nombre || obra.nombreObra || 'Sin nombre',
         // Dirección completa
         direccionObra: {
@@ -738,7 +764,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           torre: obra.direccionObraTorre || null,
           piso: obra.direccionObraPiso || null,
           depto: obra.direccionObraDepartamento || null,
-          presupuestoNoClienteId: presupuestoId,
+          presupuestoNoClienteId: presupuestoId, // Puede ser null
           nombreObra: obra.nombre || obra.nombreObra || 'Sin nombre'
         },
         // Datos adicionales
@@ -752,9 +778,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       setObraSeleccionada(obraFormateada);
       setShowListaPresupuestos(false);
 
+      // ✅ Mensaje diferenciado para obras independientes
+      const mensaje = esObraIndependiente
+        ? `Obra Independiente seleccionada: ${obraFormateada.nombreObra} (Presupuesto estimado: $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR')})`
+        : `Obra seleccionada: ${obraFormateada.nombreObra} (Presupuesto v${presupuestoMasReciente?.numeroVersion || '1'})`;
+
       setNotification({
         type: 'success',
-        message: `Obra seleccionada: ${obraFormateada.nombreObra} (Presupuesto v${presupuestoMasReciente?.numeroVersion || '1'})`
+        message: mensaje
       });
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
@@ -836,7 +867,18 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
       setLoadingObras(true);
       try {
-        // 🔧 Obtener TODAS las obras (todos los estados excepto CANCELADO)
+        // 🔧 PASO 0: Cargar TODAS las obras desde /api/obras (incluye obras independientes)
+        const obrasResponse = await apiService.obras.getPorEmpresa(empresaSeleccionada.id);
+        const todasLasObras = Array.isArray(obrasResponse) ? obrasResponse : (obrasResponse?.datos || obrasResponse?.content || []);
+
+        // Filtrar solo obras en estado APROBADO o EN_EJECUCION (sin CANCELADO)
+        const obrasActivas = todasLasObras.filter(o =>
+          (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') && o.estado !== 'CANCELADO'
+        );
+
+        console.log('✅ Obras activas cargadas:', obrasActivas.length);
+
+        // 🔧 PASO 1: Obtener TODOS los presupuestos
         const response = await apiService.presupuestosNoCliente.getAll(empresaSeleccionada.id);
 
         const extractData = (response) => {
@@ -888,9 +930,44 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             depto: p.direccionObraDepartamento || null,
             totalPresupuesto: p.totalPresupuestoConHonorarios || p.montoTotal || 0,
             cantidadSemanas: p.cantidadSemanas || p.cantidad_semanas || 0,
-            presupuestoCompleto: p
+            presupuestoCompleto: p,
+            esObraIndependiente: false // Tiene presupuesto
           };
         }
+      });
+
+      // 🆕 PASO 2.5: Agregar OBRAS INDEPENDIENTES (sin presupuesto)
+      obrasActivas.forEach(obra => {
+        // Si la obra YA tiene presupuesto, saltarla
+        if (obrasPorObraId[obra.id]) return;
+
+        // Verificar que sea realmente independiente (sin presupuesto asociado)
+        const tienePresupuesto = obra.presupuestoNoClienteId ||
+                                (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+
+        if (tienePresupuesto) return; // Saltar si tiene presupuesto
+
+        // ✅ Es obra independiente - agregarla al mapa
+        obrasPorObraId[obra.id] = {
+          id: obra.id, // ID de la obra (no hay presupuesto)
+          obraId: obra.id, // ✅ ID de la obra en tabla obras
+          nombreObra: obra.nombre || `${obra.direccionObraCalle} ${obra.direccionObraAltura}`,
+          numeroPresupuesto: null, // No tiene presupuesto
+          numeroVersion: null, // No tiene versión
+          estado: obra.estado,
+          calle: obra.direccionObraCalle || '',
+          altura: obra.direccionObraAltura || '',
+          barrio: obra.direccionObraBarrio || null,
+          torre: obra.direccionObraTorre || null,
+          piso: obra.direccionObraPiso || null,
+          depto: obra.direccionObraDepartamento || null,
+          totalPresupuesto: obra.presupuestoEstimado || 0, // ✅ Usar presupuesto estimado
+          cantidadSemanas: 0,
+          presupuestoCompleto: null, // No tiene presupuesto
+          esObraIndependiente: true // ✅ Flag para identificar
+        };
+
+        console.log('✅ Obra Independiente agregada:', obra.nombre, '- Estimado:', obra.presupuestoEstimado);
       });
 
       const obrasNormales = Object.values(obrasPorObraId);
@@ -1642,7 +1719,16 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                           <td>
                             <strong>{item.nombreObra}</strong>
                             <br />
-                            <small className="text-muted">#{item.numeroPresupuesto}</small>
+                            <small className="text-muted">
+                              {item.esObraIndependiente ? (
+                                <span className="badge bg-warning text-dark">
+                                  <i className="bi bi-hand-thumbs-up me-1"></i>
+                                  Obra Independiente
+                                </span>
+                              ) : (
+                                `#${item.numeroPresupuesto}`
+                              )}
+                            </small>
                           </td>
                           <td>
                             <small>{direccion}</small>
@@ -1653,10 +1739,24 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             </span>
                           </td>
                           <td className="text-center">
-                            <span className="badge bg-secondary">v{item.numeroVersion}</span>
+                            {item.esObraIndependiente ? (
+                              <span className="badge bg-secondary text-white">
+                                <i className="bi bi-asterisk"></i> Sin versión
+                              </span>
+                            ) : (
+                              <span className="badge bg-secondary">v{item.numeroVersion}</span>
+                            )}
                           </td>
                           <td className="text-end">
                             <strong>{formatearMoneda(presupuestoBase)}</strong>
+                            {item.esObraIndependiente && (
+                              <div>
+                                <small className="text-muted">
+                                  <i className="bi bi-info-circle me-1"></i>
+                                  Estimado
+                                </small>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       )}
@@ -1738,6 +1838,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   <td className="text-end text-primary">
                       {(() => {
                         const presupuestosUnicos = new Map();
+                        const obrasIndependientes = new Map(); // ✅ Para obras sin presupuesto
                         const debugRows = [];
                         let totalTrabajosExtra = 0;
                         let totalTrabajosAdicionales = 0;
@@ -1745,6 +1846,18 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         obrasDisponibles
                           .filter(o => obrasSeleccionadas.has(o.id))
                           .forEach(o => {
+                            // ✅ Verificar si es obra independiente
+                            if (o.esObraIndependiente) {
+                              // Usar el ID de la obra como identificador único
+                              if (!obrasIndependientes.has(o.id)) {
+                                const monto = o.totalPresupuesto || 0; // Ya tiene el presupuestoEstimado
+                                obrasIndependientes.set(o.id, monto);
+                                debugRows.push(`OI-${o.id}: $${monto.toLocaleString()}`);
+                              }
+                              return; // No tiene trabajos extra ni presupuesto detallado
+                            }
+
+                            // Obras con presupuesto (lógica existente)
                             const idPresupuesto = o.presupuestoCompleto?.id
                               ?? o.presupuestoNoClienteId
                               ?? o.presupuestoNoCliente?.id;
@@ -1777,8 +1890,10 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                           .filter(ta => trabajosAdicionalesSeleccionados.has(ta.id));
                         totalTrabajosAdicionales = trabajosAdicionalesSeleccionadosArray.reduce((sum, ta) => sum + (ta.importe || 0), 0);
 
-                        const totalBase = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
-                        const totalCompleto = totalBase + totalTrabajosExtra + totalTrabajosAdicionales;
+                        // ✅ Calcular totales
+                        const totalPresupuestos = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
+                        const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
+                        const totalCompleto = totalPresupuestos + totalIndependientes + totalTrabajosExtra + totalTrabajosAdicionales;
 
                         return (
                           <>
@@ -2175,14 +2290,27 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     }
 
                     const presupuestosUnicos = new Map();
+                    const obrasIndependientes = new Map(); // ✅ Para obras sin presupuesto
                     let totalTrabajosExtra = 0;
                     let totalTrabajosAdicionales = 0;
-                    let cantidadObrasPersonalizada = 0;
+                    let cantidadObrasConPresupuesto = 0;
+                    let cantidadObrasIndependientes = 0;
 
                     // Filtrar obras seleccionadas con checkbox
                     obrasDisponibles
                       .filter(o => obrasSeleccionadas.has(o.id))
                       .forEach(o => {
+                        // ✅ Verificar si es obra independiente
+                        if (o.esObraIndependiente) {
+                          if (!obrasIndependientes.has(o.id)) {
+                            const monto = o.totalPresupuesto || 0;
+                            obrasIndependientes.set(o.id, monto);
+                            cantidadObrasIndependientes++;
+                          }
+                          return; // No tiene trabajos extra ni presupuesto detallado
+                        }
+
+                        // Obras con presupuesto (lógica existente)
                         const idPresupuesto = o.presupuestoCompleto?.id
                           ?? o.presupuestoNoClienteId
                           ?? o.presupuestoNoCliente?.id;
@@ -2201,7 +2329,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             ?? 0
                           );
                           presupuestosUnicos.set(idPresupuesto, monto);
-                          cantidadObrasPersonalizada++;
+                          cantidadObrasConPresupuesto++;
                         }
 
                         // Solo sumar trabajos extra que estén seleccionados con checkbox
@@ -2221,13 +2349,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                       .filter(ta => trabajosAdicionalesSeleccionados.has(ta.id));
                     totalTrabajosAdicionales = trabajosAdicionalesSeleccionadosArray.reduce((sum, ta) => sum + (ta.importe || 0), 0);
 
-                    const totalBase = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
-                    const totalPresupuestoPersonalizado = totalBase + totalTrabajosExtra + totalTrabajosAdicionales;
+                    // ✅ Calcular totales
+                    const totalPresupuestos = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
+                    const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
+                    const totalPresupuestoPersonalizado = totalPresupuestos + totalIndependientes + totalTrabajosExtra + totalTrabajosAdicionales;
 
                     return {
                       ...stats,
                       totalPresupuesto: totalPresupuestoPersonalizado,
-                      cantidadObras: cantidadObrasPersonalizada
+                      cantidadObras: cantidadObrasConPresupuesto + cantidadObrasIndependientes, // Total de obras
+                      cantidadObrasConPresupuesto, // ✅ Separar por tipo
+                      cantidadObrasIndependientes // ✅ Separar por tipo
                     };
                   })();
 
@@ -2866,6 +2998,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         onHide={() => setShowRegistrarPagoConsolidado(false)}
         onSuccess={handleSuccess}
         obrasSeleccionadas={presupuestosSeleccionadosArray}
+        obrasOriginales={obrasDisponibles.filter(obra => obrasSeleccionadas.has(obra.id))} // ✅ Obras completas para detectar independientes
       />
 
       <ListarPagosProfesionalModal
@@ -2921,10 +3054,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                 ) : presupuestosAprobados.length === 0 ? (
                   <div className="alert alert-warning">
                     <i className="bi bi-exclamation-triangle me-2"></i>
-                    No hay obras con presupuesto asignado en estado APROBADO o EN_EJECUCION.
+                    No hay obras en estado APROBADO o EN_EJECUCION.
                     <br />
                     <small className="text-muted">
-                      Las obras deben tener un presupuesto vinculado y estar en estado APROBADO o EN_EJECUCION para aparecer aquí.
+                      Las obras deben estar en estado APROBADO o EN_EJECUCION para aparecer aquí.
+                      Ahora se incluyen tanto obras con presupuesto detallado como obras independientes.
                     </small>
                   </div>
                 ) : (
@@ -3037,13 +3171,19 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               {presupuestoId ? (
                                 <span className="badge bg-primary">
                                   <i className="bi bi-file-earmark-check me-1"></i>
-                                  ID: {presupuestoId}
+                                  Presupuesto ID: {presupuestoId}
                                 </span>
                               ) : (
-                                <span className="badge bg-warning text-dark">
-                                  <i className="bi bi-exclamation-triangle me-1"></i>
-                                  Sin presupuesto
-                                </span>
+                                <div className="d-flex flex-column gap-1">
+                                  <span className="badge bg-warning text-dark">
+                                    <i className="bi bi-hand-thumbs-up me-1"></i>
+                                    Obra Independiente
+                                  </span>
+                                  <small className="text-success fw-bold">
+                                    <i className="bi bi-cash me-1"></i>
+                                    Estimado: ${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                  </small>
+                                </div>
                               )}
                             </td>
                             <td>
@@ -3325,7 +3465,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
 
         const estadisticasActuales = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
-        const datosDesglose = estadisticasActuales?.desglosePorObra || [];
+        const datosDesgloseBase = estadisticasActuales?.desglosePorObra || [];
+
+        // ✅ Agregar obras independientes seleccionadas al desglose
+        const obrasIndependientesSeleccionadas = obrasDisponibles
+          .filter(obra => obra.esObraIndependiente && obrasSeleccionadas.has(obra.id))
+          .map(obra => ({
+            id: obra.id,
+            obraId: obra.id,
+            nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
+            numeroPresupuesto: null, // No tiene presupuesto
+            estado: obra.estado || 'APROBADO',
+            totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0,
+            esObraIndependiente: true // ✅ Flag para identificarla en el modal
+          }));
+
+        const datosDesglose = [...datosDesgloseBase, ...obrasIndependientesSeleccionadas];
 
         return (
           <DetalleConsolidadoPorObraModal

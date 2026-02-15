@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import apiService from '../services/api';
 
 
 
@@ -88,10 +89,24 @@ const SeleccionarProfesionalesModal = ({
   fechaFin = null, // Fecha de fin de la asignación actual
   semanaActual = null, // Información de la semana actual (para asignación semanal)
   empresaId = null,
-  onNuevoProfesional = null // Callback para abrir modal externo de agregar profesional
+  onNuevoProfesional = null, // Callback para abrir modal externo de agregar profesional
+  showNotification = null // Callback para mostrar notificaciones
 }) => {
   const [seleccionados, setSeleccionados] = useState(profesionalesSeleccionados.map(p => p.id));
   const [profesionalesLocales, setProfesionalesLocales] = useState([]);
+
+  // 🆕 Estados para profesionales ad-hoc (creados manualmente)
+  const [mostrarFormularioAdhoc, setMostrarFormularioAdhoc] = useState(false);
+  const [profesionalesAdhoc, setProfesionalesAdhoc] = useState([]);
+  const [profesionalAdhocForm, setProfesionalAdhocForm] = useState({
+    nombre: '',
+    tipoProfesional: '',
+    honorarioDia: '',
+    telefono: '',
+    email: ''
+  });
+  const [guardarEnCatalogo, setGuardarEnCatalogo] = useState(false);
+  const [guardandoProfesional, setGuardandoProfesional] = useState(false);
 
   // DEBUG: Check Main Modal Mount/Unmount with ID
   const instanceId = React.useMemo(() => Math.random().toString(36).substr(2, 5), []);
@@ -286,7 +301,7 @@ const SeleccionarProfesionalesModal = ({
   };
 
   const handleConfirmar = () => {
-    const todos = [...profesionalesDisponibles, ...profesionalesLocales];
+    const todos = [...profesionalesDisponibles, ...profesionalesLocales, ...profesionalesAdhoc];
     // Filtrar duplicados por ID por si acaso
     const unicosMap = new Map();
     todos.forEach(p => unicosMap.set(p.id, p));
@@ -295,6 +310,114 @@ const SeleccionarProfesionalesModal = ({
     const profesionales = unicos.filter(p => seleccionados.includes(p.id));
     onConfirmar(profesionales);
     onHide();
+  };
+
+  // 🆕 Handlers para profesionales ad-hoc
+  const handleAgregarAdhoc = async () => {
+    if (!profesionalAdhocForm.nombre.trim() || !profesionalAdhocForm.tipoProfesional.trim()) {
+      if (showNotification) {
+        showNotification('Por favor complete al menos el nombre y tipo de profesional', 'warning');
+      } else {
+        alert('Por favor complete al menos el nombre y tipo de profesional');
+      }
+      return;
+    }
+
+    setGuardandoProfesional(true);
+
+    try {
+      let nuevoProfesional;
+
+      // Si está marcado "Guardar en catálogo", crear en la BD
+      if (guardarEnCatalogo) {
+        if (!empresaId) {
+          throw new Error('No se puede guardar: falta empresaId');
+        }
+
+        const dataProfesional = {
+          nombre: profesionalAdhocForm.nombre.trim(),
+          tipoProfesional: profesionalAdhocForm.tipoProfesional.trim(),
+          honorarioDia: profesionalAdhocForm.honorarioDia ? parseFloat(profesionalAdhocForm.honorarioDia) : 0,
+          telefono: profesionalAdhocForm.telefono.trim() || null,
+          email: profesionalAdhocForm.email.trim() || null,
+          empresaId: empresaId,
+          activo: true,
+          categoria: 'INDEPENDIENTE' // 🆕 Marca como profesional independiente
+        };
+
+        const response = await apiService.profesionales.create(dataProfesional);
+
+        // Manejar diferentes estructuras de respuesta del backend
+        const profesionalCreado = response?.data || response;
+
+        if (!profesionalCreado || !profesionalCreado.id) {
+          throw new Error('El backend no devolvió un profesional válido');
+        }
+
+        nuevoProfesional = {
+          id: profesionalCreado.id,
+          nombre: profesionalCreado.nombre || profesionalAdhocForm.nombre.trim(),
+          tipoProfesional: profesionalCreado.tipoProfesional || profesionalAdhocForm.tipoProfesional.trim(),
+          honorarioDia: profesionalCreado.honorarioDia || profesionalCreado.honorario_dia || (profesionalAdhocForm.honorarioDia ? parseFloat(profesionalAdhocForm.honorarioDia) : 0),
+          telefono: profesionalCreado.telefono || profesionalAdhocForm.telefono.trim(),
+          email: profesionalCreado.email || profesionalAdhocForm.email.trim(),
+          activo: profesionalCreado.activo !== undefined ? profesionalCreado.activo : true,
+          categoria: profesionalCreado.categoria || 'INDEPENDIENTE',
+          _esGuardado: true // Flag para distinguir en la UI
+        };
+
+        if (showNotification) {
+          showNotification('✅ Profesional guardado en catálogo permanente', 'success');
+        }
+      } else {
+        // Crear profesional temporal (solo para esta asignación)
+        nuevoProfesional = {
+          id: `adhoc_${Date.now()}`,
+          nombre: profesionalAdhocForm.nombre.trim(),
+          tipoProfesional: profesionalAdhocForm.tipoProfesional.trim(),
+          honorarioDia: profesionalAdhocForm.honorarioDia ? parseFloat(profesionalAdhocForm.honorarioDia) : 0,
+          telefono: profesionalAdhocForm.telefono.trim(),
+          email: profesionalAdhocForm.email.trim(),
+          activo: true,
+          _esAdhoc: true // Flag para temporales
+        };
+
+        if (showNotification) {
+          showNotification('Profesional temporal agregado', 'success');
+        }
+      }
+
+      setProfesionalesAdhoc(prev => [...prev, nuevoProfesional]);
+      setSeleccionados(prev => [...prev, nuevoProfesional.id]);
+
+      // Limpiar formulario
+      setProfesionalAdhocForm({
+        nombre: '',
+        tipoProfesional: '',
+        honorarioDia: '',
+        telefono: '',
+        email: ''
+      });
+      setGuardarEnCatalogo(false);
+
+    } catch (error) {
+      console.error('Error al agregar profesional:', error);
+      if (showNotification) {
+        showNotification(
+          `❌ Error: ${error.response?.data?.message || error.message || 'No se pudo guardar el profesional'}`,
+          'error'
+        );
+      } else {
+        alert(`Error: ${error.response?.data?.message || error.message || 'No se pudo guardar el profesional'}`);
+      }
+    } finally {
+      setGuardandoProfesional(false);
+    }
+  };
+
+  const handleEliminarAdhoc = (profId) => {
+    setProfesionalesAdhoc(prev => prev.filter(p => p.id !== profId));
+    setSeleccionados(prev => prev.filter(id => id !== profId));
   };
 
   // Asignar rubro a cada tipo de profesional
@@ -316,7 +439,7 @@ const SeleccionarProfesionalesModal = ({
 
   // Agrupar profesionales por rubro y tipo
   const profesionalesPorRubro = useMemo(() => {
-    const todos = [...profesionalesDisponibles, ...profesionalesLocales];
+    const todos = [...profesionalesDisponibles, ...profesionalesLocales, ...profesionalesAdhoc];
     // Filtrar duplicados
     const unicosMap = new Map();
     todos.forEach(p => unicosMap.set(p.id, p));
@@ -342,7 +465,7 @@ const SeleccionarProfesionalesModal = ({
     });
 
     return agrupados;
-  }, [profesionalesDisponibles]);
+  }, [profesionalesDisponibles, profesionalesLocales, profesionalesAdhoc]);
 
   // Ordenar rubros
   const rubrosOrdenados = Object.keys(profesionalesPorRubro).sort((a, b) => {
@@ -387,171 +510,392 @@ const SeleccionarProfesionalesModal = ({
           </div>
 
           <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-            <div className="alert alert-info mb-3">
-              <i className="fas fa-info-circle me-2"></i>
-              <strong>Selecciona uno o varios profesionales</strong> para asignar a esta obra.
-              Puedes marcar varios a la vez y confirmar al final.
-            </div>
+            {/* 🆕 Tabs: Seleccionar de Lista vs Agregar Manualmente */}
+            <ul className="nav nav-pills mb-4">
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${!mostrarFormularioAdhoc ? 'active' : ''}`}
+                  onClick={() => setMostrarFormularioAdhoc(false)}
+                  style={{
+                    background: !mostrarFormularioAdhoc
+                      ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
+                      : 'transparent',
+                    color: !mostrarFormularioAdhoc ? '#fff' : '#6c757d',
+                    border: !mostrarFormularioAdhoc ? 'none' : '1px solid #dee2e6',
+                    fontWeight: '600'
+                  }}
+                >
+                  <i className="fas fa-list me-2"></i>
+                  Seleccionar de Lista
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${mostrarFormularioAdhoc ? 'active' : ''}`}
+                  onClick={() => setMostrarFormularioAdhoc(true)}
+                  style={{
+                    background: mostrarFormularioAdhoc
+                      ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
+                      : 'transparent',
+                    color: mostrarFormularioAdhoc ? '#fff' : '#6c757d',
+                    border: mostrarFormularioAdhoc ? 'none' : '1px solid #dee2e6',
+                    fontWeight: '600'
+                  }}
+                >
+                  <i className="fas fa-user-plus me-2"></i>
+                  Agregar Manualmente
+                </button>
+              </li>
+            </ul>
 
-            <div className="d-flex justify-content-between align-items-center mb-3">
-                <h6 className="mb-0 text-muted">Listado de Profesionales</h6>
-                {onNuevoProfesional && (
-                  <button
-                      className="btn btn-sm btn-outline-success"
-                      onClick={onNuevoProfesional}
-                  >
-                      <i className="fas fa-user-plus me-2"></i>
-                      Nuevo Profesional
-                  </button>
-                )}
-            </div>
+            {/* Contenido condicional según tab activa */}
+            {!mostrarFormularioAdhoc ? (
+              // TAB 1: Seleccionar de Lista
+              <>
+                <div className="alert alert-info mb-3">
+                  <i className="fas fa-info-circle me-2"></i>
+                  <strong>Selecciona uno o varios profesionales</strong> para asignar a esta obra.
+                  Puedes marcar varios a la vez y confirmar al final.
+                </div>
 
-            {seleccionados.length > 0 && (
-              <div className="alert alert-success mb-3">
-                <i className="fas fa-check-circle me-2"></i>
-                <strong>{seleccionados.length} profesional{seleccionados.length !== 1 ? 'es' : ''} seleccionado{seleccionados.length !== 1 ? 's' : ''}</strong>
-              </div>
-            )}
-
-            {rubrosOrdenados.map(rubro => {
-              const configRubro = configRubros[rubro];
-              const tiposProfesionales = profesionalesPorRubro[rubro];
-              const tiposOrdenados = Object.keys(tiposProfesionales).sort((a, b) => {
-                const indexA = configRubro.tipos.indexOf(a);
-                const indexB = configRubro.tipos.indexOf(b);
-                if (indexA === -1 && indexB === -1) return a.localeCompare(b);
-                if (indexA === -1) return 1;
-                if (indexB === -1) return -1;
-                return indexA - indexB;
-              });
-
-              // Calcular total de profesionales en el rubro
-              const totalProfesionales = Object.values(tiposProfesionales).reduce(
-                (sum, profs) => sum + profs.length, 0
-              );
-
-              return (
-                <div key={rubro} className="mb-4">
-                  {/* Título del Rubro */}
-                  <div className="d-flex align-items-center mb-3 pb-2 border-bottom border-3" style={{ borderColor: configRubro.color + '!important' }}>
-                    <h5 className="mb-0 fw-bold" style={{ color: configRubro.color }}>
-                      <span className="me-2" style={{ fontSize: '1.3em' }}>{configRubro.emoji}</span>
-                      {rubro}
-                      <span className="badge ms-2" style={{
-                        backgroundColor: configRubro.color,
-                        fontSize: '0.75em'
-                      }}>
-                        {totalProfesionales} {totalProfesionales === 1 ? 'profesional' : 'profesionales'}
-                      </span>
-                    </h5>
+                {seleccionados.length > 0 && (
+                  <div className="alert alert-success mb-3">
+                    <i className="fas fa-check-circle me-2"></i>
+                    <strong>{seleccionados.length} profesional{seleccionados.length !== 1 ? 'es' : ''} seleccionado{seleccionados.length !== 1 ? 's' : ''}</strong>
                   </div>
+                )}
 
-                  {/* Tipos de profesionales dentro del rubro */}
-                  {tiposOrdenados.map(tipo => {
-                    const profesionales = tiposProfesionales[tipo].sort((a, b) =>
-                      a.nombre.localeCompare(b.nombre)
-                    );
+                {rubrosOrdenados.map(rubro => {
+                  const configRubro = configRubros[rubro];
+                  const tiposProfesionales = profesionalesPorRubro[rubro];
+                  const tiposOrdenados = Object.keys(tiposProfesionales).sort((a, b) => {
+                    const indexA = configRubro.tipos.indexOf(a);
+                    const indexB = configRubro.tipos.indexOf(b);
+                    if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                    if (indexA === -1) return 1;
+                    if (indexB === -1) return -1;
+                    return indexA - indexB;
+                  });
 
-                    return (
-                      <div key={tipo} className="mb-3 ms-3">
-                        <h6 className="mb-2" style={{ color: configRubro.color, opacity: 0.8 }}>
-                          <i className="fas fa-angle-right me-2"></i>
-                          {tipo}
-                          <span className="badge bg-light text-dark ms-2" style={{ fontSize: '0.75em' }}>
-                            {profesionales.length}
+                  // Calcular total de profesionales en el rubro
+                  const totalProfesionales = Object.values(tiposProfesionales).reduce(
+                    (sum, profs) => sum + profs.length, 0
+                  );
+
+                  return (
+                    <div key={rubro} className="mb-4">
+                      {/* Título del Rubro */}
+                      <div className="d-flex align-items-center mb-3 pb-2 border-bottom border-3" style={{ borderColor: configRubro.color + '!important' }}>
+                        <h5 className="mb-0 fw-bold" style={{ color: configRubro.color }}>
+                          <span className="me-2" style={{ fontSize: '1.3em' }}>{configRubro.emoji}</span>
+                          {rubro}
+                          <span className="badge ms-2" style={{
+                            backgroundColor: configRubro.color,
+                            fontSize: '0.75em'
+                          }}>
+                            {totalProfesionales} {totalProfesionales === 1 ? 'profesional' : 'profesionales'}
                           </span>
-                        </h6>
+                        </h5>
+                      </div>
 
-                        <div className="list-group ms-3">
-                          {profesionales.map(prof => {
-                            const obras = prof.cantidadObrasAsignadas || 0;
-                            const estaSeleccionado = seleccionados.includes(prof.id);
+                      {/* Tipos de profesionales dentro del rubro */}
+                      {tiposOrdenados.map(tipo => {
+                        const profesionales = tiposProfesionales[tipo].sort((a, b) =>
+                          a.nombre.localeCompare(b.nombre)
+                        );
 
-                            // Verificar disponibilidad por fechas en la obra actual
-                            const disponibilidad = verificarDisponibilidadPorFechas(prof.id);
-                            // Solo marcar como no disponible si hay conflictos de fechas en ESTA obra
-                            // La disponibilidad general (sin asignaciones en otras obras) ya está filtrada por el componente padre
-                            const noDisponible = !disponibilidad.disponible;
+                        return (
+                          <div key={tipo} className="mb-3 ms-3">
+                            <h6 className="mb-2" style={{ color: configRubro.color, opacity: 0.8 }}>
+                              <i className="fas fa-angle-right me-2"></i>
+                              {tipo}
+                              <span className="badge bg-light text-dark ms-2" style={{ fontSize: '0.75em' }}>
+                                {profesionales.length}
+                              </span>
+                            </h6>
 
-                            return (
-                              <div
-                                key={prof.id}
-                                className={`list-group-item list-group-item-action ${estaSeleccionado ? 'active' : ''} ${noDisponible ? 'border-danger' : ''}`}
-                                style={{ cursor: noDisponible ? 'not-allowed' : 'pointer', opacity: noDisponible ? 0.7 : 1 }}
-                                onClick={() => !noDisponible && handleToggle(prof.id)}
-                              >
-                                <div className="d-flex align-items-center">
-                                  <input
-                                    type="checkbox"
-                                    className="form-check-input me-3"
-                                    checked={estaSeleccionado}
-                                    disabled={noDisponible}
-                                    onChange={() => handleToggle(prof.id)}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                  <div className="flex-grow-1">
-                                    <div className="d-flex justify-content-between align-items-center">
-                                      <strong>{prof.nombre}</strong>
-                                      {noDisponible ? (
-                                        <span className="badge bg-danger">
-                                          Conflicto de fechas
-                                        </span>
-                                      ) : (
-                                        <span className="badge bg-success">Disponible</span>
-                                      )}
-                                    </div>
-                                    {prof.email && (
-                                      <small className="text-muted d-block mt-1">
-                                        <i className="fas fa-envelope me-1"></i>
-                                        {prof.email}
-                                      </small>
-                                    )}
+                            <div className="list-group ms-3">
+                              {profesionales.map(prof => {
+                                const obras = prof.cantidadObrasAsignadas || 0;
+                                const estaSeleccionado = seleccionados.includes(prof.id);
 
-                                    {/* Mostrar advertencia si el profesional tiene conflictos de fechas en ESTA obra */}
-                                    {noDisponible && (
-                                      <div className="mt-2 p-2 bg-danger bg-opacity-10 rounded border border-danger">
-                                        <small className="text-danger fw-bold d-block mb-2">
-                                          <i className="fas fa-exclamation-triangle me-1"></i>
-                                          {prof.nombre} ya está asignado en fechas que se solapan con esta asignación
-                                        </small>
-                                        <small className="text-danger d-block mb-2" style={{ lineHeight: '1.4' }}>
-                                          Conflictos encontrados en esta obra:
-                                        </small>
-                                        {disponibilidad.conflictos.length > 0 ? (
-                                          disponibilidad.conflictos.map((conflicto, idx) => (
-                                            <small key={idx} className="text-danger d-block ms-3 mb-1">
-                                              <strong>• {conflicto.obraNombre || 'Esta obra'}</strong>
-                                              {conflicto.fecha && ` - ${new Date(conflicto.fecha).toLocaleDateString('es-AR')}`}
-                                              {conflicto.fechaDesde && ` - Desde ${new Date(conflicto.fechaDesde).toLocaleDateString('es-AR')}`}
-                                              {conflicto.fechaHasta && ` hasta ${new Date(conflicto.fechaHasta).toLocaleDateString('es-AR')}`}
-                                            </small>
-                                          ))
-                                        ) : (
-                                          <small className="text-danger d-block ms-3 mb-1">
-                                            <i className="fas fa-info-circle me-1"></i>
-                                            Fechas en conflicto (detalles no especificados)
+                                // Verificar disponibilidad por fechas en la obra actual
+                                const disponibilidad = verificarDisponibilidadPorFechas(prof.id);
+                                // Solo marcar como no disponible si hay conflictos de fechas en ESTA obra
+                                // La disponibilidad general (sin asignaciones en otras obras) ya está filtrada por el componente padre
+                                const noDisponible = !disponibilidad.disponible;
+
+                                return (
+                                  <div
+                                    key={prof.id}
+                                    className={`list-group-item list-group-item-action ${estaSeleccionado ? 'active' : ''} ${noDisponible ? 'border-danger' : ''}`}
+                                    style={{ cursor: noDisponible ? 'not-allowed' : 'pointer', opacity: noDisponible ? 0.7 : 1 }}
+                                    onClick={() => !noDisponible && handleToggle(prof.id)}
+                                  >
+                                    <div className="d-flex align-items-center">
+                                      <input
+                                        type="checkbox"
+                                        className="form-check-input me-3"
+                                        checked={estaSeleccionado}
+                                        disabled={noDisponible}
+                                        onChange={() => handleToggle(prof.id)}
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                      <div className="flex-grow-1">
+                                        <div className="d-flex justify-content-between align-items-center">
+                                          <strong>{prof.nombre}</strong>
+                                          {noDisponible ? (
+                                            <span className="badge bg-danger">
+                                              Conflicto de fechas
+                                            </span>
+                                          ) : (
+                                            <span className="badge bg-success">Disponible</span>
+                                          )}
+                                        </div>
+                                        {prof.email && (
+                                          <small className="text-muted d-block mt-1">
+                                            <i className="fas fa-envelope me-1"></i>
+                                            {prof.email}
                                           </small>
                                         )}
+
+                                        {/* Mostrar advertencia si el profesional tiene conflictos de fechas en ESTA obra */}
+                                        {noDisponible && (
+                                          <div className="mt-2 p-2 bg-danger bg-opacity-10 rounded border border-danger">
+                                            <small className="text-danger fw-bold d-block mb-2">
+                                              <i className="fas fa-exclamation-triangle me-1"></i>
+                                              {prof.nombre} ya está asignado en fechas que se solapan con esta asignación
+                                            </small>
+                                            <small className="text-danger d-block mb-2" style={{ lineHeight: '1.4' }}>
+                                              Conflictos encontrados en esta obra:
+                                            </small>
+                                            {disponibilidad.conflictos.length > 0 ? (
+                                              disponibilidad.conflictos.map((conflicto, idx) => (
+                                                <small key={idx} className="text-danger d-block ms-3 mb-1">
+                                                  <strong>• {conflicto.obraNombre || 'Esta obra'}</strong>
+                                                  {conflicto.fecha && ` - ${new Date(conflicto.fecha).toLocaleDateString('es-AR')}`}
+                                                  {conflicto.fechaDesde && ` - Desde ${new Date(conflicto.fechaDesde).toLocaleDateString('es-AR')}`}
+                                                  {conflicto.fechaHasta && ` hasta ${new Date(conflicto.fechaHasta).toLocaleDateString('es-AR')}`}
+                                                </small>
+                                              ))
+                                            ) : (
+                                              <small className="text-danger d-block ms-3 mb-1">
+                                                <i className="fas fa-info-circle me-1"></i>
+                                                Fechas en conflicto (detalles no especificados)
+                                              </small>
+                                            )}
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
+                                    </div>
                                   </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {(profesionalesDisponibles.length === 0 && profesionalesLocales.length === 0 && profesionalesAdhoc.length === 0) && (
+                  <div className="alert alert-warning">
+                    <i className="fas fa-exclamation-triangle me-2"></i>
+                    No hay profesionales disponibles
+                  </div>
+                )}
+              </>
+            ) : (
+              // TAB 2: Agregar Manualmente
+              <>
+                <div className="alert alert-info mb-3">
+                  <i className="fas fa-lightbulb me-2"></i>
+                  <strong>Profesionales temporales:</strong> Los profesionales creados aquí son temporales
+                  y solo se agregarán a esta planificación. No se guardarán en el catálogo permanente.
+                </div>
+
+                {/* Formulario para crear profesional ad-hoc */}
+                <div className="card mb-3">
+                  <div className="card-body">
+                    <h6 className="card-title mb-3">
+                      <i className="fas fa-user-plus me-2"></i>
+                      Nuevo Profesional Temporal
+                    </h6>
+
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        <label className="form-label">
+                          Nombre <span className="text-danger">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={profesionalAdhocForm.nombre}
+                          onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, nombre: e.target.value })}
+                          placeholder="Nombre del profesional"
+                        />
+                      </div>
+
+                      <div className="col-md-6">
+                        <label className="form-label">
+                          Tipo de Profesional <span className="text-danger">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={profesionalAdhocForm.tipoProfesional}
+                          onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, tipoProfesional: e.target.value })}
+                          placeholder="Ej: Albañil, Electricista, Plomero"
+                        />
+                      </div>
+
+                      <div className="col-md-4">
+                        <label className="form-label">Honorario por Día</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={profesionalAdhocForm.honorarioDia}
+                          onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, honorarioDia: e.target.value })}
+                          placeholder="0.00"
+                          min="0"
+                          step="0.01"
+                        />
+                      </div>
+
+                      <div className="col-md-4">
+                        <label className="form-label">Teléfono</label>
+                        <input
+                          type="tel"
+                          className="form-control"
+                          value={profesionalAdhocForm.telefono}
+                          onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, telefono: e.target.value })}
+                          placeholder="Ej: +54 9 11 1234-5678"
+                        />
+                      </div>
+
+                      <div className="col-md-4">
+                        <label className="form-label">Email</label>
+                        <input
+                          type="email"
+                          className="form-control"
+                          value={profesionalAdhocForm.email}
+                          onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, email: e.target.value })}
+                          placeholder="email@ejemplo.com"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 🆕 Checkbox para guardar en catálogo */}
+                    <div className="mt-3">
+                      <div className="card bg-light border-primary">
+                        <div className="card-body py-2">
+                          <div className="form-check">
+                            <input
+                              type="checkbox"
+                              className="form-check-input"
+                              id="guardarEnCatalogo"
+                              checked={guardarEnCatalogo}
+                              onChange={(e) => setGuardarEnCatalogo(e.target.checked)}
+                            />
+                            <label className="form-check-label" htmlFor="guardarEnCatalogo">
+                              <strong>
+                                <i className="fas fa-save me-2 text-primary"></i>
+                                Guardar en catálogo permanente
+                              </strong>
+                              <small className="d-block text-muted mt-1">
+                                {guardarEnCatalogo
+                                  ? '✅ Este profesional se guardará como INDEPENDIENTE y estará disponible para futuras asignaciones'
+                                  : '⚠️ Solo se agregará temporalmente a esta asignación (no se guardará en el catálogo)'}
+                              </small>
+                            </label>
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                    </div>
 
-            {profesionalesDisponibles.length === 0 && (
-              <div className="alert alert-warning">
-                <i className="fas fa-exclamation-triangle me-2"></i>
-                No hay profesionales disponibles
-              </div>
+                    <div className="mt-3 text-end">
+                      <button
+                        className="btn btn-success"
+                        onClick={handleAgregarAdhoc}
+                        disabled={guardandoProfesional}
+                      >
+                        {guardandoProfesional ? (
+                          <>
+                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Guardando...
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-plus-circle me-2"></i>
+                            {guardarEnCatalogo ? 'Guardar en Catálogo' : 'Agregar Profesional'}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Lista de profesionales ad-hoc creados */}
+                {profesionalesAdhoc.length > 0 && (
+                  <>
+                    <h6 className="mb-3">
+                      <i className="fas fa-users me-2"></i>
+                      Profesionales Temporales Agregados ({profesionalesAdhoc.length})
+                    </h6>
+
+                    <div className="list-group">
+                      {profesionalesAdhoc.map(prof => (
+                        <div key={prof.id} className="list-group-item">
+                          <div className="d-flex justify-content-between align-items-start">
+                            <div className="flex-grow-1">
+                              <div className="d-flex align-items-center mb-2">
+                                <h6 className="mb-0 me-2">{prof.nombre}</h6>
+                                {prof._esGuardado ? (
+                                  <span className="badge bg-success">
+                                    <i className="fas fa-check-circle me-1"></i>
+                                    Guardado en Catálogo
+                                  </span>
+                                ) : (
+                                  <span className="badge bg-warning text-dark">
+                                    <i className="fas fa-clock me-1"></i>
+                                    Temporal
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-muted small">
+                                <div><strong>Tipo:</strong> {prof.tipoProfesional}</div>
+                                {prof.honorarioDia > 0 && (
+                                  <div><strong>Honorario/día:</strong> ${prof.honorarioDia.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                                )}
+                                {prof.telefono && (
+                                  <div><strong>Teléfono:</strong> {prof.telefono}</div>
+                                )}
+                                {prof.email && (
+                                  <div><strong>Email:</strong> {prof.email}</div>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              className="btn btn-sm btn-outline-danger"
+                              onClick={() => handleEliminarAdhoc(prof.id)}
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {profesionalesAdhoc.length === 0 && (
+                  <div className="alert alert-secondary">
+                    <i className="fas fa-info-circle me-2"></i>
+                    No hay profesionales temporales agregados. Usa el formulario de arriba para crear uno.
+                  </div>
+                )}
+              </>
             )}
           </div>
 

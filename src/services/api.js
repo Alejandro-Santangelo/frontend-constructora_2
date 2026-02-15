@@ -667,7 +667,14 @@ export const apiService = {
     create: (data) => apiService.post('/api/obras', data),
     update: (id, data) => apiService.put(`/api/obras/${id}`, data),
     delete: (id, empresaId) => apiService.delete(`/api/obras/${id}`, { empresaId }),
-    getPorEmpresa: (empresaId) => apiService.get(`/api/obras/empresa/${empresaId}`, { empresaId }),
+    getPorEmpresa: (empresaId, soloManuales = false) => {
+      const params = { empresaId };
+      if (soloManuales) {
+        params.soloManuales = true;
+      }
+      return apiService.get(`/api/obras/empresa/${empresaId}`, params);
+    },
+    getObrasManuales: (empresaId) => apiService.get(`/api/obras/empresa/${empresaId}`, { empresaId, soloManuales: true }),
     getPorCliente: (clienteId) => apiService.get(`/api/obras/cliente/${clienteId}`),
     getPorEstado: (estado, empresaId) => apiService.get(`/api/obras/estado/${estado}`, { idEmpresa: empresaId }),
     cambiarEstado: (id, estado, empresaId) => apiService.patch(`/api/obras/${id}/estado`, null, { estado, empresaId }),

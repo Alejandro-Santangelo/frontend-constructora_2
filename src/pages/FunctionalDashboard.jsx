@@ -6,6 +6,7 @@ import { apiService, getCurrentTenant } from '../services/api';
 import QuickApiTest from '../components/QuickApiTest';
 import VersionesPorObraModal from '../components/VersionesPorObraModal';
 import { useEmpresa } from '../EmpresaContext';
+import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 
 const FunctionalDashboard = ({ showNotification }) => {
   const { empresaSeleccionada } = useEmpresa();
@@ -21,7 +22,8 @@ const FunctionalDashboard = ({ showNotification }) => {
     proveedores: 0,
     usuarios: 0,
     presupuestos: 0,
-    transaccionesFinancieras: 0
+    transaccionesFinancieras: 0,
+    trabajosObrasIndependientes: 0 // Trabajos adicionales
   });
   const [loading, setLoading] = useState(false);
   const [showVersionesModal, setShowVersionesModal] = useState(false);
@@ -87,7 +89,8 @@ const FunctionalDashboard = ({ showNotification }) => {
           proveedores: 0,
           usuarios: 0,
           presupuestos: 0,
-          transaccionesFinancieras: 0
+          transaccionesFinancieras: 0,
+          trabajosObrasIndependientes: 0
         };
 
         const [empresasRes, clientesRes, obrasRes, profGeneralRes, profObraRes, matRes, gastosRes, presupRes] = results;
@@ -191,6 +194,33 @@ const FunctionalDashboard = ({ showNotification }) => {
         // TODO: Implementar endpoint específico en el backend para contar transacciones
         let transaccionesFinancierasCount = obrasCount;
 
+        // Obras Manuales (Independientes) - Contar obras SIN presupuesto asociado
+        let trabajosIndependientesCount = 0;
+        if (obrasRes.status === 'fulfilled' && presupRes.status === 'fulfilled') {
+          const obrasArray = Array.isArray(obrasRes.value)
+            ? obrasRes.value
+            : (obrasRes.value?.datos || obrasRes.value?.content || []);
+
+          const presupuestosArray = Array.isArray(presupRes.value)
+            ? presupRes.value
+            : (presupRes.value?.content || presupRes.value?.datos || []);
+
+          // Crear Set de IDs de obras que tienen presupuesto
+          const obrasConPresupuesto = new Set();
+          presupuestosArray.forEach(p => {
+            if (p.obraId) obrasConPresupuesto.add(p.obraId);
+          });
+
+          // Contar obras que NO tienen presupuesto y NO están canceladas
+          trabajosIndependientesCount = obrasArray.filter(obra =>
+            !obrasConPresupuesto.has(obra.id) &&
+            !obra.presupuestoNoCliente &&
+            obra.estado !== 'CANCELADO'
+          ).length;
+
+          console.log('📊 Obras manuales (sin presupuesto):', trabajosIndependientesCount);
+        }
+
         // Si alguna petición devolvió error, avisamos sin romper la UI
         const rejected = results.filter(r => r.status === 'rejected');
         if (rejected.length > 0 && showNotification) {
@@ -209,7 +239,8 @@ const FunctionalDashboard = ({ showNotification }) => {
           proveedores: proveedoresCount,
           usuarios: usuariosCount,
           presupuestos: presupuestosCount,
-          transaccionesFinancieras: transaccionesFinancierasCount
+          transaccionesFinancieras: transaccionesFinancierasCount,
+          trabajosObrasIndependientes: trabajosIndependientesCount
         });
 
         // Fallback específico: si empresasCount es 0, intentar endpoint alternativo '/empresas/simple'
@@ -363,6 +394,15 @@ const FunctionalDashboard = ({ showNotification }) => {
       link: '/profesionales-obra',
       description: 'Asignación de profesionales',
       customColor: '#fd7e14'
+    },
+    {
+      title: 'Trabajos - Obras Independientes',
+      value: stats.trabajosObrasIndependientes,
+      icon: 'fas fa-wrench',
+      color: 'success',
+      link: '/obras?tab=obras-manuales',
+      description: 'Obras creadas sin presupuesto previo',
+      customColor: '#4CAF50'
     }
   ], [stats]);
 

@@ -78,6 +78,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
 
   const cargarObrasDisponibles = async () => {
     try {
+      // 1. Cargar TODOS los presupuestos (obras normales Y trabajos extra)
       const response = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
 
       let presupuestosData = Array.isArray(response) ? response :
@@ -89,9 +90,27 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
       const estadosPermitidos = ['APROBADO', 'EN_EJECUCION'];
       presupuestosData = presupuestosData.filter(p => estadosPermitidos.includes(p.estado));
 
-      // Agrupar por obra y quedarse solo con la última versión
+      // 🎯 SEPARAR trabajos extra de obras normales
+      const presupuestosNormales = presupuestosData.filter(p => {
+        const esTE = p.esPresupuestoTrabajoExtra === true ||
+                     p.esPresupuestoTrabajoExtra === 'V' ||
+                     p.es_obra_trabajo_extra === true;
+        return !esTE;
+      });
+
+      const presupuestosTrabajosExtra = presupuestosData.filter(p => {
+        const esTE = p.esPresupuestoTrabajoExtra === true ||
+                     p.esPresupuestoTrabajoExtra === 'V' ||
+                     p.es_obra_trabajo_extra === true;
+        return esTE;
+      });
+
+      console.log('📋 Presupuestos Normales:', presupuestosNormales.length);
+      console.log('🔧 Presupuestos Trabajos Extra:', presupuestosTrabajosExtra.length);
+
+      // 2. Agrupar OBRAS NORMALES por dirección y quedarse solo con la última versión
       const obrasPorDireccion = {};
-      presupuestosData.forEach(p => {
+      presupuestosNormales.forEach(p => {
         const claveObra = `${p.direccionObraCalle}-${p.direccionObraAltura}-${p.direccionObraBarrio || ''}`;
 
         if (!obrasPorDireccion[claveObra]) {
@@ -108,22 +127,234 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
 
       const presupuestosUnicos = Object.values(obrasPorDireccion);
 
-      // Convertir a formato de obras
-      const obras = presupuestosUnicos.map(p => ({
+      // Convertir a formato de obras normales
+      const obrasNormales = presupuestosUnicos.map(p => ({
+        tipo: 'OBRA',
         obraId: p.obraId || p.id,
         presupuestoNoClienteId: p.id,
         barrio: p.direccionObraBarrio || null,
         calle: p.direccionObraCalle || '',
         altura: p.direccionObraAltura || '',
         ciudad: p.direccionObraCiudad || '',
-        numero: p.direccionObraAltura || ''
+        numero: p.direccionObraAltura || '',
+        nombreObra: p.nombreObra || p.nombre || null,
+        direccion: `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim(),
+        nombre: p.nombreObra || p.nombre || `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim()
       }));
 
-      setObrasDisponibles(obras);
+      // 3. Procesar TRABAJOS EXTRA (última versión por obraId)
+      const trabajosExtraPorObraId = {};
+      presupuestosTrabajosExtra.forEach(p => {
+        const obraId = p.obraId || p.direccionObraId || p.id;
+        const version = p.numeroVersion || p.version || 0;
+
+        if (!trabajosExtraPorObraId[obraId] || version > (trabajosExtraPorObraId[obraId].numeroVersion || 0)) {
+          trabajosExtraPorObraId[obraId] = p;
+        }
+      });
+
+      const trabajosExtra = Object.values(trabajosExtraPorObraId).map(p => ({
+        tipo: 'TRABAJO_EXTRA',
+        trabajoExtraId: p.id, // El ID del presupuesto
+        trabajoExtraObraId: p.obraId || p.direccionObraId, // ✅ El ID de la obra del trabajo extra (para vincular trabajos adicionales)
+        presupuestoNoClienteId: p.id,
+        obraId: p.obraId || p.direccionObraId,
+        obraPadreId: p.obra_origen_id || p.obraOrigenId, // 🔍 ID de la obra principal (si existe)
+        nombre: p.nombreObra || p.nombre || p.titulo || `Trabajo Extra #${p.id}`,
+        nombreObra: p.nombreObra || p.nombre,
+        direccion: `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim(),
+        montoEstimado: p.totalPresupuesto || p.presupuestoTotal || p.total || 0,
+        estado: p.estado
+      }));
+
+      console.log('✅ Trabajos Extra procesados:', trabajosExtra);
+
+      // 2. Cargar trabajos adicionales
+      let trabajosAdicionales = [];
+      try {
+        const responseTrab = await api.trabajosAdicionales.getAll(empresaSeleccionada.id);
+        let trabajosData = Array.isArray(responseTrab) ? responseTrab :
+                          responseTrab?.datos ? responseTrab.datos :
+                          responseTrab?.data ? responseTrab.data : [];
+
+        console.log('📋 Trabajos Adicionales RAW:', trabajosData);
+
+        // Filtrar solo activos
+        trabajosData = trabajosData.filter(t => t.estado !== 'CANCELADO' && t.estado !== 'COMPLETADO');
+
+        trabajosAdicionales = trabajosData.map(t => ({
+          tipo: 'TRABAJO_ADICIONAL',
+          trabajoAdicionalId: t.id,
+          obraId: t.obraId, // Preservar obraId para agrupación
+          trabajoExtraId: t.trabajoExtraId, // ✅ Preservar vínculo con trabajo extra
+          nombre: t.nombre || t.descripcion || `Trabajo Adicional #${t.id}`,
+          descripcion: t.descripcion,
+          montoEstimado: t.importe || t.montoEstimado || t.monto || 0,
+          estado: t.estado
+        }));
+
+        console.log('✅ Trabajos Adicionales procesados:', trabajosAdicionales);
+      } catch (err) {
+        console.error('❌ Error cargando trabajos adicionales:', err);
+      }
+
+      // 3. Cargar obras independientes (obras manuales sin presupuesto) PRIMERO
+      let obrasIndependientes = [];
+      try {
+        const responseObras = await api.obras.getObrasManuales(empresaSeleccionada.id);
+        let obrasData = Array.isArray(responseObras) ? responseObras :
+                       responseObras?.datos ? responseObras.datos :
+                       responseObras?.data ? responseObras.data : [];
+
+        console.log('🏗️ Obras Independientes RAW:', obrasData);
+
+        // Filtrar solo activas y aprobadas
+        obrasData = obrasData.filter(o =>
+          o.estado === 'EN_PROGRESO' ||
+          o.estado === 'ACTIVA' ||
+          o.estado === 'APROBADO'
+        );
+
+        obrasIndependientes = obrasData.map(o => ({
+          tipo: 'OBRA_INDEPENDIENTE',
+          obraIndependienteId: o.id,
+          nombre: o.nombre || o.nombreObra || o.direccion || `Obra Independiente #${o.id}`,
+          direccion: o.direccion || o.direccionCompleta,
+          presupuestoEstimado: o.presupuestoEstimado || o.totalPresupuesto || 0,
+          estado: o.estado
+        }));
+
+        console.log('✅ Obras Independientes procesadas:', obrasIndependientes);
+      } catch (err) {
+        console.error('❌ Error cargando obras independientes:', err);
+      }
+
+      // 5. Agrupar entidades jerárquicamente (OBRA → TRABAJO EXTRA → TRABAJO ADICIONAL)
+      const entidadesAgrupadas = [];
+
+      console.log('🔍 Iniciando agrupación...');
+      console.log('Obras normales:', obrasNormales.map(o => ({ id: o.obraId, nombre: o.nombreObra })));
+      console.log('Trabajos extra:', trabajosExtra.map(te => ({ presupuestoId: te.trabajoExtraId, obraId: te.trabajoExtraObraId, obraPadreId: te.obraPadreId })));
+      console.log('Trabajos adicionales:', trabajosAdicionales.map(ta => ({ id: ta.trabajoAdicionalId, obraId: ta.obraId, trabajoExtraId: ta.trabajoExtraId })));
+
+      // Agregar obras normales con sus trabajos extra y adicionales
+      obrasNormales.forEach(obra => {
+        // NIVEL 0: Agregar la obra principal
+        entidadesAgrupadas.push({
+          ...obra,
+          esGrupo: true,
+          nivel: 0
+        });
+
+        // NIVEL 1: Buscar trabajos extra que pertenecen a esta obra
+        // Los trabajos extra pueden vincularse por: te.obraPadreId === obra.obraId
+        // O por tener trabajos adicionales que apuntan a ta.obraId === obra.obraId
+        const extrasDeEstaObra = trabajosExtra.filter(te => {
+          // Método 1: Vínculo directo por obraPadreId
+          if (te.obraPadreId === obra.obraId) return true;
+
+          // Método 2: Tiene trabajos adicionales que apuntan a esta obra
+          const tieneAdicionalesDeEstaObra = trabajosAdicionales.some(ta =>
+            ta.obraId === obra.obraId && ta.trabajoExtraId === te.trabajoExtraObraId
+          );
+          return tieneAdicionalesDeEstaObra;
+        });
+
+        console.log(`Obra ${obra.nombreObra} (${obra.obraId}) tiene ${extrasDeEstaObra.length} trabajos extra`);
+
+        extrasDeEstaObra.forEach(te => {
+          entidadesAgrupadas.push({
+            ...te,
+            esHijo: true,
+            nivel: 1,
+            obraPadreId: obra.obraId
+          });
+
+          // NIVEL 2: Buscar trabajos adicionales de este trabajo extra
+          // Los trabajos adicionales tienen trabajoExtraId que apunta al obraId del trabajo extra
+          const adicionalesDelTE = trabajosAdicionales.filter(ta =>
+            ta.trabajoExtraId === te.trabajoExtraObraId
+          );
+
+          console.log(`  TE ${te.nombre} (obraId: ${te.trabajoExtraObraId}) tiene ${adicionalesDelTE.length} trabajos adicionales`);
+
+          adicionalesDelTE.forEach(ta => {
+            entidadesAgrupadas.push({
+              ...ta,
+              esHijo: true,
+              esNieto: true,
+              nivel: 2,
+              obraPadreId: obra.obraId,
+              trabajoExtraPadreObraId: te.trabajoExtraObraId
+            });
+          });
+        });
+
+        // NIVEL 1: Trabajos adicionales directos de la obra (sin trabajoExtraId)
+        const adicionalesDirectos = trabajosAdicionales.filter(ta =>
+          ta.obraId === obra.obraId && !ta.trabajoExtraId
+        );
+
+        console.log(`Obra ${obra.nombreObra} tiene ${adicionalesDirectos.length} trabajos adicionales directos`);
+
+        adicionalesDirectos.forEach(ta => {
+          entidadesAgrupadas.push({
+            ...ta,
+            esHijo: true,
+            nivel: 1,
+            obraPadreId: obra.obraId
+          });
+        });
+      });
+
+      // Recolectar IDs de trabajos extra que fueron agrupados
+      const extrasAgrupados = new Set();
+      entidadesAgrupadas.forEach(e => {
+        if (e.tipo === 'TRABAJO_EXTRA' && e.esHijo) {
+          extrasAgrupados.add(e.trabajoExtraObraId);
+        }
+      });
+
+      console.log('Trabajos extra agrupados:', Array.from(extrasAgrupados));
+
+      // Agregar trabajos adicionales sin obra asignada (huérfanos)
+      const adicionalesSinObra = trabajosAdicionales.filter(ta => !ta.obraId && !ta.trabajoExtraId);
+      adicionalesSinObra.forEach(ta => {
+        entidadesAgrupadas.push({
+          ...ta,
+          nivel: 0
+        });
+      });
+
+      // Agregar trabajos extra que NO fueron agrupados (huérfanos)
+      const extrasSinObra = trabajosExtra.filter(te =>
+        !extrasAgrupados.has(te.trabajoExtraObraId)
+      );
+
+      console.log(`Trabajos extra huérfanos: ${extrasSinObra.length}`);
+
+      extrasSinObra.forEach(te => {
+        entidadesAgrupadas.push({
+          ...te,
+          nivel: 0
+        });
+      });
+
+      // Agregar obras independientes (siempre nivel 0, sin hijos)
+      obrasIndependientes.forEach(oi => {
+        entidadesAgrupadas.push({
+          ...oi,
+          nivel: 0
+        });
+      });
+
+      console.log('🎯 ENTIDADES AGRUPADAS JERÁRQUICAMENTE:', entidadesAgrupadas);
+
+      setObrasDisponibles(entidadesAgrupadas);
 
       // Inicializar distribución
-      const distInicial = obras.map(obra => ({
-        obra: obra,
+      const distInicial = entidadesAgrupadas.map(entidad => ({
+        obra: entidad,
         monto: 0,
         porcentaje: 0
       }));
@@ -134,10 +365,59 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
     }
   };
 
-  const formatearDireccion = (obra) => {
-    if (!obra) return 'Obra sin dirección';
-    const direccionCompleta = `${obra.calle || ''} ${obra.numero || ''}, ${obra.ciudad || ''}`.trim();
-    return direccionCompleta || `Obra #${obra.presupuestoNoClienteId || obra.id}`;
+  const formatearDireccion = (entidad) => {
+    if (!entidad) return 'Sin información';
+
+    // Si es obra normal
+    if (entidad.tipo === 'OBRA') {
+      if (entidad.nombreObra) {
+        return entidad.nombreObra;
+      }
+      const direccionCompleta = entidad.direccion || `${entidad.calle || ''} ${entidad.numero || ''}, ${entidad.ciudad || ''}`.trim();
+      return direccionCompleta || `Obra #${entidad.presupuestoNoClienteId || entidad.obraId}`;
+    }
+
+    // Si es trabajo adicional
+    if (entidad.tipo === 'TRABAJO_ADICIONAL') {
+      return entidad.nombre || `Trabajo Adicional #${entidad.trabajoAdicionalId}`;
+    }
+
+    // Si es trabajo extra
+    if (entidad.tipo === 'TRABAJO_EXTRA') {
+      return entidad.nombre || `Trabajo Extra #${entidad.trabajoExtraId}`;
+    }
+
+    // Si es obra independiente
+    if (entidad.tipo === 'OBRA_INDEPENDIENTE') {
+      return entidad.nombre || entidad.direccion || `Obra Independiente #${entidad.obraIndependienteId}`;
+    }
+
+    return 'Entidad sin nombre';
+  };
+
+  const formatearDireccionCompleta = (entidad) => {
+    if (!entidad) return null;
+
+    // Si es obra normal, retornar la dirección
+    if (entidad.tipo === 'OBRA' && entidad.nombreObra) {
+      return entidad.direccion || `${entidad.calle || ''} ${entidad.numero || ''}, ${entidad.ciudad || ''}`.trim();
+    }
+
+    return null;
+  };
+
+  const obtenerIdUnico = (entidad) => {
+    if (!entidad) return null;
+    if (entidad.tipo === 'OBRA') return `obra-${entidad.presupuestoNoClienteId}`;
+    if (entidad.tipo === 'TRABAJO_ADICIONAL') return `trabajo-${entidad.trabajoAdicionalId}`;
+    if (entidad.tipo === 'TRABAJO_EXTRA') return `trabajo-extra-${entidad.trabajoExtraId}`;
+    if (entidad.tipo === 'OBRA_INDEPENDIENTE') return `obra-indep-${entidad.obraIndependienteId}`;
+    return null;
+  };
+
+  const puedeExpandirItems = (entidad) => {
+    // Obras normales y trabajos extra pueden expandir ítems
+    return entidad?.tipo === 'OBRA' || entidad?.tipo === 'TRABAJO_EXTRA';
   };
 
   const handleInputChange = (e) => {
@@ -193,7 +473,8 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
     const porcentajePorObra = 100 / obrasSeleccionadas.length;
 
     const nuevaDistribucion = distribucion.map(d => {
-      if (obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId)) {
+      const idUnico = obtenerIdUnico(d.obra);
+      if (obrasSeleccionadas.includes(idUnico)) {
         return {
           ...d,
           monto: montoPorObra,
@@ -207,16 +488,16 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
   };
 
   const calcularTotales = () => {
-    const obrasConMonto = distribucion.filter(d =>
-      obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) &&
-      parseFloat(d.monto) > 0
-    );
+    const obrasConMonto = distribucion.filter(d => {
+      const idUnico = obtenerIdUnico(d.obra);
+      return obrasSeleccionadas.includes(idUnico) && parseFloat(d.monto) > 0;
+    });
 
     let totalMonto = 0;
 
     // Para cada obra, si tiene distribución por items, sumar los items; si no, sumar el monto de la obra
     obrasConMonto.forEach(d => {
-      const obraId = d.obra.presupuestoNoClienteId;
+      const obraId = obtenerIdUnico(d.obra);
       const distObra = distribucionPorObra[obraId];
       const estaExpandida = obrasExpandidas.includes(obraId);
 
@@ -232,8 +513,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
         // Si está expandida, sumar los items distribuidos
         const totalItems = parseFloat(distObra.profesionales?.monto || 0) +
                           parseFloat(distObra.materiales?.monto || 0) +
-                          parseFloat(distObra.gastosGenerales?.monto || 0) +
-                          parseFloat(distObra.trabajosExtra?.monto || 0);
+                          parseFloat(distObra.gastosGenerales?.monto || 0);
         console.log('✅ Obra expandida - sumando items:', totalItems);
         totalMonto += totalItems;
       } else {
@@ -266,8 +546,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
             [presupuestoId]: {
               profesionales: { monto: 0, porcentaje: 0 },
               materiales: { monto: 0, porcentaje: 0 },
-              gastosGenerales: { monto: 0, porcentaje: 0 },
-              trabajosExtra: { monto: 0, porcentaje: 0 }
+              gastosGenerales: { monto: 0, porcentaje: 0 }
             }
           }));
         }
@@ -290,8 +569,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
     const distActual = distribucionPorObra[obraId] || {
       profesionales: { monto: 0, porcentaje: 0 },
       materiales: { monto: 0, porcentaje: 0 },
-      gastosGenerales: { monto: 0, porcentaje: 0 },
-      trabajosExtra: { monto: 0, porcentaje: 0 }
+      gastosGenerales: { monto: 0, porcentaje: 0 }
     };
 
     let nuevaDist = { ...distActual };
@@ -383,10 +661,10 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
 
       // ========== MODO CONSOLIDADO ==========
       const obrasConMonto = asignarAhora && obrasSeleccionadas.length > 0
-        ? distribucion.filter(d =>
-            obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) &&
-            parseFloat(d.monto) > 0
-          )
+        ? distribucion.filter(d => {
+            const idUnico = obtenerIdUnico(d.obra);
+            return obrasSeleccionadas.includes(idUnico) && parseFloat(d.monto) > 0;
+          })
         : [];
 
       // Validar que no exceda el total
@@ -418,16 +696,29 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
       // PASO 2: Asignar a obras si corresponde
       if (obrasConMonto.length > 0) {
         const asignaciones = obrasConMonto.map(d => {
-          const distObra = distribucionPorObra[d.obra.presupuestoNoClienteId];
+          const idUnico = obtenerIdUnico(d.obra);
+          const distObra = distribucionPorObra[idUnico];
 
+          // Construir asignación básica
           const asignacion = {
-            obraId: d.obra.obraId,
             montoAsignado: parseFloat(d.monto),
             descripcion: `${d.porcentaje.toFixed(1)}% del cobro - ${formatearDireccion(d.obra)}`
           };
 
-          // Añadir distribución por ítems si existe
-          if (distObra) {
+          // Asignar IDs según el tipo
+          if (d.obra.tipo === 'OBRA') {
+            asignacion.obraId = d.obra.obraId;
+            asignacion.presupuestoId = d.obra.presupuestoNoClienteId;
+          } else if (d.obra.tipo === 'TRABAJO_ADICIONAL') {
+            asignacion.trabajoAdicionalId = d.obra.trabajoAdicionalId;
+          } else if (d.obra.tipo === 'TRABAJO_EXTRA') {
+            asignacion.trabajoExtraId = d.obra.trabajoExtraId;
+          } else if (d.obra.tipo === 'OBRA_INDEPENDIENTE') {
+            asignacion.obraIndependienteId = d.obra.obraIndependienteId;
+          }
+
+          // Añadir distribución por ítems si es obra normal o trabajo extra y existe distribución
+          if ((d.obra.tipo === 'OBRA' || d.obra.tipo === 'TRABAJO_EXTRA') && distObra) {
             const distribucionItems = {};
 
             if (parseFloat(distObra.profesionales?.monto || 0) > 0) {
@@ -442,10 +733,6 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
               distribucionItems.montoGastosGenerales = parseFloat(distObra.gastosGenerales.monto);
               distribucionItems.porcentajeGastosGenerales = parseFloat(distObra.gastosGenerales.porcentaje);
             }
-            if (parseFloat(distObra.trabajosExtra?.monto || 0) > 0) {
-              distribucionItems.montoTrabajosExtra = parseFloat(distObra.trabajosExtra.monto);
-              distribucionItems.porcentajeTrabajosExtra = parseFloat(distObra.trabajosExtra.porcentaje);
-            }
 
             if (Object.keys(distribucionItems).length > 0) {
               asignacion.distribucionItems = distribucionItems;
@@ -459,18 +746,35 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
         const resultado = await asignarCobroAObras(cobroCreado.id, asignaciones, empresaSeleccionada.id);
         console.log('✅ Asignación exitosa:', resultado);
 
-        // Notificar por cada obra
+        // Notificar por cada entidad según su tipo
         obrasConMonto.forEach(d => {
-          eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
-            presupuestoId: d.obra.presupuestoNoClienteId,
-            monto: parseFloat(d.monto)
-          });
+          if (d.obra.tipo === 'OBRA') {
+            eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
+              presupuestoId: d.obra.presupuestoNoClienteId,
+              monto: parseFloat(d.monto)
+            });
+          } else if (d.obra.tipo === 'TRABAJO_ADICIONAL') {
+            eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
+              trabajoAdicionalId: d.obra.trabajoAdicionalId,
+              monto: parseFloat(d.monto)
+            });
+          } else if (d.obra.tipo === 'TRABAJO_EXTRA') {
+            eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
+              trabajoExtraId: d.obra.trabajoExtraId,
+              monto: parseFloat(d.monto)
+            });
+          } else if (d.obra.tipo === 'OBRA_INDEPENDIENTE') {
+            eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
+              obraIndependienteId: d.obra.obraIndependienteId,
+              monto: parseFloat(d.monto)
+            });
+          }
         });
       }
 
       const mensajeExito = obrasConMonto.length === 0
         ? `✅ Cobro de ${formatearMoneda(montoTotalNum)} registrado - Disponible para asignar`
-        : `✅ Cobro registrado y asignado a ${obrasConMonto.length} obra(s)`;
+        : `✅ Cobro registrado y asignado a ${obrasConMonto.length} entidad(es)`;
 
       setSuccessMessage(mensajeExito);
 
@@ -686,42 +990,60 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                           checked={obrasSeleccionadas.length === obrasDisponibles.length}
                                           onChange={(e) => {
                                             if (e.target.checked) {
-                                              setObrasSeleccionadas(obrasDisponibles.map(o => o.presupuestoNoClienteId));
+                                              setObrasSeleccionadas(obrasDisponibles.map(o => obtenerIdUnico(o)));
                                             } else {
                                               setObrasSeleccionadas([]);
                                             }
                                           }}
                                         />
                                       </th>
-                                      <th>Obra</th>
+                                      <th>Obra / Trabajo / Proyecto</th>
                                       <th width="150" className="text-end">Monto ($)</th>
                                       <th width="100" className="text-end text-muted">%</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {distribucion.map((d, index) => {
-                                      const isSelected = obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId);
-                                      const isExpanded = obrasExpandidas.includes(d.obra.presupuestoNoClienteId);
-                                      const distObra = distribucionPorObra[d.obra.presupuestoNoClienteId];
+                                      const idUnico = obtenerIdUnico(d.obra);
+                                      const isSelected = obrasSeleccionadas.includes(idUnico);
+                                      const isExpanded = obrasExpandidas.includes(idUnico);
+                                      const distObra = distribucionPorObra[idUnico];
+                                      const permiteItems = puedeExpandirItems(d.obra);
 
                                       return (
-                                        <React.Fragment key={d.obra.presupuestoNoClienteId}>
-                                          <tr className={isSelected ? 'table-success' : ''}>
+                                        <React.Fragment key={idUnico}>
+                                          <tr className={`${isSelected ? 'table-success' : ''} ${d.obra.esNieto ? 'bg-light bg-opacity-75' : d.obra.esHijo ? 'bg-light bg-opacity-50' : ''}`}
+                                              style={{
+                                                borderLeft: d.obra.esNieto ? '3px solid #adb5bd' : d.obra.esHijo ? '3px solid #dee2e6' : 'none'
+                                              }}>
                                             <td>
                                               <input
                                                 type="checkbox"
                                                 className="form-check-input"
                                                 checked={isSelected}
-                                                onChange={() => toggleObraSeleccionada(d.obra.presupuestoNoClienteId)}
+                                                onChange={() => toggleObraSeleccionada(idUnico)}
                                               />
                                             </td>
                                             <td>
-                                              <div className="d-flex align-items-center">
-                                                {isSelected && parseFloat(d.monto) > 0 && (
+                                              <div className="d-flex align-items-center" style={{
+                                                paddingLeft: d.obra.nivel === 2 ? '4rem' : d.obra.nivel === 1 ? '2rem' : '0'
+                                              }}>
+                                                {d.obra.esNieto && (
+                                                  <span className="text-muted me-2" style={{fontSize: '0.75rem'}}>
+                                                    <i className="bi bi-arrow-return-right"></i>
+                                                    <i className="bi bi-arrow-return-right"></i>
+                                                  </span>
+                                                )}
+                                                {d.obra.esHijo && !d.obra.esNieto && (
+                                                  <span className="text-muted me-2" style={{fontSize: '0.8rem'}}>
+                                                    <i className="bi bi-arrow-return-right"></i>
+                                                  </span>
+                                                )}
+                                                {isSelected && permiteItems && (
                                                   <button
                                                     type="button"
                                                     className="btn btn-sm btn-outline-primary me-2"
-                                                    onClick={() => toggleObraExpandida(d.obra.presupuestoNoClienteId)}
+                                                    onClick={() => toggleObraExpandida(idUnico)}
                                                     title="Distribuir por ítems"
                                                     style={{
                                                       fontSize: '0.75rem',
@@ -733,12 +1055,55 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                     Ítems
                                                   </button>
                                                 )}
-                                                {isSelected && parseFloat(d.monto) === 0 && (
-                                                  <small className="text-muted me-2">
-                                                    <i className="bi bi-info-circle"></i> Asigne un monto primero
-                                                  </small>
-                                                )}
-                                                <small>{formatearDireccion(d.obra)}</small>
+                                                <div>
+                                                  <div>
+                                                    <small className="fw-bold">{formatearDireccion(d.obra)}</small>
+                                                    {formatearDireccionCompleta(d.obra) && (
+                                                      <small className="d-block text-muted" style={{fontSize: '0.75rem'}}>
+                                                        <i className="bi bi-geo-alt me-1"></i>
+                                                        {formatearDireccionCompleta(d.obra)}
+                                                      </small>
+                                                    )}
+                                                  </div>
+                                                  <div className="mt-1">
+                                                    {d.obra.tipo === 'TRABAJO_ADICIONAL' && (
+                                                      <span className="badge bg-primary" style={{fontSize: '0.65rem'}}>🔧 Trabajo Adicional</span>
+                                                    )}
+                                                    {d.obra.tipo === 'TRABAJO_EXTRA' && (
+                                                      <>
+                                                        <span className="badge bg-info" style={{fontSize: '0.65rem'}}>⚡ Trabajo Extra</span>
+                                                        {(() => {
+                                                          const cantidadAdicionales = distribucion.filter(dist =>
+                                                            dist.obra.esNieto && dist.obra.trabajoExtraPadreObraId === d.obra.trabajoExtraObraId
+                                                          ).length;
+                                                          return cantidadAdicionales > 0 ? (
+                                                            <span className="badge bg-secondary ms-1" style={{fontSize: '0.65rem'}}>
+                                                              <i className="bi bi-wrench"></i> {cantidadAdicionales}
+                                                            </span>
+                                                          ) : null;
+                                                        })()}
+                                                      </>
+                                                    )}
+                                                    {d.obra.tipo === 'OBRA_INDEPENDIENTE' && (
+                                                      <span className="badge bg-warning text-dark" style={{fontSize: '0.65rem'}}>🏗️ Obra Independiente</span>
+                                                    )}
+                                                    {d.obra.tipo === 'OBRA' && (
+                                                      <>
+                                                        <span className="badge bg-success" style={{fontSize: '0.65rem'}}>📋 Obra Principal</span>
+                                                        {d.obra.esGrupo && (() => {
+                                                          const cantidadHijos = distribucion.filter(dist =>
+                                                            dist.obra.esHijo && !dist.obra.esNieto && dist.obra.obraPadreId === d.obra.obraId
+                                                          ).length;
+                                                          return cantidadHijos > 0 ? (
+                                                            <span className="badge bg-secondary ms-1" style={{fontSize: '0.65rem'}}>
+                                                              <i className="bi bi-diagram-3"></i> {cantidadHijos} trabajo{cantidadHijos > 1 ? 's' : ''}
+                                                            </span>
+                                                          ) : null;
+                                                        })()}
+                                                      </>
+                                                    )}
+                                                  </div>
+                                                </div>
                                               </div>
                                             </td>
                                             <td>
@@ -764,7 +1129,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                           </tr>
 
                                           {/* Distribución por ítems de esta obra */}
-                                          {isExpanded && isSelected && parseFloat(d.monto) > 0 && (
+                                          {isExpanded && isSelected && permiteItems && (
                                             <tr className={isSelected ? 'table-success' : ''}>
                                               <td colSpan="5" className="p-0">
                                                 <div className="bg-light border-top" style={{padding: '12px 20px'}}>
@@ -776,15 +1141,15 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                     <div className="btn-group btn-group-sm" role="group">
                                                       <button
                                                         type="button"
-                                                        className={`btn btn-sm ${(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-                                                        onClick={() => handleCambiarTipoDistribucionObra(d.obra.presupuestoNoClienteId, 'MONTO')}
+                                                        className={`btn btn-sm ${(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? 'btn-secondary' : 'btn-outline-secondary'}`}
+                                                        onClick={() => handleCambiarTipoDistribucionObra(idUnico, 'MONTO')}
                                                       >
                                                         Por Monto
                                                       </button>
                                                       <button
                                                         type="button"
-                                                        className={`btn btn-sm ${(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'PORCENTAJE' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-                                                        onClick={() => handleCambiarTipoDistribucionObra(d.obra.presupuestoNoClienteId, 'PORCENTAJE')}
+                                                        className={`btn btn-sm ${(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'PORCENTAJE' ? 'btn-secondary' : 'btn-outline-secondary'}`}
+                                                        onClick={() => handleCambiarTipoDistribucionObra(idUnico, 'PORCENTAJE')}
                                                       >
                                                         Por %
                                                       </button>
@@ -805,19 +1170,18 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                           <input
                                                             type="number"
                                                             className="form-control form-control-sm mb-1"
-                                                            placeholder={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                            value={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
+                                                            placeholder={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? 'Monto' : 'Porcentaje'}
+                                                            value={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO'
                                                               ? (distObra?.profesionales?.monto || '')
                                                               : (distObra?.profesionales?.porcentaje || '')}
-                                                            onChange={(e) => handleDistribucionItemsChange(
-                                                              d.obra.presupuestoNoClienteId,
+                                                            onChange={(e) => handleDistribucionItemsChange(idUnico,
                                                               'profesionales',
-                                                              (tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'monto' : 'porcentaje',
+                                                              (tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? 'monto' : 'porcentaje',
                                                               e.target.value
                                                             )}
                                                             min="0"
-                                                            step={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? '0.01' : '0.1'}
-                                                            max={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'PORCENTAJE' ? '100' : undefined}
+                                                            step={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? '0.01' : '0.1'}
+                                                            max={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'PORCENTAJE' ? '100' : undefined}
                                                             style={{
                                                               MozAppearance: 'textfield',
                                                               WebkitAppearance: 'none',
@@ -826,7 +1190,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                             onWheel={(e) => e.target.blur()}
                                                           />
                                                           <small className="text-muted">
-                                                            {(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
+                                                            {(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO'
                                                               ? `${(distObra?.profesionales?.porcentaje || 0).toFixed(2)}%`
                                                               : formatearMoneda(parseFloat(distObra?.profesionales?.monto || 0))
                                                             }
@@ -848,19 +1212,18 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                           <input
                                                             type="number"
                                                             className="form-control form-control-sm mb-1"
-                                                            placeholder={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                            value={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
+                                                            placeholder={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? 'Monto' : 'Porcentaje'}
+                                                            value={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO'
                                                               ? (distObra?.materiales?.monto || '')
                                                               : (distObra?.materiales?.porcentaje || '')}
-                                                            onChange={(e) => handleDistribucionItemsChange(
-                                                              d.obra.presupuestoNoClienteId,
+                                                            onChange={(e) => handleDistribucionItemsChange(idUnico,
                                                               'materiales',
-                                                              (tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'monto' : 'porcentaje',
+                                                              (tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? 'monto' : 'porcentaje',
                                                               e.target.value
                                                             )}
                                                             min="0"
-                                                            step={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? '0.01' : '0.1'}
-                                                            max={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'PORCENTAJE' ? '100' : undefined}
+                                                            step={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? '0.01' : '0.1'}
+                                                            max={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'PORCENTAJE' ? '100' : undefined}
                                                             style={{
                                                               MozAppearance: 'textfield',
                                                               WebkitAppearance: 'none',
@@ -869,7 +1232,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                             onWheel={(e) => e.target.blur()}
                                                           />
                                                           <small className="text-muted">
-                                                            {(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
+                                                            {(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO'
                                                               ? `${(distObra?.materiales?.porcentaje || 0).toFixed(2)}%`
                                                               : formatearMoneda(parseFloat(distObra?.materiales?.monto || 0))
                                                             }
@@ -891,19 +1254,18 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                           <input
                                                             type="number"
                                                             className="form-control form-control-sm mb-1"
-                                                            placeholder={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                            value={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
+                                                            placeholder={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? 'Monto' : 'Porcentaje'}
+                                                            value={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO'
                                                               ? (distObra?.gastosGenerales?.monto || '')
                                                               : (distObra?.gastosGenerales?.porcentaje || '')}
-                                                            onChange={(e) => handleDistribucionItemsChange(
-                                                              d.obra.presupuestoNoClienteId,
+                                                            onChange={(e) => handleDistribucionItemsChange(idUnico,
                                                               'gastosGenerales',
-                                                              (tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'monto' : 'porcentaje',
+                                                              (tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? 'monto' : 'porcentaje',
                                                               e.target.value
                                                             )}
                                                             min="0"
-                                                            step={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? '0.01' : '0.1'}
-                                                            max={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'PORCENTAJE' ? '100' : undefined}
+                                                            step={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO' ? '0.01' : '0.1'}
+                                                            max={(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'PORCENTAJE' ? '100' : undefined}
                                                             style={{
                                                               MozAppearance: 'textfield',
                                                               WebkitAppearance: 'none',
@@ -912,52 +1274,9 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                             onWheel={(e) => e.target.blur()}
                                                           />
                                                           <small className="text-muted">
-                                                            {(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
+                                                            {(tipoDistribucionPorObra[idUnico] || 'MONTO') === 'MONTO'
                                                               ? `${(distObra?.gastosGenerales?.porcentaje || 0).toFixed(2)}%`
                                                               : formatearMoneda(parseFloat(distObra?.gastosGenerales?.monto || 0))
-                                                            }
-                                                          </small>
-                                                        </div>
-                                                      </div>
-                                                    </div>
-
-                                                    {/* Trabajos Extra */}
-                                                    <div className="col-md-3">
-                                                      <div className="card border">
-                                                        <div className="card-body p-2">
-                                                          <div className="mb-1">
-                                                            <small className="fw-bold">
-                                                              <i className="bi bi-hammer text-info me-1"></i>
-                                                              Trabajos Extra
-                                                            </small>
-                                                          </div>
-                                                          <input
-                                                            type="number"
-                                                            className="form-control form-control-sm mb-1"
-                                                            placeholder={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                            value={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
-                                                              ? (distObra?.trabajosExtra?.monto || '')
-                                                              : (distObra?.trabajosExtra?.porcentaje || '')}
-                                                            onChange={(e) => handleDistribucionItemsChange(
-                                                              d.obra.presupuestoNoClienteId,
-                                                              'trabajosExtra',
-                                                              (tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? 'monto' : 'porcentaje',
-                                                              e.target.value
-                                                            )}
-                                                            min="0"
-                                                            step={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO' ? '0.01' : '0.1'}
-                                                            max={(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'PORCENTAJE' ? '100' : undefined}
-                                                            style={{
-                                                              MozAppearance: 'textfield',
-                                                              WebkitAppearance: 'none',
-                                                              appearance: 'textfield'
-                                                            }}
-                                                            onWheel={(e) => e.target.blur()}
-                                                          />
-                                                          <small className="text-muted">
-                                                            {(tipoDistribucionPorObra[d.obra.presupuestoNoClienteId] || 'MONTO') === 'MONTO'
-                                                              ? `${(distObra?.trabajosExtra?.porcentaje || 0).toFixed(2)}%`
-                                                              : formatearMoneda(parseFloat(distObra?.trabajosExtra?.monto || 0))
                                                             }
                                                           </small>
                                                         </div>
@@ -973,8 +1292,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                         const montoObra = parseFloat(d.monto) || 0;
                                                         const totalDist = parseFloat(distObra?.profesionales?.monto || 0) +
                                                                         parseFloat(distObra?.materiales?.monto || 0) +
-                                                                        parseFloat(distObra?.gastosGenerales?.monto || 0) +
-                                                                        parseFloat(distObra?.trabajosExtra?.monto || 0);
+                                                                        parseFloat(distObra?.gastosGenerales?.monto || 0);
                                                         const diferencia = montoObra - totalDist;
                                                         const colorClass = Math.abs(diferencia) < 0.01 ? 'text-success' : 'text-danger';
                                                         return (

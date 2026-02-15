@@ -1,5 +1,5 @@
 import React, { useEffect, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEmpresa } from '../EmpresaContext';
 import { SidebarContext } from '../App';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
@@ -63,6 +63,7 @@ import {
 
 const ObrasPage = ({ showNotification }) => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const dispatch = useDispatch();
   const { setObrasControls } = useContext(SidebarContext) || {};
 
@@ -78,6 +79,26 @@ const ObrasPage = ({ showNotification }) => {
   const estadosDisponibles = useSelector(selectEstadosDisponibles);
   const profesionalesAsignados = useSelector(selectProfesionalesAsignados);
   const estadisticas = useSelector(selectEstadisticas);
+
+  // ✅ Procesamiento de obras para detectar obras independientes
+  const obrasConFlags = React.useMemo(() => {
+    return obras.map(obra => {
+      // Detectar si es obra independiente (sin presupuesto)
+      const tienePresupuesto = obra.presupuestoId ||
+                              obra.presupuestoNoClienteId ||
+                              obra.presupuestoNoCliente?.id ||
+                              obra.presupuestoCompleto?.id;
+
+      const esObraIndependiente = !tienePresupuesto;
+
+      return {
+        ...obra,
+        esObraIndependiente,
+        // Mantener compatibilidad con lógica existente
+        totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0
+      };
+    });
+  }, [obras]);
 
   // Estado local para controlar obra seleccionada desde tabla
   const [selectedObraId, setSelectedObraId] = React.useState(null);
@@ -166,6 +187,8 @@ const ObrasPage = ({ showNotification }) => {
     telefono: '',
     email: ''
   });
+  const [guardarEnCatalogoTA, setGuardarEnCatalogoTA] = React.useState(false);
+  const [guardandoProfesionalTA, setGuardandoProfesionalTA] = React.useState(false);
 
   // Cargar profesionales cuando se abre el modal de trabajo adicional
   React.useEffect(() => {
@@ -581,7 +604,7 @@ const ObrasPage = ({ showNotification }) => {
   // Ref para evitar actualizar el presupuesto múltiples veces
   const presupuestoAsignadoRef = React.useRef(new Set());
 
-  // Estado para modal de envío de obra manual
+  // Estado para modal de envío de obra independiente
   const [mostrarModalEnviarObra, setMostrarModalEnviarObra] = React.useState(false);
   const [obraParaEnviar, setObraParaEnviar] = React.useState(null);
 
@@ -648,6 +671,17 @@ const ObrasPage = ({ showNotification }) => {
 
   // Flag para controlar carga inicial
   const inicializadoRef = React.useRef(false);
+
+  // Leer parámetro tab de la URL y activar pestaña correspondiente
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam && (tabParam === 'crear' || tabParam === 'trabajos-extra' || tabParam === 'listado' || tabParam === 'obras-manuales')) {
+      dispatch(setActiveTab(tabParam));
+      // Limpiar el parámetro de la URL después de usarlo
+      searchParams.delete('tab');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, dispatch, setSearchParams]);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -838,7 +872,7 @@ const ObrasPage = ({ showNotification }) => {
         handleCargarEstadisticas,
         handleVerEstadisticasObraSeleccionada,
         handleVerEstadisticasTodasObras,
-        esObraManual: !tienePresupuesto, // Nuevo: indica si es obra manual (sin presupuesto)
+        esObraManual: !tienePresupuesto, // Nuevo: indica si es obra independiente (sin presupuesto)
         handleEditar: () => {
           if (selectedObraId) {
             const obra = obras.find(o => o.id === selectedObraId);
@@ -962,12 +996,12 @@ const ObrasPage = ({ showNotification }) => {
           if (selectedObraId) {
             const obra = obras.find(o => o.id === selectedObraId);
             if (obra) {
-              // Verificar que sea obra manual (sin presupuesto)
+              // Verificar que sea obra independiente (sin presupuesto)
               const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
                                       (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
 
               if (tienePresupuesto) {
-                showNotification('⚠️ Solo se pueden enviar obras manuales (sin presupuesto asociado)', 'warning');
+                showNotification('⚠️ Solo se pueden enviar obras independientes (sin presupuesto asociado)', 'warning');
                 return;
               }
 
@@ -975,9 +1009,18 @@ const ObrasPage = ({ showNotification }) => {
               setMostrarModalEnviarObra(true);
             }
           } else {
-            showNotification('Seleccione una obra manual para enviar', 'warning');
+            showNotification('Seleccione una obra independiente para enviar', 'warning');
           }
-        }
+        },
+        handleVerObrasManuales: () => {
+          // Cambiar a la vista de obras independientes
+          dispatch(setActiveTab('obras-manuales'));
+        },
+        conteoObrasManuales: obras.filter(obra => {
+          const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                  (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+          return !tienePresupuesto && obra.estado !== 'CANCELADO';
+        }).length
       });
     }
 
@@ -1514,6 +1557,24 @@ const ObrasPage = ({ showNotification }) => {
         return;
       }
 
+      // 🔍 Verificar si hay profesionales temporales (adhoc) que no se guardarán
+      const profesionalesAdhoc = profesionalesAsignadosForm.filter(prof =>
+        typeof prof.id === 'string' && prof.id.startsWith('adhoc_')
+      );
+
+      if (profesionalesAdhoc.length > 0) {
+        const nombresAdhoc = profesionalesAdhoc.map(p => p.nombre).join(', ');
+        const confirmar = window.confirm(
+          `⚠️ Hay ${profesionalesAdhoc.length} profesional(es) temporal(es) que NO se guardarán con la obra:\n\n${nombresAdhoc}\n\n` +
+          `Para incluirlos, debes marcar "Guardar en catálogo permanente" al agregarlos.\n\n` +
+          `¿Deseas continuar creando la obra SIN estos profesionales?`
+        );
+
+        if (!confirmar) {
+          return; // Cancelar creación
+        }
+      }
+
 
 
       // Si no hay cliente seleccionado ni datos de nuevo cliente, crear uno genérico
@@ -1556,13 +1617,19 @@ const ObrasPage = ({ showNotification }) => {
         empresaId: formData.empresaId || empresaId || 1,
 
         // Profesionales asignados (formato específico del backend)
-        profesionalesAsignadosForm: profesionalesAsignadosForm.map(prof => ({
-          id: prof.esManual ? prof.id : prof.id.toString(), // String siempre
-          nombre: prof.nombre,
-          tipoProfesional: prof.tipoProfesional,
-          valorHora: parseFloat(prof.valorHora || 0),
-          esManual: prof.esManual || false
-        }))
+        // 🚫 Filtrar profesionales adhoc (temporales) - solo enviar los guardados en BD
+        profesionalesAsignadosForm: profesionalesAsignadosForm
+          .filter(prof => {
+            const esAdhoc = typeof prof.id === 'string' && prof.id.startsWith('adhoc_');
+            return !esAdhoc; // Solo incluir profesionales con ID real
+          })
+          .map(prof => ({
+            id: prof.esManual ? prof.id : prof.id.toString(), // String siempre
+            nombre: prof.nombre,
+            tipoProfesional: prof.tipoProfesional,
+            valorHora: parseFloat(prof.valorHora || 0),
+            esManual: prof.esManual || false
+          }))
       };
 
       console.log('📝¤ Enviando obra al backend:', obraData);
@@ -3194,8 +3261,9 @@ const ObrasPage = ({ showNotification }) => {
   // Funciones helper para trabajos adicionales
   const contarTrabajosAdicionalesObra = (obraId) => {
     if (!Array.isArray(trabajosAdicionales)) return 0;
-    // Filtra trabajos que pertenecen directamente a la obra (sin trabajo extra intermedio)
-    return trabajosAdicionales.filter(ta => ta.obraId === obraId && !ta.trabajoExtraId).length;
+    // Solo contar trabajos adicionales DIRECTOS de la obra (sin trabajo extra intermedio)
+    const trabajosDirectos = trabajosAdicionales.filter(ta => ta.obraId === obraId && !ta.trabajoExtraId);
+    return trabajosDirectos.length;
   };
 
   const contarTrabajosAdicionalesTrabajoExtra = (trabajoExtraId) => {
@@ -4205,6 +4273,32 @@ const ObrasPage = ({ showNotification }) => {
                       ))}
                     </select>
                     <button
+                      className="btn btn-sm btn-outline-info"
+                      onClick={() => {
+                        // Filtrar obras creadas manualmente (sin presupuesto)
+                        const obrasManuales = obras.filter(obra => {
+                          const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                                  (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+                          return !tienePresupuesto;
+                        });
+
+                        if (obrasManuales.length === 0) {
+                          showNotification('ℹ️ No hay obras independientes (sin presupuesto)', 'info');
+                          return;
+                        }
+
+                        dispatch(setActiveTab('obras-manuales'));
+                      }}
+                      title="Ver obras independientes (sin presupuesto previo)"
+                    >
+                      <i className="fas fa-folder me-1"></i>
+                      Obras Independientes ({obras.filter(obra => {
+                        const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                                (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+                        return !tienePresupuesto;
+                      }).length})
+                    </button>
+                    <button
                       className="btn btn-sm btn-outline-primary"
                       onClick={cargarObrasSegunFiltro}
                       title="Recargar obras"
@@ -4247,6 +4341,7 @@ const ObrasPage = ({ showNotification }) => {
                             <th style={{ width: '140px' }} className="small">Nombre</th>
                             <th className="small">Dirección</th>
                             <th style={{ width: '80px' }} className="small">Contacto</th>
+                            <th style={{ width: '70px' }} className="small" title="Trabajos Adicionales">T. Adic.</th>
                             <th style={{ width: '80px' }} className="small">Estado</th>
                             <th style={{ width: '100px' }} className="small">Asignaciones</th>
                             <th style={{ width: '80px' }} className="small">Inicio</th>
@@ -4440,15 +4535,13 @@ const ObrasPage = ({ showNotification }) => {
                             <React.Fragment key={obraId}>
                               {/* 🎨 Separador visual entre grupos - se muestra ANTES del primer elemento del nuevo grupo */}
                               {esCambioDeGrupo && index > 0 && (
-                                <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
-                                  <td colSpan="11" style={{
+                                <tr style={{ height: '8px', backgroundColor: '#343a40' }}><td colSpan="11" style={{
                                     padding: 0,
                                     height: '8px',
                                     borderTop: '3px solid #212529',
                                     borderBottom: '3px solid #212529',
                                     backgroundColor: '#495057'
-                                  }}></td>
-                                </tr>
+                                  }}></td></tr>
                               )}
 
                               {/* 🔴 Línea delgada entre obras del mismo grupo */}
@@ -4456,14 +4549,12 @@ const ObrasPage = ({ showNotification }) => {
                                array[index - 1] &&
                                array[index - 1]._grupoIndex === obra._grupoIndex &&
                                !esCambioDeGrupo && (
-                                <tr style={{ height: '6px', backgroundColor: '#ffcc99' }}>  {/* Naranja suave */}
-                                  <td colSpan="11" style={{
+                                <tr style={{ height: '6px', backgroundColor: '#ffcc99' }}>{/* Naranja suave */}<td colSpan="11" style={{
                                     padding: 0,
                                     height: '6px',
                                     borderTop: '2px solid #dc3545',
                                     backgroundColor: '#ffcc99'  /* Naranja suave */
-                                  }}></td>
-                                </tr>
+                                  }}></td></tr>
                               )}
 
                               <tr
@@ -4596,6 +4687,25 @@ const ObrasPage = ({ showNotification }) => {
                                   <small className="text-muted">-</small>
                                 )}
                               </td>
+                              <td className="text-center">
+                                {(() => {
+                                  // Detectar si es trabajo extra
+                                  const esTrabajoExtra = obra._esTrabajoExtra || obra.esObraTrabajoExtra || obra.es_obra_trabajo_extra || obra.esTrabajoExtra;
+                                  const cantidadTA = esTrabajoExtra
+                                    ? contarTrabajosAdicionalesTrabajoExtra(obra.id)
+                                    : contarTrabajosAdicionalesObra(obra.id);
+                                  if (cantidadTA > 0) {
+                                    return (
+                                      <span className="badge bg-info text-dark" style={{ fontSize: '0.75rem' }} title={`${cantidadTA} trabajo${cantidadTA > 1 ? 's' : ''} adicional${cantidadTA > 1 ? 'es' : ''}`}>
+                                        <i className="fas fa-tasks me-1"></i>
+                                        {cantidadTA}
+                                      </span>
+                                    );
+                                  } else {
+                                    return <small className="text-muted">-</small>;
+                                  }
+                                })()}
+                              </td>
                               <td onClick={(e) => e.stopPropagation()}>
                                 <EstadoPresupuestoBadge obraId={obra.id} estadoObra={obra.estado} />
                               </td>
@@ -4665,7 +4775,7 @@ const ObrasPage = ({ showNotification }) => {
                             {/* Fila expandible con detalles */}
                             {obrasExpandidas.has(obra.id) && (
                               <tr>
-                                <td colSpan="10" className="p-0">
+                                <td colSpan="11" className="p-0">
                                   <div className="bg-light p-3 border-top">
                                     {/* CONFIGURACIÓN GLOBAL DE OBRA */}
                                     <div className="mb-4 p-3 border rounded bg-white">
@@ -4751,25 +4861,64 @@ const ObrasPage = ({ showNotification }) => {
                                     </div>
 
                                     <div className="row g-3">
-                                      {/* Presupuestos */}
+                                      {/* Presupuestos o Presupuesto Estimado */}
                                       <div className="col-md-6">
-                                        <h6 className="text-muted mb-2">
-                                          <i className="fas fa-file-invoice-dollar me-2"></i>
-                                          Presupuestos
-                                        </h6>
-                                        <button
-                                          className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleVerPresupuestosObra(obra);
-                                          }}
-                                        >
-                                          <span>
-                                            <i className="fas fa-eye me-2"></i>
-                                            Ver Presupuestos
-                                          </span>
-                                          <span className="badge bg-primary">{contarPresupuestosObra(obra.id)}</span>
-                                        </button>
+                                        {(() => {
+                                          // Verificar si es obra independiente (sin presupuesto vinculado)
+                                          const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                                                  (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+                                          const esObraIndependiente = !tienePresupuesto;
+
+                                          if (esObraIndependiente) {
+                                            // Mostrar presupuesto estimado para obras independientes
+                                            const presupuestoEstimado = obra.presupuestoEstimado || 0;
+                                            return (
+                                              <>
+                                                <h6 className="text-muted mb-2">
+                                                  <i className="fas fa-file-invoice-dollar me-2"></i>
+                                                  Presupuesto Estimado
+                                                </h6>
+                                                <div className="card bg-light border-0">
+                                                  <div className="card-body text-center py-3">
+                                                    <div className="mb-1">
+                                                      <i className="fas fa-dollar-sign text-success me-2"></i>
+                                                      <span className="h5 mb-0 text-success fw-bold">
+                                                        ${presupuestoEstimado.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                      </span>
+                                                    </div>
+                                                    <small className="text-muted">
+                                                      <i className="fas fa-info-circle me-1"></i>
+                                                      Sin presupuesto detallado
+                                                    </small>
+                                                  </div>
+                                                </div>
+                                              </>
+                                            );
+                                          } else {
+                                            // Mostrar botón ver presupuestos para obras con presupuesto
+                                            return (
+                                              <>
+                                                <h6 className="text-muted mb-2">
+                                                  <i className="fas fa-file-invoice-dollar me-2"></i>
+                                                  Presupuestos
+                                                </h6>
+                                                <button
+                                                  className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleVerPresupuestosObra(obra);
+                                                  }}
+                                                >
+                                                  <span>
+                                                    <i className="fas fa-eye me-2"></i>
+                                                    Ver Presupuestos
+                                                  </span>
+                                                  <span className="badge bg-primary">{contarPresupuestosObra(obra.id)}</span>
+                                                </button>
+                                              </>
+                                            );
+                                          }
+                                        })()}
                                       </div>
 
                                       {/* Trabajos Extra */}
@@ -5721,6 +5870,201 @@ const ObrasPage = ({ showNotification }) => {
                     </table>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Obras Independientes - Obras creadas sin presupuesto previo */}
+      {activeTab === 'obras-manuales' && (
+        <div className="row" style={{margin: '0'}}>
+          <div className="col-12" style={{padding: '0'}}>
+            <div className="card" style={{margin: '0', border: 'none'}} onClick={(e) => e.stopPropagation()}>
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <div className="d-flex align-items-center gap-3">
+                  <button
+                    className="btn btn-outline-secondary btn-sm"
+                    onClick={() => dispatch(setActiveTab('lista'))}
+                    title="Volver al listado completo de obras"
+                  >
+                    <i className="fas fa-arrow-left me-1"></i>Volver
+                  </button>
+                  <h5 className="mb-0">
+                    <i className="fas fa-folder-open me-2"></i>
+                    Obras Independientes
+                  </h5>
+                  <span className="badge bg-info text-dark">
+                    {obras.filter(obra => {
+                      const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                              (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+                      return !tienePresupuesto && obra.estado !== 'CANCELADO';
+                    }).length} obras
+                  </span>
+                </div>
+                <button
+                  className="btn btn-sm btn-success"
+                  onClick={() => dispatch(setActiveTab('crear'))}
+                  title="Crear nueva obra independiente"
+                >
+                  <i className="fas fa-plus me-1"></i>Nueva Obra Independiente
+                </button>
+              </div>
+              <div className="card-body" style={{padding: '0'}}>
+                {(() => {
+                  const obrasManuales = obras.filter(obra => {
+                    const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                            (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+                    return !tienePresupuesto && obra.estado !== 'CANCELADO';
+                  });
+
+                  if (obrasManuales.length === 0) {
+                    return (
+                      <div className="text-center text-muted py-5">
+                        <i className="fas fa-folder-open fa-4x mb-3 opacity-50"></i>
+                        <h5>No hay obras independientes</h5>
+                        <p>Las obras independientes son aquellas creadas directamente sin un presupuesto previo.</p>
+                        <button
+                          className="btn btn-primary mt-3"
+                          onClick={() => dispatch(setActiveTab('crear'))}
+                        >
+                          <i className="fas fa-plus me-2"></i>
+                          Crear Primera Obra Independiente
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="table-responsive" style={{margin: '0'}}>
+                      <table className="table table-striped table-hover mb-0">
+                        <thead className="table-light">
+                          <tr>
+                            <th className="small" style={{width: '40px'}}>ID</th>
+                            <th className="small">Nombre</th>
+                            <th className="small">Dirección</th>
+                            <th className="small" style={{width: '100px'}}>Estado</th>
+                            <th className="small" style={{width: '80px'}}>Inicio</th>
+                            <th className="small" style={{width: '80px'}}>Fin</th>
+                            <th className="small" style={{width: '90px'}}>Cliente</th>
+                            <th className="small text-center" style={{width: '120px'}}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {obrasManuales.map((obra) => {
+                            const isSelected = selectedObraId === obra.id;
+                            return (
+                              <tr
+                                key={obra.id}
+                                onClick={() => setSelectedObraId(isSelected ? null : obra.id)}
+                                style={{
+                                  cursor: 'pointer',
+                                  backgroundColor: isSelected ? '#cfe2ff' : 'white',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                className="hover-row"
+                              >
+                                <td>
+                                  {isSelected && <i className="fas fa-check-circle text-success me-1"></i>}
+                                  {obra.id}
+                                </td>
+                                <td>
+                                  {obra.nombre || '(Sin nombre)'}
+                                  <div className="mt-1">
+                                    <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem'}}>
+                                      <i className="fas fa-hand-paper me-1"></i>Obra Independiente
+                                    </span>
+                                  </div>
+                                </td>
+                                <td><small className="text-muted">{formatearDireccionObra(obra)}</small></td>
+                                <td onClick={(e) => e.stopPropagation()}>
+                                  <EstadoPresupuestoBadge obraId={obra.id} estadoObra={obra.estado} />
+                                </td>
+                                <td>
+                                  <small>
+                                    {obra.fechaInicio ? parseFechaLocal(obra.fechaInicio).toLocaleDateString('es-AR') : 'N/A'}
+                                  </small>
+                                </td>
+                                <td>
+                                  <small>
+                                    {obra.fechaFin ? parseFechaLocal(obra.fechaFin).toLocaleDateString('es-AR') : 'N/A'}
+                                  </small>
+                                </td>
+                                <td><small>{getClienteInfo(obra)}</small></td>
+                                <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                                  <div className="btn-group btn-group-sm">
+                                    <button
+                                      className="btn btn-outline-primary btn-sm"
+                                      onClick={() => {
+                                        setSelectedObraId(obra.id);
+                                        const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                                                (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+
+                                        if (tienePresupuesto) {
+                                          showNotification('⚠️ No se puede editar una obra creada desde presupuesto', 'warning');
+                                          return;
+                                        }
+
+                                        // Cargar datos en formulario
+                                        const mapeoEstados = {
+                                          'EN_PLANIFICACIÓN': 'BORRADOR',
+                                          'EN_PLANIFICACION': 'BORRADOR',
+                                          'EN PLANIFICACIÓN': 'BORRADOR',
+                                          'EN_EJECUCIÓN': 'EN_EJECUCION',
+                                          'EN_EJECUCION': 'EN_EJECUCION'
+                                        };
+
+                                        const estadoOriginal = obra.estado || 'BORRADOR';
+                                        const estadoNormalizado = mapeoEstados[estadoOriginal] || estadoOriginal;
+
+                                        setFormData({
+                                          nombre: obra.nombre || '',
+                                          direccion: obra.direccion || '',
+                                          estado: estadoNormalizado,
+                                          fechaInicio: obra.fechaInicio || '',
+                                          fechaFin: obra.fechaFin || '',
+                                          presupuestoEstimado: obra.presupuestoEstimado || '',
+                                          idCliente: obra.clienteId || obra.idCliente || '',
+                                          empresaId: empresaId,
+                                          nombreSolicitante: '',
+                                          telefono: '',
+                                          direccionParticular: '',
+                                          mail: '',
+                                          direccionObraCalle: obra.direccionObraCalle || '',
+                                          direccionObraAltura: obra.direccionObraAltura || '',
+                                          direccionObraBarrio: obra.direccionObraBarrio || '',
+                                          direccionObraTorre: obra.direccionObraTorre || '',
+                                          direccionObraPiso: obra.direccionObraPiso || '',
+                                          direccionObraDepartamento: obra.direccionObraDepartamento || '',
+                                          descripcion: obra.descripcion || '',
+                                          observaciones: obra.observaciones || ''
+                                        });
+
+                                        setModoEdicion(true);
+                                        setObraEditando(obra);
+                                        dispatch(setActiveTab('crear'));
+                                      }}
+                                      title="Editar obra"
+                                    >
+                                      <i className="fas fa-edit"></i>
+                                    </button>
+                                    <button
+                                      className="btn btn-outline-danger btn-sm"
+                                      onClick={() => handleEliminarObra(obra.id)}
+                                      title="Eliminar obra"
+                                    >
+                                      <i className="fas fa-trash"></i>
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -8502,7 +8846,7 @@ Gestionar Trabajos Adicionales
         </div>
       )}
 
-      {/* Modal para enviar obra manual */}
+      {/* Modal para enviar obra independiente */}
       {mostrarModalEnviarObra && obraParaEnviar && (
         <EnviarObraManualModal
           show={mostrarModalEnviarObra}
@@ -8550,11 +8894,15 @@ Gestionar Trabajos Adicionales
       {/* Modal de estadísticas de todas las obras */}
       {mostrarModalEstadisticasTodasObras && (
         <EstadisticasTodasObrasModal
-          obras={obras}
+          obras={obrasConFlags} // ✅ Usar obras procesadas con flags
           empresaId={empresaId}
           empresaSeleccionada={empresaSeleccionada}
           onClose={() => setMostrarModalEstadisticasTodasObras(false)}
           showNotification={showNotification}
+          obrasDisponibles={obrasConFlags} // ✅ Pasar obras con flags esObraIndependiente
+          obrasSeleccionadas={new Set()} // ✅ Sin selección específica (mostrar todas)
+          trabajosExtraSeleccionados={new Set()} // ✅ Sin filtro de trabajos extra
+          trabajosAdicionalesDisponibles={[]} // ✅ Sin trabajos adicionales por ahora
         />
       )}
 
@@ -8901,6 +9249,15 @@ Gestionar Trabajos Adicionales
           tabIndex="-1"
           onClick={() => {
             setMostrarModalTrabajoAdicional(false);
+            setGuardarEnCatalogoTA(false);
+            setGuardandoProfesionalTA(false);
+            setProfesionalAdhocForm({
+              nombre: '',
+              tipoProfesional: '',
+              honorarioDia: '',
+              telefono: '',
+              email: ''
+            });
             // No cerrar el modal de lista, solo el de crear/editar
           }}
         >
@@ -8925,6 +9282,15 @@ Gestionar Trabajos Adicionales
                   onClick={() => {
                     setMostrarModalTrabajoAdicional(false);
                     setTrabajoAdicionalEditar(null);
+                    setGuardarEnCatalogoTA(false);
+                    setGuardandoProfesionalTA(false);
+                    setProfesionalAdhocForm({
+                      nombre: '',
+                      tipoProfesional: '',
+                      honorarioDia: '',
+                      telefono: '',
+                      email: ''
+                    });
                   }}
                   style={{ fontSize: '1.2rem' }}
                 ></button>
@@ -9215,8 +9581,7 @@ Gestionar Trabajos Adicionales
                                     <th>Honorario/Día</th>
                                   </tr>
                                 </thead>
-                                <tbody>
-                                  {profesionalesDisponiblesTA.map((prof) => {
+                                <tbody>{profesionalesDisponiblesTA.map((prof) => {
                                     const estaSeleccionado = profesionalesSeleccionados.some(p => p.id === prof.id);
                                     return (
                                       <tr
@@ -9270,10 +9635,10 @@ Gestionar Trabajos Adicionales
                       ) : (
                         // TAB 2: Agregar manualmente
                         <>
-                          <div className="alert alert-warning border-0 mb-3" style={{ borderRadius: '10px' }}>
+                          <div className="alert alert-info border-0 mb-3" style={{ borderRadius: '10px' }}>
                             <small className="d-flex align-items-center">
-                              <i className="fas fa-exclamation-triangle me-2"></i>
-                              Los profesionales agregados aquí <strong className="ms-1">NO se guardarán</strong> en su catálogo permanente, solo para este trabajo adicional
+                              <i className="fas fa-lightbulb me-2"></i>
+                              Puede crear profesionales temporales o guardarlos en el catálogo para uso futuro
                             </small>
                           </div>
 
@@ -9353,40 +9718,141 @@ Gestionar Trabajos Adicionales
                                   />
                                 </div>
                               </div>
+
+                              {/* 🆕 Checkbox para guardar en catálogo */}
+                              <div className="mt-3 mb-3">
+                                <div className="card bg-light border-primary">
+                                  <div className="card-body py-2">
+                                    <div className="form-check">
+                                      <input
+                                        type="checkbox"
+                                        className="form-check-input"
+                                        id="guardarEnCatalogoTA"
+                                        checked={guardarEnCatalogoTA}
+                                        onChange={(e) => setGuardarEnCatalogoTA(e.target.checked)}
+                                      />
+                                      <label className="form-check-label" htmlFor="guardarEnCatalogoTA">
+                                        <strong>
+                                          <i className="fas fa-save me-2 text-primary"></i>
+                                          Guardar en catálogo permanente
+                                        </strong>
+                                        <small className="d-block text-muted mt-1">
+                                          {guardarEnCatalogoTA
+                                            ? '✅ Este profesional se guardará como INDEPENDIENTE y estará disponible para futuras asignaciones'
+                                            : '⚠️ Solo se agregará temporalmente a este trabajo adicional (no se guardará en el catálogo)'}
+                                        </small>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
                               <button
                                 type="button"
                                 className="btn btn-primary w-100"
-                                onClick={() => {
+                                disabled={guardandoProfesionalTA}
+                                onClick={async () => {
                                   if (!profesionalAdhocForm.nombre || !profesionalAdhocForm.tipoProfesional) {
                                     showNotification('Complete al menos el nombre y tipo de profesional', 'warning');
                                     return;
                                   }
-                                  const nuevoProfesional = {
-                                    id: `adhoc_${Date.now()}`,
-                                    nombre: profesionalAdhocForm.nombre,
-                                    tipoProfesional: profesionalAdhocForm.tipoProfesional,
-                                    honorario_dia: profesionalAdhocForm.honorarioDia || '0',
-                                    telefono: profesionalAdhocForm.telefono,
-                                    email: profesionalAdhocForm.email,
-                                    _esAdhoc: true
-                                  };
-                                  setProfesionalesAdhoc(prev => [...prev, nuevoProfesional]);
-                                  setProfesionalAdhocForm({
-                                    nombre: '',
-                                    tipoProfesional: '',
-                                    honorarioDia: '',
-                                    telefono: '',
-                                    email: ''
-                                  });
-                                  showNotification('Profesional agregado temporalmente', 'success');
+
+                                  setGuardandoProfesionalTA(true);
+
+                                  try {
+                                    let nuevoProfesional;
+
+                                    // Si está marcado "Guardar en catálogo", crear en la BD
+                                    if (guardarEnCatalogoTA) {
+                                      if (!empresaId) {
+                                        throw new Error('No se puede guardar: falta empresaId');
+                                      }
+
+                                      const dataProfesional = {
+                                        nombre: profesionalAdhocForm.nombre.trim(),
+                                        tipoProfesional: profesionalAdhocForm.tipoProfesional.trim(),
+                                        honorarioDia: profesionalAdhocForm.honorarioDia ? parseFloat(profesionalAdhocForm.honorarioDia) : 0,
+                                        telefono: profesionalAdhocForm.telefono.trim() || null,
+                                        email: profesionalAdhocForm.email.trim() || null,
+                                        empresaId: empresaId,
+                                        activo: true,
+                                        categoria: 'INDEPENDIENTE'
+                                      };
+
+                                      const response = await api.profesionales.create(dataProfesional);
+
+                                      // Manejar diferentes estructuras de respuesta del backend
+                                      const profesionalCreado = response?.data || response;
+
+                                      if (!profesionalCreado || !profesionalCreado.id) {
+                                        throw new Error('El backend no devolvió un profesional válido');
+                                      }
+
+                                      nuevoProfesional = {
+                                        id: profesionalCreado.id,
+                                        nombre: profesionalCreado.nombre || profesionalAdhocForm.nombre,
+                                        tipoProfesional: profesionalCreado.tipoProfesional || profesionalAdhocForm.tipoProfesional,
+                                        honorario_dia: profesionalCreado.honorarioDia || profesionalCreado.honorario_dia || profesionalAdhocForm.honorarioDia || 0,
+                                        telefono: profesionalCreado.telefono || profesionalAdhocForm.telefono,
+                                        email: profesionalCreado.email || profesionalAdhocForm.email,
+                                        activo: profesionalCreado.activo !== undefined ? profesionalCreado.activo : true,
+                                        categoria: profesionalCreado.categoria || 'INDEPENDIENTE',
+                                        _esGuardado: true
+                                      };
+
+                                      // Actualizar lista de profesionales disponibles
+                                      setProfesionalesDisponiblesTA(prev => [...prev, nuevoProfesional]);
+                                      showNotification('✅ Profesional guardado en catálogo permanente', 'success');
+                                    } else {
+                                      // Crear profesional temporal
+                                      nuevoProfesional = {
+                                        id: `adhoc_${Date.now()}`,
+                                        nombre: profesionalAdhocForm.nombre,
+                                        tipoProfesional: profesionalAdhocForm.tipoProfesional,
+                                        honorario_dia: profesionalAdhocForm.honorarioDia || '0',
+                                        telefono: profesionalAdhocForm.telefono,
+                                        email: profesionalAdhocForm.email,
+                                        _esAdhoc: true
+                                      };
+                                      showNotification('Profesional temporal agregado', 'success');
+                                    }
+
+                                    setProfesionalesAdhoc(prev => [...prev, nuevoProfesional]);
+                                    setProfesionalAdhocForm({
+                                      nombre: '',
+                                      tipoProfesional: '',
+                                      honorarioDia: '',
+                                      telefono: '',
+                                      email: ''
+                                    });
+                                    setGuardarEnCatalogoTA(false);
+
+                                  } catch (error) {
+                                    console.error('Error al agregar profesional:', error);
+                                    showNotification(
+                                      `❌ Error: ${error.response?.data?.message || error.message || 'No se pudo guardar el profesional'}`,
+                                      'error'
+                                    );
+                                  } finally {
+                                    setGuardandoProfesionalTA(false);
+                                  }
                                 }}
                                 style={{
                                   borderRadius: '8px',
                                   fontWeight: '600'
                                 }}
                               >
-                                <i className="fas fa-plus-circle me-2"></i>
-                                Agregar a la Lista Temporal
+                                {guardandoProfesionalTA ? (
+                                  <>
+                                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                    Guardando...
+                                  </>
+                                ) : (
+                                  <>
+                                    <i className="fas fa-plus-circle me-2"></i>
+                                    {guardarEnCatalogoTA ? 'Guardar en Catálogo' : 'Agregar a Lista Temporal'}
+                                  </>
+                                )}
                               </button>
                             </div>
                           </div>
@@ -9434,17 +9900,25 @@ Gestionar Trabajos Adicionales
                             {profesionalesAdhoc.map((prof) => (
                               <div key={prof.id} className="col-md-6">
                                 <div className="card border-0" style={{
-                                  backgroundColor: '#fef3c7',
+                                  backgroundColor: prof._esGuardado ? '#d1fae5' : '#fef3c7',
                                   borderRadius: '8px',
-                                  border: '2px dashed #f59e0b'
+                                  border: prof._esGuardado ? '2px solid #10b981' : '2px dashed #f59e0b'
                                 }}>
                                   <div className="card-body p-2 d-flex justify-content-between align-items-center">
                                     <div>
                                       <div className="fw-semibold" style={{ fontSize: '0.9rem' }}>
                                         {prof.nombre}
-                                        <span className="badge bg-warning text-dark ms-2" style={{ fontSize: '0.65rem' }}>
-                                          TEMPORAL
-                                        </span>
+                                        {prof._esGuardado ? (
+                                          <span className="badge bg-success ms-2" style={{ fontSize: '0.65rem' }}>
+                                            <i className="fas fa-check-circle me-1"></i>
+                                            CATÁLOGO
+                                          </span>
+                                        ) : (
+                                          <span className="badge bg-warning text-dark ms-2" style={{ fontSize: '0.65rem' }}>
+                                            <i className="fas fa-clock me-1"></i>
+                                            TEMPORAL
+                                          </span>
+                                        )}
                                       </div>
                                       <small className="text-muted">
                                         <i className="fas fa-hard-hat me-1"></i>

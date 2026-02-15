@@ -308,6 +308,54 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
               .map((obra, idx) => {
               const obraIdReal = obra.obraId || obra.id;
 
+              // ✅ Si es obra independiente, no tiene trabajos extra ni adicionales
+              if (obra.esObraIndependiente) {
+                return (
+                  <React.Fragment key={idx}>
+                    {/* Obra principal independiente */}
+                    <tr>
+                      <td>
+                        <strong className="text-primary">{obra.nombreObra}</strong>
+                        <div className="text-muted small">Sin versión</div>
+                        <div className="mt-1">
+                          <span className="badge bg-warning text-dark">
+                            <i className="bi bi-diagram-3 me-1"></i>
+                            Obra Independiente
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${
+                          obra.estado === 'APROBADO' ? 'bg-success' :
+                          obra.estado === 'EN_EJECUCION' ? 'bg-primary' :
+                          'bg-secondary'
+                        }`}>
+                          {obra.estado || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="text-end">
+                        <strong className="text-primary">
+                          {formatearMoneda(obra.totalPresupuesto || 0)}
+                          <small className="text-muted d-block">(Estimado)</small>
+                        </strong>
+                      </td>
+                    </tr>
+
+                    {/* Línea separadora entre obras (excepto la última) */}
+                    {idx < datos.filter(o => {
+                      const estaEnMapTrabajos = Array.from(trabajosExtra.values()).flat().some(te => te.id === o.presupuestoId || te.id === o.id);
+                      return !estaEnMapTrabajos;
+                    }).length - 1 && (
+                      <tr>
+                        <td colSpan="3" className="p-0">
+                          <hr className="border-dark my-2" style={{borderWidth: '1px'}} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              }
+
               // 🔥 SIMPLIFICADO: Obtener trabajos extra directamente del Map usando obraIdReal
               const trabajosExtraObra = trabajosExtra.get(obraIdReal) || [];
 

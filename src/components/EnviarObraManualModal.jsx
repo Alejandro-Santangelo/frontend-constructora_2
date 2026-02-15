@@ -12,7 +12,7 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
   const generarPDF = async () => {
     try {
       setGenerandoPDF(true);
-      
+
       // Crear contenedor temporal para el PDF
       const tempContainer = document.createElement('div');
       tempContainer.style.position = 'absolute';
@@ -21,14 +21,14 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
       tempContainer.style.padding = '40px';
       tempContainer.style.backgroundColor = 'white';
       tempContainer.style.fontFamily = 'Arial, sans-serif';
-      
+
       tempContainer.innerHTML = `
         <div style="max-width: 800px; margin: 0 auto;">
           <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #2196F3; padding-bottom: 20px;">
             <h1 style="color: #2196F3; margin: 0; font-size: 28px;">Presupuesto de Obra</h1>
-            <p style="color: #666; margin: 10px 0 0 0; font-size: 14px;">Obra Manual - ${obra.nombre || 'Sin nombre'}</p>
+            <p style="color: #666; margin: 10px 0 0 0; font-size: 14px;">Obra Independiente - ${obra.nombre || 'Sin nombre'}</p>
           </div>
-          
+
           <div style="margin-bottom: 25px;">
             <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
               📍 Información de la Obra
@@ -68,7 +68,7 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
               ` : ''}
             </table>
           </div>
-          
+
           <div style="margin-bottom: 25px;">
             <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
               📋 Descripción de la Obra
@@ -77,7 +77,7 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
               ${obra.descripcion || 'Sin descripción'}
             </p>
           </div>
-          
+
           <div style="margin-bottom: 25px;">
             <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
               💰 Presupuesto Estimado
@@ -89,7 +89,7 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
               <p style="margin: 8px 0 0 0; color: #666; font-size: 14px;">Pesos Argentinos</p>
             </div>
           </div>
-          
+
           ${obra.observaciones ? `
             <div style="margin-bottom: 25px;">
               <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
@@ -100,16 +100,16 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
               </p>
             </div>
           ` : ''}
-          
+
           <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; text-align: center; color: #999; font-size: 12px;">
             <p style="margin: 0;">Documento generado el ${new Date().toLocaleDateString('es-AR')}</p>
             <p style="margin: 5px 0 0 0;">Este presupuesto es válido por 30 días</p>
           </div>
         </div>
       `;
-      
+
       document.body.appendChild(tempContainer);
-      
+
       // Generar PDF
       const canvas = await html2canvas(tempContainer, {
         scale: 2,
@@ -117,34 +117,34 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
         logging: false,
         backgroundColor: '#ffffff'
       });
-      
+
       document.body.removeChild(tempContainer);
-      
+
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       const imgWidth = pdfWidth - 20;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
+
       let heightLeft = imgHeight;
       let position = 10;
-      
+
       pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
       heightLeft -= pdfHeight;
-      
+
       while (heightLeft >= 0) {
         position = heightLeft - imgHeight + 10;
         pdf.addPage();
         pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
         heightLeft -= pdfHeight;
       }
-      
+
       const nombreArchivo = `Presupuesto_Obra_${obra.nombre?.replace(/\s/g, '_') || obra.id}_${new Date().getTime()}.pdf`;
       pdf.save(nombreArchivo);
-      
+
       showNotification && showNotification('✅ PDF generado exitosamente', 'success');
-      
+
     } catch (error) {
       console.error('Error generando PDF:', error);
       showNotification && showNotification('❌ Error al generar PDF: ' + error.message, 'error');
@@ -158,7 +158,7 @@ const EnviarObraManualModal = ({ show, onClose, obra, empresaId, showNotificatio
     try {
       // Primero generar el PDF
       await generarPDF();
-      
+
       // Luego abrir WhatsApp
       const mensaje = `
 *PRESUPUESTO DE OBRA*
@@ -186,7 +186,7 @@ _📎 PDF descargado - Adjúntalo al mensaje_
 
       // Si hay teléfono en la obra, usar ese. Sino, abrir WhatsApp para que el usuario elija
       const telefono = obra.telefono?.replace(/\D/g, '') || '';
-      
+
       if (telefono) {
         // Abrir WhatsApp Web/App con el teléfono pre-cargado
         const url = `https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`;
@@ -197,7 +197,7 @@ _📎 PDF descargado - Adjúntalo al mensaje_
         const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
         window.open(url, '_blank');
       }
-      
+
       showNotification && showNotification('✅ PDF generado. Abriendo WhatsApp...', 'success');
     } catch (error) {
       console.error('Error en enviarPorWhatsApp:', error);
@@ -210,7 +210,7 @@ _📎 PDF descargado - Adjúntalo al mensaje_
     try {
       // Primero generar el PDF
       await generarPDF();
-      
+
       // Luego abrir el cliente de email
       const asunto = `Presupuesto de Obra - ${obra.nombre || 'Sin nombre'}`;
       const cuerpo = `
@@ -242,7 +242,7 @@ Este presupuesto es válido por 30 días.
       const mailTo = obra.mail || '';
       const url = `mailto:${mailTo}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
       window.location.href = url;
-      
+
       showNotification && showNotification('✅ PDF generado. Abriendo cliente de email...', 'success');
     } catch (error) {
       console.error('Error en enviarPorEmail:', error);
@@ -257,21 +257,21 @@ Este presupuesto es válido por 30 días.
           <div className="modal-header bg-success text-white">
             <h5 className="modal-title">
               <i className="fas fa-paper-plane me-2"></i>
-              Enviar Presupuesto de Obra Manual
+              Enviar Presupuesto de Obra Independiente
             </h5>
-            <button 
-              type="button" 
-              className="btn btn-light btn-sm ms-auto" 
+            <button
+              type="button"
+              className="btn btn-light btn-sm ms-auto"
               onClick={onClose}
             >
               Cerrar
             </button>
           </div>
-          
+
           <div className="modal-body">
             <div className="alert alert-info mb-3">
               <i className="fas fa-info-circle me-2"></i>
-              <strong>Obra Manual:</strong> {obra.nombre || 'Sin nombre'}
+              <strong>Obra Independiente:</strong> {obra.nombre || 'Sin nombre'}
             </div>
 
             <div className="card mb-3">
@@ -288,9 +288,9 @@ Este presupuesto es válido por 30 días.
                       Descripción de la Obra
                       <small className="text-muted ms-2">(Ej: "Refacción integral" o "Construcción nueva")</small>
                     </label>
-                    <input 
-                      type="text" 
-                      className="form-control" 
+                    <input
+                      type="text"
+                      className="form-control"
                       value={obra.descripcion || ''}
                       disabled
                       readOnly
@@ -298,21 +298,21 @@ Este presupuesto es válido por 30 días.
                   </div>
                   <div className="col-md-4 mb-3">
                     <label className="form-label">Presupuesto Estimado</label>
-                    <input 
-                      type="text" 
-                      className="form-control" 
+                    <input
+                      type="text"
+                      className="form-control"
                       value={`$${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       disabled
                       readOnly
                     />
                   </div>
                 </div>
-                
+
                 <div className="mb-3">
                   <label className="form-label">Observaciones</label>
-                  <textarea 
-                    className="form-control" 
-                    rows="3" 
+                  <textarea
+                    className="form-control"
+                    rows="3"
                     value={obra.observaciones || ''}
                     disabled
                     readOnly
@@ -360,7 +360,7 @@ Este presupuesto es válido por 30 días.
               </div>
               <div className="card-body">
                 <div className="d-grid gap-2">
-                  <button 
+                  <button
                     className="btn btn-danger btn-lg"
                     onClick={generarPDF}
                     disabled={generandoPDF}
@@ -378,7 +378,7 @@ Este presupuesto es válido por 30 días.
                     )}
                   </button>
 
-                  <button 
+                  <button
                     className="btn btn-success btn-lg"
                     onClick={enviarPorWhatsApp}
                   >
@@ -391,7 +391,7 @@ Este presupuesto es válido por 30 días.
                     )}
                   </button>
 
-                  <button 
+                  <button
                     className="btn btn-primary btn-lg"
                     onClick={enviarPorEmail}
                   >
@@ -409,9 +409,9 @@ Este presupuesto es válido por 30 días.
           </div>
 
           <div className="modal-footer">
-            <button 
-              type="button" 
-              className="btn btn-secondary" 
+            <button
+              type="button"
+              className="btn btn-secondary"
               onClick={onClose}
             >
               <i className="fas fa-times me-2"></i>
