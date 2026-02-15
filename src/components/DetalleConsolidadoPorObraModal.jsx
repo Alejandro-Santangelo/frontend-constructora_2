@@ -30,6 +30,13 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     try {
       const trabajosAd = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaSeleccionada.id);
       console.log('✅ Trabajos adicionales cargados para modal:', trabajosAd);
+      console.log('📊 Detalle de trabajos adicionales:', trabajosAd.map(ta => ({
+        id: ta.id,
+        nombre: ta.nombre || ta.descripcion,
+        obraId: ta.obraId,
+        trabajoExtraId: ta.trabajoExtraId,
+        importe: ta.importe || ta.montoEstimado
+      })));
       setTrabajosAdicionales(trabajosAd);
     } catch (error) {
       console.warn('⚠️ Error cargando trabajos adicionales para modal:', error);
@@ -65,9 +72,11 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
       const trabajosExtraMap = new Map();
 
       presupuestosTrabajosExtra.forEach(te => {
-        const obraOrigenId = te.obraOrigenId || te.obra_origen_id;
+        const obraOrigenId = te.obraOrigenId || te.obra_origen_id || te.obra?.obraOrigenId;
+        const obraTrabajoExtraId = te.obraId || te.obra?.id; // ID de la obra trabajo extra
         console.log('🔍 Trabajo extra:', {
-          id: te.id,
+          presupuestoId: te.id,
+          obraTrabajoExtraId,
           nombre: te.nombreObra,
           obraOrigenId,
           total: te.totalFinal || te.valorTotalIva
@@ -78,7 +87,8 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
             trabajosExtraMap.set(obraOrigenId, []);
           }
           trabajosExtraMap.get(obraOrigenId).push({
-            id: te.id,
+            id: te.id, // ID del presupuesto
+            obraId: obraTrabajoExtraId, // ID de la obra trabajo extra
             nombre: te.nombreObra || te.nombre,
             totalCalculado: te.totalFinal || te.valorTotalIva || te.valorTotal || 0,
             obraOrigenId,
@@ -88,7 +98,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
       });
 
       console.log('✅ Trabajos extra organizados por obra origen:', Object.fromEntries(trabajosExtraMap));
-      setTrabajosExtra(new Map());
+      setTrabajosExtra(trabajosExtraMap);
     } finally {
       setCargandoTrabajosExtra(false);
     }
@@ -218,10 +228,50 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     // Si tenemos estadisticas consolidadas, usar el total que YA incluye trabajos adicionales
     // Si no, calcular desde datos (para compatibilidad)
     const totalCompleto = estadisticas?.totalPresupuesto ||
-      datos.reduce((sum, o) => {
+      datos
+        .filter(o => {
+          const esTrabajoExtra = o.esObraTrabajoExtra || o.esPresupuestoTrabajoExtra || o.obra?.esObraTrabajoExtra || o.es_presupuesto_trabajo_extra;
+          return !esTrabajoExtra;
+        })
+        .reduce((sum, o) => {
+        const obraIdReal = o.obraId || o.id;
         const presupuestoBase = o.totalPresupuesto || 0;
-        const trabajosExtra = (o.trabajosExtra || []).reduce((s, t) => s + (t.totalCalculado || 0), 0);
-        return sum + presupuestoBase + trabajosExtra;
+
+        // Sumar trabajos extra de esta obra
+        let trabajosExtraTotal = 0;
+        if (trabajosExtra instanceof Map) {
+          for (const [obraId, trabajosDeEstaObra] of trabajosExtra) {
+            trabajosDeEstaObra.forEach(te => {
+              const obraPadreId = te.presupuesto?.obraOrigenId || te.presupuesto?.obra_origen_id || te.obraOrigenId;
+              if (obraPadreId && obraPadreId === obraIdReal) {
+                trabajosExtraTotal += te.totalCalculado || 0;
+              }
+            });
+          }
+        }
+
+        // Sumar trabajos adicionales de esta obra (tanto directos como de trabajos extra)
+        const trabajosAdicionalesTotal = trabajosAdicionales
+          .filter(ta => {
+            // Directamente asociados a la obra
+            if (ta.obraId === obraIdReal || ta.obraId === o.obraId || ta.obraId === o.id) {
+              return true;
+            }
+            // Asociados a trabajos extra de esta obra
+            if (ta.trabajoExtraId && trabajosExtra instanceof Map) {
+              for (const [obraId, trabajosDeEstaObra] of trabajosExtra) {
+                const trabajoExtraEncontrado = trabajosDeEstaObra.find(te => {
+                  const obraPadreId = te.presupuesto?.obraOrigenId || te.presupuesto?.obra_origen_id || te.obraOrigenId;
+                  return te.id === ta.trabajoExtraId && obraPadreId === obraIdReal;
+                });
+                if (trabajoExtraEncontrado) return true;
+              }
+            }
+            return false;
+          })
+          .reduce((s, ta) => s + (parseFloat(ta.importe || ta.montoEstimado || ta.monto) || 0), 0);
+
+        return sum + presupuestoBase + trabajosExtraTotal + trabajosAdicionalesTotal;
       }, 0);
 
     return (
@@ -235,57 +285,82 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
             </tr>
           </thead>
           <tbody>
-            {datos.map((obra, idx) => {
+            {datos
+              .filter(obra => {
+                // Primero ver qué contiene exactamente el objeto obra
+                console.log(`🔍 ESTRUCTURA COMPLETA obra "${obra.nombreObra}":`, obra);
+
+                // Excluir obras que son trabajos extra verificando si están en el Map
+                const obraIdReal = obra.obraId || obra.id;
+                const estaEnMapTrabajos = Array.from(trabajosExtra.values()).flat().some(te => te.id === obra.presupuestoId || te.id === obra.id);
+
+                console.log(`🔍 Filtro obra "${obra.nombreObra}":`, {
+                  id: obra.id,
+                  obraId: obra.obraId,
+                  presupuestoId: obra.presupuestoId,
+                  obraIdReal,
+                  estaEnMapTrabajos,
+                  seIncluye: !estaEnMapTrabajos
+                });
+
+                return !estaEnMapTrabajos;
+              })
+              .map((obra, idx) => {
               const obraIdReal = obra.obraId || obra.id;
 
-              // Encontrar trabajos extra relacionados con esta obra usando la misma lógica que SistemaFinancieroPage
-              const trabajosExtraObra = [];
-              if (trabajosExtra instanceof Map) {
-                // Revisar todos los trabajos extra cargados
-                for (const [obraId, trabajosDeEstaObra] of trabajosExtra) {
-                  trabajosDeEstaObra.forEach(te => {
-                    // Método 1: Por obraOrigenId comparado con obraId de esta obra
-                    const obraPadreId = te.presupuesto?.obraOrigenId ||
-                                       te.presupuesto?.obra_origen_id ||
-                                       te.obraOrigenId;
+              // 🔥 SIMPLIFICADO: Obtener trabajos extra directamente del Map usando obraIdReal
+              const trabajosExtraObra = trabajosExtra.get(obraIdReal) || [];
 
-                    if (obraPadreId && obraPadreId === obraIdReal) {
-                      trabajosExtraObra.push(te);
-                      return;
-                    }
-
-                    // Método 2: Por dirección exacta
-                    const obraDireccion = `${obra.calle || ''} ${obra.altura || ''}`.trim();
-                    const teDireccion = te.presupuesto ?
-                      `${te.presupuesto.direccionObraCalle || ''} ${te.presupuesto.direccionObraAltura || ''}`.trim() : '';
-
-                    if (obraDireccion && teDireccion && obraDireccion === teDireccion && te.nombre !== obra.nombreObra) {
-                      trabajosExtraObra.push(te);
-                      return;
-                    }
-
-                    // Método 3: Por nombre contenido (trabajo extra contiene nombre de obra padre)
-                    const obraNombreLower = obra.nombreObra?.toLowerCase() || '';
-                    const teNombreLower = te.nombre?.toLowerCase() || '';
-                    if (obraNombreLower && teNombreLower.includes(obraNombreLower) && teNombreLower !== obraNombreLower) {
-                      trabajosExtraObra.push(te);
-                    }
-                  });
-                }
-              }
-
-              // Encontrar trabajos adicionales relacionados con esta obra
-              const trabajosAdicionalesObra = trabajosAdicionales.filter(ta =>
-                ta.obraId === obraIdReal || ta.obraId === obra.obraId || ta.obraId === obra.id
-              );
-
-              console.log(`🔍 Modal - Obra ${obra.nombreObra}:`, {
+              console.log(`🔍 Modal - Obra "${obra.nombreObra}" (ID: ${obraIdReal}):`, {
                 obraId: obra.obraId,
                 id: obra.id,
                 obraIdReal,
+                trabajosExtraMapKeys: Array.from(trabajosExtra.keys()),
                 trabajosExtraEncontrados: trabajosExtraObra.length,
-                trabajosAdicionalesEncontrados: trabajosAdicionalesObra.length,
-                trabajosExtraDetalles: trabajosExtraObra.map(te => ({ nombre: te.nombre, obraOrigenId: te.obraOrigenId }))
+                trabajosExtraDetalles: trabajosExtraObra.map(te => ({
+                  nombre: te.nombre,
+                  id: te.id,
+                  obraOrigenId: te.obraOrigenId
+                }))
+              });
+
+              // Encontrar trabajos adicionales relacionados con esta obra
+              // Incluir tanto los directamente asociados a la obra como los asociados a trabajos extra de esta obra
+              const trabajosExtraObraIds = trabajosExtraObra.map(te => te.obraId).filter(Boolean); // IDs de obras trabajo extra
+
+              console.log(`📋 Trabajos adicionales disponibles:`, trabajosAdicionales.map(ta => ({
+                id: ta.id,
+                nombre: ta.nombre || ta.descripcion,
+                obraId: ta.obraId,
+                trabajoExtraId: ta.trabajoExtraId
+              })));
+
+              console.log(`📋 IDs de trabajos extra de esta obra:`, trabajosExtraObraIds);
+
+              const trabajosAdicionalesObra = trabajosAdicionales.filter(ta => {
+                // Caso 1: Trabajo adicional directamente asociado a la obra
+                if (ta.obraId === obraIdReal || ta.obraId === obra.obraId || ta.obraId === obra.id) {
+                  console.log(`✅ TA "${ta.nombre || ta.descripcion}" asociado directamente a obra ${obraIdReal}`);
+                  return true;
+                }
+                // Caso 2: Trabajo adicional asociado a un trabajo extra de esta obra
+                if (ta.trabajoExtraId && trabajosExtraObraIds.includes(ta.trabajoExtraId)) {
+                  console.log(`✅ TA "${ta.nombre || ta.descripcion}" asociado a trabajo extra ${ta.trabajoExtraId}`);
+                  return true;
+                }
+                return false;
+              });
+
+              console.log(`✅ Resumen Obra "${obra.nombreObra}":`, {
+                trabajosExtra: trabajosExtraObra.length,
+                trabajosAdicionales: trabajosAdicionalesObra.length,
+                trabajosAdicionalesDetalles: trabajosAdicionalesObra.map(ta => ({
+                  nombre: ta.nombre || ta.descripcion,
+                  id: ta.id,
+                  obraId: ta.obraId,
+                  trabajoExtraId: ta.trabajoExtraId,
+                  importe: ta.importe || ta.montoEstimado
+                }))
               });
 
               return (
@@ -315,43 +390,85 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                   </tr>
 
                   {/* Trabajos extra de esta obra */}
-                  {trabajosExtraObra.length > 0 && trabajosExtraObra.map((trabajo, tIdx) => (
-                    <tr key={`${idx}-trabajo-${tIdx}`} className="table-active">
+                  {trabajosExtraObra.length > 0 && trabajosExtraObra.map((trabajo, tIdx) => {
+                    // Buscar trabajos adicionales de este trabajo extra específico
+                    // Usar trabajo.obraId (ID de la obra trabajo extra) para comparar con trabajoExtraId
+                    const trabajosAdicionalesDelTE = trabajosAdicionalesObra.filter(ta =>
+                      ta.trabajoExtraId === trabajo.obraId
+                    );
+
+                    console.log(`🔍 Buscando TA para trabajo extra "${trabajo.nombre}" (obraId: ${trabajo.obraId}):`, {
+                      trabajoObraId: trabajo.obraId,
+                      trabajoPresupuestoId: trabajo.id,
+                      trabajosAdicionalesEncontrados: trabajosAdicionalesDelTE.length,
+                      trabajosAdicionales: trabajosAdicionalesDelTE.map(ta => ({
+                        nombre: ta.nombre,
+                        trabajoExtraId: ta.trabajoExtraId
+                      }))
+                    });
+
+                    return (
+                      <React.Fragment key={`${idx}-trabajo-${tIdx}`}>
+                        <tr className="table-active">
+                          <td className="ps-4">
+                            <i className="bi bi-arrow-return-right me-2 text-success"></i>
+                            <span className="text-success">TE: {trabajo.nombre}</span>
+                          </td>
+                          <td>
+                            <span className="badge bg-success text-white">EXTRA</span>
+                          </td>
+                          <td className="text-end">
+                            <span className="text-success fw-bold">
+                              {formatearMoneda(trabajo.totalCalculado || 0)}
+                            </span>
+                          </td>
+                        </tr>
+
+                        {/* Trabajos adicionales de este trabajo extra */}
+                        {trabajosAdicionalesDelTE.length > 0 && trabajosAdicionalesDelTE.map((trabajoAd, taIdx) => (
+                          <tr key={`${idx}-trabajo-${tIdx}-ta-${taIdx}`} className="table-secondary">
+                            <td className="ps-5">
+                              <i className="bi bi-arrow-return-right me-2 text-primary"></i>
+                              <span className="text-primary">TA: {trabajoAd.nombre || trabajoAd.descripcion}</span>
+                            </td>
+                            <td>
+                              <span className="badge bg-primary text-white">ADICIONAL</span>
+                            </td>
+                            <td className="text-end">
+                              <span className="text-primary fw-bold">
+                                {formatearMoneda(trabajoAd.importe || trabajoAd.montoEstimado || 0)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* Trabajos adicionales directamente asociados a la obra (sin trabajoExtraId) */}
+                  {trabajosAdicionalesObra.filter(ta => !ta.trabajoExtraId).length > 0 &&
+                    trabajosAdicionalesObra.filter(ta => !ta.trabajoExtraId).map((trabajoAd, taIdx) => (
+                    <tr key={`${idx}-trabajo-adicional-directo-${taIdx}`} className="table-active">
                       <td className="ps-4">
-                        <i className="bi bi-arrow-return-right me-2 text-warning"></i>
-                        <span className="text-warning">TE: {trabajo.nombre}</span>
+                        <i className="bi bi-arrow-return-right me-2 text-primary"></i>
+                        <span className="text-primary">TA: {trabajoAd.descripcion || trabajoAd.nombre}</span>
+                        {trabajoAd.nombreProfesional && (
+                          <div className="text-muted small ps-4">
+                            Prof: {trabajoAd.nombreProfesional}
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <span className="badge bg-warning text-dark">EXTRA</span>
+                        <span className="badge bg-primary text-white">ADICIONAL</span>
                       </td>
                       <td className="text-end">
-                        <span className="text-warning fw-bold">
-                          {formatearMoneda(trabajo.totalCalculado || 0)}
+                        <span className="text-primary fw-bold">
+                          {formatearMoneda(trabajoAd.importe || trabajoAd.montoEstimado || 0)}
                         </span>
                       </td>
                     </tr>
                   ))}
 
-                  {/* Trabajos adicionales de esta obra */}
-                  {trabajosAdicionalesObra.length > 0 && trabajosAdicionalesObra.map((trabajoAd, taIdx) => (
-                    <tr key={`${idx}-trabajo-adicional-${taIdx}`} className="table-active">
-                      <td className="ps-4">
-                        <i className="bi bi-arrow-return-right me-2 text-info"></i>
-                        <span className="text-info">TA: {trabajoAd.descripcion}</span>
-                        <div className="text-muted small ps-4">
-                          Prof: {trabajoAd.nombreProfesional}
-                        </div>
-                      </td>
-                      <td>
-                        <span className="badge bg-info">ADICIONAL</span>
-                      </td>
-                      <td className="text-end">
-                        <span className="text-info fw-bold">
-                          {formatearMoneda(trabajoAd.importe || 0)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
                   {/* Línea separadora entre obras (excepto la última) */}
                   {idx < datos.length - 1 && (
                     <tr>
@@ -364,9 +481,14 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
               );
             })}
             {/* Trabajos extra huérfanos (sin obra asociada) */}
-            {Array.from(trabajosExtra.values()).flat().filter(te =>
-              !datos.some(obra => (te.obraId || te.obra_id) === (obra.obraId || obra.id))
-            ).length > 0 && (
+            {Array.from(trabajosExtra.values()).flat().filter(te => {
+              // Verificar si este trabajo extra está asociado a alguna obra en datos
+              const obraPadreId = te.presupuesto?.obraOrigenId || te.presupuesto?.obra_origen_id || te.obraOrigenId;
+              return !datos.some(obra => {
+                const obraIdReal = obra.obraId || obra.id;
+                return obraPadreId === obraIdReal;
+              });
+            }).length > 0 && (
               <>
                 <tr>
                   <td colSpan="3" className="p-0">
@@ -374,21 +496,27 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                   </td>
                 </tr>
                 {Array.from(trabajosExtra.values()).flat()
-                  .filter(te => !datos.some(obra => (te.obraId || te.obra_id) === (obra.obraId || obra.id)))
+                  .filter(te => {
+                    const obraPadreId = te.presupuesto?.obraOrigenId || te.presupuesto?.obra_origen_id || te.obraOrigenId;
+                    return !datos.some(obra => {
+                      const obraIdReal = obra.obraId || obra.id;
+                      return obraPadreId === obraIdReal;
+                    });
+                  })
                   .map((trabajoExtra, teIdx) => (
                     <tr key={`trabajo-extra-huerfano-${teIdx}`} className="table-secondary">
                       <td>
                         <i className="bi bi-question-circle me-2 text-muted"></i>
-                        <span className="text-warning">TE: {trabajoExtra.nombre}</span>
+                        <span className="text-success">TE: {trabajoExtra.nombre}</span>
                         <div className="text-muted small">
                           Obra no identificada
                         </div>
                       </td>
                       <td>
-                        <span className="badge bg-warning text-dark">EXTRA</span>
+                        <span className="badge bg-success text-white">EXTRA</span>
                       </td>
                       <td className="text-end">
-                        <span className="text-warning fw-bold">
+                        <span className="text-success fw-bold">
                           {formatearMoneda(trabajoExtra.totalFinal || trabajoExtra.montoTotal || trabajoExtra.totalCalculado || 0)}
                         </span>
                       </td>
@@ -396,10 +524,19 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                   ))}
               </>
             )}
-            {/* Trabajos adicionales huérfanos (sin obra asociada) */}
-            {trabajosAdicionales.filter(ta =>
-              !datos.some(obra => ta.obraId === obra.obraId || ta.obraId === obra.id)
-            ).length > 0 && (
+            {/* Trabajos adicionales huérfanos (sin obra ni trabajo extra asociado) */}
+            {trabajosAdicionales.filter(ta => {
+              // Excluir si está asociado a alguna obra en datos
+              const tieneObraAsociada = datos.some(obra => ta.obraId === obra.obraId || ta.obraId === obra.id);
+              if (tieneObraAsociada) return false;
+
+              // Excluir si está asociado a algún trabajo extra de alguna obra en datos
+              const todosTrabajosExtraIds = Array.from(trabajosExtra.values()).flat().map(te => te.id);
+              const tieneTrabajoExtraAsociado = ta.trabajoExtraId && todosTrabajosExtraIds.includes(ta.trabajoExtraId);
+              if (tieneTrabajoExtraAsociado) return false;
+
+              return true;
+            }).length > 0 && (
               <>
                 <tr>
                   <td colSpan="3" className="p-0">
@@ -407,21 +544,30 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                   </td>
                 </tr>
                 {trabajosAdicionales
-                  .filter(ta => !datos.some(obra => ta.obraId === obra.obraId || ta.obraId === obra.id))
+                  .filter(ta => {
+                    const tieneObraAsociada = datos.some(obra => ta.obraId === obra.obraId || ta.obraId === obra.id);
+                    if (tieneObraAsociada) return false;
+
+                    const todosTrabajosExtraIds = Array.from(trabajosExtra.values()).flat().map(te => te.id);
+                    const tieneTrabajoExtraAsociado = ta.trabajoExtraId && todosTrabajosExtraIds.includes(ta.trabajoExtraId);
+                    if (tieneTrabajoExtraAsociado) return false;
+
+                    return true;
+                  })
                   .map((trabajoAd, taIdx) => (
                     <tr key={`trabajo-adicional-huerfano-${taIdx}`} className="table-secondary">
                       <td>
                         <i className="bi bi-question-circle me-2 text-muted"></i>
-                        <span className="text-info">TA: {trabajoAd.descripcion}</span>
+                        <span className="text-primary">TA: {trabajoAd.descripcion}</span>
                         <div className="text-muted small">
                           Prof: {trabajoAd.nombreProfesional} | Obra no identificada
                         </div>
                       </td>
                       <td>
-                        <span className="badge bg-info">ADICIONAL</span>
+                        <span className="badge bg-primary text-white">ADICIONAL</span>
                       </td>
                       <td className="text-end">
-                        <span className="text-info fw-bold">
+                        <span className="text-primary fw-bold">
                           {formatearMoneda(trabajoAd.importe || 0)}
                         </span>
                       </td>
@@ -1078,7 +1224,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
             <div className="alert alert-info">
               <div>
                 <i className="bi bi-info-circle me-2"></i>
-                <strong>Vista consolidada:</strong> Mostrando el desglose de <strong>{datos?.length || 0} obra(s)</strong>
+                <strong>Vista consolidada:</strong> Mostrando el desglose de <strong>{datos?.filter(o => !(o.esObraTrabajoExtra || o.esPresupuestoTrabajoExtra || o.obra?.esObraTrabajoExtra || o.es_presupuesto_trabajo_extra)).length || 0} obra(s)</strong>
                 {estadisticas && ((estadisticas.cantidadTrabajosExtra || 0) > 0 || (estadisticas.cantidadTrabajosAdicionales || 0) > 0) && (
                   <>
                     {(estadisticas.cantidadTrabajosExtra || 0) > 0 && (

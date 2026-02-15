@@ -688,6 +688,19 @@ export const apiService = {
     delete: (id, empresaId) => apiService.delete(`/api/v1/trabajos-extra/${id}`, { headers: { empresaId } }),
   },
 
+  // ==================== TRABAJOS ADICIONALES ====================
+  trabajosAdicionales: {
+    getAll: (empresaId) => {
+      const params = { empresaId };
+      return apiService.get('/api/trabajos-adicionales', params);
+    },
+    getById: (id) => apiService.get(`/api/trabajos-adicionales/${id}`),
+    create: (data) => apiService.post('/api/trabajos-adicionales', data),
+    update: (id, data) => apiService.put(`/api/trabajos-adicionales/${id}`, data),
+    delete: (id) => apiService.delete(`/api/trabajos-adicionales/${id}`),
+    updateEstado: (id, estado) => apiService.patch(`/api/trabajos-adicionales/${id}/estado`, { estado }),
+  },
+
   // ==================== PAGOS TRABAJOS EXTRA ====================
   pagosTrabajoExtra: {
     // CRUD básico

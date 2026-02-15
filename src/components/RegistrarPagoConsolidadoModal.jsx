@@ -51,9 +51,9 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
   const [fechaPago, setFechaPago] = useState(new Date().toISOString().split('T')[0]);
   const [semanaSeleccionada, setSemanaSeleccionada] = useState(0); // 0 = todas las semanas
   const [maxSemanas, setMaxSemanas] = useState(1);
-  const [tabActiva, setTabActiva] = useState('PROFESIONALES'); // PROFESIONALES, MATERIALES, OTROS_COSTOS, TRABAJOS_EXTRA
+  const [tabActiva, setTabActiva] = useState('PROFESIONALES'); // PROFESIONALES, MATERIALES, OTROS_COSTOS, TRABAJOS_ADICIONALES
 
-  // 🆕 Estados para trabajos extra
+  // 🆕 Estados para trabajos adicionales
   const [todosLosTrabajos, setTodosLosTrabajos] = useState([]);
   const [trabajosExtraSeleccionados, setTrabajosExtraSeleccionados] = useState([]);
   const [mostrarDetallesTrabajo, setMostrarDetallesTrabajo] = useState({}); // {trabajoId: true/false}
@@ -966,10 +966,10 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
 
       setTodosOtrosCostos(todosLosOtrosCostos);
 
-      // 🔧 CARGAR TRABAJOS EXTRA DE LAS OBRAS
-      const trabajosExtraCargados = await cargarTrabajosExtra(presupuestosCompletos);
+      // 🔧 CARGAR TRABAJOS ADICIONALES DE LAS OBRAS
+      const trabajosAdicionalesCargados = await cargarTrabajosAdicionales(presupuestosCompletos);
 
-      // 💰 CARGAR PAGOS CONSOLIDADOS EXISTENTES (materiales, gastos generales Y trabajos extra)
+      // 💰 CARGAR PAGOS CONSOLIDADOS EXISTENTES (materiales, gastos generales Y trabajos adicionales)
       console.log('💰 Cargando pagos consolidados existentes para calcular totalPagado...');
       try {
         // Cargar pagos consolidados (materiales y gastos)
@@ -1450,6 +1450,85 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
     }
   };
 
+  // 🔧 Función para cargar trabajos adicionales de las obras
+  const cargarTrabajosAdicionales = async (presupuestosCompletos) => {
+    console.log('🚀 ======= INICIO cargarTrabajosAdicionales ======= ');
+    console.log('🚀 Presupuestos recibidos:', presupuestosCompletos.length);
+    console.log('🔧 Cargando trabajos adicionales de las obras y trabajos extra seleccionados...');
+
+    try {
+      // Cargar todos los trabajos adicionales de la empresa
+      const response = await apiService.trabajosAdicionales.getAll(empresaSeleccionada.id);
+      let todosLosTrabajosAdicionales = Array.isArray(response) ? response : response?.data || [];
+
+      console.log(`✅ Total de trabajos adicionales en BD: ${todosLosTrabajosAdicionales.length}`);
+
+      // Obtener los IDs de las obras y trabajos extra seleccionados
+      const obrasIds = presupuestosCompletos.map(p => p.obraId || p.obra_id).filter(Boolean);
+
+      console.log(`📋 Obras seleccionadas (${obrasIds.length}):`, obrasIds);
+
+      // Filtrar trabajos adicionales que pertenecen a:
+      // 1. Obras principales seleccionadas (tienen obraId en obrasIds)
+      // 2. Trabajos extra de esas obras (tienen trabajoExtraId relacionado)
+      const trabajosFiltrados = todosLosTrabajosAdicionales.filter(trabajo => {
+        // Caso 1: Trabajo adicional de una obra principal
+        if (trabajo.obraId && obrasIds.includes(trabajo.obraId)) {
+          return true;
+        }
+        // Caso 2: Trabajo adicional de un trabajo extra
+        // TODO: Si en el futuro necesitamos filtrar por trabajoExtraId específico
+        if (trabajo.trabajoExtraId) {
+          return true; // Por ahora incluir todos los de trabajos extra
+        }
+        return false;
+      });
+
+      console.log(`✅ Trabajos adicionales filtrados: ${trabajosFiltrados.length}`);
+
+      // Enriquecer cada trabajo con información de la obra
+      const trabajosEnriquecidos = trabajosFiltrados.map(trabajo => {
+        // Buscar el presupuesto correspondiente
+        let presupuesto = null;
+        if (trabajo.obraId) {
+          presupuesto = presupuestosCompletos.find(p =>
+            (p.obraId || p.obra_id) === trabajo.obraId
+          );
+        }
+
+        // Intentar obtener el importe de varios campos posibles
+        const montoEstimado = parseFloat(trabajo.montoEstimado || trabajo.importe || trabajo.monto || trabajo.importeEstimado) || 0;
+        const montoPagado = parseFloat(trabajo.montoPagado || trabajo.importePagado) || 0;
+        const saldo = montoEstimado - montoPagado;
+
+        return {
+          ...trabajo,
+          presupuestoId: presupuesto?.id || null,
+          obraId: trabajo.obraId || null,
+          trabajoExtraId: trabajo.trabajoExtraId || null,
+          nombreObra: presupuesto?.nombreObra || trabajo.nombreObra || 'Obra desconocida',
+          direccionObra: presupuesto ?
+            `${presupuesto.direccionObraCalle || ''} ${presupuesto.direccionObraAltura || ''}`.trim() :
+            '',
+          totalCalculado: montoEstimado,
+          totalPagado: montoPagado,
+          saldo: saldo,
+          estadoPago: saldo === 0 ? 'PAGADO_TOTAL' : (montoPagado > 0 ? 'PAGADO_PARCIAL' : 'PENDIENTE')
+        };
+      });
+
+      console.log(`✅ Total de trabajos adicionales cargados: ${trabajosEnriquecidos.length}`);
+
+      setTodosLosTrabajos(trabajosEnriquecidos);
+      return trabajosEnriquecidos;
+
+    } catch (error) {
+      console.error('❌ Error cargando trabajos adicionales:', error);
+      setTodosLosTrabajos([]);
+      return [];
+    }
+  };
+
   // 🔧 Función para calcular total de un trabajo extra
   const calcularTotalTrabajo = (trabajo) => {
     if (!trabajo) return 0;
@@ -1623,11 +1702,11 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
     return costosFiltrados;
   }, [todosOtrosCostos, semanaSeleccionada]);
 
-  // 🔥 NUEVO: Filtrar/Calcular trabajos extra por la semana seleccionada (Lógica de Cuotas)
+  // 🔥 NUEVO: Filtrar/Calcular trabajos adicionales por la semana seleccionada (Lógica de Cuotas)
   const trabajosExtraFiltradosPorSemana = useMemo(() => {
     if (todosLosTrabajos.length === 0) return [];
 
-    console.log(`🔍 Calculando ${todosLosTrabajos.length} trabajos extra para semana ${semanaSeleccionada}...`);
+    console.log(`🔍 Calculando ${todosLosTrabajos.length} trabajos adicionales para semana ${semanaSeleccionada}...`);
 
     return todosLosTrabajos
       .filter(trabajo => {
@@ -2153,8 +2232,8 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                     <button type="button" className={`btn btn-lg ${tabActiva === 'OTROS_COSTOS' ? 'btn-warning' : 'btn-outline-warning'}`} onClick={() => setTabActiva('OTROS_COSTOS')}>
                       📋 Otros Costos ({otrosCostosFiltradosPorSemana.length})
                     </button>
-                    <button type="button" className={`btn btn-lg ${tabActiva === 'TRABAJOS_EXTRA' ? 'btn-info' : 'btn-outline-info'}`} onClick={() => setTabActiva('TRABAJOS_EXTRA')}>
-                      🔧 Trabajos Extra ({todosLosTrabajos.length})
+                    <button type="button" className={`btn btn-lg ${tabActiva === 'TRABAJOS_ADICIONALES' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setTabActiva('TRABAJOS_ADICIONALES')}>
+                      🔧 Trabajos Adicionales ({todosLosTrabajos.length})
                     </button>
                   </div>
                 </div>
@@ -2868,19 +2947,19 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                     </>
                   )}
 
-                  {/* TAB TRABAJOS EXTRA */}
-                  {tabActiva === 'TRABAJOS_EXTRA' && (
+                  {/* TAB TRABAJOS ADICIONALES */}
+                  {tabActiva === 'TRABAJOS_ADICIONALES' && (
                     <>
                       {todosLosTrabajos.length === 0 ? (
                         <div className="alert alert-info">
                           <i className="bi bi-info-circle me-2"></i>
-                          No hay trabajos extra registrados en las obras seleccionadas
+                          No hay trabajos adicionales registrados en las obras seleccionadas
                         </div>
                       ) : (
                         <>
-                          {/* Agrupar trabajos extra por obra */}
+                          {/* Agrupar trabajos adicionales por obra */}
                           {presupuestos.map((presupuesto, presupuestoIdx) => {
-                            // 🔥 Usar trabajosExtraFiltradosPorSemana en lugar de todosLosTrabajos
+                            // 🔥 Filtrar trabajos adicionales de esta obra
                             const trabajosObra = trabajosExtraFiltradosPorSemana.filter(
                               t => t.presupuestoId === presupuesto.id
                             );
@@ -2910,7 +2989,7 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                       </div>
                                       <div className="text-end">
                                         <div className="badge bg-light text-dark">
-                                          {trabajosObra.length} trabajo(s) extra
+                                          {trabajosObra.length} trabajo(s) adicional(es)
                                         </div>
                                         <div className="mt-1">
                                           <small className="text-white-50">Saldo: </small>
@@ -2925,11 +3004,8 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                       <table className="table table-hover table-bordered mb-0">
                                         <thead style={{backgroundColor:'#f8f9fa'}}>
                                           <tr>
-                                            <th style={{minWidth:'250px',padding:'8px'}}>Trabajo Extra</th>
-                                            <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>Días</th>
-                                            <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Profesionales</th>
-                                            <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>Tareas</th>
-                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Total</th>
+                                            <th style={{minWidth:'250px',padding:'8px'}}>Trabajo Adicional</th>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Importe a Pagar</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Pagado</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Saldo</th>
                                             <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Estado</th>
@@ -2965,58 +3041,39 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                                         <div className="fw-bold">
                                                           {trabajo.nombre}
                                                         </div>
-                                                        {/* Mostrar info de división por semana si aplica */}
-                                                        {semanaSeleccionada > 0 && (() => {
-                                                          const diasDuracion = parseInt(trabajo.tiempoEstimadoTerminacion) || 5;
-                                                          const semanasDuracion = Math.max(1, Math.ceil(diasDuracion / 5));
-                                                          return (
-                                                            <small className="text-success">
-                                                              ✅ Configurado: {semanasDuracion} semanas ({diasDuracion} días) - {(trabajo.profesionales?.length || 0)} profesional{trabajo.profesionales?.length !== 1 ? 'es' : ''} asignado{trabajo.profesionales?.length !== 1 ? 's' : ''}
-                                                            </small>
-                                                          );
-                                                        })()}
-                                                        {trabajo.observaciones && (
+                                                        {trabajo.descripcion && (
                                                           <small className="text-muted d-block mt-1">
-                                                            {trabajo.observaciones}
+                                                            {trabajo.descripcion}
                                                           </small>
                                                         )}
-                                                        <button
-                                                          type="button"
-                                                          className="btn btn-link btn-sm p-0 mt-1"
-                                                          onClick={() => toggleDetallesTrabajo(trabajo.id)}
-                                                        >
-                                                          {mostrarDetallesTrabajo[trabajo.id] ? (
-                                                            <>
-                                                              <i className="bi bi-chevron-up me-1"></i>
-                                                              Ocultar detalles
-                                                            </>
+                                                        {/* Badge de origen */}
+                                                        <div className="mt-1">
+                                                          {trabajo.trabajoExtraId ? (
+                                                            <span className="badge bg-success me-2">
+                                                              🔧 De Trabajo Extra
+                                                            </span>
                                                           ) : (
-                                                            <>
-                                                              <i className="bi bi-chevron-down me-1"></i>
-                                                              Ver detalles
-                                                            </>
+                                                            <span className="badge bg-primary me-2">
+                                                              🏗️ De Obra Principal
+                                                            </span>
                                                           )}
-                                                        </button>
+                                                          {/* Badge de estado del trabajo */}
+                                                          {trabajo.estado && (
+                                                            <span className={`badge ${
+                                                              trabajo.estado === 'COMPLETADO' ? 'bg-success' :
+                                                              trabajo.estado === 'EN_PROGRESO' ? 'bg-warning' :
+                                                              trabajo.estado === 'CANCELADO' ? 'bg-danger' :
+                                                              'bg-secondary'
+                                                            }`}>
+                                                              {trabajo.estado === 'COMPLETADO' ? '✅ Completado' :
+                                                               trabajo.estado === 'EN_PROGRESO' ? '⏳ En Progreso' :
+                                                               trabajo.estado === 'CANCELADO' ? '❌ Cancelado' :
+                                                               '⏸️ Pendiente'}
+                                                            </span>
+                                                          )}
+                                                        </div>
                                                       </div>
                                                     </div>
-                                                  </td>
-
-                                                  <td style={{padding:'8px',textAlign:'center'}}>
-                                                    <span className="badge bg-secondary">
-                                                      {trabajo.dias?.length || 0}
-                                                    </span>
-                                                  </td>
-
-                                                  <td style={{padding:'8px',textAlign:'center'}}>
-                                                    <span className="badge bg-primary">
-                                                      {trabajo.profesionales?.length || 0}
-                                                    </span>
-                                                  </td>
-
-                                                  <td style={{padding:'8px',textAlign:'center'}}>
-                                                    <span className="badge bg-success">
-                                                      {trabajo.tareas?.length || 0}
-                                                    </span>
                                                   </td>
 
                                                   <td style={{padding:'8px',textAlign:'right'}}>
@@ -3063,88 +3120,6 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
                                                     />
                                                   </td>
                                                 </tr>
-
-                                                {/* Fila expandible con detalles */}
-                                                {mostrarDetallesTrabajo[trabajo.id] && (
-                                                  <tr>
-                                                    <td colSpan="9" style={{backgroundColor:'#f8f9fa',padding:'12px'}}>
-                                                      <div className="row g-3">
-                                                        <div className="col-md-4">
-                                                          <h6 className="text-muted mb-2">
-                                                            <i className="bi bi-calendar-week me-1"></i>
-                                                            Días Trabajados
-                                                          </h6>
-                                                          <div className="d-flex flex-wrap gap-1">
-                                                            {trabajo.dias?.map((dia, idx) => (
-                                                              <span key={idx} className="badge bg-light text-dark">
-                                                                {new Date(dia + 'T00:00:00').toLocaleDateString('es-AR', {
-                                                                  day: '2-digit',
-                                                                  month: '2-digit',
-                                                                  year: 'numeric'
-                                                                })}
-                                                              </span>
-                                                            ))}
-                                                          </div>
-                                                        </div>
-
-                                                        <div className="col-md-4">
-                                                          <h6 className="text-muted mb-2">
-                                                            <i className="bi bi-person me-1"></i>
-                                                            Profesionales
-                                                          </h6>
-                                                          <ul className="list-unstyled mb-0" style={{fontSize:'0.9rem'}}>
-                                                            {trabajo.profesionales?.map((prof, idx) => (
-                                                              <li key={idx}>
-                                                                <i className="bi bi-dot"></i>
-                                                                {prof.nombre}
-                                                                {prof.importe && (
-                                                                  <span className="text-muted ms-1">
-                                                                    (${parseFloat(prof.importe).toLocaleString('es-AR')}/día)
-                                                                  </span>
-                                                                )}
-                                                              </li>
-                                                            ))}
-                                                          </ul>
-                                                          {trabajo.totalProfesionales > 0 && (
-                                                            <div className="mt-2 small text-success fw-bold">
-                                                              Subtotal: ${trabajo.totalProfesionales.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                            </div>
-                                                          )}
-                                                        </div>
-
-                                                        <div className="col-md-4">
-                                                          <h6 className="text-muted mb-2">
-                                                            <i className="bi bi-list-task me-1"></i>
-                                                            Tareas
-                                                          </h6>
-                                                          <ul className="list-unstyled mb-0" style={{fontSize:'0.9rem'}}>
-                                                            {trabajo.tareas?.map((tarea, idx) => (
-                                                              <li key={idx}>
-                                                                <i className="bi bi-dot"></i>
-                                                                {tarea.descripcion}
-                                                                {tarea.importe && (
-                                                                  <span className="text-success ms-1 fw-bold">
-                                                                    ${parseFloat(tarea.importe).toLocaleString('es-AR')}
-                                                                  </span>
-                                                                )}
-                                                                {tarea.estado && (
-                                                                  <span className={`badge ms-2 ${tarea.estado === 'TERMINADA' ? 'bg-success' : 'bg-warning'}`}>
-                                                                    {tarea.estado}
-                                                                  </span>
-                                                                )}
-                                                              </li>
-                                                            ))}
-                                                          </ul>
-                                                          {trabajo.totalTareas > 0 && (
-                                                            <div className="mt-2 small text-success fw-bold">
-                                                              Subtotal: ${trabajo.totalTareas.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                            </div>
-                                                          )}
-                                                        </div>
-                                                      </div>
-                                                    </td>
-                                                  </tr>
-                                                )}
                                               </React.Fragment>
                                             );
                                           })}
@@ -3152,7 +3127,7 @@ const RegistrarPagoConsolidadoModal = ({ show, onHide, onSuccess, obrasSeleccion
 
                                         <tfoot style={{backgroundColor:'#e9ecef'}}>
                                           <tr>
-                                            <td colSpan="4" style={{padding:'8px',textAlign:'right'}}>
+                                            <td style={{padding:'8px',textAlign:'right'}}>
                                               <strong>TOTAL OBRA:</strong>
                                             </td>
                                             <td style={{padding:'8px',textAlign:'right'}}>
