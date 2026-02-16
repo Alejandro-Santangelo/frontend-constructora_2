@@ -190,6 +190,91 @@ const ObrasPage = ({ showNotification }) => {
   const [guardarEnCatalogoTA, setGuardarEnCatalogoTA] = React.useState(false);
   const [guardandoProfesionalTA, setGuardandoProfesionalTA] = React.useState(false);
 
+  // Estados para desglose de importe en trabajos adicionales
+  const [usarDesglose, setUsarDesglose] = React.useState(false);
+  const [importeMateriales, setImporteMateriales] = React.useState('');
+  const [importeJornales, setImporteJornales] = React.useState('');
+  const [importeHonorarios, setImporteHonorarios] = React.useState('');
+  const [tipoHonorarios, setTipoHonorarios] = React.useState('fijo'); // 'fijo' o 'porcentaje'
+  const [importeMayoresCostos, setImporteMayoresCostos] = React.useState('');
+  const [tipoMayoresCostos, setTipoMayoresCostos] = React.useState('fijo'); // 'fijo' o 'porcentaje'
+  const [importeTotal, setImporteTotal] = React.useState('');
+
+  // Calcular importe total cuando cambian los desgloses
+  React.useEffect(() => {
+    if (usarDesglose) {
+      const materiales = parseFloat(importeMateriales) || 0;
+      const jornales = parseFloat(importeJornales) || 0;
+      const base = materiales + jornales;
+
+      // Calcular honorarios (fijo o porcentaje sobre la base)
+      let honorarios = 0;
+      if (tipoHonorarios === 'porcentaje') {
+        const porcentajeHonorarios = parseFloat(importeHonorarios) || 0;
+        honorarios = (base * porcentajeHonorarios) / 100;
+      } else {
+        honorarios = parseFloat(importeHonorarios) || 0;
+      }
+
+      // Calcular mayores costos (fijo o porcentaje sobre la base)
+      let mayoresCostos = 0;
+      if (tipoMayoresCostos === 'porcentaje') {
+        const porcentajeMayores = parseFloat(importeMayoresCostos) || 0;
+        mayoresCostos = (base * porcentajeMayores) / 100;
+      } else {
+        mayoresCostos = parseFloat(importeMayoresCostos) || 0;
+      }
+
+      const total = base + honorarios + mayoresCostos;
+      setImporteTotal(total > 0 ? total.toString() : '');
+    }
+  }, [usarDesglose, importeMateriales, importeJornales, importeHonorarios, tipoHonorarios, importeMayoresCostos, tipoMayoresCostos]);
+
+  // Estados para desglose de importe en obras independientes
+  const [usarDesgloseObra, setUsarDesgloseObra] = React.useState(false);
+  const [importeMaterialesObra, setImporteMaterialesObra] = React.useState('');
+  const [importeJornalesObra, setImporteJornalesObra] = React.useState('');
+  const [importeHonorariosObra, setImporteHonorariosObra] = React.useState('');
+  const [tipoHonorariosObra, setTipoHonorariosObra] = React.useState('fijo'); // 'fijo' o 'porcentaje'
+  const [importeMayoresCostosObra, setImporteMayoresCostosObra] = React.useState('');
+  const [tipoMayoresCostosObra, setTipoMayoresCostosObra] = React.useState('fijo'); // 'fijo' o 'porcentaje'
+  const [importeTotalObra, setImporteTotalObra] = React.useState('');
+
+  // Calcular importe total para obras cuando cambian los desgloses
+  React.useEffect(() => {
+    if (usarDesgloseObra) {
+      const materiales = parseFloat(importeMaterialesObra) || 0;
+      const jornales = parseFloat(importeJornalesObra) || 0;
+      const base = materiales + jornales;
+
+      // Calcular honorarios (fijo o porcentaje sobre la base)
+      let honorarios = 0;
+      if (tipoHonorariosObra === 'porcentaje') {
+        const porcentajeHonorarios = parseFloat(importeHonorariosObra) || 0;
+        honorarios = (base * porcentajeHonorarios) / 100;
+      } else {
+        honorarios = parseFloat(importeHonorariosObra) || 0;
+      }
+
+      // Calcular mayores costos (fijo o porcentaje sobre la base)
+      let mayoresCostos = 0;
+      if (tipoMayoresCostosObra === 'porcentaje') {
+        const porcentajeMayores = parseFloat(importeMayoresCostosObra) || 0;
+        mayoresCostos = (base * porcentajeMayores) / 100;
+      } else {
+        mayoresCostos = parseFloat(importeMayoresCostosObra) || 0;
+      }
+
+      const total = base + honorarios + mayoresCostos;
+      setImporteTotalObra(total > 0 ? total.toString() : '');
+
+      // Actualizar el campo presupuestoEstimado del formulario
+      if (total > 0) {
+        setFormData(prev => ({...prev, presupuestoEstimado: total.toString()}));
+      }
+    }
+  }, [usarDesgloseObra, importeMaterialesObra, importeJornalesObra, importeHonorariosObra, tipoHonorariosObra, importeMayoresCostosObra, tipoMayoresCostosObra]);
+
   // Cargar profesionales cuando se abre el modal de trabajo adicional
   React.useEffect(() => {
     const cargarProfesionales = async () => {
@@ -456,10 +541,11 @@ const ObrasPage = ({ showNotification }) => {
 
         // 3. Verificar Gastos
         console.log('%c💰 CONSULTANDO GASTOS GENERALES...', 'color: #f00; font-weight: bold');
-        const responseGastos = await fetch(`/api/obras/${trabajoExtraId}/otros-costos?empresaId=${empresaId}`, {
+        const responseGastos = await fetch(`/api/obras/${trabajoExtraId}/otros-costos`, {
           headers: {
             'empresaId': empresaId,
-            'X-Tenant-ID': empresaId
+            'X-Tenant-ID': empresaId,
+            'Content-Type': 'application/json'
           }
         });
         const gastos = await responseGastos.json();
@@ -1213,7 +1299,33 @@ const ObrasPage = ({ showNotification }) => {
     };
   }, [activeTab, trabajoExtraSeleccionado, setObrasControls, obraParaTrabajosExtra, dispatch, showNotification]);
 
+  // Enviar controles de obras independientes al Sidebar
+  useEffect(() => {
+    if (activeTab === 'obras-manuales' && setObrasControls) {
+      const obrasManuales = obras.filter(obra => {
+        const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
+                                (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+        return !tienePresupuesto && obra.estado !== 'CANCELADO';
+      });
 
+      setObrasControls({
+        handleNuevo: () => dispatch(setActiveTab('crear')),
+        handleVolver: () => {
+          dispatch(setActiveTab('lista'));
+        },
+        esObrasIndependientes: true,
+        conteoObras: obrasManuales.length,
+        titulo: 'Obras Independientes'
+      });
+    }
+
+    // Cleanup cuando salimos de obras independientes
+    return () => {
+      if (activeTab === 'obras-manuales' && setObrasControls) {
+        setObrasControls(null);
+      }
+    };
+  }, [activeTab, setObrasControls, obras, presupuestosObras, dispatch]);
 
 
   // Manejar errores
@@ -1524,6 +1636,16 @@ const ObrasPage = ({ showNotification }) => {
       setModoEdicion(false);
       setObraEditando(null);
 
+      // Limpiar estados del desglose de obra
+      setUsarDesgloseObra(false);
+      setImporteMaterialesObra('');
+      setImporteJornalesObra('');
+      setImporteHonorariosObra('');
+      setTipoHonorariosObra('fijo');
+      setImporteMayoresCostosObra('');
+      setTipoMayoresCostosObra('fijo');
+      setImporteTotalObra('');
+
       // Cambiar a la pestaña de lista y recargar obras
       dispatch(setActiveTab('lista'));
       await cargarObrasSegunFiltro();
@@ -1667,6 +1789,16 @@ const ObrasPage = ({ showNotification }) => {
       setProfesionalSeleccionado('');
       setTipoProfesional('LISTADO_GENERAL');
       setProfesionalManual({ nombre: '', tipoProfesional: '', valorHora: '' });
+
+      // Limpiar estados del desglose de obra
+      setUsarDesgloseObra(false);
+      setImporteMaterialesObra('');
+      setImporteJornalesObra('');
+      setImporteHonorariosObra('');
+      setTipoHonorariosObra('fijo');
+      setImporteMayoresCostosObra('');
+      setTipoMayoresCostosObra('fijo');
+      setImporteTotalObra('');
 
       // Cambiar a la pestaña de lista y recargar obras
       dispatch(setActiveTab('lista'));
@@ -3570,9 +3702,9 @@ const ObrasPage = ({ showNotification }) => {
             const response = await axios.get(`/api/obras/${obraId}/otros-costos`, {
               headers: {
                 empresaId: empresaId,
-                'X-Tenant-ID': empresaId
-              },
-              params: { empresaId }
+                'X-Tenant-ID': empresaId,
+                'Content-Type': 'application/json'
+              }
             });
             const data = response.data || [];
             const gastos = Array.isArray(data) ? data : [];
@@ -5550,12 +5682,267 @@ const ObrasPage = ({ showNotification }) => {
                               className="form-control"
                               step="0.01"
                               placeholder="0.00"
-                              value={formData.presupuestoEstimado}
+                              value={usarDesgloseObra ? importeTotalObra : formData.presupuestoEstimado}
                               onChange={(e) => setFormData({...formData, presupuestoEstimado: e.target.value})}
-                              style={{borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
+                              disabled={usarDesgloseObra}
+                              style={{
+                                borderRadius: '8px',
+                                padding: '10px 12px',
+                                fontSize: '0.95rem',
+                                border: '3px solid #86b7fe',
+                                transition: 'all 0.2s',
+                                backgroundColor: usarDesgloseObra ? '#f3f4f6' : 'white',
+                                cursor: usarDesgloseObra ? 'not-allowed' : 'text'
+                              }}
                             />
+                            {/* Toggle para desglose */}
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => {
+                                  setUsarDesgloseObra(!usarDesgloseObra);
+                                  if (!usarDesgloseObra) {
+                                    // Limpiar campos al activar desglose
+                                    setImporteMaterialesObra('');
+                                    setImporteJornalesObra('');
+                                    setImporteHonorariosObra('');
+                                    setTipoHonorariosObra('fijo');
+                                    setImporteMayoresCostosObra('');
+                                    setTipoMayoresCostosObra('fijo');
+                                    setImporteTotalObra('');
+                                  } else {
+                                    // Limpiar campos al desactivar desglose
+                                    setImporteMaterialesObra('');
+                                    setImporteJornalesObra('');
+                                    setImporteHonorariosObra('');
+                                    setTipoHonorariosObra('fijo');
+                                    setImporteMayoresCostosObra('');
+                                    setTipoMayoresCostosObra('fijo');
+                                    setImporteTotalObra('');
+                                  }
+                                }}
+                                style={{ borderRadius: '8px', fontSize: '0.85rem' }}
+                              >
+                                <i className={`fas fa-${usarDesgloseObra ? 'calculator' : 'list'} me-2`}></i>
+                                {usarDesgloseObra ? 'Usar Importe Simple' : 'Desglosar Importe'}
+                              </button>
+                            </div>
                           </div>
                         </div>
+
+                        {/* Sección Colapsable de Desglose para Obra */}
+                        {usarDesgloseObra && (
+                          <div className="mb-3">
+                            <div className="card" style={{
+                              border: '2px solid #3b82f6',
+                              borderRadius: '12px',
+                              backgroundColor: '#eff6ff'
+                            }}>
+                              <div className="card-header" style={{
+                                background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                                color: 'white',
+                                borderRadius: '10px 10px 0 0',
+                                padding: '0.75rem 1rem'
+                              }}>
+                                <h6 className="mb-0" style={{ fontWeight: '600', fontSize: '0.95rem' }}>
+                                  <i className="fas fa-calculator me-2"></i>
+                                  Desglose del Presupuesto
+                                </h6>
+                                <small style={{ fontSize: '0.8rem', opacity: '0.9' }}>
+                                  Especifique cada componente del costo total
+                                </small>
+                              </div>
+                              <div className="card-body p-3">
+                                <div className="row">
+                                  {/* Importe de Jornales */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-user-hard-hat me-2 text-warning"></i>
+                                      Jornales
+                                    </label>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#fef3c7',
+                                        color: '#92400e',
+                                        border: '1px solid #f59e0b'
+                                      }}>
+                                        $
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder="0.00"
+                                        step="0.01"
+                                        min="0"
+                                        value={importeJornalesObra}
+                                        onChange={(e) => setImporteJornalesObra(e.target.value)}
+                                        style={{
+                                          border: '1px solid #f59e0b',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Importe de Materiales */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-boxes me-2 text-primary"></i>
+                                      Materiales
+                                    </label>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#dbeafe',
+                                        color: '#1e40af',
+                                        border: '1px solid #3b82f6'
+                                      }}>
+                                        $
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder="0.00"
+                                        step="0.01"
+                                        min="0"
+                                        value={importeMaterialesObra}
+                                        onChange={(e) => setImporteMaterialesObra(e.target.value)}
+                                        style={{
+                                          border: '1px solid #3b82f6',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Importe de Honorarios */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-handshake me-2 text-success"></i>
+                                      Honorarios
+                                    </label>
+                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoHonorariosObra === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
+                                        onClick={() => setTipoHonorariosObra('fijo')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        $ Fijo
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoHonorariosObra === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
+                                        onClick={() => setTipoHonorariosObra('porcentaje')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        % Porcentaje
+                                      </button>
+                                    </div>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#d1fae5',
+                                        color: '#065f46',
+                                        border: '1px solid #10b981'
+                                      }}>
+                                        {tipoHonorariosObra === 'fijo' ? '$' : '%'}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder={tipoHonorariosObra === 'fijo' ? '0.00' : '0'}
+                                        step={tipoHonorariosObra === 'fijo' ? '0.01' : '1'}
+                                        min="0"
+                                        max={tipoHonorariosObra === 'porcentaje' ? '100' : undefined}
+                                        value={importeHonorariosObra}
+                                        onChange={(e) => setImporteHonorariosObra(e.target.value)}
+                                        style={{
+                                          border: '1px solid #10b981',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Importe de Mayores Costos */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-chart-line me-2 text-danger"></i>
+                                      Mayores Costos
+                                    </label>
+                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoMayoresCostosObra === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                        onClick={() => setTipoMayoresCostosObra('fijo')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        $ Fijo
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoMayoresCostosObra === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                        onClick={() => setTipoMayoresCostosObra('porcentaje')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        % Porcentaje
+                                      </button>
+                                    </div>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#fee2e2',
+                                        color: '#991b1b',
+                                        border: '1px solid #ef4444'
+                                      }}>
+                                        {tipoMayoresCostosObra === 'fijo' ? '$' : '%'}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder={tipoMayoresCostosObra === 'fijo' ? '0.00' : '0'}
+                                        step={tipoMayoresCostosObra === 'fijo' ? '0.01' : '1'}
+                                        min="0"
+                                        max={tipoMayoresCostosObra === 'porcentaje' ? '100' : undefined}
+                                        value={importeMayoresCostosObra}
+                                        onChange={(e) => setImporteMayoresCostosObra(e.target.value)}
+                                        style={{
+                                          border: '1px solid #ef4444',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Resumen del Total */}
+                                {importeTotalObra && (
+                                  <div className="alert alert-success mb-0 mt-2" style={{
+                                    borderRadius: '8px',
+                                    border: '2px solid #10b981',
+                                    backgroundColor: '#ecfdf5'
+                                  }}>
+                                    <div className="d-flex justify-content-between align-items-center">
+                                      <span className="fw-semibold">
+                                        <i className="fas fa-check-circle me-2"></i>
+                                        Presupuesto Total Calculado:
+                                      </span>
+                                      <span className="fs-5 fw-bold text-success">
+                                        ${parseFloat(importeTotalObra).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+                                    <small className="text-muted d-block mt-1">
+                                      Jornales: ${(parseFloat(importeJornalesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
+                                      Materiales: ${(parseFloat(importeMaterialesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
+                                      Honorarios: {tipoHonorariosObra === 'porcentaje' ? `${importeHonorariosObra}%` : `$${(parseFloat(importeHonorariosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`} +
+                                      Mayores Costos: {tipoMayoresCostosObra === 'porcentaje' ? `${importeMayoresCostosObra}%` : `$${(parseFloat(importeMayoresCostosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                    </small>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="mb-3">
                           <label className="form-label">Observaciones</label>
                           <textarea
@@ -5742,6 +6129,16 @@ const ObrasPage = ({ showNotification }) => {
                               observaciones: ''
                             });
                             setProfesionalesAsignadosForm([]);
+
+                            // Limpiar estados del desglose de obra
+                            setUsarDesgloseObra(false);
+                            setImporteMaterialesObra('');
+                            setImporteJornalesObra('');
+                            setImporteHonorariosObra('');
+                            setTipoHonorariosObra('fijo');
+                            setImporteMayoresCostosObra('');
+                            setTipoMayoresCostosObra('fijo');
+                            setImporteTotalObra('');
                           }
                           dispatch(setActiveTab('lista'));
                         }}
@@ -5883,13 +6280,6 @@ const ObrasPage = ({ showNotification }) => {
             <div className="card" style={{margin: '0', border: 'none'}} onClick={(e) => e.stopPropagation()}>
               <div className="card-header d-flex justify-content-between align-items-center">
                 <div className="d-flex align-items-center gap-3">
-                  <button
-                    className="btn btn-outline-secondary btn-sm"
-                    onClick={() => dispatch(setActiveTab('lista'))}
-                    title="Volver al listado completo de obras"
-                  >
-                    <i className="fas fa-arrow-left me-1"></i>Volver
-                  </button>
                   <h5 className="mb-0">
                     <i className="fas fa-folder-open me-2"></i>
                     Obras Independientes
@@ -5902,13 +6292,6 @@ const ObrasPage = ({ showNotification }) => {
                     }).length} obras
                   </span>
                 </div>
-                <button
-                  className="btn btn-sm btn-success"
-                  onClick={() => dispatch(setActiveTab('crear'))}
-                  title="Crear nueva obra independiente"
-                >
-                  <i className="fas fa-plus me-1"></i>Nueva Obra Independiente
-                </button>
               </div>
               <div className="card-body" style={{padding: '0'}}>
                 {(() => {
@@ -9232,8 +9615,8 @@ Gestionar Trabajos Adicionales
                   className="btn btn-secondary"
                   onClick={() => setMostrarModalListaTrabajosAdicionales(false)}
                 >
-                  <i className="fas fa-times me-2"></i>
-                  Cerrar
+                  <i className="fas fa-save me-2"></i>
+                  Guardar y Cerrar
                 </button>
               </div>
             </div>
@@ -9251,6 +9634,15 @@ Gestionar Trabajos Adicionales
             setMostrarModalTrabajoAdicional(false);
             setGuardarEnCatalogoTA(false);
             setGuardandoProfesionalTA(false);
+            // Resetear estados de desglose
+            setUsarDesglose(false);
+            setImporteMateriales('');
+            setImporteJornales('');
+            setImporteHonorarios('');
+            setTipoHonorarios('fijo');
+            setImporteMayoresCostos('');
+            setTipoMayoresCostos('fijo');
+            setImporteTotal('');
             setProfesionalAdhocForm({
               nombre: '',
               tipoProfesional: '',
@@ -9284,6 +9676,15 @@ Gestionar Trabajos Adicionales
                     setTrabajoAdicionalEditar(null);
                     setGuardarEnCatalogoTA(false);
                     setGuardandoProfesionalTA(false);
+                    // Resetear estados de desglose
+                    setUsarDesglose(false);
+                    setImporteMateriales('');
+                    setImporteJornales('');
+                    setImporteHonorarios('');
+                    setTipoHonorarios('fijo');
+                    setImporteMayoresCostos('');
+                    setTipoMayoresCostos('fijo');
+                    setImporteTotal('');
                     setProfesionalAdhocForm({
                       nombre: '',
                       tipoProfesional: '',
@@ -9386,7 +9787,7 @@ Gestionar Trabajos Adicionales
                         <div className="col-md-4 mb-4">
                           <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
                             <i className="fas fa-dollar-sign me-2 text-success"></i>
-                            Importe
+                            Importe Total
                             <span className="text-danger ms-1">*</span>
                           </label>
                           <div className="input-group" style={{ borderRadius: '10px', overflow: 'hidden' }}>
@@ -9405,16 +9806,268 @@ Gestionar Trabajos Adicionales
                               placeholder="0.00"
                               step="0.01"
                               min="0"
-                              defaultValue={trabajoAdicionalEditar?.importe || ''}
+                              value={usarDesglose ? importeTotal : undefined}
+                              defaultValue={!usarDesglose ? (trabajoAdicionalEditar?.importe || '') : undefined}
+                              onChange={(e) => !usarDesglose && setImporteTotal(e.target.value)}
+                              readOnly={usarDesglose}
                               required
                               style={{
                                 border: '2px solid #e5e7eb',
                                 borderLeft: 'none',
-                                fontSize: '1rem'
+                                fontSize: '1rem',
+                                backgroundColor: usarDesglose ? '#f3f4f6' : 'white',
+                                cursor: usarDesglose ? 'not-allowed' : 'text'
                               }}
                             />
                           </div>
+
+                          {/* Toggle para desglose */}
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-primary"
+                              onClick={() => {
+                                setUsarDesglose(!usarDesglose);
+                                if (!usarDesglose) {
+                                  // Limpiar campos al activar desglose
+                                  setImporteMateriales('');
+                                  setImporteJornales('');
+                                  setImporteHonorarios('');
+                                  setTipoHonorarios('fijo');
+                                  setImporteMayoresCostos('');
+                                  setTipoMayoresCostos('fijo');
+                                  setImporteTotal('');
+                                } else {
+                                  // Limpiar campos al desactivar desglose
+                                  setImporteMateriales('');
+                                  setImporteJornales('');
+                                  setImporteHonorarios('');
+                                  setTipoHonorarios('fijo');
+                                  setImporteMayoresCostos('');
+                                  setTipoMayoresCostos('fijo');
+                                  setImporteTotal('');
+                                }
+                              }}
+                              style={{ borderRadius: '8px', fontSize: '0.85rem' }}
+                            >
+                              <i className={`fas fa-${usarDesglose ? 'calculator' : 'list'} me-2`}></i>
+                              {usarDesglose ? 'Usar Importe Simple' : 'Desglosar Importe'}
+                            </button>
+                          </div>
                         </div>
+
+                        {/* Sección Colapsable de Desglose */}
+                        {usarDesglose && (
+                          <div className="col-12 mb-4">
+                            <div className="card" style={{
+                              border: '2px solid #3b82f6',
+                              borderRadius: '12px',
+                              backgroundColor: '#eff6ff'
+                            }}>
+                              <div className="card-header" style={{
+                                background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                                color: 'white',
+                                borderRadius: '10px 10px 0 0',
+                                padding: '0.75rem 1rem'
+                              }}>
+                                <h6 className="mb-0" style={{ fontWeight: '600', fontSize: '0.95rem' }}>
+                                  <i className="fas fa-calculator me-2"></i>
+                                  Desglose del Importe
+                                </h6>
+                                <small style={{ fontSize: '0.8rem', opacity: '0.9' }}>
+                                  Especifique cada componente del costo total
+                                </small>
+                              </div>
+                              <div className="card-body p-3">
+                                <div className="row">
+                                  {/* Importe de Jornales */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-user-hard-hat me-2 text-warning"></i>
+                                      Jornales
+                                    </label>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#fef3c7',
+                                        color: '#92400e',
+                                        border: '1px solid #f59e0b'
+                                      }}>
+                                        $
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder="0.00"
+                                        step="0.01"
+                                        min="0"
+                                        value={importeJornales}
+                                        onChange={(e) => setImporteJornales(e.target.value)}
+                                        style={{
+                                          border: '1px solid #f59e0b',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Importe de Materiales */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-boxes me-2 text-primary"></i>
+                                      Materiales
+                                    </label>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#dbeafe',
+                                        color: '#1e40af',
+                                        border: '1px solid #3b82f6'
+                                      }}>
+                                        $
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder="0.00"
+                                        step="0.01"
+                                        min="0"
+                                        value={importeMateriales}
+                                        onChange={(e) => setImporteMateriales(e.target.value)}
+                                        style={{
+                                          border: '1px solid #3b82f6',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Importe de Honorarios */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-handshake me-2 text-success"></i>
+                                      Honorarios
+                                    </label>
+                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoHonorarios === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
+                                        onClick={() => setTipoHonorarios('fijo')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        $ Fijo
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoHonorarios === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
+                                        onClick={() => setTipoHonorarios('porcentaje')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        % Porcentaje
+                                      </button>
+                                    </div>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#d1fae5',
+                                        color: '#065f46',
+                                        border: '1px solid #10b981'
+                                      }}>
+                                        {tipoHonorarios === 'fijo' ? '$' : '%'}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder={tipoHonorarios === 'fijo' ? '0.00' : '0'}
+                                        step={tipoHonorarios === 'fijo' ? '0.01' : '1'}
+                                        min="0"
+                                        max={tipoHonorarios === 'porcentaje' ? '100' : undefined}
+                                        value={importeHonorarios}
+                                        onChange={(e) => setImporteHonorarios(e.target.value)}
+                                        style={{
+                                          border: '1px solid #10b981',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Importe de Mayores Costos */}
+                                  <div className="col-md-6 col-lg-3 mb-3">
+                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
+                                      <i className="fas fa-chart-line me-2 text-danger"></i>
+                                      Mayores Costos
+                                    </label>
+                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoMayoresCostos === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                        onClick={() => setTipoMayoresCostos('fijo')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        $ Fijo
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${tipoMayoresCostos === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                        onClick={() => setTipoMayoresCostos('porcentaje')}
+                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                                      >
+                                        % Porcentaje
+                                      </button>
+                                    </div>
+                                    <div className="input-group">
+                                      <span className="input-group-text" style={{
+                                        backgroundColor: '#fee2e2',
+                                        color: '#991b1b',
+                                        border: '1px solid #ef4444'
+                                      }}>
+                                        {tipoMayoresCostos === 'fijo' ? '$' : '%'}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder={tipoMayoresCostos === 'fijo' ? '0.00' : '0'}
+                                        step={tipoMayoresCostos === 'fijo' ? '0.01' : '1'}
+                                        min="0"
+                                        max={tipoMayoresCostos === 'porcentaje' ? '100' : undefined}
+                                        value={importeMayoresCostos}
+                                        onChange={(e) => setImporteMayoresCostos(e.target.value)}
+                                        style={{
+                                          border: '1px solid #ef4444',
+                                          borderLeft: 'none'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Resumen del Total */}
+                                {importeTotal && (
+                                  <div className="alert alert-success mb-0 mt-2" style={{
+                                    borderRadius: '8px',
+                                    border: '2px solid #10b981',
+                                    backgroundColor: '#ecfdf5'
+                                  }}>
+                                    <div className="d-flex justify-content-between align-items-center">
+                                      <span className="fw-semibold">
+                                        <i className="fas fa-check-circle me-2"></i>
+                                        Importe Total Calculado:
+                                      </span>
+                                      <span className="fs-5 fw-bold text-success">
+                                        ${parseFloat(importeTotal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+                                    <small className="text-muted d-block mt-1">
+                                      Jornales: ${(parseFloat(importeJornales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
+                                      Materiales: ${(parseFloat(importeMateriales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
+                                      Honorarios: {tipoHonorarios === 'porcentaje' ? `${importeHonorarios}%` : `$${(parseFloat(importeHonorarios) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`} +
+                                      Mayores Costos: {tipoMayoresCostos === 'porcentaje' ? `${importeMayoresCostos}%` : `$${(parseFloat(importeMayoresCostos) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                    </small>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
 
                         {/* Días/Jornales necesarios */}
                         <div className="col-md-4 mb-4">

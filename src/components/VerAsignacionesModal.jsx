@@ -37,29 +37,29 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
     console.log('📦 Cargando datos desde caché para obra:', obra.id);
     setLoading(true);
     setLoadingTrabajosExtra(true);
-    
+
     try {
       // Intentar obtener datos del caché primero
       const datosCache = datosAsignacionesPorObra[obra.id];
-      
+
       if (datosCache) {
         console.log('✅ Datos encontrados en caché:', datosCache);
-        
+
         // Usar asignaciones del caché
         if (datosCache.asignacionesProfesionales) {
           setAsignaciones({ asignacionesPorSemana: datosCache.asignacionesProfesionales });
         }
-        
+
         // Usar trabajos extra del caché
         if (datosCache.trabajosExtra) {
           setTrabajosExtra(datosCache.trabajosExtra);
         }
-        
+
         // Usar materiales del caché
         if (datosCache.materiales) {
           setMateriales(datosCache.materiales);
         }
-        
+
         // Usar gastos generales del caché
         if (datosCache.gastosGenerales) {
           setGastosGenerales(datosCache.gastosGenerales);
@@ -89,7 +89,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
   const cargarDatosDesdeBackend = async () => {
     setLoading(true);
     setLoadingTrabajosExtra(true);
-    
+
     try {
       // Cargar asignaciones de profesionales
       const dataAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaId);
@@ -125,7 +125,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
     console.log('📦 Obras recibidas:', obras);
     setLoading(true);
     setLoadingTrabajosExtra(true);
-    
+
     try {
       if (!obras || obras.length === 0) {
         console.warn('⚠️ No hay obras para cargar');
@@ -149,16 +149,16 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
           console.log(`  🏗️ Propiedades de la obra:`, obraItem);
           const nombreObra = obraItem.direccion || obraItem.nombre || obraItem.titulo || `Obra ${obraItem.id}`;
           console.log(`  📝 Nombre de obra a usar: "${nombreObra}"`);
-          
+
           // Cargar asignaciones de profesionales
           try {
             console.log(`  📞 Llamando a obtenerAsignacionesSemanalPorObra para obra ${obraItem.id}`);
             const respuestaProfesionales = await obtenerAsignacionesSemanalPorObra(obraItem.id, empresaId);
             console.log(`  📥 Respuesta profesionales RAW:`, respuestaProfesionales);
-            
+
             const dataProfesionales = respuestaProfesionales.data || respuestaProfesionales;
             console.log(`  📊 Data profesionales procesada:`, dataProfesionales);
-            
+
             // El backend devuelve un array directo de profesionales, no agrupado por semana
             if (Array.isArray(dataProfesionales) && dataProfesionales.length > 0) {
               todasAsignaciones.push({
@@ -198,9 +198,9 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
           // Cargar materiales
           try {
             const responseM = await axios.get(`/api/obras/${obraItem.id}/materiales`, {
-              headers: { 
+              headers: {
                 empresaId: empresaId,
-                'X-Tenant-ID': empresaId 
+                'X-Tenant-ID': empresaId
               }
             });
             const dataMateriales = responseM.data?.data || responseM.data || [];
@@ -219,11 +219,11 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
           // Cargar gastos generales
           try {
             const responseG = await axios.get(`/api/obras/${obraItem.id}/otros-costos`, {
-              headers: { 
+              headers: {
                 empresaId: empresaId,
-                'X-Tenant-ID': empresaId 
-              },
-              params: { empresaId }
+                'X-Tenant-ID': empresaId,
+                'Content-Type': 'application/json'
+              }
             });
             const dataGastos = responseG.data || [];
             if (Array.isArray(dataGastos) && dataGastos.length > 0) {
@@ -237,14 +237,14 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
           } catch (errorGas) {
             console.warn(`  ⚠️ Error cargando gastos de obra ${obraItem.id}:`, errorGas.message);
           }
-          
+
         } catch (errorObra) {
           console.error(`❌ Error general procesando obra ${obraItem.id}:`, errorObra);
         }
       }
 
       console.log(`✅ Total cargado: ${todasAsignaciones.length} obras con profesionales, ${todosTrabajosExtra.length} trabajos extra, ${todosMateriales.length} materiales, ${todosGastosGenerales.length} gastos`);
-      
+
       setAsignacionesTodasObras(todasAsignaciones);
       setTrabajosExtra(todosTrabajosExtra);
       setMateriales(todosMateriales);
@@ -264,7 +264,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
   // Procesar datos para vista general
   const obtenerResumenGeneral = () => {
     console.log('🔍 obtenerResumenGeneral - asignaciones:', asignaciones);
-    
+
     if (!asignaciones || !asignaciones.asignacionesPorSemana) {
       console.warn('⚠️ No hay asignaciones o asignacionesPorSemana');
       return { profesionales: [], totalJornales: 0, semanasConAsignaciones: 0 };
@@ -279,16 +279,16 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
 
     Object.entries(asignaciones.asignacionesPorSemana).forEach(([semanaKey, semanaData]) => {
       console.log(`🔍 Procesando semana ${semanaKey}:`, semanaData);
-      
+
       if (semanaData.detallesPorDia && Object.keys(semanaData.detallesPorDia).length > 0) {
         semanasConAsignaciones++;
-        
+
         Object.values(semanaData.detallesPorDia).forEach(diaData => {
           console.log('🔍 Día data:', diaData);
-          
+
           if (diaData.profesionales) {
             console.log('🔍 Profesionales en día:', diaData.profesionales);
-            
+
             diaData.profesionales.forEach(prof => {
               const key = prof.profesionalId || prof.id;
               if (!profesionalesMap.has(key)) {
@@ -300,7 +300,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
                   semanas: new Set()
                 });
               }
-              
+
               const cantidad = parseInt(prof.cantidad) || 0;
               profesionalesMap.get(key).totalJornales += cantidad;
               profesionalesMap.get(key).semanas.add(semanaKey);
@@ -348,7 +348,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
                   jornales: 0
                 });
               }
-              
+
               const cantidad = parseInt(prof.cantidad) || 0;
               profesionalesMap.get(key).jornales += cantidad;
               totalJornalesSemana += cantidad;
@@ -372,7 +372,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
   // Procesar datos para vista general de todas las obras
   const obtenerResumenGeneralTodasObras = () => {
     console.log('🔍 obtenerResumenGeneralTodasObras - asignacionesTodasObras:', asignacionesTodasObras);
-    
+
     if (!asignacionesTodasObras || asignacionesTodasObras.length === 0) {
       console.warn('⚠️ No hay asignacionesTodasObras');
       return { obrasSummary: [], totalProfesionales: 0, totalJornales: 0, totalObras: 0 };
@@ -380,7 +380,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
 
     const obrasSummary = asignacionesTodasObras.map(({ obra, asignaciones }) => {
       console.log(`🔍 Procesando obra ${obra.id} - ${obra.direccion}:`, asignaciones);
-      
+
       const profesionalesMap = new Map();
       let totalJornales = 0;
 
@@ -388,16 +388,16 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
       if (Array.isArray(asignaciones)) {
         console.log(`  📋 Formato array directo con ${asignaciones.length} profesionales`);
         console.log(`  📋 Primer profesional (RAW):`, asignaciones[0]);
-        
+
         asignaciones.forEach((prof, idx) => {
           if (idx === 0) {
             console.log(`  🔍 Campos disponibles:`, Object.keys(prof));
-            
+
             // Ver si hay profesionalObra o similar
             if (prof.profesionalObra) console.log(`  👷 profesionalObra:`, prof.profesionalObra);
             if (prof.profesional_obra) console.log(`  👷 profesional_obra:`, prof.profesional_obra);
             if (prof.profesional) console.log(`  👷 profesional:`, prof.profesional);
-            
+
             // Ver en asignacionesPorSemana
             if (prof.asignacionesPorSemana?.[0]) {
               console.log(`  📅 Primera semana:`, prof.asignacionesPorSemana[0]);
@@ -406,7 +406,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
               }
             }
           }
-          
+
           // ✅ Los datos del profesional están en asignacionesPorSemana -> detallesPorDia
           let nombre = 'Sin nombre';
           let tipo = 'Sin tipo';
@@ -415,7 +415,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
           let fechaDesde = null;
           let fechaHasta = null;
           const todasFechas = [];
-          
+
           // Buscar en detallesPorDia el primer registro con datos del profesional
           if (prof.asignacionesPorSemana) {
             for (const semana of prof.asignacionesPorSemana) {
@@ -426,14 +426,14 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
                     console.log('  🔍 Campos en detalle:', Object.keys(detalle));
                     console.log('  🔍 Detalle completo:', detalle);
                   }
-                  
+
                   if (!nombre || nombre === 'Sin nombre') {
                     nombre = detalle.profesionalNombre || nombre;
                     tipo = detalle.profesionalTipo || tipo;
                     rubro = detalle.profesionalRubro || detalle.rubro || detalle.rubros || rubro;
                     profesionalId = detalle.profesionalId || profesionalId;
                   }
-                  
+
                   // Recolectar todas las fechas
                   if (detalle.fecha) {
                     todasFechas.push(detalle.fecha);
@@ -441,7 +441,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
                 });
               }
             }
-            
+
             // Obtener fecha mínima y máxima
             if (todasFechas.length > 0) {
               todasFechas.sort();
@@ -449,11 +449,11 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
               fechaHasta = todasFechas[todasFechas.length - 1];
             }
           }
-          
+
           const key = prof.asignacionId || profesionalId;
           const tipoAsignacion = prof.modalidad || 'completa';
           const nombreObra = obra.direccion || obra.nombre || obra.titulo || `Obra ${obra.id}`;
-          
+
           console.log(`  👤 Profesional ${idx + 1}:`, {
             key,
             nombre,
@@ -461,7 +461,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
             tipoAsignacion,
             total: prof.totalJornalesAsignados
           });
-          
+
           if (!profesionalesMap.has(key)) {
             profesionalesMap.set(key, {
               id: key,
@@ -475,7 +475,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
               jornales: 0
             });
           }
-          
+
           const cantidad = prof.totalJornalesAsignados || parseInt(prof.cantidad) || parseInt(prof.cantidadJornales) || parseInt(prof.cantidad_jornales) || 1;
           profesionalesMap.get(key).jornales += cantidad;
           totalJornales += cantidad;
@@ -484,7 +484,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
       // Caso 2: Formato agrupado por semana (fallback)
       else if (asignaciones && asignaciones.asignacionesPorSemana) {
         console.log(`  📅 asignacionesPorSemana keys:`, Object.keys(asignaciones.asignacionesPorSemana));
-        
+
         Object.values(asignaciones.asignacionesPorSemana).forEach(semanaData => {
           if (semanaData.detallesPorDia) {
             Object.values(semanaData.detallesPorDia).forEach(diaData => {
@@ -514,7 +514,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
         totalProfesionales: profesionalesMap.size,
         totalJornales
       };
-      
+
       console.log(`  ✅ Resultado obra ${obra.id}:`, result);
       return result;
     }).filter(item => item.totalProfesionales > 0);
@@ -532,7 +532,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
       totalJornales: obrasSummary.reduce((sum, item) => sum + item.totalJornales, 0),
       totalObras: obrasSummary.length
     };
-    
+
     console.log('✅ Resultado final obtenerResumenGeneralTodasObras:', resultado);
     return resultado;
   };
@@ -551,9 +551,9 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
               <i className="fas fa-eye me-2"></i>
               {modoTodasObras ? 'Ver Asignaciones - Todas las Obras' : `Ver Asignaciones - ${obra?.direccion || 'Obra'}`}
             </h5>
-            <button 
-              type="button" 
-              className="btn btn-light btn-sm ms-auto" 
+            <button
+              type="button"
+              className="btn btn-light btn-sm ms-auto"
               onClick={onHide}
             >
               Cerrar
@@ -1030,7 +1030,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
                           {trabajosExtra.map((trabajo, index) => {
                             const profesionales = trabajo.profesionales || [];
                             const cantidadDias = Array.isArray(trabajo.dias) ? trabajo.dias.length : (trabajo.cantidadDias || 0);
-                            
+
                             return profesionales.length > 0 ? (
                               profesionales.map((prof, profIdx) => (
                                 <tr key={`${trabajo.id}-${profIdx}`}>
@@ -1162,7 +1162,7 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
                               <td>{gasto.descripcion || '-'}</td>
                               <td className="text-center">{gasto.cantidad || gasto.cantidadAsignada || 1}</td>
                               <td className="text-center">
-                                {gasto.fecha ? new Date(gasto.fecha).toLocaleDateString('es-ES') : 
+                                {gasto.fecha ? new Date(gasto.fecha).toLocaleDateString('es-ES') :
                                  gasto.fechaAsignacion ? new Date(gasto.fechaAsignacion).toLocaleDateString('es-ES') : '-'}
                               </td>
                               <td className="text-center">
@@ -1189,9 +1189,9 @@ const VerAsignacionesModal = ({ show, onHide, obra, obras = [], empresaId, datos
           </div>
 
           <div className="modal-footer">
-            <button 
-              type="button" 
-              className="btn btn-secondary" 
+            <button
+              type="button"
+              className="btn btn-secondary"
               onClick={onHide}
             >
               <i className="fas fa-times me-2"></i>

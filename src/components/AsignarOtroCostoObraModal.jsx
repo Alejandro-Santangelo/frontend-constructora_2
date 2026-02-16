@@ -66,7 +66,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     categoriaCustom: '',
     cantidadAsignada: '',
     importeUnitario: '',
-    observaciones: ''
+    observaciones: '',
+    tipoRegistro: 'GASTO_DIRECTO' // 'GASTO_DIRECTO' (retiro caja chica) o 'INVENTARIO' (con stock)
   });
 
   // Formulario de nueva asignación
@@ -78,7 +79,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     importeAsignado: '',
     fechaAsignacion: '', // Inicializar vacío, se configura al abrir modal
     observaciones: '',
-    esManual: false // 🆕 Flag para gastos creados manualmente
+    esManual: false, // 🆕 Flag para gastos creados manualmente
+    origenFondos: 'RETIRO_DIRECTO' // 🆕 'RETIRO_DIRECTO' | 'PRESUPUESTO_MATERIALES' (cuando presupuesto gastos = 0)
   });
 
   // 🆕 Estados para edición de asignación existente
@@ -416,6 +418,10 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
   // Función para obtener gastos generales con stock (según backend)
   const obtenerGastosGeneralesConStock = async (presupuestoId, empresaId) => {
+    if (!presupuestoId) {
+      throw new Error('presupuestoId es requerido');
+    }
+
     const response = await fetch(`/api/presupuestos-no-cliente/${presupuestoId}/gastos-generales`, {
       method: 'GET',
       headers: {
@@ -441,7 +447,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       semana: datos.semana ? Number(datos.semana) : null,
       fechaAsignacion: datos.fechaAsignacion || null,
       esGlobal: Boolean(datos.esGlobal),
-      observaciones: datos.observaciones || null
+      observaciones: datos.observaciones || null,
+      origenFondos: datos.origenFondos || null // 🆕 Incluir origen de fondos en el payload
     };
 
     if (esManual) {
@@ -1139,7 +1146,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       // 3. Intentar endpoint del backend como respaldo
       // ✅ Solo buscar en backend si NO detectó ningún modo aún
       // 🔥 IMPORTANTE: Para trabajos extra, NO llamar a endpoints de presupuestos-no-cliente (no existen)
-      if (!modoDetectado && !obra._esTrabajoExtra) {
+      // ✅ VALIDACIÓN: Solo si presupuestoId es válido (no null, no undefined)
+      if (!modoDetectado && !obra._esTrabajoExtra && presupuestoId) {
         try {
           console.log('📡 Intentando endpoint de gastos generales (backend):', presupuestoId);
 
@@ -1514,8 +1522,15 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         return;
       }
 
-      if (importeAsignado > presupuestoGlobalDisponible) {
+      // 🆕 Solo validar disponible si NO hay un origen de fondos alternativo
+      if (presupuestoGlobalTotal > 0 && importeAsignado > presupuestoGlobalDisponible) {
         alert(`⚠️ El importe ($${importeAsignado.toLocaleString('es-AR')}) excede el disponible ($${presupuestoGlobalDisponible.toLocaleString('es-AR')})`);
+        return;
+      }
+
+      // 🆕 Si presupuesto = 0, verificar que se haya seleccionado origen de fondos
+      if (presupuestoGlobalTotal === 0 && !nuevaAsignacion.origenFondos) {
+        alert('⚠️ Debe seleccionar el origen de fondos (Retiro Directo o Presupuesto de Materiales)');
         return;
       }
 
@@ -1599,7 +1614,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         semana: numeroSemana,
         observaciones: nuevaAsignacion.observaciones || null,
         esGlobal: Boolean(nuevaAsignacion.esManual),
-        esManual: esManual
+        esManual: esManual,
+        origenFondos: nuevaAsignacion.origenFondos || 'RETIRO_DIRECTO' // 🆕 Guardar origen de fondos
       };
 
       // Si es manual, agregar descripción y categoría del gasto
@@ -1665,12 +1681,15 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
       // Limpiar formulario completamente
       setNuevaAsignacion({
+        tipoAsignacion: '',
         otroCostoId: '',
         cantidadAsignada: '',
-        importeUnitario: '', // 🔥 Agregar campo nuevo
+        importeUnitario: '',
         importeAsignado: '',
-        fechaAsignacion: '', // Vacío, no fecha actual
-        observaciones: ''
+        fechaAsignacion: '',
+        observaciones: '',
+        esManual: false,
+        origenFondos: 'RETIRO_DIRECTO'
       });
 
       // Recargar asignaciones
@@ -1708,34 +1727,43 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       return;
     }
 
-    // Validar que no exceda el disponible
-    if (importeTotal > presupuestoGlobalDisponible) {
-      alert(`⚠️ El importe ($${importeTotal.toLocaleString('es-AR')}) excede el disponible ($${presupuestoGlobalDisponible.toLocaleString('es-AR')})`);
-      return;
+    // 🆕 VALIDACIÓN según tipo de registro
+    const esGastoDirecto = nuevoGastoManual.tipoRegistro === 'GASTO_DIRECTO';
+
+    if (esGastoDirecto) {
+      // 🆕 Solo validar si hay presupuesto real Y NO se seleccionó origen alternativo
+      if (presupuestoGlobalTotal > 0 && presupuestoGlobalDisponible > 0 && importeTotal > presupuestoGlobalDisponible) {
+        const confirmar = window.confirm(
+          `⚠️ ADVERTENCIA: El importe ($${importeTotal.toLocaleString('es-AR')}) excede el disponible del presupuesto ($${presupuestoGlobalDisponible.toLocaleString('es-AR')}).\n\n` +
+          `Diferencia: $${(importeTotal - presupuestoGlobalDisponible).toLocaleString('es-AR')}\n\n` +
+          `¿Desea continuar de todas formas? Este gasto se registrará como EXTRA al presupuesto.`
+        );
+
+        if (!confirmar) return;
+      }
+
+      // 🆕 Si presupuesto = 0, verificar origen de fondos
+      if (presupuestoGlobalTotal === 0 && !nuevaAsignacion.origenFondos) {
+        alert('⚠️ Debe seleccionar el origen de fondos antes de crear el gasto');
+        return;
+      }
+    } else {
+      // Para inventario: solo informar, no validar contra presupuesto
+      console.log(`💰 Agregando al inventario: $${importeTotal.toLocaleString('es-AR')} (sin validar contra presupuesto)`);
     }
 
-    // 🔥 DESHABILITADO: Backend tiene CORS bloqueado para /api/gastos-generales
-    // console.log('📝 Verificando/creando gasto en catálogo...');
-    // const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
-    // const gastoCatalogo = await obtenerOCrearGasto(
-    //   nuevoGastoManual.descripcion,
-    //   importeUnitario,
-    //   empresaSeleccionada.id
-    // );
-    // console.log('✅ Gasto en catálogo:', gastoCatalogo);
-
-    // Crear gasto manual (backend lo creará automáticamente)
+    // Crear gasto manual
     const categoriaFinal = obtenerRubroFinal();
     const gastoManual = {
-      // id: gastoCatalogo.id, // Backend asignará ID
       nombre: nuevoGastoManual.descripcion,
       descripcion: nuevoGastoManual.descripcion,
       categoria: categoriaFinal,
-      cantidadDisponible: cantidad,
+      cantidadDisponible: esGastoDirecto ? null : cantidad, // null = sin stock (gasto directo)
       precioUnitario: importeUnitario,
       importe: importeTotal,
-      esDelStock: false,
-      esManual: true
+      esDelStock: !esGastoDirecto, // true si es inventario, false si es gasto directo
+      esManual: true,
+      tipoRegistro: nuevoGastoManual.tipoRegistro // Guardar el tipo para referencia
     };
 
     // Agregar a la lista de gastos disponibles
@@ -1759,7 +1787,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       categoriaCustom: '',
       cantidadAsignada: '',
       importeUnitario: '',
-      observaciones: ''
+      observaciones: '',
+      tipoRegistro: 'GASTO_DIRECTO' // Reset al valor por defecto
     });
 
     // Cerrar modal si se llama desde allí
@@ -1767,8 +1796,12 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       setMostrarCrearGastoManual(false);
     }
 
-    console.log('✅ Gasto manual creado:', gastoManual);
-    console.log(`💰 Disponible actualizado: $${presupuestoGlobalDisponible.toLocaleString('es-AR')} → Se asignará $${importeTotal.toLocaleString('es-AR')}`);
+    const tipoTexto = esGastoDirecto ? '💸 Gasto Directo / Retiro Caja Chica' : '📦 Entrada de Inventario';
+    console.log(`✅ Gasto manual creado: ${tipoTexto}`, gastoManual);
+
+    if (!esGastoDirecto) {
+      console.log(`📦 Inventario actualizado: +${cantidad} unidades de "${gastoManual.nombre}"`);
+    }
 
     return gastoManual;
   };
@@ -1949,7 +1982,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
             descripcion: asignacion.nombreOtroCosto,
             categoria: asignacion.categoria,
             esGlobal: Boolean(asignacion.esManual), // 🔥 NUEVO: Marcar como global si es manual
-            esManual: Boolean(asignacion.esManual) // 🔥 NUEVO: Preservar flag de gasto manual
+            esManual: Boolean(asignacion.esManual), // 🔥 NUEVO: Preservar flag de gasto manual
+            origenFondos: asignacion.origenFondos || null // 🆕 Incluir origen de fondos
           };
 
           // Intentar guardar en backend
@@ -2337,6 +2371,111 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     }));
   }, [configuracionObraActualizada?.fechaInicio, configuracionObraActualizada?.diasHabiles]);
 
+  // 🆕 Calcular totales de materiales y honorarios (para origen de fondos cuando presupuesto gastos = $0)
+  const { totalHonorarios, totalMateriales } = useMemo(() => {
+    let totalMateriales = 0;
+    let totalHonorarios = 0;
+
+    if (presupuestoGlobalTotal === 0 && presupuesto?.itemsCalculadora) {
+      // 1. Calcular bases para honorarios
+      let baseManoObra = 0;
+      let baseMaterialesBruto = 0;
+      let baseProfesionales = 0;
+
+      presupuesto.itemsCalculadora.forEach((item) => {
+        // Mano de obra (jornales)
+        let manoObraItem = 0;
+
+        if (item.subtotalManoObra) {
+          manoObraItem = item.subtotalManoObra;
+        } else if (item.jornales && Array.isArray(item.jornales)) {
+          const totalJornales = item.jornales.reduce((sum, j) => {
+            const jornalTotal = (j.cantidad || 0) * (j.importeTotal || j.precioUnitario || j.importe || j.subtotal || j.total || 0);
+            return sum + jornalTotal;
+          }, 0);
+          if (totalJornales > 0) {
+            manoObraItem = totalJornales;
+          }
+        } else if (item.total) {
+          const totalMaterialesItem = item.materialesLista ?
+            item.materialesLista.reduce((sum, m) => sum + (m.subtotal || 0), 0) : 0;
+          const totalGastosItem = item.gastosGenerales ?
+            item.gastosGenerales.reduce((sum, g) => sum + (g.importe || g.subtotal || 0), 0) : 0;
+          manoObraItem = item.total - totalMaterialesItem - totalGastosItem;
+        }
+
+        baseManoObra += manoObraItem;
+
+        // Materiales
+        if (item.materialesLista && Array.isArray(item.materialesLista)) {
+          const subtotalMateriales = item.materialesLista.reduce((sum, m) => sum + (m.subtotal || 0), 0);
+          baseMaterialesBruto += subtotalMateriales;
+        }
+
+        // Profesionales
+        if (item.profesionales && Array.isArray(item.profesionales)) {
+          baseProfesionales += item.profesionales.reduce((sum, p) => sum + (p.subtotal || 0), 0);
+        }
+      });
+
+      // 2. Calcular honorarios según configuración
+      let honorariosJornales = 0;
+      let honorariosMateriales = 0;
+      let honorariosProfesionales = 0;
+      let honorariosOtrosCostos = 0;
+
+      if (presupuesto.honorarios) {
+        // Honorarios sobre jornales
+        if (presupuesto.honorarios.jornales?.activo && presupuesto.honorarios.jornales?.valor) {
+          const valorHon = Number(presupuesto.honorarios.jornales.valor);
+          if (presupuesto.honorarios.jornales.tipo === 'porcentaje') {
+            honorariosJornales = (baseManoObra * valorHon) / 100;
+          } else {
+            honorariosJornales = valorHon;
+          }
+        }
+
+        // Honorarios sobre materiales
+        if (presupuesto.honorarios.materiales?.activo && presupuesto.honorarios.materiales?.valor) {
+          const valorHon = Number(presupuesto.honorarios.materiales.valor);
+          if (presupuesto.honorarios.materiales.tipo === 'porcentaje') {
+            honorariosMateriales = (baseMaterialesBruto * valorHon) / 100;
+          } else {
+            honorariosMateriales = valorHon;
+          }
+        }
+
+        // Honorarios sobre profesionales
+        if (presupuesto.honorarios.profesionales?.activo && presupuesto.honorarios.profesionales?.valor) {
+          const valorHon = Number(presupuesto.honorarios.profesionales.valor);
+          if (presupuesto.honorarios.profesionales.tipo === 'porcentaje') {
+            honorariosProfesionales = (baseProfesionales * valorHon) / 100;
+          } else {
+            honorariosProfesionales = valorHon;
+          }
+        }
+
+        // Honorarios sobre otros costos
+        if (presupuesto.honorarios.otrosCostos?.activo && presupuesto.honorarios.otrosCostos?.valor) {
+          const valorHon = Number(presupuesto.honorarios.otrosCostos.valor);
+          if (presupuesto.honorarios.otrosCostos.tipo === 'porcentaje') {
+            honorariosOtrosCostos = (presupuestoGlobalTotal * valorHon) / 100;
+          } else {
+            honorariosOtrosCostos = valorHon;
+          }
+        }
+      }
+
+      // Total honorarios
+      totalHonorarios = honorariosJornales + honorariosMateriales + honorariosProfesionales + honorariosOtrosCostos;
+
+      // Total materiales
+      totalMateriales = baseMaterialesBruto;
+    }
+
+    return { totalHonorarios, totalMateriales };
+  }, [presupuestoGlobalTotal, presupuesto]);
+
   const calcularDiasHabilesSemana = (numeroSemana) => {
     console.log('📆 [calcularDiasHabilesSemana] Entrada:', {
       numeroSemana,
@@ -2536,6 +2675,194 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     });
                   }
 
+                  // 🆕 Calcular totales de materiales y honorarios cuando presupuesto gastos = $0
+                  let totalMateriales = 0;
+                  let totalHonorarios = 0;
+
+                  if (presupuestoGlobalTotal === 0 && presupuesto?.itemsCalculadora) {
+                    console.log('💰 [INICIO CÁLCULO] Presupuesto completo:', presupuesto);
+                    console.log('💰 [INICIO CÁLCULO] Items calculadora:', presupuesto.itemsCalculadora?.length);
+                    console.log('💰 [INICIO CÁLCULO] Configuración honorarios:', presupuesto.honorarios);
+
+                    // 1. Calcular bases para honorarios
+                    let baseManoObra = 0;
+                    let baseMaterialesBruto = 0;
+                    let baseProfesionales = 0;
+
+                    presupuesto.itemsCalculadora.forEach((item, index) => {
+                      console.log(`\n💰 Item ${index + 1} (${item.tipoProfesional || item.nombreItem}):`, {
+                        subtotalManoObra: item.subtotalManoObra,
+                        jornales: item.jornales,
+                        profesionales: item.profesionales,
+                        materialesLista: item.materialesLista?.length,
+                        todasLasPropiedades: Object.keys(item),
+                        ITEM_COMPLETO: item
+                      });
+
+                      // Mano de obra (jornales) - probar múltiples campos posibles
+                      let manoObraItem = 0;
+
+                      // Opción 1: subtotalManoObra
+                      if (item.subtotalManoObra) {
+                        manoObraItem = item.subtotalManoObra;
+                        console.log(` ✅ Encontrado en subtotalManoObra: $${manoObraItem}`);
+                      }
+
+                      // Opción 2: Array de jornales
+                      if (item.jornales && Array.isArray(item.jornales)) {
+                        console.log(` 🔍 Analizando array de jornales (${item.jornales.length} items):`, item.jornales);
+                        const totalJornales = item.jornales.reduce((sum, j, jIndex) => {
+                          console.log(`   Jornal ${jIndex + 1}:`, {
+                            cantidad: j.cantidad,
+                            importeTotal: j.importeTotal,
+                            precioUnitario: j.precioUnitario,
+                            importe: j.importe,
+                            subtotal: j.subtotal,
+                            total: j.total,
+                            todasPropiedades: Object.keys(j),
+                            JORNAL_COMPLETO: j
+                          });
+                          const jornalTotal = (j.cantidad || 0) * (j.importeTotal || j.precioUnitario || j.importe || j.subtotal || j.total || 0);
+                          console.log(`     Calculado: ${j.cantidad || 0} × ${j.importeTotal || j.precioUnitario || j.importe || j.subtotal || j.total || 0} = $${jornalTotal}`);
+                          return sum + jornalTotal;
+                        }, 0);
+                        if (totalJornales > 0) {
+                          manoObraItem = totalJornales;
+                          console.log(` ✅ Encontrado en jornales array: $${manoObraItem}`);
+                        } else {
+                          console.log(` ⚠️ Array de jornales dio total = 0`);
+                        }
+                      }
+
+                      // Opción 3: total - materiales - gastos
+                      if (manoObraItem === 0 && item.total) {
+                        const totalMaterialesItem = item.materialesLista ?
+                          item.materialesLista.reduce((sum, m) => sum + (m.subtotal || 0), 0) : 0;
+                        const totalGastosItem = item.gastosGenerales ?
+                          item.gastosGenerales.reduce((sum, g) => sum + (g.importe || g.subtotal || 0), 0) : 0;
+                        manoObraItem = item.total - totalMaterialesItem - totalGastosItem;
+                        console.log(` ✅ Calculado por diferencia: total=${item.total} - materiales=${totalMaterialesItem} - gastos=${totalGastosItem} = $${manoObraItem}`);
+                      }
+
+                      baseManoObra += manoObraItem;
+                      console.log(` ➡️ baseManoObra acumulada: $${baseManoObra}`);
+
+                      // Materiales
+                      if (item.materialesLista && Array.isArray(item.materialesLista)) {
+                        const subtotalMateriales = item.materialesLista.reduce((sum, m) => sum + (m.subtotal || 0), 0);
+                        baseMaterialesBruto += subtotalMateriales;
+                      }
+
+                      // Profesionales (si existen en el item)
+                      if (item.profesionales && Array.isArray(item.profesionales)) {
+                        baseProfesionales += item.profesionales.reduce((sum, p) => sum + (p.subtotal || 0), 0);
+                      }
+                    });
+
+                    console.log('💰 [BASES CALCULADAS]:', {
+                      baseManoObra,
+                      baseMaterialesBruto,
+                      baseProfesionales
+                    });
+
+                    // 2. Calcular honorarios según configuración
+                    let honorariosJornales = 0;
+                    let honorariosMateriales = 0;
+                    let honorariosProfesionales = 0;
+                    let honorariosOtrosCostos = 0;
+
+                    if (presupuesto.honorarios) {
+                      console.log('💰 [HONORARIOS CONFIG] Configuración completa:', JSON.stringify(presupuesto.honorarios, null, 2));
+
+                      // Honorarios sobre jornales
+                      console.log('💰 [HONORARIOS JORNALES] Verificando:', {
+                        activo: presupuesto.honorarios.jornales?.activo,
+                        valor: presupuesto.honorarios.jornales?.valor,
+                        tipo: presupuesto.honorarios.jornales?.tipo,
+                        baseManoObra
+                      });
+
+                      if (presupuesto.honorarios.jornales?.activo && presupuesto.honorarios.jornales?.valor) {
+                        const valorHon = Number(presupuesto.honorarios.jornales.valor);
+                        if (presupuesto.honorarios.jornales.tipo === 'porcentaje') {
+                          honorariosJornales = (baseManoObra * valorHon) / 100;
+                        } else {
+                          honorariosJornales = valorHon;
+                        }
+                        console.log('💰 [HONORARIOS JORNALES] Calculado:', honorariosJornales);
+                      }
+
+                      // Honorarios sobre materiales
+                      console.log('💰 [HONORARIOS MATERIALES] Verificando:', {
+                        activo: presupuesto.honorarios.materiales?.activo,
+                        valor: presupuesto.honorarios.materiales?.valor,
+                        tipo: presupuesto.honorarios.materiales?.tipo,
+                        baseMaterialesBruto
+                      });
+
+                      if (presupuesto.honorarios.materiales?.activo && presupuesto.honorarios.materiales?.valor) {
+                        const valorHon = Number(presupuesto.honorarios.materiales.valor);
+                        if (presupuesto.honorarios.materiales.tipo === 'porcentaje') {
+                          honorariosMateriales = (baseMaterialesBruto * valorHon) / 100;
+                        } else {
+                          honorariosMateriales = valorHon;
+                        }
+                        console.log('💰 [HONORARIOS MATERIALES] Calculado:', honorariosMateriales);
+                      }
+
+                      // Honorarios sobre profesionales
+                      if (presupuesto.honorarios.profesionales?.activo && presupuesto.honorarios.profesionales?.valor) {
+                        const valorHon = Number(presupuesto.honorarios.profesionales.valor);
+                        if (presupuesto.honorarios.profesionales.tipo === 'porcentaje') {
+                          honorariosProfesionales = (baseProfesionales * valorHon) / 100;
+                        } else {
+                          honorariosProfesionales = valorHon;
+                        }
+                      }
+
+                      // Honorarios sobre otros costos (si hay presupuesto global > 0)
+                      if (presupuesto.honorarios.otrosCostos?.activo && presupuesto.honorarios.otrosCostos?.valor) {
+                        const valorHon = Number(presupuesto.honorarios.otrosCostos.valor);
+                        if (presupuesto.honorarios.otrosCostos.tipo === 'porcentaje') {
+                          honorariosOtrosCostos = (presupuestoGlobalTotal * valorHon) / 100;
+                        } else {
+                          honorariosOtrosCostos = valorHon;
+                        }
+                      }
+                    } else {
+                      console.warn('⚠️ presupuesto.honorarios NO EXISTE o es null/undefined');
+                    }
+
+                    // Total honorarios
+                    totalHonorarios = honorariosJornales + honorariosMateriales + honorariosProfesionales + honorariosOtrosCostos;
+
+                    // Total materiales (incluye materiales brutos)
+                    totalMateriales = baseMaterialesBruto;
+
+                    console.log('💰 [CÁLCULO FINAL HONORARIOS]:', {
+                      honorariosJornales,
+                      honorariosMateriales,
+                      honorariosProfesionales,
+                      honorariosOtrosCostos,
+                      totalHonorarios,
+                      totalMateriales
+                    });
+                  }
+
+                  // Determinar qué mostrar según origen de fondos seleccionado
+                  let presupuestoMostrar = presupuestoGlobalTotal;
+                  let labelPresupuesto = 'Total Presupuestado:';
+
+                  if (presupuestoGlobalTotal === 0 && nuevaAsignacion.origenFondos) {
+                    if (nuevaAsignacion.origenFondos === 'RETIRO_DIRECTO') {
+                      presupuestoMostrar = totalHonorarios;
+                      labelPresupuesto = 'Disponible en Honorarios:';
+                    } else if (nuevaAsignacion.origenFondos === 'PRESUPUESTO_MATERIALES') {
+                      presupuestoMostrar = totalMateriales;
+                      labelPresupuesto = 'Disponible en Materiales:';
+                    }
+                  }
+
                   return (
                     <div className="alert alert-primary mb-3 border-0">
                       <div className="row align-items-center">
@@ -2560,10 +2887,15 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                         </div>
                         <div className="col-md-6 text-md-end">
                           <div className="mb-2">
-                            <small className="text-muted">Total Presupuestado:</small>{' '}
+                            <small className="text-muted">{labelPresupuesto}</small>{' '}
                             <strong className="text-primary fs-5">
-                              ${presupuestoGlobalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              ${presupuestoMostrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </strong>
+                            {presupuestoGlobalTotal === 0 && nuevaAsignacion.origenFondos && (
+                              <span className="badge bg-secondary ms-2" style={{ fontSize: '0.7rem' }}>
+                                {nuevaAsignacion.origenFondos === 'RETIRO_DIRECTO' ? '💸 Honorarios' : '🧱 Materiales'}
+                              </span>
+                            )}
                           </div>
                           <div className="mb-2">
                             <small className="text-muted">Asignado:</small>{' '}
@@ -2582,6 +2914,67 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     </div>
                   );
                 })()}
+
+                {/* 🆕 Selector de Origen de Fondos - Solo cuando Presupuesto de Gastos = $0 */}
+                {presupuestoGlobalTotal === 0 && (
+                  <div className="card mb-3 border-warning">
+                    <div className="card-header bg-warning text-dark">
+                      <h6 className="mb-0">
+                        <i className="fas fa-exclamation-triangle me-2"></i>
+                        No hay presupuesto asignado para Gastos Generales
+                      </h6>
+                    </div>
+                    <div className="card-body">
+                      <p className="mb-3">
+                        <i className="fas fa-info-circle me-2 text-primary"></i>
+                        Debes seleccionar de dónde se tomarán los fondos para los gastos que registres:
+                      </p>
+                      <div className="d-flex flex-column gap-3">
+                        <div className="form-check">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="origenFondosGlobal"
+                            id="origenRetiroDirectoGlobal"
+                            value="RETIRO_DIRECTO"
+                            checked={nuevaAsignacion.origenFondos === 'RETIRO_DIRECTO'}
+                            onChange={(e) => setNuevaAsignacion({...nuevaAsignacion, origenFondos: e.target.value})}
+                          />
+                          <label className="form-check-label" htmlFor="origenRetiroDirectoGlobal">
+                            <strong className="d-block mb-1">💸 Retiro Directo / Caja Chica</strong>
+                            <small className="text-muted">
+                              Se registra como gasto extraordinario. No afecta el presupuesto de materiales.
+                            </small>
+                          </label>
+                        </div>
+                        <div className="form-check">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="origenFondosGlobal"
+                            id="origenMaterialesGlobal"
+                            value="PRESUPUESTO_MATERIALES"
+                            checked={nuevaAsignacion.origenFondos === 'PRESUPUESTO_MATERIALES'}
+                            onChange={(e) => setNuevaAsignacion({...nuevaAsignacion, origenFondos: e.target.value})}
+                          />
+                          <label className="form-check-label" htmlFor="origenMaterialesGlobal">
+                            <strong className="d-block mb-1">🧱 Descontar del Presupuesto de Materiales</strong>
+                            <small className="text-muted">
+                              Se descuenta del dinero destinado a materiales. Reduce el presupuesto disponible para comprar materiales.
+                            </small>
+                          </label>
+                        </div>
+                      </div>
+                      {/* Mostrar selección actual */}
+                      {nuevaAsignacion.origenFondos && (
+                        <div className="alert alert-info mt-3 mb-0">
+                          <i className="fas fa-check-circle me-2"></i>
+                          <strong>Origen seleccionado:</strong> {nuevaAsignacion.origenFondos === 'RETIRO_DIRECTO' ? '💸 Retiro Directo' : '🧱 Presupuesto de Materiales'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {modoPresupuesto === 'DETALLE' && (
                   <div className="alert alert-info mb-3">
@@ -2798,6 +3191,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                                   <th>Importe Asignado</th>
                                   <th>Fecha</th>
                                   <th>Observaciones</th>
+                                  <th>Origen Fondos</th>
                                   <th>Acciones</th>
                                 </tr>
                               </thead>
@@ -2843,9 +3237,36 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                                       </small>
                                     </td>
                                     <td>
-                                      <small className="text-muted" style={{ fontSize: '0.75rem', display: 'block', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={asignacion.observaciones}>
+                                      <small className="text-muted" style={{ fontSize: '0.75rem', display: 'block', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace:'nowrap' }} title={asignacion.observaciones}>
                                         {asignacion.observaciones || '-'}
                                       </small>
+                                    </td>
+                                    <td>
+                                      {(() => {
+                                        const origen = asignacion.origenFondos;
+                                        if (!origen || origen === 'RETIRO_DIRECTO') {
+                                          return (
+                                            <span className="badge bg-warning text-dark" title="Retiro Directo / Caja Chica">
+                                              <i className="fas fa-wallet me-1"></i>
+                                              Retiro
+                                            </span>
+                                          );
+                                        } else if (origen === 'PRESUPUESTO_MATERIALES') {
+                                          return (
+                                            <span className="badge bg-secondary" title="Descontado del Presupuesto de Materiales">
+                                              <i className="fas fa-boxes me-1"></i>
+                                              Materiales
+                                            </span>
+                                          );
+                                        } else {
+                                          return (
+                                            <span className="badge bg-light text-dark" title="Presupuesto de Gastos Generales">
+                                              <i className="fas fa-clipboard-list me-1"></i>
+                                              Presup.
+                                            </span>
+                                          );
+                                        }
+                                      })()}
                                     </td>
                                     <td>
                                       <div className="btn-group shadow-sm">
@@ -3049,7 +3470,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                         step="0.01"
                         required
                       />
-                      {nuevaAsignacion.importeAsignado && parseFloat(nuevaAsignacion.importeAsignado) > presupuestoGlobalDisponible && (
+                      {presupuestoGlobalTotal > 0 && nuevaAsignacion.importeAsignado && parseFloat(nuevaAsignacion.importeAsignado) > presupuestoGlobalDisponible && (
                         <small className="text-danger d-block mt-1">
                           <i className="fas fa-exclamation-triangle me-1"></i>
                           El importe excede el disponible en ${(parseFloat(nuevaAsignacion.importeAsignado) - presupuestoGlobalDisponible).toLocaleString('es-AR')}
@@ -3287,6 +3708,55 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                         </select>
                       </div>
                     </div>
+
+                    {/* 🆕 Selector de tipo de registro */}
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">
+                        <i className="fas fa-question-circle me-2 text-info"></i>
+                        ¿Cómo desea registrar este gasto?
+                      </label>
+                      <div className="d-flex gap-3">
+                        <div className="form-check flex-fill">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="tipoRegistroInline"
+                            id="tipoGastoDirecto"
+                            value="GASTO_DIRECTO"
+                            checked={nuevoGastoManual.tipoRegistro === 'GASTO_DIRECTO'}
+                            onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, tipoRegistro: e.target.value})}
+                          />
+                          <label className="form-check-label" htmlFor="tipoGastoDirecto">
+                            <strong>💸 Gasto Directo / Retiro Caja Chica</strong>
+                            <br />
+                            <small className="text-muted">
+                              Se registra como gasto inmediato. No se controla stock.
+                              {presupuestoGlobalDisponible > 0 && (
+                                <> Se descuenta del presupuesto global disponible.</>
+                              )}
+                            </small>
+                          </label>
+                        </div>
+                        <div className="form-check flex-fill">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="tipoRegistroInline"
+                            id="tipoInventario"
+                            value="INVENTARIO"
+                            checked={nuevoGastoManual.tipoRegistro === 'INVENTARIO'}
+                            onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, tipoRegistro: e.target.value})}
+                          />
+                          <label className="form-check-label" htmlFor="tipoInventario">
+                            <strong>📦 Entrada de Inventario</strong>
+                            <br />
+                            <small className="text-muted">
+                              Se agrega al stock como material. Permite control de cantidades disponibles.
+                            </small>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
                   </>
                 )}
 
@@ -3339,7 +3809,7 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                               </div>
                               {(() => {
                                 const totalGasto = parseFloat(nuevoGastoManual.cantidadAsignada) * parseFloat(nuevoGastoManual.importeUnitario);
-                                if (totalGasto > presupuestoGlobalDisponible) {
+                                if (presupuestoGlobalTotal > 0 && totalGasto > presupuestoGlobalDisponible) {
                                   return (
                                     <small className="text-danger d-block mt-1">
                                       <i className="fas fa-exclamation-triangle me-1"></i>
@@ -3533,6 +4003,9 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
           otrosCostosDisponibles={otrosCostosDisponibles}
           rubrosParaSelect={rubrosParaSelect}
           presupuestoGlobalDisponible={presupuestoGlobalDisponible}
+          presupuestoGlobalTotal={presupuestoGlobalTotal}
+          totalHonorarios={totalHonorarios}
+          totalMateriales={totalMateriales}
           modoPresupuesto={modoPresupuesto}
           rubroInicial={rubroSeleccionado}
           onConfirmarAsignacion={handleAsignacionSemanalCompleta}
@@ -3561,7 +4034,8 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     categoriaCustom: '',
                     cantidadAsignada: '',
                     importeUnitario: '',
-                    observaciones: ''
+                    observaciones: '',
+                    tipoRegistro: 'GASTO_DIRECTO'
                   });
                 }}
               ></button>
@@ -3614,6 +4088,55 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
                     placeholder="Escribí el rubro (ej: Logística, Herramientas, Alquileres...)"
                   />
                 )}
+              </div>
+
+              {/* 🆕 Selector de tipo de registro */}
+              <div className="mb-3">
+                <label className="form-label fw-bold">
+                  <i className="fas fa-question-circle me-2 text-info"></i>
+                  ¿Cómo desea registrar este gasto?
+                </label>
+                <div className="d-flex flex-column gap-2">
+                  <div className="form-check">
+                    <input
+                      className="form-check-input"
+                      type="radio"
+                      name="tipoRegistroModal"
+                      id="tipoGastoDirectoModal"
+                      value="GASTO_DIRECTO"
+                      checked={nuevoGastoManual.tipoRegistro === 'GASTO_DIRECTO'}
+                      onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, tipoRegistro: e.target.value})}
+                    />
+                    <label className="form-check-label" htmlFor="tipoGastoDirectoModal">
+                      <strong>💸 Gasto Directo / Retiro Caja Chica</strong>
+                      <br />
+                      <small className="text-muted">
+                        Se registra como gasto inmediato. No se controla stock.
+                        {presupuestoGlobalDisponible > 0 && (
+                          <> Se descuenta del presupuesto global disponible.</>
+                        )}
+                      </small>
+                    </label>
+                  </div>
+                  <div className="form-check">
+                    <input
+                      className="form-check-input"
+                      type="radio"
+                      name="tipoRegistroModal"
+                      id="tipoInventarioModal"
+                      value="INVENTARIO"
+                      checked={nuevoGastoManual.tipoRegistro === 'INVENTARIO'}
+                      onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, tipoRegistro: e.target.value})}
+                    />
+                    <label className="form-check-label" htmlFor="tipoInventarioModal">
+                      <strong>📦 Entrada de Inventario</strong>
+                      <br />
+                      <small className="text-muted">
+                        Se agrega al stock como material. Permite control de cantidades disponibles.
+                      </small>
+                    </label>
+                  </div>
+                </div>
               </div>
 
               <div className="row">

@@ -454,6 +454,15 @@ const AsignarProfesionalSemanalModal = ({
 
       // 2. Obtener ASIGNACIONES SEMANALES de la obra
       const obraIdParaQuery = getObraId(); // ✅ Usa ID real de la obra
+
+      // ✅ VALIDACIÓN: Si no hay obraId válido, no podemos cargar asignaciones
+      if (!obraIdParaQuery || obraIdParaQuery === 0) {
+        console.warn('⚠️ No se puede cargar asignaciones: obra sin ID válido');
+        setAsignacionesExistentes([]);
+        setLoadingAsignaciones(false);
+        return;
+      }
+
       let dataSemanal = [];
       try {
         const responseSemanal = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
@@ -1733,6 +1742,20 @@ const AsignarProfesionalSemanalModal = ({
     setCargando(true);
     try {
       const obraIdParaQuery = getObraId(); // ✅ Usa ID real de la obra
+
+      // ✅ VALIDACIÓN: Verificar que obraId sea válido
+      if (!obraIdParaQuery || obraIdParaQuery === 0) {
+        console.error('❌ Error: obraId inválido');
+        console.error('   - obra recibida:', obra);
+        console.error('   - obra.id:', obra?.id);
+        console.error('   - obra._esTrabajoExtra:', obra?._esTrabajoExtra);
+        console.error('   - getObraId() devolvió:', obraIdParaQuery);
+
+        alert(`❌ Error: No se puede asignar profesionales.\n\nDetalles técnicos:\n- ObraId: ${obraIdParaQuery}\n- Obra ID directo: ${obra?.id}\n- Es trabajo extra: ${obra?._esTrabajoExtra}\n\nPor favor contacte al administrador con esta información.`);
+        setCargando(false);
+        return;
+      }
+
       // PASO 1: SIEMPRE eliminar asignaciones existentes para evitar conflictos 409
       console.log('🗑️ Limpiando asignaciones existentes de la obra (bulk delete):', obraIdParaQuery);
 
@@ -1800,9 +1823,66 @@ const AsignarProfesionalSemanalModal = ({
         }
       }
 
-      // PASO 2: Crear las nuevas asignaciones
-      console.log('✨ Creando nuevas asignaciones...');
+      // PASO 2: Guardar profesionales adhoc (temporales) en el catálogo antes de asignar
+      console.log('🔍 Verificando profesionales adhoc antes de asignar...');
 
+      const profesionalesConIdNumerico = [];
+      const mapaIdAdhocANumerico = new Map(); // adhoc_xxx → ID numérico
+
+      for (const prof of profesionalesSeleccionados) {
+        const esAdhoc = prof._esAdhoc === true || (typeof prof.id === 'string' && prof.id.startsWith('adhoc_'));
+
+        if (esAdhoc) {
+          console.log(`💾 Profesional adhoc detectado: ${prof.nombre} - Guardando en catálogo con categoría INDEPENDIENTE...`);
+
+          try {
+            const dataProfesional = {
+              nombre: prof.nombre,
+              tipoProfesional: prof.tipoProfesional,
+              honorarioDia: prof.honorarioDia || 0,
+              telefono: prof.telefono || '',
+              email: prof.email || '',
+              empresaId: empresaSeleccionada.id,
+              activo: true,
+              categoria: 'INDEPENDIENTE' // Profesional independiente (no empleado)
+            };
+
+            const response = await api.profesionales.create(dataProfesional);
+            const profesionalCreado = response?.data || response;
+
+            if (!profesionalCreado || !profesionalCreado.id) {
+              throw new Error('El backend no devolvió un ID válido para el profesional adhoc');
+            }
+
+            console.log(`✅ Profesional adhoc guardado en catálogo: ${profesionalCreado.nombre} (ID: ${profesionalCreado.id})`);
+
+            // Guardar mapeo para modalidad semanal
+            mapaIdAdhocANumerico.set(prof.id, profesionalCreado.id);
+
+            // Agregar con el ID numérico del backend
+            profesionalesConIdNumerico.push({
+              ...prof,
+              id: profesionalCreado.id,
+              _esGuardado: true,
+              _eraAdhoc: true // Flag para rastrear que fue adhoc
+            });
+
+          } catch (error) {
+            console.error(`❌ Error guardando profesional adhoc "${prof.nombre}":`, error);
+            alert(`❌ Error: No se pudo guardar el profesional "${prof.nombre}" en el catálogo.\n\n${error.response?.data?.message || error.message}\n\nLa asignación se canceló.`);
+            setCargando(false);
+            return;
+          }
+        } else {
+          // Profesional ya existe en el catálogo
+          profesionalesConIdNumerico.push(prof);
+        }
+      }
+
+      console.log('✅ Todos los profesionales tienen ID numérico:', profesionalesConIdNumerico.map(p => ({ id: p.id, nombre: p.nombre })));
+      if (mapaIdAdhocANumerico.size > 0) {
+        console.log('🔄 Mapa de conversión adhoc → numérico:', Array.from(mapaIdAdhocANumerico.entries()));
+      }
       // Construir payload según el contrato del backend
       const payload = {
         obraId: Number(obraIdParaQuery), // ✅ Usa ID real de la obra
@@ -1812,7 +1892,7 @@ const AsignarProfesionalSemanalModal = ({
 
       if (modalidadAsignacion === 'total') {
         // En modalidad total (equipo fijo), cada profesional trabaja 1 jornal/día automáticamente
-        payload.profesionales = profesionalesSeleccionados.map(prof => ({
+        payload.profesionales = profesionalesConIdNumerico.map(prof => ({
           profesionalId: Number(prof.id),
           nombre: prof.nombre,
           cantidadPorDia: 1 // Número, no string
@@ -1854,14 +1934,24 @@ const AsignarProfesionalSemanalModal = ({
           console.log(`🔍 Cantidades limpias para semana ${semanaKey}:`, cantidadesLimpias);
 
           // Construir objeto de retorno.
-          // IMPORTANTÍSIMO: Filtrar profesionales inválidos para evitar NaN en IDs
-          // y asegurar que el array no contenga nulos antes de enviarse.
+          // IMPORTANTÍSIMO: Convertir IDs adhoc a numéricos usando el mapa
           const profesionalesValidos = (datos.profesionales || [])
-            .filter(p => p && p.id && !isNaN(Number(p.id)))
-            .map(prof => ({
-              profesionalId: Number(prof.id),
-              nombre: prof.nombre || 'Profesional'
-            }));
+            .map(prof => {
+              // Si el ID es adhoc (string), convertirlo usando el mapa
+              const esAdhoc = typeof prof.id === 'string' && prof.id.startsWith('adhoc_');
+              const idFinal = esAdhoc ? mapaIdAdhocANumerico.get(prof.id) : prof.id;
+
+              if (!idFinal || isNaN(Number(idFinal))) {
+                console.warn(`⚠️ Profesional con ID inválido descartado:`, prof);
+                return null;
+              }
+
+              return {
+                profesionalId: Number(idFinal),
+                nombre: prof.nombre || 'Profesional'
+              };
+            })
+            .filter(p => p !== null); // Eliminar nulos
 
           const semanaPayload = {
             semanaKey: !isNaN(parseInt(semanaKey)) ? parseInt(semanaKey) : semanaKey,
@@ -1879,11 +1969,19 @@ const AsignarProfesionalSemanalModal = ({
                 if (Array.isArray(listaProfesionales)) {
                   listaProfesionales.forEach(prof => {
                       if (prof && prof.id) {
-                         detalles.push({
-                             fecha: fechaFormateada,
-                             profesionalId: Number(prof.id),
-                             cantidad: 1 // Por defecto 1 jornal
-                         });
+                         // Convertir ID adhoc a numérico si es necesario
+                         const esAdhoc = typeof prof.id === 'string' && prof.id.startsWith('adhoc_');
+                         const idFinal = esAdhoc ? mapaIdAdhocANumerico.get(prof.id) : prof.id;
+
+                         if (idFinal && !isNaN(Number(idFinal))) {
+                           detalles.push({
+                               fecha: fechaFormateada,
+                               profesionalId: Number(idFinal),
+                               cantidad: 1 // Por defecto 1 jornal
+                           });
+                         } else {
+                           console.warn(`⚠️ Profesional con ID inválido en detalles descartado:`, prof);
+                         }
                       }
                   });
                 }
@@ -1958,6 +2056,73 @@ const AsignarProfesionalSemanalModal = ({
         onHide();
         return;
       }
+
+      // ⚠️ VALIDACIÓN CRÍTICA: Verificar que el payload tenga estructura válida
+      console.log('🔍 ================ VALIDACIÓN FINAL DE PAYLOAD ================');
+      console.log('🆔 ObraId:', payload.obraId, 'Tipo:', typeof payload.obraId);
+      console.log('🎯 Modalidad:', payload.modalidad);
+      console.log('📅 SemanasObjetivo:', payload.semanasObjetivo);
+      console.log('🏢 EmpresaId:', empresaSeleccionada.id, 'Tipo:', typeof empresaSeleccionada.id);
+
+      if (payload.modalidad === 'total') {
+        console.log('✅ Modalidad TOTAL - Profesionales:', payload.profesionales?.length || 0);
+        payload.profesionales?.forEach((prof, idx) => {
+          console.log(`   Profesional ${idx + 1}:`, {
+            profesionalId: prof.profesionalId,
+            nombre: prof.nombre,
+            cantidadPorDia: prof.cantidadPorDia,
+            tipo_profesionalId: typeof prof.profesionalId,
+            tipo_cantidadPorDia: typeof prof.cantidadPorDia
+          });
+        });
+      } else if (payload.modalidad === 'semanal') {
+        console.log('✅ Modalidad SEMANAL - Semanas:', payload.asignacionesPorSemana?.length || 0);
+        payload.asignacionesPorSemana?.forEach((semana, idx) => {
+          console.log(`   Semana ${idx + 1}:`, {
+            semanaKey: semana.semanaKey,
+            profesionales: semana.profesionales?.length || 0,
+            cantidadesPorDia: Object.keys(semana.cantidadesPorDia || {}).length,
+            detallesPorDia: semana.detallesPorDia?.length || 0
+          });
+        });
+      }
+
+      // Verificar valores inválidos
+      const errores = [];
+      if (!payload.obraId || payload.obraId === 0 || isNaN(payload.obraId)) {
+        errores.push(`⚠️ obraId inválido: ${payload.obraId}`);
+      }
+      if (!payload.modalidad || (payload.modalidad !== 'total' && payload.modalidad !== 'semanal')) {
+        errores.push(`⚠️ modalidad inválida: ${payload.modalidad}`);
+      }
+      if (payload.modalidad === 'total') {
+        if (!payload.profesionales || payload.profesionales.length === 0) {
+          errores.push('⚠️ Modalidad total sin profesionales');
+        }
+        payload.profesionales?.forEach((prof, idx) => {
+          if (!prof.profesionalId || isNaN(prof.profesionalId)) {
+            errores.push(`⚠️ Profesional ${idx + 1}: profesionalId inválido (${prof.profesionalId})`);
+          }
+          if (!prof.cantidadPorDia || isNaN(prof.cantidadPorDia)) {
+            errores.push(`⚠️ Profesional ${idx + 1}: cantidadPorDia inválido (${prof.cantidadPorDia})`);
+          }
+        });
+      } else if (payload.modalidad === 'semanal') {
+        if (!payload.asignacionesPorSemana || payload.asignacionesPorSemana.length === 0) {
+          errores.push('⚠️ Modalidad semanal sin semanas asignadas');
+        }
+      }
+
+      if (errores.length > 0) {
+        console.error('❌ PAYLOAD INVÁLIDO - Errores encontrados:');
+        errores.forEach(err => console.error(err));
+        alert(`❌ Error: Datos inválidos para enviar al backend\n\n${errores.join('\n')}\n\nRevise la consola (F12) para más detalles.`);
+        setCargando(false);
+        return;
+      }
+
+      console.log('✅ Payload validado - Procediendo a enviar al backend...');
+      console.log('==============================================================');
 
       // Llamar al servicio del backend (siempre POST después de eliminar)
       // NOTA: El bloqueo para trabajos extra ya se ejecutó al inicio de handleAsignar

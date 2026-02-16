@@ -50,21 +50,47 @@ export const debugTiposProfesionales = () => apiClient.get('/api/profesionales-o
 
 // Crear asignación semanal
 export const crearAsignacionSemanal = async (data, empresaId) => {
-  const response = await apiClient.post('/api/profesionales/asignar-semanal', data, {
-    headers: {
-      'empresaId': empresaId.toString()
+  console.log('🌐 ================ LLAMADA A BACKEND ================');
+  console.log('📍 Endpoint: POST /api/profesionales/asignar-semanal');
+  console.log('🏢 EmpresaId (header):', empresaId);
+  console.log('📦 Payload completo:');
+  console.log(JSON.stringify(data, null, 2));
+  console.log('====================================================');
+
+  try {
+    const response = await apiClient.post('/api/profesionales/asignar-semanal', data, {
+      headers: {
+        'empresaId': empresaId.toString()
+      }
+    });
+
+    console.log('✅ Respuesta exitosa del backend:', response.status);
+
+    // Emitir evento para actualizar profesionales en otros componentes
+    console.log('📡 [Service] Emitiendo evento PROFESIONAL_ASIGNADO');
+    eventBus.emit(FINANCIAL_EVENTS.PROFESIONAL_ASIGNADO, {
+      obraId: data.obraId,
+      empresaId,
+      timestamp: new Date().toISOString()
+    });
+
+    return response;
+  } catch (error) {
+    console.error('❌ Error en crearAsignacionSemanal:');
+    console.error('   Status:', error.response?.status);
+    console.error('   StatusText:', error.response?.statusText);
+    console.error('   Data:', error.response?.data);
+    console.error('   Message:', error.message);
+
+    // Re-lanzar el error con información adicional
+    if (error.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    } else if (error.response?.data) {
+      throw new Error(typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data));
+    } else {
+      throw error;
     }
-  });
-
-  // Emitir evento para actualizar profesionales en otros componentes
-  console.log('📡 [Service] Emitiendo evento PROFESIONAL_ASIGNADO');
-  eventBus.emit(FINANCIAL_EVENTS.PROFESIONAL_ASIGNADO, {
-    obraId: data.obraId,
-    empresaId,
-    timestamp: new Date().toISOString()
-  });
-
-  return response;
+  }
 };
 
 // Obtener asignaciones de una obra

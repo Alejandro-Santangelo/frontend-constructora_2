@@ -1385,8 +1385,18 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                 {(() => {
                   // 🎯 AGRUPAMIENTO igual que en ObrasPage
                   console.log('🔍 obrasDisponibles COMPLETO:', obrasDisponibles.map(o => ({id: o.id, obraId: o.obraId, nombre: o.nombreObra, esTrabajoExtra: o.esTrabajoExtra, estado: o.estado})));
-                  const obrasNormales = obrasDisponibles.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
-                  const obrasCanceladas = obrasDisponibles.filter(o => o.estado === 'CANCELADO');
+
+                  // 🔥 DEDUPLICAR obras por ID antes de procesarlas
+                  const obrasDeduplicadas = obrasDisponibles.filter((obra, index, self) =>
+                    index === self.findIndex((o) => o.id === obra.id)
+                  );
+
+                  if (obrasDisponibles.length !== obrasDeduplicadas.length) {
+                    console.warn(`⚠️ Se encontraron ${obrasDisponibles.length - obrasDeduplicadas.length} obras duplicadas en obrasDisponibles. Se eliminaron.`);
+                  }
+
+                  const obrasNormales = obrasDeduplicadas.filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
+                  const obrasCanceladas = obrasDeduplicadas.filter(o => o.estado === 'CANCELADO');
 
                   const listaOrdenada = [];
                   let grupoIndex = 0;

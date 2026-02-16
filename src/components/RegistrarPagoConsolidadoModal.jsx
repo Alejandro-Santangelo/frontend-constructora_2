@@ -145,10 +145,20 @@ const RegistrarPagoConsolidadoModal = ({
         return;
       }
 
+      // 🔥 Deduplicar obras seleccionadas por ID
+      const obrasSinDuplicados = obrasSeleccionadas.filter((obra, index, self) =>
+        index === self.findIndex((o) => o.id === obra.id)
+      );
+
+      if (obrasSeleccionadas.length !== obrasSinDuplicados.length) {
+        console.warn(`⚠️ Se encontraron ${obrasSeleccionadas.length - obrasSinDuplicados.length} obras duplicadas. Se eliminaron.`);
+      }
+
+      console.log(`✅ Obras únicas a procesar: ${obrasSinDuplicados.length}`);
 
       // Cargar datos completos de cada presupuesto seleccionado
       const presupuestosCompletos = await Promise.all(
-        obrasSeleccionadas.map(async (obra) => {
+        obrasSinDuplicados.map(async (obra) => {
           try {
             console.log('🔍 Cargando obra completa:', obra.id, obra);
             const completo = await apiService.presupuestosNoCliente.getById(obra.id, empresaSeleccionada.id);
@@ -188,7 +198,16 @@ const RegistrarPagoConsolidadoModal = ({
       console.log(`✅ Extraídos ${catalogoGastosGenerales.length} gastos generales de presupuestos`);
       console.log('📋 Catálogo final:', catalogoGastosGenerales);
 
-      setPresupuestos(presupuestosCompletos);
+      // ✅ Deduplicar presupuestos por ID antes de establecer (evita duplicados)
+      const presupuestosUnicos = presupuestosCompletos.filter((p, index, self) =>
+        index === self.findIndex((t) => t.id === p.id)
+      );
+
+      if (presupuestosCompletos.length !== presupuestosUnicos.length) {
+        console.warn(`⚠️ Se encontraron ${presupuestosCompletos.length - presupuestosUnicos.length} presupuestos duplicados. Se eliminaron.`);
+      }
+
+      setPresupuestos(presupuestosUnicos);
 
       // Calcular el máximo de semanas desde BD (asignaciones)
       console.log('📊 Consultando configuración de semanas desde BD...');
@@ -202,7 +221,7 @@ const RegistrarPagoConsolidadoModal = ({
       const { obtenerAsignacionesSemanalPorObra } = await import('../services/profesionalesObraService');
 
       // Consultar semanas objetivo desde BD (tabla: asignacion_semanal_profesional)
-      const semanasPromises = presupuestosCompletos.map(async (presupuesto) => {
+      const semanasPromises = presupuestosUnicos.map(async (presupuesto) => {
         try {
           // 🔑 IMPORTANTE: Usar obraId (no presupuesto.id)
           const obraId = presupuesto.obraId || presupuesto.obra_id;
@@ -320,7 +339,7 @@ const RegistrarPagoConsolidadoModal = ({
       }
 
       // Ahora cargar asignaciones de cada obra
-      const profesionalesCargaPromises = presupuestosCompletos.map(async (presupuesto) => {
+      const profesionalesCargaPromises = presupuestosUnicos.map(async (presupuesto) => {
         try {
           const obraId = presupuesto.obraId || presupuesto.obra_id;
           if (!obraId) {
@@ -546,7 +565,7 @@ const RegistrarPagoConsolidadoModal = ({
       console.log('🧱 Cargando materiales desde presupuestos...');
       const materialesArray = [];
 
-      presupuestosCompletos.forEach((presupuesto) => {
+      presupuestosUnicos.forEach((presupuesto) => {
         const obraId = presupuesto.obraId || presupuesto.obra_id;
 
         // Procesar materiales de itemsCalculadora
@@ -602,7 +621,7 @@ const RegistrarPagoConsolidadoModal = ({
 
       // 🧱 CARGAR MATERIALES ASIGNADOS A OBRAS (semanales)
       console.log('🧱 Cargando materiales asignados a obras desde BD...');
-      const materialesAsignadosPromises = presupuestosCompletos.map(async (presupuesto) => {
+      const materialesAsignadosPromises = presupuestosUnicos.map(async (presupuesto) => {
         try {
           const obraId = presupuesto.obraId || presupuesto.obra_id;
           if (!obraId) return [];
@@ -771,7 +790,7 @@ const RegistrarPagoConsolidadoModal = ({
       console.log('📋 Cargando otros costos desde presupuesto y asignaciones BD...');
 
       // 🔥 Cargar otros costos del presupuesto desde itemsCalculadora[].gastosGenerales[]
-      const otrosCostosArray = presupuestosCompletos.flatMap((presupuesto) => {
+      const otrosCostosArray = presupuestosUnicos.flatMap((presupuesto) => {
         const gastosGenerales = [];
 
         // Extraer gastos generales de itemsCalculadora
@@ -819,7 +838,7 @@ const RegistrarPagoConsolidadoModal = ({
 
       // 📋 CARGAR OTROS COSTOS ASIGNADOS A OBRAS (semanales)
       console.log('📋 Cargando otros costos asignados a obras desde BD...');
-      const otrosCostosAsignadosPromises = presupuestosCompletos.map(async (presupuesto) => {
+      const otrosCostosAsignadosPromises = presupuestosUnicos.map(async (presupuesto) => {
         try {
           const obraId = presupuesto.obraId || presupuesto.obra_id;
           if (!obraId) return [];
@@ -972,8 +991,11 @@ const RegistrarPagoConsolidadoModal = ({
 
       setTodosOtrosCostos(todosLosOtrosCostos);
 
-      // 🔧 CARGAR TRABAJOS ADICIONALES DE LAS OBRAS
-      const trabajosAdicionalesCargados = await cargarTrabajosAdicionales(presupuestosCompletos);
+      // 🔧 CARGAR TRABAJOS EXTRA DE LAS OBRAS (obras con trabajos extra)
+      const trabajosExtraCargados = await cargarTrabajosExtra(presupuestosUnicos);
+
+      // 🔧 CARGAR TRABAJOS ADICIONALES DE LAS OBRAS (trabajos adicionales + obras independientes)
+      const trabajosAdicionalesCargados = await cargarTrabajosAdicionales(presupuestosUnicos);
 
       // 💰 CARGAR PAGOS CONSOLIDADOS EXISTENTES (materiales, gastos generales Y trabajos adicionales)
       console.log('💰 Cargando pagos consolidados existentes para calcular totalPagado...');
@@ -1134,8 +1156,10 @@ const RegistrarPagoConsolidadoModal = ({
           console.log(`✅ ${trabajosConPagos.length} trabajos extra con pagos existentes`);
         }
 
-        // 🔄 Actualizar el estado con los trabajos que tienen pagos mapeados
-        setTodosLosTrabajos(trabajosExtraCargados);
+        // 🔄 Combinar trabajos extra + trabajos adicionales y actualizar el estado
+        const todosCombinados = [...trabajosExtraCargados, ...trabajosAdicionalesCargados];
+        console.log(`📊 Total de trabajos combinados: ${todosCombinados.length} (${trabajosExtraCargados.length} extras + ${trabajosAdicionalesCargados.length} adicionales)`);
+        setTodosLosTrabajos(todosCombinados);
 
         console.log('✅ Pagos consolidados mapeados correctamente a materiales, otros costos y trabajos extra');
 
@@ -1153,13 +1177,13 @@ const RegistrarPagoConsolidadoModal = ({
   };
 
   // 🔧 Función para cargar trabajos extra de las obras
-  const cargarTrabajosExtra = async (presupuestosCompletos) => {
+  const cargarTrabajosExtra = async (presupuestos) => {
     console.log('�🚀🚀 ======= INICIO cargarTrabajosExtra ======= ');
-    console.log('🚀🚀🚀 Presupuestos recibidos:', presupuestosCompletos.length);
+    console.log('🚀🚀🚀 Presupuestos recibidos:', presupuestos.length);
     console.log('�🔧 Cargando trabajos extra de las obras seleccionadas...');
 
     try {
-      const trabajosPromises = presupuestosCompletos.map(async (presupuesto) => {
+      const trabajosPromises = presupuestos.map(async (presupuesto) => {
         try {
           const obraId = presupuesto.obraId || presupuesto.obra_id;
           if (!obraId) return [];
@@ -1444,75 +1468,42 @@ const RegistrarPagoConsolidadoModal = ({
       const trabajosPorObra = await Promise.all(trabajosPromises);
       const todosTrabajos = trabajosPorObra.flat();
 
-      console.log(`✅ Total de trabajos extra cargados: ${todosTrabajos.length}`);
-
-      setTodosLosTrabajos(todosTrabajos);
-      return todosTrabajos; // Retornar para uso inmediato
+      return todosTrabajos;
 
     } catch (error) {
       console.error('❌ Error cargando trabajos extra:', error);
-      setTodosLosTrabajos([]);
       return [];
     }
   };
 
-  // 🔧 Función para cargar trabajos adicionales de las obras
-  const cargarTrabajosAdicionales = async (presupuestosCompletos) => {
-    console.log('🚀 ======= INICIO cargarTrabajosAdicionales ======= ');
-    console.log('🚀 Presupuestos recibidos:', presupuestosCompletos.length);
-    console.log('🔧 Cargando trabajos adicionales de las obras y trabajos extra seleccionados...');
+  // Función para cargar trabajos adicionales de las obras
+  const cargarTrabajosAdicionales = async (presupuestos) => {
 
     try {
       // Cargar todos los trabajos adicionales de la empresa
       const response = await apiService.trabajosAdicionales.getAll(empresaSeleccionada.id);
       let todosLosTrabajosAdicionales = Array.isArray(response) ? response : response?.data || [];
 
-      console.log(`✅ Total de trabajos adicionales en BD: ${todosLosTrabajosAdicionales.length}`);
+      // Obtener los IDs de obras desde obrasOriginales
+      const obrasIds = obrasOriginales
+        .filter(obra => !obra.esObraIndependiente)
+        .map(obra => obra.obraId || obra.obra_id || obra.id)
+        .filter(Boolean);
 
-      // Obtener los IDs de las obras y trabajos extra seleccionados
-      const obrasIds = presupuestosCompletos.map(p => p.obraId || p.obra_id).filter(Boolean);
-
-      console.log(`📋 Obras seleccionadas (${obrasIds.length}):`, obrasIds);
-
-      // Filtrar trabajos adicionales que pertenecen a:
-      // 1. Obras principales seleccionadas (tienen obraId en obrasIds)
-      // 2. Trabajos extra de esas obras (tienen trabajoExtraId relacionado)
+      // Filtrar trabajos adicionales que pertenecen a obras principales seleccionadas o trabajos extra
       const trabajosFiltrados = todosLosTrabajosAdicionales.filter(trabajo => {
-        // Caso 1: Trabajo adicional de una obra principal
-        if (trabajo.obraId && obrasIds.includes(trabajo.obraId)) {
-          return true;
-        }
-        // Caso 2: Trabajo adicional de un trabajo extra
-        // TODO: Si en el futuro necesitamos filtrar por trabajoExtraId específico
-        if (trabajo.trabajoExtraId) {
-          return true; // Por ahora incluir todos los de trabajos extra
-        }
-        return false;
+        return (trabajo.obraId && obrasIds.includes(trabajo.obraId)) || trabajo.trabajoExtraId;
       });
 
-      console.log(`✅ Trabajos adicionales filtrados: ${trabajosFiltrados.length}`);
-
-      // ✅ AGREGAR OBRAS INDEPENDIENTES COMO TRABAJOS ADICIONALES
-      console.log('🏗️ Detectando obras independientes para incluir en trabajos adicionales...');
-
-      // Usar obrasOriginales que contiene las obras completas con flags
+      // Agregar obras independientes como trabajos adicionales
       const obrasIndependientes = obrasOriginales.filter(obra => {
-        // Usar flag esObraIndependiente si está disponible
         if (obra.hasOwnProperty('esObraIndependiente')) {
           return obra.esObraIndependiente;
         }
-
-        // Fallback: detectar obras independientes por ausencia de presupuesto
-        const tienePresupuesto = obra.presupuestoId ||
-                              obra.presupuestoNoClienteId ||
-                              obra.presupuestoNoCliente?.id ||
-                              obra.presupuestoCompleto?.id ||
-                              presupuestosCompletos.some(p => (p.obraId || p.obra_id) === obra.id);
-
-        return !tienePresupuesto; // Es obra independiente
+        // Fallback: detectar por ausencia de presupuesto
+        const tienePresupuestoEnLista = presupuestos.some(p => (p.obraId || p.obra_id) === obra.id);
+        return !tienePresupuestoEnLista;
       });
-
-      console.log(`✅ Encontradas ${obrasIndependientes.length} obras independientes para incluir`);
 
       // Convertir obras independientes en "trabajos adicionales especiales"
       const obrasIndependientesComoTrabajos = obrasIndependientes.map(obra => {
@@ -1548,7 +1539,7 @@ const RegistrarPagoConsolidadoModal = ({
         // Buscar el presupuesto correspondiente
         let presupuesto = null;
         if (trabajo.obraId) {
-          presupuesto = presupuestosCompletos.find(p =>
+          presupuesto = presupuestos.find(p =>
             (p.obraId || p.obra_id) === trabajo.obraId
           );
         }
@@ -1577,6 +1568,7 @@ const RegistrarPagoConsolidadoModal = ({
 
         return {
           ...trabajo,
+          esObraIndependiente: false, // ✅ Explícitamente false para trabajos adicionales normales
           presupuestoId: presupuesto?.id || null,
           obraId: trabajo.obraId || null,
           trabajoExtraId: trabajo.trabajoExtraId || null,
@@ -1591,15 +1583,10 @@ const RegistrarPagoConsolidadoModal = ({
         };
       });
 
-      console.log(`✅ Total de trabajos adicionales cargados (incluyendo obras independientes): ${trabajosEnriquecidos.length}`);
-      console.log(`📊 Desglose: ${trabajosFiltrados.length} trabajos adicionales + ${obrasIndependientesComoTrabajos.length} obras independientes`);
-
-      setTodosLosTrabajos(trabajosEnriquecidos);
       return trabajosEnriquecidos;
 
     } catch (error) {
       console.error('❌ Error cargando trabajos adicionales:', error);
-      setTodosLosTrabajos([]);
       return [];
     }
   };
@@ -1839,7 +1826,6 @@ const RegistrarPagoConsolidadoModal = ({
         return trabajoDisplay;
     });
   }, [todosLosTrabajos, semanaSeleccionada]);
-
 
   const handleToggleProfesional = (prof) => {
     const uniqueId = prof.uniqueId || `${prof.presupuestoId}-${prof.profesionalId || prof.id}`;
@@ -2352,6 +2338,9 @@ const RegistrarPagoConsolidadoModal = ({
                                 // Detectar si es subobra: el nombre incluye el nombre de la obra padre
                                 const nombreObra = presupuesto.nombreObra || '';
                                 const nombrePosibleSubobra = posibleSubobra.nombreObra || '';
+
+                                // ✅ FIX: No considerar como subobra si los nombres son exactamente iguales
+                                if (nombreObra === nombrePosibleSubobra) return false;
 
                                 const esSubobra = nombrePosibleSubobra.startsWith(nombreObra + ' ') ||
                                                 nombrePosibleSubobra.includes(nombreObra + ' ');
@@ -3221,9 +3210,9 @@ const RegistrarPagoConsolidadoModal = ({
 
                           {/* Agrupar trabajos adicionales por obra */}
                           {presupuestos.map((presupuesto, presupuestoIdx) => {
-                            // 🔥 Filtrar trabajos adicionales de esta obra
+                            // 🔥 Filtrar trabajos adicionales de esta obra (NO obras independientes)
                             const trabajosObra = trabajosExtraFiltradosPorSemana.filter(
-                              t => t.presupuestoId === presupuesto.id
+                              t => t.presupuestoId === presupuesto.id && t.esObraIndependiente !== true
                             );
 
                             if (trabajosObra.length === 0) return null;

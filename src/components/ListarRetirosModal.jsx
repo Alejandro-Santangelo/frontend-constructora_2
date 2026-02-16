@@ -1,20 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
-import { 
-  listarRetiros, 
-  anularRetiro, 
+import {
+  listarRetiros,
+  anularRetiro,
   eliminarRetiro,
   obtenerTotales,
   formatearMoneda,
   formatearFecha,
   TIPOS_RETIRO,
-  ESTADOS_RETIRO
+  ESTADOS_RETIRO,
+  listarGastosConRetiroDirecto // 🆕 Nueva función para obtener gastos de retiro directo
 } from '../services/retirosPersonalesService';
 
 const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
   const { empresaSeleccionada } = useEmpresa();
   const [retiros, setRetiros] = useState([]);
+  const [gastosRetiroDirecto, setGastosRetiroDirecto] = useState([]); // 🆕 Gastos generales con retiro directo
+  const [registrosCombinados, setRegistrosCombinados] = useState([]); // 🆕 Combinación de retiros + gastos
   const [totales, setTotales] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -24,9 +27,84 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
   useEffect(() => {
     if (show && empresaSeleccionada) {
       cargarRetiros();
+      cargarGastosRetiroDirecto(); // 🆕 Cargar gastos con retiro directo
       cargarTotales();
     }
   }, [show, empresaSeleccionada, filtroEstado, filtroTipo]);
+
+  // 🆕 Combinar retiros y gastos cuando cambien
+  useEffect(() => {
+    console.log('🔄 [RETIROS MODAL] Combinando registros:', {
+      retiros: retiros.length,
+      gastosRetiroDirecto: gastosRetiroDirecto.length,
+      filtroEstado,
+      filtroTipo
+    });
+
+    const combinados = [];
+
+    // Agregar retiros normales
+    retiros.forEach(retiro => {
+      console.log('📝 [COMBINANDO] Agregando retiro:', retiro.id);
+      combinados.push({
+        ...retiro,
+        tipoRegistro: 'RETIRO',
+        fechaRegistro: retiro.fechaRetiro,
+        descripcion: retiro.motivo
+      });
+    });
+
+    // Agregar gastos con retiro directo
+    gastosRetiroDirecto.forEach(gasto => {
+      console.log('📝 [COMBINANDO] Agregando gasto:', {
+        id: gasto.id,
+        descripcion: gasto.descripcion,
+        nombreObra: gasto.nombreObra,
+        importe: gasto.importeAsignado || gasto.importe
+      });
+      combinados.push({
+        ...gasto,
+        tipoRegistro: 'GASTO_GENERAL',
+        tipoRetiro: 'GASTO_GENERAL', // Para el filtro
+        fechaRegistro: new Date(), // Fecha actual ya que el backend no devuelve fecha
+        monto: gasto.importeAsignado || gasto.importe,
+        descripcion: gasto.descripcion || gasto.concepto
+      });
+    });
+
+    console.log('📊 [COMBINANDO] Total combinados antes de filtros:', combinados.length);
+
+    // Ordenar por fecha (más recientes primero)
+    combinados.sort((a, b) => {
+      const fechaA = new Date(a.fechaRegistro || 0);
+      const fechaB = new Date(b.fechaRegistro || 0);
+      return fechaB - fechaA;
+    });
+
+    // Aplicar filtros
+    let filtrados = combinados;
+
+    if (filtroTipo) {
+      console.log('🔍 [FILTROS] Aplicando filtro tipo:', filtroTipo);
+      filtrados = filtrados.filter(r => r.tipoRetiro === filtroTipo);
+      console.log('📊 [FILTROS] Después de filtro tipo:', filtrados.length);
+    }
+
+    if (filtroEstado) {
+      console.log('🔍 [FILTROS] Aplicando filtro estado:', filtroEstado);
+      // Solo aplicar filtro de estado a retiros normales, no a gastos generales
+      filtrados = filtrados.filter(r => {
+        // Si es un gasto general, no filtrar por estado (los gastos no tienen ese campo)
+        if (r.tipoRegistro === 'GASTO_GENERAL') return true;
+        // Si es un retiro normal, aplicar el filtro de estado
+        return r.estado === filtroEstado;
+      });
+      console.log('📊 [FILTROS] Después de filtro estado:', filtrados.length);
+    }
+
+    console.log('🎯 [RESULTADO FINAL] Registros a mostrar:', filtrados.length);
+    setRegistrosCombinados(filtrados);
+  }, [retiros, gastosRetiroDirecto, filtroEstado, filtroTipo]);
 
   const cargarRetiros = async () => {
     setLoading(true);
@@ -34,7 +112,7 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
     try {
       const filtros = {};
       if (filtroEstado) filtros.estado = filtroEstado;
-      if (filtroTipo) filtros.tipoRetiro = filtroTipo;
+      if (filtroTipo && filtroTipo !== 'GASTO_GENERAL') filtros.tipoRetiro = filtroTipo; // Excluir filtro GASTO_GENERAL para retiros normales
 
       const data = await listarRetiros(empresaSeleccionada.id, filtros);
       setRetiros(Array.isArray(data) ? data : []);
@@ -44,6 +122,28 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
       setRetiros([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 🆕 Cargar gastos generales con retiro directo
+  const cargarGastosRetiroDirecto = async () => {
+    try {
+      console.log('🔍 [RETIROS MODAL] Iniciando carga de gastos con retiro directo...');
+      console.log('🔍 [RETIROS MODAL] Función disponible:', typeof listarGastosConRetiroDirecto);
+      console.log('🔍 [RETIROS MODAL] EmpresaId:', empresaSeleccionada.id);
+
+      const data = await listarGastosConRetiroDirecto(empresaSeleccionada.id);
+
+      console.log('📊 [RETIROS MODAL] Gastos recibidos:', data);
+      console.log('📊 [RETIROS MODAL] Tipo de dato:', typeof data);
+      console.log('📊 [RETIROS MODAL] Es array:', Array.isArray(data));
+      console.log('📊 [RETIROS MODAL] Cantidad:', Array.isArray(data) ? data.length : 'No es array');
+
+      setGastosRetiroDirecto(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('❌ [RETIROS MODAL] Error cargando gastos con retiro directo:', err);
+      console.error('❌ [RETIROS MODAL] Error completo:', err.message, err.stack);
+      setGastosRetiroDirecto([]);
     }
   };
 
@@ -63,13 +163,13 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
 
     try {
       await anularRetiro(id, empresaSeleccionada.id);
-      
+
       // 📡 Notificar que se anuló un retiro
       eventBus.emit(FINANCIAL_EVENTS.RETIRO_ANULADO, {
         empresaId: empresaSeleccionada.id,
         retiroId: id
       });
-      
+
       if (onSuccess) {
         onSuccess({ mensaje: 'Retiro anulado exitosamente' });
       }
@@ -95,13 +195,13 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
 
     try {
       await eliminarRetiro(id, empresaSeleccionada.id);
-      
+
       // 📡 Notificar que se eliminó un retiro
       eventBus.emit(FINANCIAL_EVENTS.RETIRO_ELIMINADO, {
         empresaId: empresaSeleccionada.id,
         retiroId: id
       });
-      
+
       if (onSuccess) {
         onSuccess({ mensaje: '🗑️ Retiro eliminado exitosamente' });
       }
@@ -133,18 +233,19 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
 
           <div className="modal-body">
             {/* Resumen de totales */}
-            {totales && (
-              <div className="row g-3 mb-4">
-                <div className="col-md-6">
-                  <div className="card h-100 border-success shadow-sm">
+            <div className="row g-3 mb-4">
+              {/* Total de Retiros Normales */}
+              {totales && (
+                <div className="col-md-4">
+                  <div className="card h-100 border-primary shadow-sm">
                     <div className="card-body text-center py-4">
                       <div className="mb-2">
-                        <i className="bi bi-wallet2 text-success" style={{ fontSize: '2rem' }}></i>
+                        <i className="bi bi-wallet2 text-primary" style={{ fontSize: '2rem' }}></i>
                       </div>
                       <h6 className="text-muted mb-2 text-uppercase" style={{ fontSize: '0.75rem' }}>
-                        Total Retirado
+                        Retiros Normales
                       </h6>
-                      <h3 className="text-success mb-1 fw-bold" style={{ whiteSpace: 'nowrap' }}>
+                      <h3 className="text-primary mb-1 fw-bold" style={{ whiteSpace: 'nowrap' }}>
                         {formatearMoneda(totales.totalRetiros)}
                       </h3>
                       <small className="text-muted">
@@ -154,19 +255,73 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
                     </div>
                   </div>
                 </div>
-                {totales.retirosPorTipo && Object.entries(totales.retirosPorTipo).map(([tipo, monto]) => (
-                  <div key={tipo} className="col-md-6">
+              )}
+
+              {/* Total de Gastos con Retiro Directo */}
+              <div className="col-md-4">
+                <div className="card h-100 border-warning shadow-sm">
+                  <div className="card-body text-center py-4">
+                    <div className="mb-2">
+                      <i className="bi bi-cash-coin text-warning" style={{ fontSize: '2rem' }}></i>
+                    </div>
+                    <h6 className="text-muted mb-2 text-uppercase" style={{ fontSize: '0.75rem' }}>
+                      Gastos Generales
+                    </h6>
+                    <h3 className="text-warning mb-1 fw-bold" style={{ whiteSpace: 'nowrap' }}>
+                      {formatearMoneda(
+                        gastosRetiroDirecto
+                          .reduce((sum, g) => sum + parseFloat(g.importeAsignado || g.importe || 0), 0)
+                      )}
+                    </h3>
+                    <small className="text-muted">
+                      <i className="bi bi-receipt me-1"></i>
+                      {gastosRetiroDirecto.length} gasto(s)
+                    </small>
+                  </div>
+                </div>
+              </div>
+
+              {/* Total Combinado */}
+              <div className="col-md-4">
+                <div className="card h-100 border-success shadow-sm">
+                  <div className="card-body text-center py-4">
+                    <div className="mb-2">
+                      <i className="bi bi-piggy-bank text-success" style={{ fontSize: '2rem' }}></i>
+                    </div>
+                    <h6 className="text-muted mb-2 text-uppercase" style={{ fontSize: '0.75rem' }}>
+                      Total General
+                    </h6>
+                    <h3 className="text-success mb-1 fw-bold" style={{ whiteSpace: 'nowrap' }}>
+                      {formatearMoneda(
+                        registrosCombinados
+                          .reduce((sum, r) => sum + parseFloat(r.monto || 0), 0)
+                      )}
+                    </h3>
+                    <small className="text-muted">
+                      <i className="bi bi-receipt me-1"></i>
+                      {registrosCombinados.length} total
+                    </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Tarjetas de retiros por tipo (solo si hay datos) */}
+            {totales?.retirosPorTipo && Object.keys(totales.retirosPorTipo).length > 0 && (
+              <div className="row g-3 mb-4">
+                {Object.entries(totales.retirosPorTipo).map(([tipo, monto]) => (
+                  <div key={tipo} className="col-md-4">
                     <div className="card h-100 border-light shadow-sm">
-                      <div className="card-body text-center py-4">
+                      <div className="card-body text-center py-3">
                         <div className="mb-2">
-                          <i className={`bi ${tipo === 'GANANCIA' ? 'bi-trophy' : tipo === 'PRESTAMO' ? 'bi-arrow-down-circle' : 'bi-bag'} text-primary`} style={{ fontSize: '2rem' }}></i>
+                          <i className={`bi ${tipo === 'GANANCIA' ? 'bi-trophy' : tipo === 'PRESTAMO' ? 'bi-arrow-down-circle' : 'bi-bag'} text-info`} style={{ fontSize: '1.5rem' }}></i>
                         </div>
-                        <h6 className="text-muted mb-2 text-uppercase" style={{ fontSize: '0.75rem' }}>
+                        <h6 className="text-muted mb-2 text-uppercase" style={{ fontSize: '0.7rem' }}>
                           {TIPOS_RETIRO[tipo] || tipo}
                         </h6>
-                        <h4 className="mb-0 fw-bold text-primary" style={{ whiteSpace: 'nowrap' }}>
+                        <h5 className="mb-0 fw-bold text-info" style={{ whiteSpace: 'nowrap' }}>
                           {formatearMoneda(monto)}
-                        </h4>
+                        </h5>
                       </div>
                     </div>
                   </div>
@@ -210,7 +365,7 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
                     </select>
                   </div>
                   <div className="col-md-4">
-                    <button 
+                    <button
                       className="btn btn-outline-secondary w-100"
                       onClick={() => {
                         setFiltroEstado('');
@@ -241,7 +396,7 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
                 </div>
                 <p className="mt-2 text-muted">Cargando retiros...</p>
               </div>
-            ) : retiros.length === 0 ? (
+            ) : registrosCombinados.length === 0 ? (
               <div className="alert alert-info text-center">
                 <i className="bi bi-info-circle me-2"></i>
                 No hay retiros registrados con los filtros seleccionados
@@ -255,79 +410,138 @@ const ListarRetirosModal = ({ show, onHide, onSuccess }) => {
                       <th>Fecha</th>
                       <th>Monto</th>
                       <th>Tipo</th>
-                      <th>Motivo</th>
+                      <th style={{ minWidth: '200px' }}>Descripción / Obra</th>
                       <th>Estado</th>
                       <th className="text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {retiros.map(retiro => (
-                      <tr key={retiro.id} className={retiro.estado === 'ANULADO' ? 'table-secondary' : ''}>
-                        <td>
-                          <small className="font-monospace">#{retiro.id}</small>
-                        </td>
-                        <td>{formatearFecha(retiro.fechaRetiro)}</td>
-                        <td className="fw-bold text-success">
-                          {formatearMoneda(retiro.monto)}
-                        </td>
-                        <td>
-                          <span className="badge bg-info text-dark">
-                            {TIPOS_RETIRO[retiro.tipoRetiro] || retiro.tipoRetiro}
-                          </span>
-                        </td>
-                        <td>
-                          <small>{retiro.motivo || '-'}</small>
-                          {retiro.observaciones && (
-                            <div className="text-muted" style={{ fontSize: '0.75rem' }}>
-                              {retiro.observaciones}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          {retiro.estado === 'ACTIVO' ? (
-                            <span className="badge bg-success">✓ Activo</span>
-                          ) : (
-                            <span className="badge bg-secondary">✗ Anulado</span>
-                          )}
-                        </td>
-                        <td>
-                          <div className="btn-group btn-group-sm" role="group">
-                            {retiro.estado === 'ACTIVO' && (
-                              <button
-                                className="btn btn-warning"
-                                onClick={() => handleAnular(retiro.id)}
-                                title="Anular retiro"
-                              >
-                                ✗
-                              </button>
+                    {registrosCombinados.map((registro, index) => {
+                      const esGasto = registro.tipoRegistro === 'GASTO_GENERAL';
+
+                      return (
+                        <tr
+                          key={`${registro.tipoRegistro}-${registro.id}-${index}`}
+                          className={registro.estado === 'ANULADO' ? 'table-secondary' : ''}
+                        >
+                          <td>
+                            <small className="font-monospace">
+                              {esGasto ? (
+                                <>
+                                  <span className="badge bg-warning text-dark me-1">G</span>
+                                  #{registro.id}
+                                </>
+                              ) : (
+                                <>
+                                  <span className="badge bg-primary me-1">R</span>
+                                  #{registro.id}
+                                </>
+                              )}
+                            </small>
+                          </td>
+                          <td>{formatearFecha(registro.fechaRegistro)}</td>
+                          <td className="fw-bold text-success">
+                            {formatearMoneda(registro.monto)}
+                          </td>
+                          <td>
+                            {esGasto ? (
+                              <span className="badge bg-warning text-dark">
+                                💸 Gasto General
+                              </span>
+                            ) : (
+                              <span className="badge bg-info text-dark">
+                                {TIPOS_RETIRO[registro.tipoRetiro] || registro.tipoRetiro}
+                              </span>
                             )}
-                            <button
-                              className="btn btn-danger"
-                              onClick={() => handleEliminar(retiro.id, retiro.estado)}
-                              disabled={retiro.estado === 'ANULADO'}
-                              title={retiro.estado === 'ANULADO' ? 'No se pueden eliminar retiros anulados' : 'Eliminar retiro'}
-                              style={retiro.estado === 'ANULADO' ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td>
+                            {esGasto ? (
+                              <>
+                                <div>
+                                  <span className="fw-bold text-dark">
+                                    {registro.descripcion || 'Sin descripción'}
+                                  </span>
+                                  <span className="mx-2 text-muted">|</span>
+                                  <span className="fw-bold text-dark">
+                                    <i className="bi bi-building me-1"></i>
+                                    {registro.nombreObra}
+                                  </span>
+                                </div>
+                                <div className="small mt-1" style={{ marginLeft: '8.5rem' }}>
+                                  <span className={`badge ${registro.tipoObra === 'Trabajo Extra' ? 'bg-secondary' : 'bg-primary'} badge-sm`}>
+                                    {registro.tipoObra}
+                                  </span>
+                                  {registro.rubro && (
+                                    <span className="ms-1 text-muted">
+                                      · {registro.rubro}
+                                    </span>
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <small>{registro.motivo || '-'}</small>
+                                {registro.observaciones && (
+                                  <div className="text-muted" style={{ fontSize: '0.75rem' }}>
+                                    {registro.observaciones}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </td>
+                          <td>
+                            {registro.estado === 'ACTIVO' ? (
+                              <span className="badge bg-success">✓ Activo</span>
+                            ) : (
+                              <span className="badge bg-secondary">✗ Anulado</span>
+                            )}
+                          </td>
+                          <td>
+                            {!esGasto && (
+                              <div className="btn-group btn-group-sm" role="group">
+                                {registro.estado === 'ACTIVO' && (
+                                  <button
+                                    className="btn btn-warning"
+                                    onClick={() => handleAnular(registro.id)}
+                                    title="Anular retiro"
+                                  >
+                                    ✗
+                                  </button>
+                                )}
+                                <button
+                                  className="btn btn-danger"
+                                  onClick={() => handleEliminar(registro.id, registro.estado)}
+                                  disabled={registro.estado === 'ANULADO'}
+                                  title={registro.estado === 'ANULADO' ? 'No se pueden eliminar retiros anulados' : 'Eliminar retiro'}
+                                  style={registro.estado === 'ANULADO' ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            )}
+                            {esGasto && (
+                              <span className="badge bg-light text-muted">
+                                Vía Gastos
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot className="table-light fw-bold">
                     <tr>
                       <td colSpan="2" className="text-end">TOTAL:</td>
                       <td className="text-success">
                         {formatearMoneda(
-                          retiros
+                          registrosCombinados
                             .filter(r => r.estado === 'ACTIVO')
-                            .reduce((sum, r) => sum + parseFloat(r.monto), 0)
+                            .reduce((sum, r) => sum + parseFloat(r.monto || 0), 0)
                         )}
                       </td>
                       <td colSpan="4">
                         <small className="text-muted">
-                          (Solo retiros activos)
+                          (Solo registros activos: {registrosCombinados.filter(r => r.estado === 'ACTIVO').length})
                         </small>
                       </td>
                     </tr>

@@ -9,6 +9,9 @@ const AsignarOtroCostoSemanalModal = ({
   otrosCostosDisponibles = [],
   rubrosParaSelect = [],
   presupuestoGlobalDisponible = 0,
+  presupuestoGlobalTotal = 0, // 🆕 Total del presupuesto para detectar cuando es 0
+  totalHonorarios = 0, // 🆕 Total honorarios calculado
+  totalMateriales = 0, // 🆕 Total materiales calculado
   modoPresupuesto = 'GLOBAL',
   asignacionesExistentes = [], // Nueva prop
   onEliminarAsignacion, // Nueva prop
@@ -28,6 +31,7 @@ const AsignarOtroCostoSemanalModal = ({
   const [tipoDistribucion, setTipoDistribucion] = useState('uniforme'); // 'uniforme' o 'inicio-fin'
   const [observaciones, setObservaciones] = useState('');
   const [procesando, setProcesando] = useState(false); // Protección contra doble clic
+  const [origenFondos, setOrigenFondos] = useState('RETIRO_DIRECTO'); // 🆕 Origen de fondos cuando presupuesto = 0
 
   // Estado para creación rápida de gasto (similar al modal individual)
   const [nuevoGastoManual, setNuevoGastoManual] = useState({
@@ -42,6 +46,40 @@ const AsignarOtroCostoSemanalModal = ({
     }
     return (nuevoGastoManual.categoria || 'General').trim() || 'General';
   };
+
+  // 🆕 Calcular monto disponible según origen de fondos seleccionado
+  const montoDisponibleCalculado = useMemo(() => {
+    // Si presupuesto > 0, usar el disponible normal
+    if (presupuestoGlobalTotal > 0) {
+      return {
+        monto: presupuestoGlobalDisponible,
+        label: 'Disponible:',
+        emoji: '💵'
+      };
+    }
+
+    // Si presupuesto = 0, depende del origen de fondos
+    if (origenFondos === 'RETIRO_DIRECTO') {
+      return {
+        monto: totalHonorarios,
+        label: 'Disponible en Honorarios:',
+        emoji: '💸'
+      };
+    } else if (origenFondos === 'PRESUPUESTO_MATERIALES') {
+      return {
+        monto: totalMateriales,
+        label: 'Disponible en Materiales:',
+        emoji: '🧱'
+      };
+    }
+
+    // Default
+    return {
+      monto: 0,
+      label: 'Disponible:',
+      emoji: '💵'
+    };
+  }, [presupuestoGlobalTotal, presupuestoGlobalDisponible, origenFondos, totalHonorarios, totalMateriales]);
 
   // Calcular distribución automática
   const calcularDistribucion = () => {
@@ -99,27 +137,42 @@ const AsignarOtroCostoSemanalModal = ({
     if (tipoAsignacion === 'IMPORTE_GLOBAL') {
       if (!nuevoGastoManual.descripcion.trim()) {
         alert('⚠️ Debe ingresar una descripción para el gasto');
+        setProcesando(false);
         return;
       }
       if (nuevoGastoManual.categoria === '__OTRO__' && !obtenerRubroFinal()) {
         alert('⚠️ Si seleccionas "Otros", debes escribir el rubro');
+        setProcesando(false);
         return;
       }
       if (importe <= 0) {
         alert('⚠️ El importe total debe ser mayor a cero');
+        setProcesando(false);
         return;
       }
-      if (importe > presupuestoGlobalDisponible) {
+
+      // 🆕 Solo validar disponible si NO hay un origen de fondos alternativo
+      if (presupuestoGlobalTotal > 0 && importe > presupuestoGlobalDisponible) {
         alert(`⚠️ El importe ($${importe.toLocaleString('es-AR')}) excede el disponible ($${presupuestoGlobalDisponible.toLocaleString('es-AR')})`);
+        setProcesando(false);
+        return;
+      }
+
+      // 🆕 Si presupuesto = 0, verificar que se haya seleccionado origen de fondos
+      if (presupuestoGlobalTotal === 0 && !origenFondos) {
+        alert('⚠️ Debe seleccionar el origen de fondos (Retiro Directo o Presupuesto de Materiales)');
+        setProcesando(false);
         return;
       }
     } else {
       if (!costoSeleccionadoId) {
         alert('⚠️ Por favor seleccione un costo del presupuesto');
+        setProcesando(false);
         return;
       }
       if (importe <= 0) {
         alert('⚠️ El importe debe ser mayor a cero');
+        setProcesando(false);
         return;
       }
     }
@@ -147,7 +200,8 @@ const AsignarOtroCostoSemanalModal = ({
       numeroSemana: numeroSemana,
       observaciones: observaciones + (esGlobal ? ` [Para toda la Semana]` : ` [Gasto Semanal Detallado]`),
       esManual: tipoAsignacion === 'IMPORTE_GLOBAL',
-      esSemanal: true // Marcador para identificar que es asignación semanal completa
+      esSemanal: true, // Marcador para identificar que es asignación semanal completa
+      origenFondos: presupuestoGlobalTotal === 0 ? origenFondos : null // 🆕 Incluir origen de fondos si presupuesto = 0
     };
 
     const asignacionesSemana = [asignacionSemanal];
@@ -239,6 +293,66 @@ const AsignarOtroCostoSemanalModal = ({
                 </div>
               </div>
             </div>
+
+            {/* 🆕 Selector de Origen de Fondos - Solo cuando Presupuesto de Gastos = $0 */}
+            {presupuestoGlobalTotal === 0 && (
+              <div className="card mb-4 border-warning">
+                <div className="card-header bg-warning text-dark">
+                  <h6 className="mb-0">
+                    <i className="fas fa-exclamation-triangle me-2"></i>
+                    No hay presupuesto asignado para Gastos Generales
+                  </h6>
+                </div>
+                <div className="card-body">
+                  <p className="mb-3">
+                    <i className="fas fa-info-circle me-2 text-primary"></i>
+                    Debes seleccionar de dónde se tomarán los fondos para los gastos que registres:
+                  </p>
+                  <div className="d-flex flex-column gap-3">
+                    <div className="form-check">
+                      <input
+                        className="form-check-input"
+                        type="radio"
+                        name="origenFondosSemanal"
+                        id="origenRetiroDirectoSemanal"
+                        value="RETIRO_DIRECTO"
+                        checked={origenFondos === 'RETIRO_DIRECTO'}
+                        onChange={(e) => setOrigenFondos(e.target.value)}
+                      />
+                      <label className="form-check-label" htmlFor="origenRetiroDirectoSemanal">
+                        <strong className="d-block mb-1">💸 Retiro Directo / Caja Chica</strong>
+                        <small className="text-muted">
+                          Se registra como gasto extraordinario. No afecta el presupuesto de materiales.
+                        </small>
+                      </label>
+                    </div>
+                    <div className="form-check">
+                      <input
+                        className="form-check-input"
+                        type="radio"
+                        name="origenFondosSemanal"
+                        id="origenMaterialesSemanal"
+                        value="PRESUPUESTO_MATERIALES"
+                        checked={origenFondos === 'PRESUPUESTO_MATERIALES'}
+                        onChange={(e) => setOrigenFondos(e.target.value)}
+                      />
+                      <label className="form-check-label" htmlFor="origenMaterialesSemanal">
+                        <strong className="d-block mb-1">🧱 Descontar del Presupuesto de Materiales</strong>
+                        <small className="text-muted">
+                          Se descuenta del dinero destinado a materiales. Reduce el presupuesto disponible para comprar materiales.
+                        </small>
+                      </label>
+                    </div>
+                  </div>
+                  {origenFondos && (
+                    <div className="alert alert-info mt-3 mb-0">
+                      <i className="fas fa-check-circle me-2"></i>
+                      <strong>Origen seleccionado:</strong> {origenFondos === 'RETIRO_DIRECTO' ? '💸 Retiro Directo' : '🧱 Presupuesto de Materiales'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="row g-3">
               {tipoAsignacion === 'IMPORTE_GLOBAL' ? (
@@ -365,8 +479,8 @@ const AsignarOtroCostoSemanalModal = ({
                 </div>
                 {tipoAsignacion === 'IMPORTE_GLOBAL' && (
                   <div className="mt-1">
-                    <small className={parseFloat(importeTotal) > presupuestoGlobalDisponible ? 'text-danger fw-bold' : 'text-muted'}>
-                      Disponible: ${presupuestoGlobalDisponible.toLocaleString('es-AR')}
+                    <small className={parseFloat(importeTotal) > montoDisponibleCalculado.monto ? 'text-danger fw-bold' : 'text-muted'}>
+                      {montoDisponibleCalculado.emoji} {montoDisponibleCalculado.label} ${montoDisponibleCalculado.monto.toLocaleString('es-AR')}
                     </small>
                   </div>
                 )}
