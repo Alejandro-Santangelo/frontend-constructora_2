@@ -4,7 +4,7 @@ import { obtenerDistribucionPorObra } from '../services/cobrosEmpresaService';
 import { actualizarAsignacion } from '../services/asignacionesCobroObraService';
 import { useEmpresa } from '../EmpresaContext';
 
-const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas }) => {
+const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obrasDisponibles }) => {
   const { empresaSeleccionada } = useEmpresa();
   const [distribucionPorObra, setDistribucionPorObra] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -26,30 +26,109 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas }) =
   const cargarDistribucion = async () => {
     setLoading(true);
     try {
+      // 1. Cargar del backend (solo entidades CON cobros asignados)
       const distribucion = await obtenerDistribucionPorObra(empresaSeleccionada.id);
-      console.log('🔍 [DetalleDistribucion] Respuesta del backend:', distribucion);
-      console.log('🔍 [DetalleDistribucion] Cantidad de elementos:', distribucion?.length);
+      console.log('🔍 [DetalleDistribucion] Backend devuelve:', distribucion?.length, 'filas');
 
-      // Mostrar cada elemento individualmente
+      // Indexar backend por nombreObra para merge rápido
+      const backendPorNombre = {};
       if (Array.isArray(distribucion)) {
-        distribucion.forEach((obra, idx) => {
-          console.log(`🔍 [DetalleDistribucion] Obra ${idx}:`, {
-            obraId: obra.obraId,
-            nombreObra: obra.nombreObra,
-            totalCobradoAsignado: obra.totalCobradoAsignado
-          });
+        distribucion.forEach(d => {
+          const key = d.nombreObra || `id_${d.obraId}`;
+          if (!backendPorNombre[key]) backendPorNombre[key] = d;
         });
       }
 
-      // Filtrar duplicados por obraId (por si el backend devuelve duplicados)
-      const distribucionUnica = Array.isArray(distribucion)
-        ? distribucion.filter((obra, index, self) =>
-            index === self.findIndex(o => o.obraId === obra.obraId)
-          )
-        : [];
+      // 2. Construir lista COMPLETA de entidades desde obrasDisponibles
+      const entidades = [];
+      const nombresAgregados = new Set();
 
-      console.log('🔍 [DetalleDistribucion] Después de filtrar duplicados:', distribucionUnica.length);
-      setDistribucionPorObra(distribucionUnica);
+      (obrasDisponibles || []).forEach(obra => {
+        const nombre = obra.nombreObra;
+        const tipo = obra.esObraIndependiente ? 'OBRA_INDEPENDIENTE' : 'OBRA_PRINCIPAL';
+        const bd = backendPorNombre[nombre] || {};
+        if (!nombresAgregados.has(nombre)) {
+          nombresAgregados.add(nombre);
+          entidades.push({
+            obraId:              bd.obraId || obra.obraId || obra.id,
+            nombreObra:          nombre,
+            tipo,
+            totalCobradoAsignado: bd.totalCobradoAsignado || 0,
+            montoProfesionales:   bd.montoProfesionales  || 0,
+            montoMateriales:      bd.montoMateriales      || 0,
+            montoGastosGenerales: bd.montoGastosGenerales || 0,
+            montoTrabajosExtra:   bd.montoTrabajosExtra   || 0,
+            asignacionId:         bd.asignacionId,
+            enBackend:            !!bd.obraId,
+          });
+        }
+
+        // Trabajos extra de esta obra
+        (obra.trabajosExtra || []).forEach(te => {
+          const teNombre = te.nombre || `TE #${te.id}`;
+          const teKey = teNombre;
+          const teBd = backendPorNombre[teKey] || {};
+          if (!nombresAgregados.has(teKey)) {
+            nombresAgregados.add(teKey);
+            entidades.push({
+              obraId:              teBd.obraId || `te_${te.id}`,
+              nombreObra:          teNombre,
+              tipo:                'TRABAJO_EXTRA',
+              obraPadreNombre:     nombre,
+              totalCobradoAsignado: teBd.totalCobradoAsignado || 0,
+              montoProfesionales:   teBd.montoProfesionales  || 0,
+              montoMateriales:      teBd.montoMateriales      || 0,
+              montoGastosGenerales: teBd.montoGastosGenerales || 0,
+              montoTrabajosExtra:   teBd.montoTrabajosExtra   || 0,
+              asignacionId:         teBd.asignacionId,
+              enBackend:            !!teBd.obraId,
+            });
+          }
+        });
+      });
+
+      // 3. Agregar entradas del backend que NO estén en obrasDisponibles (cobros empresa, etc.)
+      if (Array.isArray(distribucion)) {
+        distribucion.forEach(d => {
+          const key = d.nombreObra || `id_${d.obraId}`;
+          if (!nombresAgregados.has(key)) {
+            nombresAgregados.add(key);
+            entidades.push({ ...d, tipo: 'OTRO', enBackend: true });
+          }
+        });
+      }
+
+      // 4. Trabajos adicionales
+      try {
+        const { listarTrabajosAdicionales } = await import('../services/trabajosAdicionalesService');
+        const tas = await listarTrabajosAdicionales(empresaSeleccionada.id);
+        if (Array.isArray(tas)) {
+          tas.forEach(ta => {
+            const taNombre = ta.nombre || ta.descripcion || `Trabajo Adicional #${ta.id}`;
+            const taBd = backendPorNombre[taNombre] || {};
+            if (!nombresAgregados.has(taNombre)) {
+              nombresAgregados.add(taNombre);
+              entidades.push({
+                obraId:              taBd.obraId || `ta_${ta.id}`,
+                nombreObra:          taNombre,
+                tipo:                'TRABAJO_ADICIONAL',
+                totalCobradoAsignado: taBd.totalCobradoAsignado || parseFloat(ta.montoTotal || ta.monto || 0),
+                montoProfesionales:   taBd.montoProfesionales  || 0,
+                montoMateriales:      taBd.montoMateriales      || 0,
+                montoGastosGenerales: taBd.montoGastosGenerales || 0,
+                montoTrabajosExtra:   taBd.montoTrabajosExtra   || 0,
+                asignacionId:         taBd.asignacionId,
+                enBackend:            !!taBd.obraId,
+              });
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('⚠️ TAs no cargados:', err.message);
+      }
+
+      console.log(`✅ [DetalleDistribucion] Total entidades a mostrar: ${entidades.length}`);
+      setDistribucionPorObra(entidades);
     } catch (error) {
       console.error('Error cargando distribución:', error);
       setDistribucionPorObra([]);
@@ -162,7 +241,8 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas }) =
                   <table className="table table-hover table-striped">
                     <thead className="table-info">
                       <tr>
-                        <th>Obra</th>
+                        <th>Tipo</th>
+                        <th>Obra / Entidad</th>
                         <th className="text-end">Total Asignado</th>
                         <th className="text-end">Profesionales</th>
                         <th className="text-end">Materiales</th>
@@ -182,62 +262,69 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas }) =
                                                  (obra.montoTrabajosExtra || 0);
                         const retiradoObra = retirosPorObraMap[obra.obraId] || 0;
                         const saldoDisponible = (obra.totalCobradoAsignado || 0) - totalDistribuido - retiradoObra;
-                        const tieneDistribucion = totalDistribuido > 0;
+                        const tieneCobro = (obra.totalCobradoAsignado || 0) > 0;
+                        const tipoBadge = {
+                          OBRA_PRINCIPAL:     { label: 'Principal',    color: 'primary'           },
+                          OBRA_INDEPENDIENTE: { label: 'Independiente', color: 'info'              },
+                          TRABAJO_EXTRA:      { label: 'Trabajo Extra', color: 'warning text-dark' },
+                          TRABAJO_ADICIONAL:  { label: 'T. Adicional',  color: 'secondary'         },
+                          OTRO:               { label: 'Otro',          color: 'dark'              },
+                        }[obra.tipo] || { label: obra.tipo || '-', color: 'secondary' };
 
                         return (
-                          <tr key={idx} className={!tieneDistribucion ? 'table-warning table-warning-subtle' : ''}>
+                          <tr key={`${obra.tipo}_${obra.obraId}_${idx}`}
+                              className={!tieneCobro ? 'table-light text-muted' : ''}>
+                            <td>
+                              <span className={`badge bg-${tipoBadge.color}`}>{tipoBadge.label}</span>
+                            </td>
                             <td>
                               <strong>{obra.nombreObra}</strong>
-                              {!tieneDistribucion && (
+                              {obra.obraPadreNombre && (
+                                <div className="text-muted small">↳ de: {obra.obraPadreNombre}</div>
+                              )}
+                              {!tieneCobro && (
                                 <div className="text-muted small">
-                                  <i className="bi bi-exclamation-triangle me-1"></i>
-                                  Sin distribución en items
+                                  <i className="bi bi-dash-circle me-1"></i>Sin cobros asignados
                                 </div>
                               )}
                             </td>
-                            <td className="text-end text-success fw-bold">
+                            <td className={`text-end fw-bold ${tieneCobro ? 'text-success' : 'text-muted'}`}>
                               {formatearMoneda(obra.totalCobradoAsignado || 0)}
                             </td>
-                            <td className="text-end">
-                              {formatearMoneda(obra.montoProfesionales || 0)}
-                            </td>
-                            <td className="text-end">
-                              {formatearMoneda(obra.montoMateriales || 0)}
-                            </td>
-                            <td className="text-end">
-                              {formatearMoneda(obra.montoGastosGenerales || 0)}
-                            </td>
-                            <td className="text-end">
-                              {formatearMoneda(obra.montoTrabajosExtra || 0)}
-                            </td>
-                            <td className="text-end text-primary fw-bold">
+                            <td className="text-end">{formatearMoneda(obra.montoProfesionales || 0)}</td>
+                            <td className="text-end">{formatearMoneda(obra.montoMateriales || 0)}</td>
+                            <td className="text-end">{formatearMoneda(obra.montoGastosGenerales || 0)}</td>
+                            <td className="text-end">{formatearMoneda(obra.montoTrabajosExtra || 0)}</td>
+                            <td className={`text-end fw-bold ${totalDistribuido > 0 ? 'text-primary' : 'text-muted'}`}>
                               {formatearMoneda(totalDistribuido)}
                             </td>
-                            <td className="text-end text-danger">
-                              {formatearMoneda(retiradoObra)}
-                            </td>
+                            <td className="text-end text-danger">{formatearMoneda(retiradoObra)}</td>
                             <td className="text-end">
                               <span className={saldoDisponible > 0 ? 'text-success fw-bold' : 'text-muted'}>
                                 {formatearMoneda(saldoDisponible)}
                               </span>
                             </td>
                             <td className="text-center">
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-primary"
-                                onClick={() => {
-                                  setEditandoObra(obra);
-                                  setFormEdicion({
-                                    montoProfesionales: obra.montoProfesionales || 0,
-                                    montoMateriales: obra.montoMateriales || 0,
-                                    montoGastosGenerales: obra.montoGastosGenerales || 0,
-                                    montoTrabajosExtra: obra.montoTrabajosExtra || 0
-                                  });
-                                }}
-                                title="Editar distribución de ítems"
-                              >
-                                <i className="bi bi-pencil-square"></i> Editar
-                              </button>
+                              {tieneCobro && obra.asignacionId ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => {
+                                    setEditandoObra(obra);
+                                    setFormEdicion({
+                                      montoProfesionales: obra.montoProfesionales || 0,
+                                      montoMateriales: obra.montoMateriales || 0,
+                                      montoGastosGenerales: obra.montoGastosGenerales || 0,
+                                      montoTrabajosExtra: obra.montoTrabajosExtra || 0
+                                    });
+                                  }}
+                                  title="Editar distribución de ítems"
+                                >
+                                  <i className="bi bi-pencil-square"></i> Editar
+                                </button>
+                              ) : (
+                                <span className="text-muted small">—</span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -245,6 +332,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas }) =
                     </tbody>
                     <tfoot className="table-light">
                       <tr className="fw-bold">
+                        <td></td>
                         <td className="text-end">TOTALES:</td>
                         <td className="text-end text-success fs-6">
                           {formatearMoneda(totalCobradoAsignado)}

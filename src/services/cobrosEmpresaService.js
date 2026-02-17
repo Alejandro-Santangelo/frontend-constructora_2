@@ -1,5 +1,9 @@
 import api from './api';
+import { getCurrentEmpresaId } from './api';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
+
+// Resuelve el empresaId del tenant activo (fallback al contexto global si no se pasa)
+const _eid = (empresaId) => Number(empresaId) || getCurrentEmpresaId();
 
 /**
  * Servicio para gestión de cobros a nivel empresa
@@ -29,7 +33,8 @@ export const formatearFecha = (fecha) => {
 /**
  * Registrar nuevo cobro a nivel empresa (sin asignar a obras)
  */
-export const registrarCobroEmpresa = async (cobroData, empresaId) => {
+export const registrarCobroEmpresa = async (cobroData, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   const payload = {
     empresaId: empresaId,
     montoTotal: cobroData.montoTotal,
@@ -66,7 +71,8 @@ export const registrarCobroEmpresa = async (cobroData, empresaId) => {
 /**
  * Asignar cobro empresa a una o varias obras
  */
-export const asignarCobroAObras = async (cobroEmpresaId, asignaciones, empresaId) => {
+export const asignarCobroAObras = async (cobroEmpresaId, asignaciones, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   const payload = {
     asignaciones: asignaciones.map(a => {
       const asignacion = {
@@ -123,13 +129,20 @@ export const asignarCobroAObras = async (cobroEmpresaId, asignaciones, empresaId
 
     return response;
   } catch (error) {
-    console.error('❌ Error asignando cobro a obras:', error.response?.data?.message || error.message);
-    console.error('❌ Detalles completos del error:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      headers: error.response?.headers
-    });
+    const errData = error.response?.data;
+    console.error('❌ [asignarCobroAObras] HTTP', error.response?.status, error.response?.statusText);
+    console.error('❌ [asignarCobroAObras] URL:', `/api/v1/cobros-empresa/${cobroEmpresaId}/asignar?empresaId=${empresaId}`);
+    console.error('❌ [asignarCobroAObras] Payload enviado:', JSON.stringify(payload, null, 2));
+    console.error('❌ [asignarCobroAObras] Respuesta body completa:', JSON.stringify(errData, null, 2));
+    // Spring Boot error fields
+    if (errData) {
+      console.error('❌ [Spring Boot] message  :', errData.message);
+      console.error('❌ [Spring Boot] error    :', errData.error);
+      console.error('❌ [Spring Boot] exception:', errData.exception);
+      console.error('❌ [Spring Boot] trace    :', errData.trace);
+      console.error('❌ [Spring Boot] path     :', errData.path);
+      console.error('❌ [Spring Boot] status   :', errData.status);
+    }
     throw error;
   }
 };
@@ -137,7 +150,8 @@ export const asignarCobroAObras = async (cobroEmpresaId, asignaciones, empresaId
 /**
  * Listar cobros de empresa
  */
-export const listarCobrosEmpresa = async (empresaId, estado = null) => {
+export const listarCobrosEmpresa = async (empresaIdParam, estado = null) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const params = { empresaId };
     if (estado) params.estado = estado;
@@ -162,7 +176,8 @@ export const listarCobrosEmpresa = async (empresaId, estado = null) => {
 /**
  * Obtener saldo disponible total de la empresa
  */
-export const obtenerSaldoDisponible = async (empresaId) => {
+export const obtenerSaldoDisponible = async (empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.get('/api/v1/cobros-empresa/saldo-disponible', {
       params: { empresaId }
@@ -178,7 +193,8 @@ export const obtenerSaldoDisponible = async (empresaId) => {
 /**
  * Obtener detalle de un cobro empresa con sus asignaciones
  */
-export const obtenerDetalleCobroEmpresa = async (cobroEmpresaId, empresaId) => {
+export const obtenerDetalleCobroEmpresa = async (cobroEmpresaId, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.get(`/api/v1/cobros-empresa/${cobroEmpresaId}`, {
       params: { empresaId }
@@ -194,7 +210,8 @@ export const obtenerDetalleCobroEmpresa = async (cobroEmpresaId, empresaId) => {
 /**
  * Eliminar cobro empresa (solo si no tiene asignaciones)
  */
-export const eliminarCobroEmpresa = async (cobroEmpresaId, empresaId) => {
+export const eliminarCobroEmpresa = async (cobroEmpresaId, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.delete(`/api/v1/cobros-empresa/${cobroEmpresaId}`, {
       params: { empresaId }
@@ -216,7 +233,8 @@ export const eliminarCobroEmpresa = async (cobroEmpresaId, empresaId) => {
 /**
  * Anular cobro empresa
  */
-export const anularCobroEmpresa = async (cobroEmpresaId, motivo, empresaId) => {
+export const anularCobroEmpresa = async (cobroEmpresaId, motivo, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.patch(
       `/api/v1/cobros-empresa/${cobroEmpresaId}/anular?empresaId=${empresaId}`,
@@ -233,7 +251,8 @@ export const anularCobroEmpresa = async (cobroEmpresaId, motivo, empresaId) => {
 /**
  * Obtener resumen financiero de cobros empresa
  */
-export const obtenerResumenCobrosEmpresa = async (empresaId) => {
+export const obtenerResumenCobrosEmpresa = async (empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.get('/api/v1/cobros-empresa/resumen', {
       params: { empresaId }
@@ -273,7 +292,8 @@ export const obtenerEstadoCobroEmpresa = (cobro) => {
 /**
  * Obtener distribución consolidada de cobros por obra con items
  */
-export const obtenerDistribucionPorObra = async (empresaId) => {
+export const obtenerDistribucionPorObra = async (empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.get('/api/v1/cobros-empresa/distribucion-por-obra', {
       params: { empresaId }
@@ -289,7 +309,8 @@ export const obtenerDistribucionPorObra = async (empresaId) => {
 /**
  * Eliminar una asignación específica de un cobro empresa
  */
-export const eliminarAsignacionCobroEmpresa = async (cobroEmpresaId, asignacionId, empresaId) => {
+export const eliminarAsignacionCobroEmpresa = async (cobroEmpresaId, asignacionId, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     console.log(`🔵 [cobrosEmpresaService] Eliminando asignación ${asignacionId} del cobro ${cobroEmpresaId}`);
 

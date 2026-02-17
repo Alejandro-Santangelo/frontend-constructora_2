@@ -1,5 +1,9 @@
 import api from './api';
+import { getCurrentEmpresaId } from './api';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
+
+// Resuelve el empresaId del tenant activo (fallback al contexto global si no se pasa)
+const _eid = (empresaId) => Number(empresaId) || getCurrentEmpresaId();
 
 /**
  * Servicio para gestión de cobros de obra
@@ -26,7 +30,8 @@ export const formatearFecha = (fecha) => {
 
 // ========== CRUD BÁSICO ==========
 
-export const registrarCobro = async (cobroData, empresaId) => {
+export const registrarCobro = async (cobroData, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   const payload = {
     ...cobroData,
     empresaId: empresaId
@@ -35,7 +40,6 @@ export const registrarCobro = async (cobroData, empresaId) => {
   try {
     console.log('🔵 [cobrosObraService] Payload a enviar:', JSON.stringify(payload, null, 2));
 
-    // CRÍTICO: Pasar empresaId como query param Y en el body para máxima compatibilidad
     const response = await api.post(`/api/v1/cobros-obra?empresaId=${empresaId}`, payload);
 
     console.log('🟢 [cobrosObraService] Respuesta del backend:', JSON.stringify(response, null, 2));
@@ -56,7 +60,8 @@ export const registrarCobro = async (cobroData, empresaId) => {
   }
 };
 
-export const obtenerCobroPorId = async (cobroId, empresaId) => {
+export const obtenerCobroPorId = async (cobroId, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     return await api.get(`/api/v1/cobros-obra/${cobroId}`, { empresaId });
   } catch (error) {
@@ -69,7 +74,8 @@ export const obtenerCobroPorId = async (cobroId, empresaId) => {
  * Listar cobros por dirección de obra (6 campos + presupuestoNoClienteId)
  * GET /cobros-obra/direccion?presupuestoNoClienteId=X&calle=Y&altura=Z&empresaId=1
  */
-export const listarCobrosPorObra = async (direccion, empresaId) => {
+export const listarCobrosPorObra = async (direccion, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   // Construir params fuera del try para que esté disponible en el catch
   const params = {
     presupuestoNoClienteId: direccion.presupuestoNoClienteId,
@@ -104,7 +110,8 @@ export const listarCobrosPorObra = async (direccion, empresaId) => {
   }
 };
 
-export const actualizarCobro = async (cobroId, cobroData, empresaId) => {
+export const actualizarCobro = async (cobroId, cobroData, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.put(`/api/v1/cobros-obra/${cobroId}`, cobroData, { empresaId });
 
@@ -122,7 +129,8 @@ export const actualizarCobro = async (cobroId, cobroData, empresaId) => {
   }
 };
 
-export const eliminarCobro = async (cobroId, empresaId) => {
+export const eliminarCobro = async (cobroId, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const response = await api.delete(`/api/v1/cobros-obra/${cobroId}`, { empresaId });
 
@@ -141,7 +149,8 @@ export const eliminarCobro = async (cobroId, empresaId) => {
 
 // ========== ACCIONES DE ESTADO ==========
 
-export const marcarComoCobrado = async (cobroId, fechaCobro, empresaId) => {
+export const marcarComoCobrado = async (cobroId, fechaCobro, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const fechaCobroFinal = fechaCobro || new Date().toISOString().split('T')[0];
     return await api.patch(
@@ -154,7 +163,8 @@ export const marcarComoCobrado = async (cobroId, fechaCobro, empresaId) => {
   }
 };
 
-export const marcarComoVencido = async (cobroId, empresaId) => {
+export const marcarComoVencido = async (cobroId, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     return await api.patch(`/api/v1/cobros-obra/${cobroId}/marcar-vencido?empresaId=${empresaId}`, {});
   } catch (error) {
@@ -163,7 +173,8 @@ export const marcarComoVencido = async (cobroId, empresaId) => {
   }
 };
 
-export const anularCobro = async (cobroId, motivo, empresaId) => {
+export const anularCobro = async (cobroId, motivo, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const motivoFinal = motivo || 'Anulado por el usuario';
     return await api.patch(
@@ -181,7 +192,8 @@ export const anularCobro = async (cobroId, motivo, empresaId) => {
 /**
  * Obtener cobros pendientes por dirección
  */
-export const obtenerCobrosPendientes = async (direccion, empresaId) => {
+export const obtenerCobrosPendientes = async (direccion, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const params = {
       presupuestoNoClienteId: direccion.presupuestoNoClienteId,
@@ -204,13 +216,14 @@ export const obtenerCobrosPendientes = async (direccion, empresaId) => {
 /**
  * Obtener total cobrado por dirección
  */
-export const obtenerTotalCobrado = async (direccion, empresaId) => {
+export const obtenerTotalCobrado = async (direccion, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const params = {
       presupuestoNoClienteId: direccion.presupuestoNoClienteId,
       calle: direccion.calle,
       altura: direccion.altura,
-      empresaId: empresaId // Agregar empresaId explícitamente
+      empresaId: empresaId
     };
 
     if (direccion.barrio) params.barrio = direccion.barrio;
@@ -236,7 +249,8 @@ export const obtenerTotalCobrado = async (direccion, empresaId) => {
 /**
  * Obtener total pendiente por dirección
  */
-export const obtenerTotalPendiente = async (direccion, empresaId) => {
+export const obtenerTotalPendiente = async (direccion, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     const params = {
       presupuestoNoClienteId: direccion.presupuestoNoClienteId,
@@ -256,7 +270,8 @@ export const obtenerTotalPendiente = async (direccion, empresaId) => {
   }
 };
 
-export const obtenerCobrosVencidos = async (empresaId) => {
+export const obtenerCobrosVencidos = async (empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     return await api.get('/api/v1/cobros-obra/vencidos', { empresaId });
   } catch (error) {
@@ -265,7 +280,8 @@ export const obtenerCobrosVencidos = async (empresaId) => {
   }
 };
 
-export const obtenerCobrosPorRangoFechas = async (fechaDesde, fechaHasta, empresaId) => {
+export const obtenerCobrosPorRangoFechas = async (fechaDesde, fechaHasta, empresaIdParam) => {
+  const empresaId = _eid(empresaIdParam);
   try {
     return await api.get('/api/v1/cobros-obra/fechas', {
       empresaId,

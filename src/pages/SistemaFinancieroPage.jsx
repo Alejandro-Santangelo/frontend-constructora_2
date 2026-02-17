@@ -1997,7 +1997,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             }
 
                             return (
-                              <div key={obra.id} className="card border-primary shadow mb-4">
+                              <div key={`${obra.tipoEntidad || 'obra'}_${obra.id}`} className="card border-primary shadow mb-4">
                                 <div className="card-header bg-primary text-white">
                                   <div className="d-flex justify-content-between align-items-center">
                                     <div>
@@ -2034,7 +2034,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                         </thead>
                                         <tbody>
                                           {profesionalesObra.map((prof, index) => (
-                                                <tr key={prof.id}>
+                                                <tr key={`prof_${prof.id}_${index}`}>
                                                   <td className="fw-bold">{index + 1}</td>
                                                   <td>
                                                     <span className={`badge ${getTipoProfesionalBadgeClass(prof.tipoProfesional)}`}>
@@ -2115,7 +2115,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                         </thead>
                                         <tbody>
                                           {materialesObra.map((mat, index) => (
-                                                <tr key={mat.id}>
+                                                <tr key={`mat_${mat.id}_${index}`}>
                                                   <td className="fw-bold">{index + 1}</td>
                                                   <td className="fw-bold">{mat.nombre}</td>
                                                   <td className="text-center">
@@ -2184,7 +2184,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                         </thead>
                                         <tbody>
                                           {gastosObra.map((costo, index) => (
-                                                <tr key={costo.id}>
+                                                <tr key={`costo_${costo.id}_${index}`}>
                                                   <td className="fw-bold">{index + 1}</td>
                                                   <td className="fw-bold">{costo.descripcion}</td>
                                                   <td className="text-end fw-bold">
@@ -3546,6 +3546,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             onHide={() => setShowDistribucionCobros(false)}
             datos={datosDistribucion}
             estadisticas={estadisticasActuales}
+            obrasDisponibles={obrasDisponibles}
           />
         );
       })()}

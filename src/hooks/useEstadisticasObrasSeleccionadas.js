@@ -4,9 +4,89 @@ import { listarPagosConsolidadosPorPresupuesto } from '../services/pagosConsolid
 import { obtenerSaldoDisponible } from '../services/retirosPersonalesService';
 import { obtenerResumenCobrosEmpresa } from '../services/cobrosEmpresaService';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
+import {
+  cargarEstadisticasParaEntidades,
+  inferirTipoEntidad
+} from '../services/entidadesFinancierasService';
+
+// Funcin helper para calcular total del presupuesto (mismo orden de prioridad que consolidadas)
+const calcularTotalPresupuestoObra = (presupuesto) => {
+  // Prioridad 1: totalFinal
+  if (presupuesto.totalFinal && presupuesto.totalFinal > 0) {
+    return parseFloat(presupuesto.totalFinal);
+  }
+
+  // Prioridad 2: valorTotalIva
+  if (presupuesto.valorTotalIva && presupuesto.valorTotalIva > 0) {
+    return parseFloat(presupuesto.valorTotalIva);
+  }
+
+  // Prioridad 3: Calcular desde itemsCalculadora
+  const itemsCalculadora = presupuesto.itemsCalculadora || [];
+  if (itemsCalculadora.length > 0) {
+    let totalBase = 0;
+
+    itemsCalculadora.forEach((item) => {
+      // Jornales del item
+      const cantidadJornales = parseFloat(item.cantidadJornales || 0);
+      const importeJornal = parseFloat(item.importeJornal || 0);
+      totalBase += cantidadJornales * importeJornal;
+
+      // Profesionales
+      if (item.profesionales && Array.isArray(item.profesionales)) {
+        item.profesionales.forEach((prof) => {
+          totalBase += parseFloat(prof.subtotal || 0);
+        });
+      }
+      // Materiales
+      if (item.materialesLista && Array.isArray(item.materialesLista)) {
+        item.materialesLista.forEach((mat) => {
+          totalBase += parseFloat(mat.subtotal || 0);
+        });
+      }
+      // Otros costos
+      if (item.otrosCostos && Array.isArray(item.otrosCostos)) {
+        item.otrosCostos.forEach((costo) => {
+          totalBase += parseFloat(costo.subtotal || costo.importe || 0);
+        });
+      }
+    });
+
+    if (totalBase > 0) {
+      // 1. Aplicar honorarios
+      const porcentajeHonorarios = parseFloat(presupuesto.porcentajeHonorarios || presupuesto.porcentajeHonorariosEsperado || 0);
+      const totalHonorarios = totalBase * (porcentajeHonorarios / 100);
+      const subtotalConHonorarios = totalBase + totalHonorarios;
+
+      // 2. Aplicar mayores costos sobre (base + honorarios)
+      const porcentajeMayoresCostos = parseFloat(presupuesto.porcentajeMayoresCostos || 0);
+      const totalMayoresCostos = subtotalConHonorarios * (porcentajeMayoresCostos / 100);
+
+      // Total SIN IVA
+      return subtotalConHonorarios + totalMayoresCostos;
+    }
+  }
+
+  // Prioridad 3: totalPresupuestoConHonorarios
+  if (presupuesto.totalPresupuestoConHonorarios && presupuesto.totalPresupuestoConHonorarios > 0) {
+    return parseFloat(presupuesto.totalPresupuestoConHonorarios);
+  }
+
+  // Prioridad 4: valorTotal
+  if (presupuesto.valorTotal && presupuesto.valorTotal > 0) {
+    return parseFloat(presupuesto.valorTotal);
+  }
+
+  // Prioridad 5: totalPresupuesto + honorarios
+  if (presupuesto.totalPresupuesto && presupuesto.totalPresupuesto > 0) {
+    return parseFloat(presupuesto.totalPresupuesto) + parseFloat(presupuesto.totalHonorariosCalculado || 0);
+  }
+
+  return 0;
+};
 
 /**
- * Hook para cargar y calcular estadísticas de obras específicamente seleccionadas
+ * Hook para cargar y calcular estadsticas de obras especficamente seleccionadas
  * Similar a useEstadisticasConsolidadas pero solo para obras con checkbox activo
  */
 export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, empresaId, refreshTrigger) => {
@@ -16,7 +96,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
   const [estadisticas, setEstadisticas] = useState({
     totalPresupuesto: 0,
     totalCobrado: 0,
-    totalCobradoEmpresa: 0, // 🆕 Total cobrado a nivel empresa
+    totalCobradoEmpresa: 0, //  Total cobrado a nivel empresa
     totalAsignado: 0,
     saldoCobradoSinAsignar: 0,
     totalPagado: 0,
@@ -60,7 +140,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
     setError(null);
 
     try {
-      console.log('🔍 [ObrasSeleccionadas] Cargando datos de', presupuestosSeleccionados.length, 'obras seleccionadas');
+      console.log(' [ObrasSeleccionadas] Cargando datos de', presupuestosSeleccionados.length, 'obras seleccionadas');
 
       // Separar obras que tienen presupuesto de las que no (obras independientes y trabajos adicionales)
       const obrasConPresupuesto = presupuestosSeleccionados.filter(p =>
@@ -70,7 +150,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         p.esObraIndependiente || p._esTrabajoAdicional
       );
 
-      console.log('📋 [ObrasSeleccionadas] Desglose:', {
+      console.log(' [ObrasSeleccionadas] Desglose:', {
         total: presupuestosSeleccionados.length,
         conPresupuesto: obrasConPresupuesto.length,
         sinPresupuesto: obrasSinPresupuesto.length,
@@ -99,8 +179,19 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           materialesAsignados: obra.materialesAsignados || [],
           gastosGeneralesAsignados: obra.gastosGeneralesAsignados || []
         }))
+      ];
 
-      );
+      // -----------------------------------------------------------------------
+      // SISTEMA UNIFICADO: Cargar estadisticas para TODAS las entidades
+      // Incluye OBRA_PRINCIPAL, OBRA_INDEPENDIENTE, TRABAJO_EXTRA, TRABAJO_ADICIONAL
+      // -----------------------------------------------------------------------
+      let estadisticasUnificadas = [];
+      try {
+        estadisticasUnificadas = await cargarEstadisticasParaEntidades(empresaId, presupuestosSeleccionados);
+        console.log('[ObrasSeleccionadas] Estadisticas unificadas cargadas:', estadisticasUnificadas.length, 'entidades');
+      } catch (estadError) {
+        console.warn('[ObrasSeleccionadas] Sistema unificado no disponible (backend pendiente de deploy):', estadError?.message);
+      }
 
       // Cargar cobros de cada obra
       const cobrosPromises = presupuestosSeleccionados.map(async (presupuesto) => {
@@ -128,7 +219,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           }
           return listarPagosConsolidadosPorPresupuesto(p.id, empresaId)
             .catch(err => {
-              console.warn(`⚠️ Error cargando pagos para presupuesto ${p.id}:`, err);
+              console.warn(` Error cargando pagos para presupuesto ${p.id}:`, err);
               return [];
             });
         })
@@ -149,35 +240,48 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       let totalPresupuesto = 0;
       let totalPagado = 0;
 
-      // 🆕 Obtener el total REAL cobrado (solo cobros que pertenecen a obras seleccionadas)
+      // -----------------------------------------------------------------------
+      // TOTAL COBRADO: Usar sistema unificado si esta disponible; si no, fallback al sistema legacy
+      // El sistema unificado cubre los 4 tipos de entidad
+      // El sistema legacy solo cubre OBRA_PRINCIPAL (filtrado por presupuestoNoClienteId)
+      // -----------------------------------------------------------------------
       let totalCobrado = 0;
-      try {
-        const response = await api.get('/api/v1/cobros-obra', { params: { empresaId } });
-        const todosLosCobros = Array.isArray(response) ? response :
-          response?.data ? response.data :
-          response?.cobros ? response.cobros : [];
 
-        // 🔧 Filtrar solo cobros de las obras seleccionadas
-        const presupuestosIds = presupuestosSeleccionados.map(p => p.id);
-        const cobrosObrasSeleccionadas = todosLosCobros.filter(c =>
-          presupuestosIds.includes(c.presupuestoNoClienteId)
+      if (estadisticasUnificadas.length > 0) {
+        // FUENTE PRIMARIA: sistema unificado de entidades financieras
+        totalCobrado = estadisticasUnificadas.reduce(
+          (sum, ef) => sum + (parseFloat(ef.totalCobrado) || 0),
+          0
         );
+        console.log(`[ObrasSeleccionadas] Total cobrado (sistema unificado, ${estadisticasUnificadas.length} entidades): $${totalCobrado.toLocaleString()}`);
+      } else {
+        // FALLBACK: cobros del sistema legacy, solo obras principales
+        try {
+          const response = await api.get('/api/v1/cobros-obra', { params: { empresaId } });
+          const todosLosCobros = Array.isArray(response) ? response :
+            response?.data ? response.data :
+            response?.cobros ? response.cobros : [];
 
-        const cobrosCobrados = cobrosObrasSeleccionadas.filter(c => c.estado === 'COBRADO' || c.estado === 'cobrado');
-        totalCobrado = cobrosCobrados.reduce((sum, c) => sum + (parseFloat(c.monto) || 0), 0);
-        console.log(`💰 [ObrasSeleccionadas] Total cobrado REAL de obras seleccionadas: $${totalCobrado.toLocaleString()}`);
-      } catch (error) {
-        console.warn(`⚠️ Error cargando cobros totales:`, error);
+          const presupuestosIds = presupuestosSeleccionados.map(p => p.id);
+          const cobrosObrasSeleccionadas = todosLosCobros.filter(c =>
+            presupuestosIds.includes(c.presupuestoNoClienteId)
+          );
+          const cobrosCobrados = cobrosObrasSeleccionadas.filter(c => c.estado === 'COBRADO' || c.estado === 'cobrado');
+          totalCobrado = cobrosCobrados.reduce((sum, c) => sum + (parseFloat(c.monto) || 0), 0);
+          console.log(`[ObrasSeleccionadas] Total cobrado (legacy, solo obras principales): $${totalCobrado.toLocaleString()}`);
+        } catch (error) {
+          console.warn('[ObrasSeleccionadas] Error cargando cobros (sistema legacy):', error);
+        }
       }
 
-      // 🆕 Obtener TODAS las asignaciones de la empresa una sola vez
+      //  Obtener TODAS las asignaciones de la empresa una sola vez
       let todasLasAsignaciones = [];
       try {
         const { obtenerTodasAsignaciones } = await import('../services/asignacionesCobroObraService');
         todasLasAsignaciones = await obtenerTodasAsignaciones(empresaId);
-        console.log(`📦 [ObrasSeleccionadas] Total de asignaciones: ${todasLasAsignaciones.length}`);
+        console.log(` [ObrasSeleccionadas] Total de asignaciones: ${todasLasAsignaciones.length}`);
       } catch (error) {
-        console.warn(`⚠️ Error cargando asignaciones:`, error);
+        console.warn(` Error cargando asignaciones:`, error);
       }
 
       for (let idx = 0; idx < todasLasObras.length; idx++) {
@@ -185,11 +289,11 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         const itemsCalculadora = presupuesto.itemsCalculadora || [];
         const nombreObra = presupuesto.nombreObra || presupuesto.direccionObra?.direccion || `Presupuesto #${presupuesto.numeroPresupuesto}`;
 
-        // Sumar al presupuesto total usando la misma lógica que consolidadas
+        // Sumar al presupuesto total usando la misma lgica que consolidadas
         const presupuestoObra = calcularTotalPresupuestoObra(presupuesto);
         totalPresupuesto += presupuestoObra;
 
-        // 🔥 USAR ENDPOINT DE RESUMEN FINANCIERO (igual que consolidadas)
+        //  USAR ENDPOINT DE RESUMEN FINANCIERO (igual que consolidadas)
         // Este endpoint incluye TODOS los tipos de pagos: profesionales, materiales, gastos generales
         let pagadoObra = 0;
         try {
@@ -197,16 +301,16 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           if (obraId) {
             const resumen = await api.get(`/api/v1/obras-financiero/${obraId}/resumen`, { params: { empresaId } });
             pagadoObra = resumen.totalPagadoGeneral || 0;
-            console.log(`  💸 [ObrasSeleccionadas] "${nombreObra}" (obraId=${obraId}): Total pagado=$${pagadoObra.toLocaleString()}`);
+            console.log(`   [ObrasSeleccionadas] "${nombreObra}" (obraId=${obraId}): Total pagado=$${pagadoObra.toLocaleString()}`);
           } else {
-            console.warn(`  ⚠️ [ObrasSeleccionadas] "${nombreObra}": No tiene obraId, usando pagos consolidados (pueden no incluir pagos individuales)`);
+            console.warn(`   [ObrasSeleccionadas] "${nombreObra}": No tiene obraId, usando pagos consolidados (pueden no incluir pagos individuales)`);
             const pagosObra = pagosMap[presupuesto.id] || [];
             pagadoObra = pagosObra
               .filter(p => p.estado === 'PAGADO')
               .reduce((sum, p) => sum + (parseFloat(p.montoNeto || p.montoBruto) || 0), 0);
           }
         } catch (error) {
-          console.warn(`  ⚠️ Error obteniendo resumen financiero de obra ${presupuesto.obraId}:`, error);
+          console.warn(`   Error obteniendo resumen financiero de obra ${presupuesto.obraId}:`, error);
           // Fallback a pagos consolidados
           const pagosObra = pagosMap[presupuesto.id] || [];
           pagadoObra = pagosObra
@@ -320,7 +424,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                 itemCalculadoraId: item.id,
                 otroCostoCalculadoraId: costo.id,
                 nombreObra: nombreObra,
-                descripcion: costo.descripcion || 'Sin descripción',
+                descripcion: costo.descripcion || 'Sin descripcin',
                 precioTotal: costo.subtotal || 0,
                 totalPagado: totalPagadoCosto,
                 saldoPendiente: saldoPendiente,
@@ -332,9 +436,9 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         });
       }
 
-      // 🔧 AGREGAR PAGOS DE TRABAJOS EXTRA (solo de las obras seleccionadas)
+      //  AGREGAR PAGOS DE TRABAJOS EXTRA (solo de las obras seleccionadas)
       let totalPagadoTrabajosExtra = 0;
-      let pagosTrabajosExtraPorObra = {}; // 🆕 Mapa para agrupar por obraId
+      let pagosTrabajosExtraPorObra = {}; //  Mapa para agrupar por obraId
 
       try {
         const pagosTrabajosExtra = await api.pagosTrabajoExtra.getByEmpresa(empresaId);
@@ -345,7 +449,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           presupuestosIds.includes(p.presupuestoNoClienteId)
         );
 
-        // 🆕 Agrupar trabajos extra por obraId
+        //  Agrupar trabajos extra por obraId
         pagosFiltrados.filter(p => p.estado === 'PAGADO').forEach(pago => {
           const obraId = pago.obraId;
           if (!pagosTrabajosExtraPorObra[obraId]) {
@@ -360,12 +464,12 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         // Sumar trabajos extra al total general
         totalPagado += totalPagadoTrabajosExtra;
       } catch (error) {
-        console.warn('⚠️ No se pudieron cargar pagos de trabajos extra:', error);
+        console.warn(' No se pudieron cargar pagos de trabajos extra:', error);
       }
 
-      // Calcular estadísticas
+      // Calcular estadsticas
 
-      // 🆕 Obtener total retirado y desglose por obra
+      //  Obtener total retirado y desglose por obra
       let totalRetirado = 0;
       let retirosPorObra = {}; // { obraId: monto }
       let retirosGenerales = 0;
@@ -385,7 +489,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           .forEach(retiro => {
             const monto = parseFloat(retiro.monto) || 0;
 
-            // Si tiene obra específica (obraId existe y no es null)
+            // Si tiene obra especfica (obraId existe y no es null)
             if (retiro.obraId) {
               const obraId = retiro.obraId;
               if (!retirosPorObra[obraId]) {
@@ -398,30 +502,30 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
             }
           });
       } catch (error) {
-        console.error('❌ Error obteniendo retiros:', error);
+        console.error(' Error obteniendo retiros:', error);
         totalRetirado = 0;
       }
 
-      // 🆕 Obtener totales de cobros a nivel empresa
+      //  Obtener totales de cobros a nivel empresa
       let totalCobradoEmpresa = 0;
       let saldoDisponibleEmpresa = 0;
       try {
         const resumenEmpresa = await obtenerResumenCobrosEmpresa(empresaId);
         totalCobradoEmpresa = parseFloat(resumenEmpresa?.totalCobrado || 0);
         saldoDisponibleEmpresa = parseFloat(resumenEmpresa?.totalDisponible || 0);
-        console.log('💰 [ObrasSeleccionadas] Cobros empresa:', {
+        console.log(' [ObrasSeleccionadas] Cobros empresa:', {
           totalCobrado: totalCobradoEmpresa,
           totalAsignado: resumenEmpresa?.totalAsignado,
           totalDisponible: saldoDisponibleEmpresa
         });
       } catch (error) {
-        console.error('❌ Error obteniendo cobros empresa (backend no implementado):', error.message);
-        console.warn('⚠️ Usando totalCobrado de obras como fallback temporal');
+        console.error(' Error obteniendo cobros empresa (backend no implementado):', error.message);
+        console.warn(' Usando totalCobrado de obras como fallback temporal');
         totalCobradoEmpresa = 0;
         saldoDisponibleEmpresa = 0;
       }
 
-      // 🆕 Calcular total asignado de cobros a rubros (solo de obras seleccionadas)
+      //  Calcular total asignado de cobros a rubros (solo de obras seleccionadas)
       let totalAsignado = 0;
       try {
         totalAsignado = todasLasAsignaciones
@@ -432,20 +536,20 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
             return esObraSeleccionada && (a.estado === 'ACTIVA' || a.estado === 'activa');
           })
           .reduce((sum, a) => sum + (parseFloat(a.montoAsignado) || 0), 0);
-        console.log('💰 [ObrasSeleccionadas] Total asignado a rubros:', totalAsignado);
+        console.log(' [ObrasSeleccionadas] Total asignado a rubros:', totalAsignado);
       } catch (error) {
-        console.error('❌ Error calculando total asignado:', error);
+        console.error(' Error calculando total asignado:', error);
         totalAsignado = 0;
       }
 
-      console.log('🔍 [ObrasSeleccionadas] Total Presupuesto BASE (sin trabajos extra):', totalPresupuesto.toLocaleString());
+      console.log(' [ObrasSeleccionadas] Total Presupuesto BASE (sin trabajos extra):', totalPresupuesto.toLocaleString());
 
-      // 🔧 Obtener IDs de presupuestos que YA son trabajos extra para evitar duplicados
+      //  Obtener IDs de presupuestos que YA son trabajos extra para evitar duplicados
       const idsPresupuestosTrabajosExtra = todasLasObras
         .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
         .map(p => p.id);
 
-      console.log('🔍 [ObrasSeleccionadas] Presupuestos que YA son trabajos extra:', {
+      console.log(' [ObrasSeleccionadas] Presupuestos que YA son trabajos extra:', {
         cantidad: idsPresupuestosTrabajosExtra.length,
         ids: idsPresupuestosTrabajosExtra,
         presupuestos: todasLasObras
@@ -453,7 +557,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           .map(p => ({ id: p.id, nombre: p.nombreObra, total: calcularTotalPresupuestoObra(p) }))
       });
 
-      // 🔧 Sumar trabajos extra al presupuesto total (solo los que NO están en presupuestos_no_cliente)
+      //  Sumar trabajos extra al presupuesto total (solo los que NO estn en presupuestos_no_cliente)
       let totalTrabajosExtra = 0;
       const obraIds = todasLasObras.map(p => p.obraId || p.direccionObraId).filter(Boolean);
 
@@ -469,9 +573,9 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                   const fullResponse = await api.trabajosExtra.getById(trabajo.id, empresaId);
                   const fullTrabajo = fullResponse.data || fullResponse;
 
-                  // 🔥 EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
+                  //  EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
                   if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
-                    console.log(`  ⚠️ [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" (ID: ${fullTrabajo.id}) YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, omitiendo`);
+                    console.log(`   [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" (ID: ${fullTrabajo.id}) YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, omitiendo`);
                     return null; // Marcarlo para filtrarlo
                   }
 
@@ -529,7 +633,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
               return totalObra;
             } catch (error) {
-              console.warn(`⚠️ Error cargando trabajos extra de obra ${obraId}:`, error);
+              console.warn(` Error cargando trabajos extra de obra ${obraId}:`, error);
               return 0;
             }
           });
@@ -537,11 +641,11 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           const totalesPorObra = await Promise.all(trabajosExtraPromises);
           totalTrabajosExtra = totalesPorObra.reduce((sum, total) => sum + total, 0);
 
-          console.log('🔍 [ObrasSeleccionadas] Total trabajos extra:', totalTrabajosExtra.toLocaleString());
+          console.log(' [ObrasSeleccionadas] Total trabajos extra:', totalTrabajosExtra.toLocaleString());
           totalPresupuesto += totalTrabajosExtra;
-          console.log('🔍 [ObrasSeleccionadas] Total Presupuesto FINAL (base + trabajos extra):', totalPresupuesto.toLocaleString());
+          console.log(' [ObrasSeleccionadas] Total Presupuesto FINAL (base + trabajos extra):', totalPresupuesto.toLocaleString());
         } catch (error) {
-          console.warn('⚠️ Error cargando trabajos extra:', error);
+          console.warn(' Error cargando trabajos extra:', error);
         }
       }
 
@@ -551,7 +655,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       const porcentajePagado = totalPresupuesto > 0 ? (totalPagado / totalPresupuesto) * 100 : 0;
       const porcentajeDisponible = totalPresupuesto > 0 ? (saldoDisponible / totalPresupuesto) * 100 : 0;
 
-      console.log(`💰 [ObrasSeleccionadas] Métricas finales:`, {
+      console.log(` [ObrasSeleccionadas] Mtricas finales:`, {
         totalCobradoEmpresa,
         totalAsignado,
         saldoCobradoSinAsignar,
@@ -560,15 +664,15 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         saldoDisponible
       });
 
-      // 🆕 Generar desglose por obra para el modal
+      //  Generar desglose por obra para el modal
       const desglosePorObra = [];
 
-      // 🔥 Obtener resumen financiero de cada obra para tener los pagos reales
+      //  Obtener resumen financiero de cada obra para tener los pagos reales
       for (const presupuesto of presupuestosCompletos) {
         const nombreObra = presupuesto.nombreObra || presupuesto.direccionObra?.direccion || `Presupuesto #${presupuesto.numeroPresupuesto}`;
         const totalPresupuestoObra = calcularTotalPresupuestoObra(presupuesto);
 
-        // 🆕 Sumar asignaciones de esta obra (cobros asignados)
+        //  Sumar asignaciones de esta obra (cobros asignados)
         const asignacionesObra = todasLasAsignaciones.filter(a =>
           a.presupuestoNoClienteId === presupuesto.id || a.obraId === presupuesto.obraId
         );
@@ -576,7 +680,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         const cobradoObra = asignacionesActivas
           .reduce((sum, a) => sum + parseFloat(a.montoAsignado || 0), 0);
 
-        // 🔥 Obtener pagos REALES de esta obra desde el endpoint de resumen financiero
+        //  Obtener pagos REALES de esta obra desde el endpoint de resumen financiero
         let pagadoObra = 0;
         let trabajosExtraObra = [];
         try {
@@ -585,11 +689,11 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
             const resumen = await api.get(`/api/v1/obras-financiero/${obraId}/resumen`, { empresaId });
             pagadoObra = resumen.totalPagadoGeneral || 0;
 
-            // 🆕 Agregar trabajos extra de esta obra
+            //  Agregar trabajos extra de esta obra
             const pagadoTrabajosExtraObra = pagosTrabajosExtraPorObra[obraId] || 0;
             pagadoObra += pagadoTrabajosExtraObra;
 
-            // 🆕 Cargar trabajos extra de esta obra para el desglose
+            //  Cargar trabajos extra de esta obra para el desglose
             try {
               const response = await api.trabajosExtra.getAll(empresaId, { obraId });
               const trabajos = Array.isArray(response) ? response : response?.data || [];
@@ -599,10 +703,10 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                   const fullResponse = await api.trabajosExtra.getById(trabajo.id, empresaId);
                   const fullTrabajo = fullResponse.data || fullResponse;
 
-                  // 🔥 EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
+                  //  EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
                   if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
-                    console.log(`  ⚠️ [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, marcado para omitir`);
-                    return null; // Marcarlo para filtrarlo después
+                    console.log(`   [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, marcado para omitir`);
+                    return null; // Marcarlo para filtrarlo despus
                   }
 
                   // Calcular total del trabajo extra
@@ -655,9 +759,9 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                     totalCalculado
                   };
                 } catch (err) {
-                  // 🔥 EVITAR DUPLICADOS: Verificar también en el catch
+                  //  EVITAR DUPLICADOS: Verificar tambin en el catch
                   if (trabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(trabajo.presupuestoNoClienteId)) {
-                    console.log(`  ⚠️ [ObrasSeleccionadas] Trabajo extra ${trabajo.id} (error) YA fue contado como presupuesto ${trabajo.presupuestoNoClienteId}, omitiendo`);
+                    console.log(`   [ObrasSeleccionadas] Trabajo extra ${trabajo.id} (error) YA fue contado como presupuesto ${trabajo.presupuestoNoClienteId}, omitiendo`);
                     return null;
                   }
 
@@ -668,20 +772,20 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                 }
               }));
 
-              // 🔥 Filtrar trabajos extra que ya fueron contados como presupuestos
+              //  Filtrar trabajos extra que ya fueron contados como presupuestos
               trabajosExtraObra = trabajosExtraObra.filter(te => te !== null);
             } catch (error) {
-              console.warn(`⚠️ Error cargando trabajos extra de obra ${obraId}:`, error);
+              console.warn(` Error cargando trabajos extra de obra ${obraId}:`, error);
             }
           }
         } catch (error) {
-          console.error(`❌ Error obteniendo pagos de obra ${presupuesto.id}:`, error);
+          console.error(` Error obteniendo pagos de obra ${presupuesto.id}:`, error);
           pagadoObra = 0;
         }
 
         desglosePorObra.push({
           id: presupuesto.id,
-          obraId: presupuesto.obraId, // 🆕 Agregar obraId
+          obraId: presupuesto.obraId, //  Agregar obraId
           nombreObra,
           numeroPresupuesto: presupuesto.numeroPresupuesto,
           estado: presupuesto.estado,
@@ -693,11 +797,49 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           cantidadPagos: 0,
           cobrosPendientes: asignacionesObra.filter(a => a.estado === 'PENDIENTE' || a.estado === 'pendiente').length,
           pagosPendientes: 0,
-          trabajosExtra: trabajosExtraObra // 🆕 Agregar trabajos extra al desglose
+          trabajosExtra: trabajosExtraObra //  Agregar trabajos extra al desglose
         });
       }
 
-      // 🆕 Distribuir retiros generales proporcionalmente entre todas las obras
+      // -----------------------------------------------------------------------
+      // DESGLOSE OBRAS SIN PRESUPUESTO (OBRA_INDEPENDIENTE y TRABAJO_ADICIONAL)
+      // Usando estadisticas del sistema unificado porque no tienen presupuesto vinculado
+      // -----------------------------------------------------------------------
+      for (const obra of obrasSinPresupuesto) {
+        const nombreObra = obra.nombreObra || obra.nombre || `Entidad #${obra.id}`;
+        const tipoEntidad = inferirTipoEntidad(obra);
+
+        // La entidadId en la tabla original depende del tipo
+        const entidadIdOriginal =
+          tipoEntidad === 'OBRA_INDEPENDIENTE'
+            ? (obra.obraId || obra.direccionObraId || obra.id)
+            : obra.id;
+
+        // Buscar estadisticas en el sistema unificado
+        const statsEntidad = estadisticasUnificadas.find(
+          ef => ef.tipoEntidad === tipoEntidad && ef.entidadId === entidadIdOriginal
+        );
+
+        desglosePorObra.push({
+          id: obra.id,
+          obraId: obra.obraId || obra.id,
+          nombreObra,
+          tipoEntidad,
+          esObraIndependiente: obra.esObraIndependiente || false,
+          esTrabajoAdicional: obra._esTrabajoAdicional || false,
+          totalPresupuesto: statsEntidad?.presupuestoAprobado ?? 0,
+          totalCobrado: statsEntidad?.totalCobrado ?? 0,
+          totalPagado: statsEntidad?.totalGastos ?? 0,
+          saldoDisponible: statsEntidad?.saldo ?? 0,
+          cantidadCobros: 0,
+          cantidadPagos: 0,
+          cobrosPendientes: 0,
+          pagosPendientes: 0,
+          trabajosExtra: []
+        });
+      }
+
+      //  Distribuir retiros generales proporcionalmente entre todas las obras
       const cantidadObras = desglosePorObra.length;
       const retiroGeneralPorObra = cantidadObras > 0 ? retirosGenerales / cantidadObras : 0;
 
@@ -717,23 +859,23 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       if (saldoDisponible < 0) {
         alertas.push({
           tipo: 'danger',
-          icono: '🚨',
-          titulo: 'Déficit Financiero',
-          mensaje: `Has pagado $${Math.abs(saldoDisponible).toLocaleString('es-AR')} más de lo cobrado`,
+          icono: '',
+          titulo: 'Dficit Financiero',
+          mensaje: `Has pagado $${Math.abs(saldoDisponible).toLocaleString('es-AR')} ms de lo cobrado`,
           accion: 'Necesitas cobrar urgentemente'
         });
       }
       if (porcentajeCobrado < 50 && totalPresupuesto > 0) {
         alertas.push({
           tipo: 'warning',
-          icono: '⚠️',
+          icono: '',
           titulo: 'Bajo Porcentaje de Cobro',
           mensaje: `Solo has cobrado el ${porcentajeCobrado.toFixed(1)}% del presupuesto total`,
-          accion: 'Considera gestionar más cobros'
+          accion: 'Considera gestionar ms cobros'
         });
       }
 
-      console.log('✅ [ObrasSeleccionadas] Datos cargados:', {
+      console.log(' [ObrasSeleccionadas] Datos cargados:', {
         profesionales: todosProfesionales.length,
         materiales: todosMateriales.length,
         otrosCostos: todosOtrosCostos.length,
@@ -748,23 +890,23 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       setOtrosCostos(todosOtrosCostos);
       setEstadisticas({
         totalPresupuesto,
-        totalCobrado, // 🔧 Siempre usar el total real de cobros (no asignaciones)
-        totalCobradoEmpresa, // 🆕 Total cobrado a nivel empresa
-        totalAsignado, // 🆕 Total asignado a rubros
-        saldoCobradoSinAsignar: saldoDisponibleEmpresa, // 🆕 Cobrado sin asignar
+        totalCobrado, //  Siempre usar el total real de cobros (no asignaciones)
+        totalCobradoEmpresa, //  Total cobrado a nivel empresa
+        totalAsignado, //  Total asignado a rubros
+        saldoCobradoSinAsignar: saldoDisponibleEmpresa, //  Cobrado sin asignar
         totalPagado,
         totalRetirado,
-        saldoDisponible, // 🔧 Calculado con el total real
-        porcentajeCobrado, // 🔧 Calculado con el total real
+        saldoDisponible, //  Calculado con el total real
+        porcentajeCobrado, //  Calculado con el total real
         porcentajePagado,
-        porcentajeDisponible, // 🔧 Calculado con el total real
+        porcentajeDisponible, //  Calculado con el total real
         cantidadObras: presupuestosSeleccionados.length,
         alertas,
-        desglosePorObra: desglosePorObraConSaldo // 🆕 Usar versión con retiros distribuidos
+        desglosePorObra: desglosePorObraConSaldo //  Usar versin con retiros distribuidos
       });
 
     } catch (err) {
-      console.error('❌ [ObrasSeleccionadas] Error al cargar datos:', err);
+      console.error(' [ObrasSeleccionadas] Error al cargar datos:', err);
       setError(err.message || 'Error al cargar datos de obras seleccionadas');
     } finally {
       setLoading(false);
@@ -775,21 +917,21 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
     cargarDatosSeleccionados();
   }, [cargarDatosSeleccionados, refreshTrigger]);
 
-  // 🆕 Escuchar eventos financieros para actualizar estadísticas automáticamente
+  //  Escuchar eventos financieros para actualizar estadsticas automticamente
   useEffect(() => {
     if (!empresaId || !presupuestosSeleccionados || presupuestosSeleccionados.length === 0) return;
 
     let debounceTimer = null;
 
     const handleFinancialEvent = (eventData) => {
-      console.log('🔔 [useEstadisticasObrasSeleccionadas] Evento financiero recibido:', eventData);
+      console.log(' [useEstadisticasObrasSeleccionadas] Evento financiero recibido:', eventData);
 
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
 
       debounceTimer = setTimeout(() => {
-        console.log('🔄 [useEstadisticasObrasSeleccionadas] Recargando estadísticas...');
+        console.log(' [useEstadisticasObrasSeleccionadas] Recargando estadsticas...');
         cargarDatosSeleccionados();
       }, 500);
     };
@@ -822,80 +964,4 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
     error,
     refetch: cargarDatosSeleccionados
   };
-};
-
-// Función helper para calcular total del presupuesto (mismo orden de prioridad que consolidadas)
-const calcularTotalPresupuestoObra = (presupuesto) => {
-  // Prioridad 1: totalFinal
-  if (presupuesto.totalFinal && presupuesto.totalFinal > 0) {
-    return parseFloat(presupuesto.totalFinal);
-  }
-
-  // Prioridad 2: valorTotalIva
-  if (presupuesto.valorTotalIva && presupuesto.valorTotalIva > 0) {
-    return parseFloat(presupuesto.valorTotalIva);
-  }
-
-  // Prioridad 3: Calcular desde itemsCalculadora
-  const itemsCalculadora = presupuesto.itemsCalculadora || [];
-  if (itemsCalculadora.length > 0) {
-    let totalBase = 0;
-
-    itemsCalculadora.forEach((item) => {
-      // Jornales del item
-      const cantidadJornales = parseFloat(item.cantidadJornales || 0);
-      const importeJornal = parseFloat(item.importeJornal || 0);
-      totalBase += cantidadJornales * importeJornal;
-
-      // Profesionales
-      if (item.profesionales && Array.isArray(item.profesionales)) {
-        item.profesionales.forEach((prof) => {
-          totalBase += parseFloat(prof.subtotal || 0);
-        });
-      }
-      // Materiales
-      if (item.materialesLista && Array.isArray(item.materialesLista)) {
-        item.materialesLista.forEach((mat) => {
-          totalBase += parseFloat(mat.subtotal || 0);
-        });
-      }
-      // Otros costos
-      if (item.otrosCostos && Array.isArray(item.otrosCostos)) {
-        item.otrosCostos.forEach((costo) => {
-          totalBase += parseFloat(costo.subtotal || costo.importe || 0);
-        });
-      }
-    });
-
-    if (totalBase > 0) {
-      // 1. Aplicar honorarios
-      const porcentajeHonorarios = parseFloat(presupuesto.porcentajeHonorarios || presupuesto.porcentajeHonorariosEsperado || 0);
-      const totalHonorarios = totalBase * (porcentajeHonorarios / 100);
-      const subtotalConHonorarios = totalBase + totalHonorarios;
-
-      // 2. Aplicar mayores costos sobre (base + honorarios)
-      const porcentajeMayoresCostos = parseFloat(presupuesto.porcentajeMayoresCostos || 0);
-      const totalMayoresCostos = subtotalConHonorarios * (porcentajeMayoresCostos / 100);
-
-      // Total SIN IVA
-      return subtotalConHonorarios + totalMayoresCostos;
-    }
-  }
-
-  // Prioridad 3: totalPresupuestoConHonorarios
-  if (presupuesto.totalPresupuestoConHonorarios && presupuesto.totalPresupuestoConHonorarios > 0) {
-    return parseFloat(presupuesto.totalPresupuestoConHonorarios);
-  }
-
-  // Prioridad 4: valorTotal
-  if (presupuesto.valorTotal && presupuesto.valorTotal > 0) {
-    return parseFloat(presupuesto.valorTotal);
-  }
-
-  // Prioridad 5: totalPresupuesto + honorarios
-  if (presupuesto.totalPresupuesto && presupuesto.totalPresupuesto > 0) {
-    return parseFloat(presupuesto.totalPresupuesto) + parseFloat(presupuesto.totalHonorariosCalculado || 0);
-  }
-
-  return 0;
 };

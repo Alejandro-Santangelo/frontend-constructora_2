@@ -39,6 +39,10 @@ export const setCurrentEmpresaId = (empresaId) => {
   console.log('✅ [API] EmpresaId actualizada:', currentEmpresaId);
 };
 
+// Funcion para obtener el empresaId actual (tenant activo)
+// Usada por servicios que necesitan el tenant sin recibirlo como parametro
+export const getCurrentEmpresaId = () => currentEmpresaId;
+
 // Función para obtener la empresa seleccionada (sin localStorage)
 const getEmpresaSeleccionada = () => {
   return currentEmpresaId;

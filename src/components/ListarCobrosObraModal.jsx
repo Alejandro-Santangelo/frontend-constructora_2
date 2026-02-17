@@ -20,6 +20,7 @@ import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoConsolidado, obrasSeleccionadas, obrasDisponibles, refreshTrigger }) => {
   const { empresaSeleccionada } = useEmpresa();
   const [cobros, setCobros] = useState([]);
+  const [entidades, setEntidades] = useState([]);
   const [direccionSeleccionada, setDireccionSeleccionada] = useState(obraDireccion || null);
   const [totalPresupuesto, setTotalPresupuesto] = useState(0);
   const [totalCobrado, setTotalCobrado] = useState(0);
@@ -300,6 +301,72 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
       );
 
       setCobros(cobrosConAsignaciones);
+
+      // 5b. Construir lista de entidades (se muestran TODAS aunque no tengan cobros)
+      {
+        const cobrosDeObraPorNombre = {};
+        cobrosConAsignaciones.filter(c => c.tipo === 'OBRA').forEach(c => {
+          const key = c.nombreObra;
+          if (!cobrosDeObraPorNombre[key]) cobrosDeObraPorNombre[key] = [];
+          cobrosDeObraPorNombre[key].push(c);
+        });
+        const cobrosEmpresaItems = cobrosConAsignaciones.filter(c => c.tipo === 'EMPRESA');
+        const entidadesBase = obrasACargar.flatMap(obra => {
+          const tipo = obra.esObraIndependiente ? 'OBRA_INDEPENDIENTE' : 'OBRA_PRINCIPAL';
+          const cobrosObra = cobrosDeObraPorNombre[obra.nombreObra] || [];
+          const obraEnt = {
+            id: obra.id,
+            tipo,
+            nombre: obra.nombreObra,
+            presupuesto: parseFloat(obra.totalPresupuesto || 0) +
+              (obra.trabajosExtra?.reduce((s, te) => s + (te.totalCalculado || 0), 0) || 0),
+            cobros: cobrosObra,
+            totalCobrado: cobrosObra.reduce((s, c) => s + parseFloat(c.monto || 0), 0),
+          };
+          const teEnt = (obra.trabajosExtra || []).map(te => ({
+            id: `te_${te.id}`,
+            tipo: 'TRABAJO_EXTRA',
+            nombre: te.nombre || `Trabajo Extra #${te.id}`,
+            presupuesto: parseFloat(te.totalCalculado || te.totalFinal || 0),
+            cobros: [],
+            totalCobrado: 0,
+            obraPadreNombre: obra.nombreObra,
+          }));
+          return [obraEnt, ...teEnt];
+        });
+        if (cobrosEmpresaItems.length > 0) {
+          entidadesBase.push({
+            id: 'empresa',
+            tipo: 'EMPRESA',
+            nombre: empresaSeleccionada?.razonSocial || 'Empresa',
+            presupuesto: 0,
+            cobros: cobrosEmpresaItems,
+            totalCobrado: cobrosEmpresaItems.reduce((s, c) => s + parseFloat(c.monto || 0), 0),
+          });
+        }
+        setEntidades(entidadesBase);
+        // Cargar trabajos adicionales (entidades sin presupuesto propio en este sistema)
+        try {
+          const { listarTrabajosAdicionales: listarTA } = await import('../services/trabajosAdicionalesService');
+          const tas = await listarTA(empresaSeleccionada.id);
+          if (Array.isArray(tas) && tas.length > 0) {
+            setEntidades(prev => [
+              ...prev,
+              ...tas.map(ta => ({
+                id: `ta_${ta.id}`,
+                tipo: 'TRABAJO_ADICIONAL',
+                nombre: ta.nombre || ta.descripcion || `Trabajo Adicional #${ta.id}`,
+                presupuesto: parseFloat(ta.montoTotal || ta.total || ta.monto || 0),
+                cobros: [],
+                totalCobrado: 0,
+                obraId: ta.obraId,
+              }))
+            ]);
+          }
+        } catch (err) {
+          console.warn('⚠️ Trabajos adicionales no disponibles:', err.message);
+        }
+      }
 
       // 5. Calcular totales
       // Total Cobrado = el TOTAL COBRADO a la empresa (no las asignaciones)
@@ -802,16 +869,131 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                       <span className="visually-hidden">Cargando...</span>
                     </div>
                   </div>
+                ) : modoConsolidado ? (
+                  /* ── MODO CONSOLIDADO: una tarjeta por entidad ── */
+                  entidades.length === 0 ? (
+                    <div className="alert alert-info">
+                      No hay entidades registradas{haySeleccionParcial ? ' para las obras seleccionadas' : ''}.
+                    </div>
+                  ) : (
+                    <div style={{maxHeight: '600px', overflowY: 'auto'}}>
+                      {entidades.map((entidad, idx) => {
+                        const cobrosEntidad = entidad.cobros.filter(c =>
+                          filtroEstado === 'TODOS' || c.estado?.toUpperCase() === filtroEstado
+                        );
+                        const tipoBadge = {
+                          OBRA_PRINCIPAL:     { label: 'Obra Principal',     color: 'primary'           },
+                          OBRA_INDEPENDIENTE: { label: 'Obra Independiente', color: 'info'              },
+                          TRABAJO_EXTRA:      { label: 'Trabajo Extra',      color: 'warning text-dark' },
+                          TRABAJO_ADICIONAL:  { label: 'Trabajo Adicional',  color: 'secondary'         },
+                          EMPRESA:            { label: 'Cobros Empresa',     color: 'dark'              },
+                        }[entidad.tipo] || { label: entidad.tipo, color: 'secondary' };
+
+                        return (
+                          <div key={`ent_${entidad.id}_${idx}`} className="card mb-2">
+                            <div className="card-header py-2 d-flex justify-content-between align-items-center">
+                              <div>
+                                <span className={`badge bg-${tipoBadge.color} me-2`}>{tipoBadge.label}</span>
+                                <strong>{entidad.nombre}</strong>
+                                {entidad.obraPadreNombre && (
+                                  <small className="text-muted ms-2">(de: {entidad.obraPadreNombre})</small>
+                                )}
+                              </div>
+                              <div className="d-flex gap-3 text-end">
+                                {entidad.presupuesto > 0 && (
+                                  <div>
+                                    <small className="text-muted d-block" style={{fontSize:'0.7rem'}}>Presupuesto</small>
+                                    <span className="fw-bold text-primary">{formatearMoneda(entidad.presupuesto)}</span>
+                                  </div>
+                                )}
+                                <div>
+                                  <small className="text-muted d-block" style={{fontSize:'0.7rem'}}>Cobrado</small>
+                                  <span className={`fw-bold ${entidad.totalCobrado > 0 ? 'text-success' : 'text-muted'}`}>
+                                    {formatearMoneda(entidad.totalCobrado)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            {cobrosEntidad.length === 0 ? (
+                              <div className="card-body py-2 text-muted small">
+                                <i className="bi bi-dash-circle me-1"></i>
+                                {filtroEstado !== 'TODOS'
+                                  ? `Sin cobros en estado "${filtroEstado.toLowerCase()}"`
+                                  : 'Sin cobros registrados — $0 cobrado'}
+                              </div>
+                            ) : (
+                              <div className="table-responsive">
+                                <table className="table table-sm table-hover mb-0">
+                                  <thead className="table-light">
+                                    <tr>
+                                      <th>Fecha</th>
+                                      <th>Descripción</th>
+                                      <th>Monto</th>
+                                      <th>Vencimiento</th>
+                                      <th>Método</th>
+                                      <th>Estado</th>
+                                      <th>Acciones</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {cobrosEntidad.map(cobro => {
+                                      const estadoInfo = obtenerEstadoCobro(cobro);
+                                      const vencido = estaVencido(cobro);
+                                      return (
+                                        <tr key={cobro.id} className={vencido ? 'table-danger' : ''}>
+                                          <td>{formatearFecha(cobro.fechaEmision)}</td>
+                                          <td>
+                                            {cobro.descripcion}
+                                            {cobro.numeroComprobante && (
+                                              <div className="text-muted small">N° {cobro.numeroComprobante}</div>
+                                            )}
+                                          </td>
+                                          <td className="fw-bold">{formatearMoneda(cobro.monto)}</td>
+                                          <td>
+                                            {cobro.fechaVencimiento ? (
+                                              <>{formatearFecha(cobro.fechaVencimiento)}{vencido && <div className="text-danger small">¡Vencido!</div>}</>
+                                            ) : (
+                                              <span className="text-muted">Sin vencimiento</span>
+                                            )}
+                                          </td>
+                                          <td>{cobro.metodoPago || '-'}</td>
+                                          <td>
+                                            <span className={`badge bg-${estadoInfo.color}`}>{estadoInfo.icon} {estadoInfo.label}</span>
+                                          </td>
+                                          <td>
+                                            <div className="btn-group btn-group-sm" role="group">
+                                              {cobro.estado === 'PENDIENTE' && (
+                                                <button className="btn btn-success" onClick={() => handleMarcarCobrado(cobro.id)} title="Marcar como cobrado">✓</button>
+                                              )}
+                                              {['PENDIENTE','COBRADO'].includes(cobro.estado?.toUpperCase()) && (
+                                                <button className="btn btn-warning" onClick={() => handleAnular(cobro.id)} title="Anular cobro">✗</button>
+                                              )}
+                                              <button className="btn btn-danger" onClick={() => handleEliminar(cobro.id)} title="Eliminar cobro">🗑️</button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
                 ) : cobrosFiltrados.length === 0 ? (
+                  /* ── MODO INDIVIDUAL sin cobros ── */
                   <div className="alert alert-info">
                     No hay cobros registrados{filtroEstado !== 'TODOS' ? ` en estado ${filtroEstado.toLowerCase()}` : ''}.
                   </div>
                 ) : (
+                  /* ── MODO INDIVIDUAL con cobros ── */
                   <div className="table-responsive" style={{maxHeight: '400px', overflowY: 'auto'}}>
                     <table className="table table-hover table-bordered">
                       <thead className="table-light sticky-top">
                         <tr>
-                          {modoConsolidado && <th>Obra</th>}
                           <th>Fecha Emisión</th>
                           <th>Descripción</th>
                           <th>Monto</th>
@@ -822,82 +1004,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                         </tr>
                       </thead>
                       <tbody>
-                        {modoConsolidado ? (
-                          // Modo consolidado: Agrupar por obra
-                          (() => {
-                            const gruposObra = agruparPorObra(cobrosFiltrados);
-                            return Object.entries(gruposObra).map(([nombreObra, cobrosObra]) => (
-                              <React.Fragment key={nombreObra}>
-                                {/* Cobros de esta obra */}
-                                {cobrosObra.map(cobro => {
-                                  const estadoInfo = obtenerEstadoCobro(cobro);
-                                  const vencido = estaVencido(cobro);
-
-                                  return (
-                                    <tr key={cobro.id} className={vencido ? 'table-danger' : ''}>
-                                      <td><small className="text-muted">↳</small></td>
-                                      <td>{formatearFecha(cobro.fechaEmision)}</td>
-                                      <td>
-                                        {cobro.descripcion}
-                                        {cobro.numeroComprobante && (
-                                          <div className="text-muted small">
-                                            N° {cobro.numeroComprobante}
-                                          </div>
-                                        )}
-                                      </td>
-                                      <td className="fw-bold">{formatearMoneda(cobro.monto)}</td>
-                                      <td>
-                                        {cobro.fechaVencimiento ? (
-                                          <>
-                                            {formatearFecha(cobro.fechaVencimiento)}
-                                            {vencido && <div className="text-danger small">¡Vencido!</div>}
-                                          </>
-                                        ) : (
-                                          <span className="text-muted">Sin vencimiento</span>
-                                        )}
-                                      </td>
-                                      <td>{cobro.metodoPago || '-'}</td>
-                                      <td>
-                                        <span className={`badge bg-${estadoInfo.color}`}>
-                                          {estadoInfo.icon} {estadoInfo.label}
-                                        </span>
-                                      </td>
-                                      <td>
-                                        <div className="btn-group btn-group-sm" role="group">
-                                          {cobro.estado === 'PENDIENTE' && (
-                                            <button
-                                              className="btn btn-success"
-                                              onClick={() => handleMarcarCobrado(cobro.id)}
-                                              title="Marcar como cobrado"
-                                            >
-                                              ✓
-                                            </button>
-                                          )}
-                                          {(cobro.estado?.toUpperCase() === 'PENDIENTE' || cobro.estado?.toUpperCase() === 'COBRADO') && (
-                                            <button
-                                              className="btn btn-warning"
-                                              onClick={() => handleAnular(cobro.id)}
-                                              title="Anular cobro"
-                                            >
-                                              ✗
-                                            </button>
-                                          )}
-                                          <button
-                                            className="btn btn-danger"
-                                            onClick={() => handleEliminar(cobro.id)}
-                                            title="Eliminar cobro"
-                                          >
-                                            🗑️
-                                          </button>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </React.Fragment>
-                            ));
-                          })()
-                        ) : (
+                        {(
                           // Modo individual: Sin agrupación
                           cobrosFiltrados.map(cobro => {
                             const estadoInfo = obtenerEstadoCobro(cobro);

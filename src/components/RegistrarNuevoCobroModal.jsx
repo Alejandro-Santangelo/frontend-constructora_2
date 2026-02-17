@@ -1,6 +1,10 @@
 import React, { useState, useEffect, memo, useCallback } from 'react';
 import { registrarCobro, formatearMoneda, formatearFecha } from '../services/cobrosObraService';
 import { registrarCobroEmpresa, asignarCobroAObras } from '../services/cobrosEmpresaService';
+import {
+  registrarCobro as registrarCobroUnificado,
+  resolverEntidadFinancieraId
+} from '../services/entidadesFinancierasService';
 import { useEmpresa } from '../EmpresaContext';
 import api from '../services/api';
 import DireccionObraSelector from './DireccionObraSelector';
@@ -595,6 +599,33 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
     }));
   };
 
+  // -----------------------------------------------------------------------
+  // Helper: registrar el cobro en el sistema unificado de entidades financieras
+  // Es fire-and-forget: si el backend nuevo no esta desplegado, solo loguea warning
+  // -----------------------------------------------------------------------
+  const _registrarEnSistemaUnificado = async (empresaId, obraTipo, entidadId, monto, fechaCobro, extra = {}) => {
+    const TIPOS_MAP = {
+      'OBRA':              'OBRA_PRINCIPAL',
+      'OBRA_INDEPENDIENTE': 'OBRA_INDEPENDIENTE',
+      'TRABAJO_EXTRA':    'TRABAJO_EXTRA',
+      'TRABAJO_ADICIONAL':'TRABAJO_ADICIONAL'
+    };
+    const tipoEntidad = TIPOS_MAP[obraTipo] || 'OBRA_PRINCIPAL';
+    if (!entidadId) return;
+    try {
+      const efId = await resolverEntidadFinancieraId(empresaId, tipoEntidad, entidadId, extra);
+      if (!efId) return;
+      await registrarCobroUnificado({
+        entidadFinancieraId: efId,
+        empresaId,
+        monto,
+        fechaCobro
+      });
+    } catch (err) {
+      console.warn('[SistemaUnificado] Cobro no registrado (backend pendiente de deploy):', err.message);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
@@ -642,6 +673,19 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
         console.log('🚀 [INDIVIDUAL] Registrando cobro:', cobroData);
         const cobroCreado = await registrarCobro(cobroData, empresaSeleccionada.id);
         console.log('✅ Cobro registrado:', cobroCreado);
+
+        // Registrar en sistema unificado (fire-and-forget)
+        _registrarEnSistemaUnificado(
+          empresaSeleccionada.id,
+          obraDireccion.esObraIndependiente ? 'OBRA_INDEPENDIENTE' : 'OBRA',
+          obraDireccion.obraId,
+          montoTotalNum,
+          formData.fechaEmision,
+          {
+            nombreDisplay: obraDireccion.direccion || null,
+            presupuestoNoClienteId: obraDireccion.presupuestoNoClienteId ?? null
+          }
+        );
 
         eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
           presupuestoId: obraDireccion.presupuestoNoClienteId,
@@ -750,6 +794,27 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
         console.log('🚀 [PASO 2] Asignando a obras:', asignaciones);
         const resultado = await asignarCobroAObras(cobroCreado.id, asignaciones, empresaSeleccionada.id);
         console.log('✅ Asignación exitosa:', resultado);
+
+        // Registrar en sistema unificado (fire-and-forget) para cada entidad asignada
+        obrasConMonto.forEach(d => {
+          const entidadId =
+            d.obra.tipo === 'OBRA'               ? d.obra.obraId :
+            d.obra.tipo === 'OBRA_INDEPENDIENTE' ? (d.obra.obraIndependienteId || d.obra.obraId) :
+            d.obra.tipo === 'TRABAJO_EXTRA'      ? d.obra.trabajoExtraId :
+            d.obra.tipo === 'TRABAJO_ADICIONAL'  ? d.obra.trabajoAdicionalId : null;
+
+          _registrarEnSistemaUnificado(
+            empresaSeleccionada.id,
+            d.obra.tipo,
+            entidadId,
+            parseFloat(d.monto),
+            formData.fechaEmision,
+            {
+              nombreDisplay: d.obra.nombreObra || d.obra.descripcionObra || null,
+              presupuestoNoClienteId: d.obra.presupuestoNoClienteId ?? null
+            }
+          );
+        });
 
         // Notificar por cada entidad según su tipo
         obrasConMonto.forEach(d => {
