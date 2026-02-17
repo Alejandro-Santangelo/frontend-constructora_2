@@ -5,7 +5,7 @@ import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
  * Servicio para gestión de cobros a nivel empresa
  * Permite registrar cobros sin asignarlos inmediatamente a obras
  * y luego asignarlos total o parcialmente
- * 
+ *
  * ✨ Con sincronización automática vía EventBus
  */
 
@@ -43,18 +43,18 @@ export const registrarCobroEmpresa = async (cobroData, empresaId) => {
 
   try {
     console.log('🔵 [cobrosEmpresaService] Registrando cobro empresa:', JSON.stringify(payload, null, 2));
-    
+
     const response = await api.post(`/api/v1/cobros-empresa?empresaId=${empresaId}`, payload);
-    
+
     console.log('🟢 [cobrosEmpresaService] Cobro registrado:', response);
-    
+
     // 🔔 Emitir evento para sincronización
     eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
       cobro: response,
       empresaId,
       esCobroEmpresa: true
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error registrando cobro empresa:', error.response?.data?.message || error.message);
@@ -68,14 +68,26 @@ export const registrarCobroEmpresa = async (cobroData, empresaId) => {
  */
 export const asignarCobroAObras = async (cobroEmpresaId, asignaciones, empresaId) => {
   const payload = {
-    asignaciones: asignaciones.map(a => ({
-      obraId: a.obraId,
-      montoAsignado: a.montoAsignado,
-      descripcion: a.descripcion || null,
-      ...(a.distribucionItems && {
-        distribucionItems: a.distribucionItems
-      })
-    }))
+    asignaciones: asignaciones.map(a => {
+      const asignacion = {
+        montoAsignado: a.montoAsignado,
+        descripcion: a.descripcion || null
+      };
+
+      // Incluir IDs según el tipo de entidad
+      if (a.obraId) asignacion.obraId = a.obraId;
+      if (a.presupuestoId) asignacion.presupuestoId = a.presupuestoId;
+      if (a.trabajoAdicionalId) asignacion.trabajoAdicionalId = a.trabajoAdicionalId;
+      if (a.trabajoExtraId) asignacion.trabajoExtraId = a.trabajoExtraId;
+      if (a.obraIndependienteId) asignacion.obraIndependienteId = a.obraIndependienteId;
+
+      // Incluir distribución por ítems si existe
+      if (a.distribucionItems) {
+        asignacion.distribucionItems = a.distribucionItems;
+      }
+
+      return asignacion;
+    })
   };
 
   try {
@@ -84,23 +96,31 @@ export const asignarCobroAObras = async (cobroEmpresaId, asignaciones, empresaId
       empresaId,
       payload: JSON.stringify(payload, null, 2)
     });
-    
+
     const response = await api.post(
       `/api/v1/cobros-empresa/${cobroEmpresaId}/asignar?empresaId=${empresaId}`,
       payload
     );
-    
+
     console.log('🟢 [cobrosEmpresaService] Asignación exitosa:', response);
-    
+
     // 🔔 Emitir evento por cada asignación
     asignaciones.forEach(a => {
-      eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
-        obraId: a.obraId,
+      const evento = {
         monto: a.montoAsignado,
         empresaId
-      });
+      };
+
+      // Incluir el ID correspondiente en el evento
+      if (a.obraId) evento.obraId = a.obraId;
+      if (a.presupuestoId) evento.presupuestoId = a.presupuestoId;
+      if (a.trabajoAdicionalId) evento.trabajoAdicionalId = a.trabajoAdicionalId;
+      if (a.trabajoExtraId) evento.trabajoExtraId = a.trabajoExtraId;
+      if (a.obraIndependienteId) evento.obraIndependienteId = a.obraIndependienteId;
+
+      eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, evento);
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error asignando cobro a obras:', error.response?.data?.message || error.message);
@@ -121,9 +141,9 @@ export const listarCobrosEmpresa = async (empresaId, estado = null) => {
   try {
     const params = { empresaId };
     if (estado) params.estado = estado;
-    
+
     const response = await api.get('/api/v1/cobros-empresa', { params });
-    
+
     // Manejar respuesta envuelta o array directo
     const extractData = (resp) => {
       if (Array.isArray(resp)) return resp;
@@ -131,7 +151,7 @@ export const listarCobrosEmpresa = async (empresaId, estado = null) => {
       if (resp?.content && Array.isArray(resp.content)) return resp.content;
       return [];
     };
-    
+
     return extractData(response);
   } catch (error) {
     console.error('❌ Error listando cobros empresa:', error);
@@ -147,7 +167,7 @@ export const obtenerSaldoDisponible = async (empresaId) => {
     const response = await api.get('/api/v1/cobros-empresa/saldo-disponible', {
       params: { empresaId }
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error obteniendo saldo disponible:', error);
@@ -163,7 +183,7 @@ export const obtenerDetalleCobroEmpresa = async (cobroEmpresaId, empresaId) => {
     const response = await api.get(`/api/v1/cobros-empresa/${cobroEmpresaId}`, {
       params: { empresaId }
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error obteniendo detalle cobro empresa:', error);
@@ -179,13 +199,13 @@ export const eliminarCobroEmpresa = async (cobroEmpresaId, empresaId) => {
     const response = await api.delete(`/api/v1/cobros-empresa/${cobroEmpresaId}`, {
       params: { empresaId }
     });
-    
+
     // 🔔 Emitir evento
     eventBus.emit(FINANCIAL_EVENTS.COBRO_ELIMINADO, {
       cobroEmpresaId,
       empresaId
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error eliminando cobro empresa:', error);
@@ -202,7 +222,7 @@ export const anularCobroEmpresa = async (cobroEmpresaId, motivo, empresaId) => {
       `/api/v1/cobros-empresa/${cobroEmpresaId}/anular?empresaId=${empresaId}`,
       { motivo }
     );
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error anulando cobro empresa:', error);
@@ -218,7 +238,7 @@ export const obtenerResumenCobrosEmpresa = async (empresaId) => {
     const response = await api.get('/api/v1/cobros-empresa/resumen', {
       params: { empresaId }
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error obteniendo resumen cobros empresa:', error);
@@ -233,9 +253,9 @@ export const obtenerResumenCobrosEmpresa = async (empresaId) => {
  */
 export const obtenerEstadoCobroEmpresa = (cobro) => {
   if (!cobro) return { label: 'Desconocido', color: 'secondary', icon: '❓' };
-  
+
   const estado = cobro.estado?.toUpperCase();
-  
+
   switch (estado) {
     case 'DISPONIBLE':
       return { label: 'Disponible', color: 'success', icon: '💰' };
@@ -258,7 +278,7 @@ export const obtenerDistribucionPorObra = async (empresaId) => {
     const response = await api.get('/api/v1/cobros-empresa/distribucion-por-obra', {
       params: { empresaId }
     });
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error obteniendo distribución por obra:', error);
@@ -272,17 +292,17 @@ export const obtenerDistribucionPorObra = async (empresaId) => {
 export const eliminarAsignacionCobroEmpresa = async (cobroEmpresaId, asignacionId, empresaId) => {
   try {
     console.log(`🔵 [cobrosEmpresaService] Eliminando asignación ${asignacionId} del cobro ${cobroEmpresaId}`);
-    
+
     const response = await api.delete(
       `/api/v1/cobros-empresa/${cobroEmpresaId}/asignaciones/${asignacionId}`,
       { params: { empresaId } }
     );
-    
+
     console.log('🟢 [cobrosEmpresaService] Asignación eliminada exitosamente');
-    
+
     // Emitir evento para refrescar las vistas
     eventBus.emit(FINANCIAL_EVENTS.COBRO_EMPRESA_UPDATED);
-    
+
     return response;
   } catch (error) {
     console.error('❌ Error eliminando asignación:', error);

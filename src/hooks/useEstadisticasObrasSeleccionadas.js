@@ -62,9 +62,44 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
     try {
       console.log('🔍 [ObrasSeleccionadas] Cargando datos de', presupuestosSeleccionados.length, 'obras seleccionadas');
 
-      // Cargar datos completos de cada presupuesto seleccionado
-      const presupuestosCompletos = await Promise.all(
-        presupuestosSeleccionados.map(p => api.presupuestosNoCliente.getById(p.id, empresaId))
+      // Separar obras que tienen presupuesto de las que no (obras independientes y trabajos adicionales)
+      const obrasConPresupuesto = presupuestosSeleccionados.filter(p =>
+        !p.esObraIndependiente && !p._esTrabajoAdicional && p.id
+      );
+      const obrasSinPresupuesto = presupuestosSeleccionados.filter(p =>
+        p.esObraIndependiente || p._esTrabajoAdicional
+      );
+
+      console.log('📋 [ObrasSeleccionadas] Desglose:', {
+        total: presupuestosSeleccionados.length,
+        conPresupuesto: obrasConPresupuesto.length,
+        sinPresupuesto: obrasSinPresupuesto.length,
+        obrasSinPresupuesto: obrasSinPresupuesto.map(o => ({
+          id: o.id,
+          nombre: o.nombreObra,
+          esIndependiente: o.esObraIndependiente,
+          esTrabajoAdicional: o._esTrabajoAdicional
+        }))
+      });
+
+      // Cargar datos completos solo de las obras que tienen presupuesto
+      const presupuestosCompletos = obrasConPresupuesto.length > 0
+        ? await Promise.all(
+            obrasConPresupuesto.map(p => api.presupuestosNoCliente.getById(p.id, empresaId))
+          )
+        : [];
+
+      // Para obras sin presupuesto, usar sus datos directamente
+      const todasLasObras = [
+        ...presupuestosCompletos,
+        ...obrasSinPresupuesto.map(obra => ({
+          ...obra,
+          itemsCalculadora: obra.itemsCalculadora || [],
+          profesionalesObra: obra.profesionalesObra || [],
+          materialesAsignados: obra.materialesAsignados || [],
+          gastosGeneralesAsignados: obra.gastosGeneralesAsignados || []
+        }))
+
       );
 
       // Cargar cobros de cada obra
@@ -84,20 +119,24 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
       const cobrosPorPresupuesto = await Promise.all(cobrosPromises);
 
-      // Cargar pagos consolidados
+      // Cargar pagos consolidados (solo para obras con presupuesto)
       const todosPagosConsolidados = await Promise.all(
-        presupuestosCompletos.map(p =>
-          listarPagosConsolidadosPorPresupuesto(p.id, empresaId)
+        todasLasObras.map(p => {
+          // Solo cargar pagos si la obra tiene presupuesto
+          if (p.esObraIndependiente || p._esTrabajoAdicional) {
+            return Promise.resolve([]);
+          }
+          return listarPagosConsolidadosPorPresupuesto(p.id, empresaId)
             .catch(err => {
               console.warn(`⚠️ Error cargando pagos para presupuesto ${p.id}:`, err);
               return [];
-            })
-        )
+            });
+        })
       );
 
       // Crear mapa de pagos por presupuesto
       const pagosMap = {};
-      presupuestosCompletos.forEach((presupuesto, idx) => {
+      todasLasObras.forEach((presupuesto, idx) => {
         pagosMap[presupuesto.id] = todosPagosConsolidados[idx] || [];
       });
 
@@ -141,8 +180,8 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         console.warn(`⚠️ Error cargando asignaciones:`, error);
       }
 
-      for (let idx = 0; idx < presupuestosCompletos.length; idx++) {
-        const presupuesto = presupuestosCompletos[idx];
+      for (let idx = 0; idx < todasLasObras.length; idx++) {
+        const presupuesto = todasLasObras[idx];
         const itemsCalculadora = presupuesto.itemsCalculadora || [];
         const nombreObra = presupuesto.nombreObra || presupuesto.direccionObra?.direccion || `Presupuesto #${presupuesto.numeroPresupuesto}`;
 
@@ -402,21 +441,21 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       console.log('🔍 [ObrasSeleccionadas] Total Presupuesto BASE (sin trabajos extra):', totalPresupuesto.toLocaleString());
 
       // 🔧 Obtener IDs de presupuestos que YA son trabajos extra para evitar duplicados
-      const idsPresupuestosTrabajosExtra = presupuestosCompletos
+      const idsPresupuestosTrabajosExtra = todasLasObras
         .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
         .map(p => p.id);
 
       console.log('🔍 [ObrasSeleccionadas] Presupuestos que YA son trabajos extra:', {
         cantidad: idsPresupuestosTrabajosExtra.length,
         ids: idsPresupuestosTrabajosExtra,
-        presupuestos: presupuestosCompletos
+        presupuestos: todasLasObras
           .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
           .map(p => ({ id: p.id, nombre: p.nombreObra, total: calcularTotalPresupuestoObra(p) }))
       });
 
       // 🔧 Sumar trabajos extra al presupuesto total (solo los que NO están en presupuestos_no_cliente)
       let totalTrabajosExtra = 0;
-      const obraIds = presupuestosCompletos.map(p => p.obraId || p.direccionObraId).filter(Boolean);
+      const obraIds = todasLasObras.map(p => p.obraId || p.direccionObraId).filter(Boolean);
 
       if (obraIds.length > 0) {
         try {

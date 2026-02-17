@@ -563,8 +563,13 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
   };
 
   const handleDistribucionItemsChange = (obraId, item, campo, valor) => {
-    const montoObra = distribucion.find(d => d.obra.presupuestoNoClienteId === obraId)?.monto || 0;
-    if (montoObra === 0) return;
+    // Buscar el monto de la obra usando el ID único correcto
+    const montoObra = distribucion.find(d => obtenerIdUnico(d.obra) === obraId)?.monto || 0;
+
+    if (montoObra === 0) {
+      console.warn('⚠️ No se puede distribuir: el monto de la obra es 0. Ingrese primero un monto para esta obra.');
+      return;
+    }
 
     const distActual = distribucionPorObra[obraId] || {
       profesionales: { monto: 0, porcentaje: 0 },
@@ -576,7 +581,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
 
     if (campo === 'monto') {
       const montoNum = parseFloat(valor) || 0;
-      const porcentaje = (montoNum / montoObra) * 100;
+      const porcentaje = montoObra > 0 ? (montoNum / montoObra) * 100 : 0;
       nuevaDist[item] = { monto: montoNum, porcentaje: porcentaje };
     } else if (campo === 'porcentaje') {
       const porcentajeNum = parseFloat(valor) || 0;
