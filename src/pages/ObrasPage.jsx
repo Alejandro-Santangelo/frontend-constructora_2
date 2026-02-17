@@ -28,6 +28,7 @@ import { obtenerAsignacionesSemanalPorObra } from '../services/profesionalesObra
 import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 import { calcularSemanasParaDiasHabiles, convertirDiasHabilesASemanasSimple, esDiaHabil } from '../utils/feriadosArgentina';
+import { fetchClientes } from '../store/slices/clientesSlice';
 import {
   fetchTodasObras,
   fetchObrasPorEmpresa,
@@ -690,6 +691,9 @@ const ObrasPage = ({ showNotification }) => {
   // Ref para evitar actualizar el presupuesto múltiples veces
   const presupuestoAsignadoRef = React.useRef(new Set());
 
+  // Ref para controlar la inicialización de la página
+  const inicializadoRef = React.useRef(false);
+
   // Estado para modal de envío de obra independiente
   const [mostrarModalEnviarObra, setMostrarModalEnviarObra] = React.useState(false);
   const [obraParaEnviar, setObraParaEnviar] = React.useState(null);
@@ -755,8 +759,20 @@ const ObrasPage = ({ showNotification }) => {
     return `Cliente ID: ${clienteId}`;
   };
 
-  // Flag para controlar carga inicial
-  const inicializadoRef = React.useRef(false);
+  // Helper para mostrar solo el nombre del cliente
+  const getClienteNombre = (obra) => {
+    const clienteId = obra.clienteId || obra.idCliente;
+    if (!clienteId) return '-';
+
+    // Buscar el cliente con id_cliente (no id)
+    const cliente = clientes?.find(c => c.id_cliente == clienteId);
+
+    if (cliente) {
+      return cliente.nombre || cliente.nombreCompleto || `Cliente ${clienteId}`;
+    }
+
+    return `Cliente ID: ${clienteId}`;
+  };
 
   // Leer parámetro tab de la URL y activar pestaña correspondiente
   useEffect(() => {
@@ -778,6 +794,7 @@ const ObrasPage = ({ showNotification }) => {
 
       try {
         await dispatch(fetchEstadosDisponibles()).unwrap();
+        await dispatch(fetchClientes({ empresaId })).unwrap();
 
         // Cargar profesionales disponibles usando la función centralizada
         if (empresaId) {
@@ -994,11 +1011,11 @@ const ObrasPage = ({ showNotification }) => {
                 presupuestoEstimado: obra.presupuestoEstimado || '',
                 idCliente: obra.clienteId || obra.idCliente || '',
                 empresaId: empresaId,
-                // Campos de cliente (mantener vacíos si estamos editando)
-                nombreSolicitante: '',
-                telefono: '',
-                direccionParticular: '',
-                mail: '',
+                // Campos de cliente (cargar datos actuales de la obra)
+                nombreSolicitante: obra.nombreSolicitante || '',
+                telefono: obra.telefono || '',
+                direccionParticular: obra.direccionParticular || '',
+                mail: obra.mail || '',
                 // Campos de dirección de obra
                 direccionObraCalle: obra.direccionObraCalle || '',
                 direccionObraAltura: obra.direccionObraAltura || '',
@@ -4470,7 +4487,8 @@ const ObrasPage = ({ showNotification }) => {
                           <tr>
                             <th style={{ width: '25px', padding: '8px 4px' }} className="small"></th>
                             <th style={{ width: '40px' }} className="small">ID</th>
-                            <th style={{ width: '140px' }} className="small">Nombre</th>
+                            <th style={{ width: '140px' }} className="small">Nombre de la Obra</th>
+                            <th style={{ width: '120px' }} className="small">Nombre del Solicitante</th>
                             <th className="small">Dirección</th>
                             <th style={{ width: '80px' }} className="small">Contacto</th>
                             <th style={{ width: '70px' }} className="small" title="Trabajos Adicionales">T. Adic.</th>
@@ -4775,6 +4793,11 @@ const ObrasPage = ({ showNotification }) => {
                                     </span>
                                   </div>
                                 )}
+                              </td>
+                              <td>
+                                <small className="text-muted">
+                                  {obra.nombreSolicitante || '-'}
+                                </small>
                               </td>
                               <td>
                                 <small className="text-muted">{formatearDireccionObra(obra)}</small>
@@ -6324,7 +6347,8 @@ const ObrasPage = ({ showNotification }) => {
                         <thead className="table-light">
                           <tr>
                             <th className="small" style={{width: '40px'}}>ID</th>
-                            <th className="small">Nombre</th>
+                            <th className="small">Nombre de la Obra</th>
+                            <th className="small" style={{width: '120px'}}>Nombre del Cliente</th>
                             <th className="small">Dirección</th>
                             <th className="small" style={{width: '100px'}}>Estado</th>
                             <th className="small" style={{width: '80px'}}>Inicio</th>
@@ -6358,6 +6382,11 @@ const ObrasPage = ({ showNotification }) => {
                                       <i className="fas fa-hand-paper me-1"></i>Obra Independiente
                                     </span>
                                   </div>
+                                </td>
+                                <td>
+                                  <small className="text-muted">
+                                    {getClienteNombre(obra)}
+                                  </small>
                                 </td>
                                 <td><small className="text-muted">{formatearDireccionObra(obra)}</small></td>
                                 <td onClick={(e) => e.stopPropagation()}>
@@ -6409,10 +6438,10 @@ const ObrasPage = ({ showNotification }) => {
                                           presupuestoEstimado: obra.presupuestoEstimado || '',
                                           idCliente: obra.clienteId || obra.idCliente || '',
                                           empresaId: empresaId,
-                                          nombreSolicitante: '',
-                                          telefono: '',
-                                          direccionParticular: '',
-                                          mail: '',
+                                          nombreSolicitante: obra.nombreSolicitante || '',
+                                          telefono: obra.telefono || '',
+                                          direccionParticular: obra.direccionParticular || '',
+                                          mail: obra.mail || '',
                                           direccionObraCalle: obra.direccionObraCalle || '',
                                           direccionObraAltura: obra.direccionObraAltura || '',
                                           direccionObraBarrio: obra.direccionObraBarrio || '',
@@ -10833,6 +10862,3 @@ Gestionar Trabajos Adicionales
 };
 
 export default ObrasPage;
-
-
-

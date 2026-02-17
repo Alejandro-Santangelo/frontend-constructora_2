@@ -4,7 +4,7 @@ import { useEmpresa } from '../EmpresaContext';
 /**
  * Componente que muestra un badge con el estado de asignaciones de una obra
  * Compara los jornales del presupuesto vs los asignados y calcula impacto en tiempos
- * 
+ *
  * Props:
  * - obraId: ID de la obra
  * - compact: Si es true, muestra versión compacta (solo icono + tooltip)
@@ -50,12 +50,12 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
       }
 
       let presupuestoData = await presupuestoResponse.json();
-      
+
       // Si no es array, convertir a array
       if (!Array.isArray(presupuestoData)) {
         presupuestoData = [presupuestoData];
       }
-      
+
       console.log(`🔍 [Badge Obra ${obraId}] Presupuestos recibidos (${presupuestoData.length}):`, presupuestoData);
       console.log(`🔍 [Badge Obra ${obraId}] Detalle:`, presupuestoData.map(p => ({
         id: p.id,
@@ -66,11 +66,11 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
         tiempoEstimado: p.tiempoEstimadoTerminacion,
         esAprobado: p.estado === 'APROBADO'
       })));
-      
+
       // 🎯 LÓGICA DEFINITIVA: Seleccionar SOLO la última versión en estados válidos
       // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO
       const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO'];
-      
+
       let presupuesto = null;
       if (Array.isArray(presupuestoData) && presupuestoData.length > 0) {
         // Agrupar por numeroPresupuesto
@@ -80,17 +80,17 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
           if (!porNumero[num]) porNumero[num] = [];
           porNumero[num].push(p);
         });
-        
+
         console.log(`📊 [Badge Obra ${obraId}] Agrupados:`, Object.keys(porNumero).map(num => ({
           numero: num,
           versiones: porNumero[num].map(p => ({ version: p.numeroVersion || p.version, estado: p.estado }))
         })));
-        
+
         // Para cada grupo, seleccionar solo la versión con estado válido más reciente
         const presupuestosValidos = [];
         Object.values(porNumero).forEach(versiones => {
           const validos = versiones.filter(p => ESTADOS_VALIDOS.includes(p.estado));
-          
+
           if (validos.length > 0) {
             // Ordenar por versión descendente y tomar el primero
             validos.sort((a, b) => {
@@ -101,10 +101,10 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
             presupuestosValidos.push(validos[0]);
           }
         });
-        
+
         // Tomar el primer presupuesto válido encontrado
         presupuesto = presupuestosValidos.length > 0 ? presupuestosValidos[0] : null;
-        
+
         console.log(`✅ [Badge Obra ${obraId}] Presupuesto seleccionado:`, presupuesto ? {
           id: presupuesto.id,
           version: presupuesto.numeroVersion || presupuesto.version,
@@ -123,7 +123,7 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
         });
         return;
       }
-      
+
       if (!presupuesto.tiempoEstimadoTerminacion) {
         setEstado({
           cargando: false,
@@ -166,16 +166,16 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
     // 🏗️ PARA EL CÁLCULO DE DÍAS: Solo rubros marcados con incluirEnCalculoDias = true
     const jornalesPlanificados = presupuesto.itemsCalculadora?.reduce((total, rubro) => {
       // ✅ FILTRAR rubros duplicados/legacy
-      const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') || 
+      const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
                                 rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
                                 rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
-      
+
       if (esLegacyDuplicado) return total;
-      
+
       // Por defecto incluir si no está definido (retrocompatibilidad)
       const incluir = rubro.incluirEnCalculoDias !== false;
       if (!incluir) return total;
-      
+
       const jornalesRubro = rubro.jornales?.reduce((sum, j) => sum + (j.cantidad || 0), 0) || 0;
       const profesionalesRubro = rubro.profesionales?.reduce((sum, p) => sum + (p.cantidadJornales || 0), 0) || 0;
       return total + jornalesRubro + profesionalesRubro;
@@ -184,7 +184,7 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
     // Jornales asignados de los rubros incluidos en cálculo
     // Obtener lista de rubros que están marcados para incluir
     const rubrosIncluidos = presupuesto.itemsCalculadora?.filter(rubro => {
-      const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') || 
+      const esLegacyDuplicado = rubro.tipoProfesional?.toLowerCase().includes('migrado') ||
                                 rubro.tipoProfesional?.toLowerCase().includes('legacy') ||
                                 rubro.descripcion?.toLowerCase().includes('migrados desde tabla legacy');
       if (esLegacyDuplicado) return false;
@@ -257,7 +257,7 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
     // jornalesAsignados = capacidad diaria (suma de profesionales asignados)
     // Cada profesional aporta 1 jornal/día
     // Días reales = Jornales totales / Capacidad diaria
-    
+
     const capacidadDiaria = jornalesAsignados;
     const diasRealesEstimados = Math.ceil(jornalesPlanificados / capacidadDiaria);
     const diferenciaDias = diasRealesEstimados - diasEstimadosOriginal;
@@ -313,8 +313,8 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
         className={`badge bg-${estado.tipo}`}
         data-bs-toggle="tooltip"
         data-bs-placement="top"
-        title={estado.detalles ? 
-          `${estado.mensaje} | ${estado.detalles.capacidadDiaria} jornales/día | ${estado.detalles.diasReales} días estimados` 
+        title={estado.detalles ?
+          `${estado.mensaje} | ${estado.detalles.capacidadDiaria} jornales/día | ${estado.detalles.diasReales} días estimados`
           : estado.mensaje}
         style={{ cursor: 'help' }}
       >
@@ -325,7 +325,7 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
 
   // Versión expandida
   return (
-    <div className={`badge bg-${estado.tipo} text-white d-inline-flex align-items-center gap-1`}>
+    <div className={`badge bg-${estado.tipo} ${estado.tipo === 'warning' ? 'text-dark' : 'text-white'} d-inline-flex align-items-center gap-1`}>
       <span>{estado.icono}</span>
       <span className="small">{estado.mensaje}</span>
       {estado.detalles && (

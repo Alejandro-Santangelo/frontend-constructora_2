@@ -54,7 +54,8 @@ const ProfesionalesPage = ({ showNotification }) => {
     especialidad: '',
     honorario_dia: '',
     idEmpresa: 1,
-    fecha_creacion: new Date().toISOString().slice(0, 10)
+    fecha_creacion: new Date().toISOString().slice(0, 10),
+    categoria: null
   });
 
   const [tiposProfesionalesUnicos, setTiposProfesionalesUnicos] = useState([]);
@@ -606,10 +607,21 @@ const ProfesionalesPage = ({ showNotification }) => {
                     if (key === 'valorHoraDefault' || key === 'honorarioDia' || key === 'honorario_dia') {
                       displayKey = 'Honorarios por Jornal';
                     }
+
+                    // Convertir valor de categoria para mostrar texto amigable
+                    let displayValue = value;
+                    if (key === 'categoria') {
+                      if (value === 'EMPLEADO') {
+                        displayValue = 'Estable';
+                      } else if (value === 'INDEPENDIENTE') {
+                        displayValue = 'Ocasional';
+                      }
+                    }
+
                     return (
                       <tr key={key}>
                         <th style={{width:'30%'}}>{displayKey}</th>
-                        <td>{String(value)}</td>
+                        <td>{String(displayValue)}</td>
                       </tr>
                     );
                   })}
@@ -799,6 +811,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                             <th>Nombre</th>
                             <th>Rubro</th>
                             <th>Rol</th>
+                            <th>Estado</th>
                             <th>Honorarios por Jornal</th>
                             <th>Teléfono</th>
                             <th>Disponibilidad</th>
@@ -857,6 +870,15 @@ const ProfesionalesPage = ({ showNotification }) => {
                                 <span className={`badge ${getTipoBadgeClass(profesional.tipoProfesional)}`}>
                                   {profesional.tipoProfesional || 'A Definir'}
                                 </span>
+                              </td>
+                              <td>
+                                {profesional.categoria === 'EMPLEADO' ? (
+                                  <span className="badge bg-success">Estable</span>
+                                ) : profesional.categoria === 'INDEPENDIENTE' ? (
+                                  <span className="badge bg-warning text-dark">Ocasional</span>
+                                ) : (
+                                  <span className="badge bg-info">{profesional.categoria || '-'}</span>
+                                )}
                               </td>
                               <td>{(profesional.honorario_dia || profesional.valorHoraDefault) ? `$${Number(profesional.honorario_dia || profesional.valorHoraDefault).toLocaleString('es-AR')}` : '-'}</td>
                               <td>{profesional.telefono || '-'}</td>
@@ -1096,6 +1118,14 @@ const ProfesionalesPage = ({ showNotification }) => {
                       <div className="col-md-4">
                         <label className="form-label">Teléfono</label>
                         <input className="form-control mb-2" placeholder="Teléfono" value={formData.telefono || ''} onChange={e => setFormData({...formData, telefono: e.target.value})} />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label">Categoría</label>
+                        <select className="form-select mb-2" value={formData.categoria || ''} onChange={e => setFormData({...formData, categoria: e.target.value || null})}>
+                          <option value="">Sin definir</option>
+                          <option value="EMPLEADO">Estable</option>
+                          <option value="INDEPENDIENTE">Ocasional</option>
+                        </select>
                       </div>
 
                       {/* 2. Rubro, Rol y Honorarios */}
@@ -1517,6 +1547,22 @@ const ProfesionalesPage = ({ showNotification }) => {
                                   setUpdateData({ ...updateData, telefono: value });
                                 }
                               }} />
+                            </div>
+                            <div className="col-md-4">
+                              <label className="form-label">Categoría</label>
+                              <select className="form-select mb-2" value={prof.categoria || 'EMPLEADO'} onChange={e => {
+                                const value = e.target.value;
+                                if (Array.isArray(updateData)) {
+                                  const arr = [...updateData];
+                                  arr[idx] = { ...arr[idx], categoria: value };
+                                  setUpdateData(arr);
+                                } else {
+                                  setUpdateData({ ...updateData, categoria: value });
+                                }
+                              }}>
+                                <option value="EMPLEADO">Estable</option>
+                                <option value="INDEPENDIENTE">Ocasional</option>
+                              </select>
                             </div>
 
                             {/* 2. Rubro, Rol y Honorarios */}
