@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { formatearMoneda } from '../services/cobrosObraService';
 import { obtenerDistribucionPorObra } from '../services/cobrosEmpresaService';
 import { actualizarAsignacion } from '../services/asignacionesCobroObraService';
+import { listarEntidadesFinancieras, obtenerEstadisticasMultiples } from '../services/entidadesFinancierasService';
 import { useEmpresa } from '../EmpresaContext';
 
 const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obrasDisponibles }) => {
@@ -26,60 +27,134 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
   const cargarDistribucion = async () => {
     setLoading(true);
     try {
-      // 1. Cargar del backend (solo entidades CON cobros asignados)
-      const distribucion = await obtenerDistribucionPorObra(empresaSeleccionada.id);
-      console.log('🔍 [DetalleDistribucion] Backend devuelve:', distribucion?.length, 'filas');
+      // ── PASO 1: Obtener todas las entidades financieras activas de la empresa ──────
+      // Incluye OBRA_PRINCIPAL, TRABAJO_EXTRA, TRABAJO_ADICIONAL, OBRA_INDEPENDIENTE
+      const [distribucion, entidadesFinancieras] = await Promise.all([
+        obtenerDistribucionPorObra(empresaSeleccionada.id),
+        listarEntidadesFinancieras(empresaSeleccionada.id),
+      ]);
 
-      // Indexar backend por nombreObra para merge rápido
+      console.log('🔍 [DetalleDistribucion] distribucion-por-obra:', distribucion?.length, 'filas');
+      console.log('🔍 [DetalleDistribucion] entidades-financieras:', entidadesFinancieras?.length, 'registros');
+
+      // ── PASO 2: Separar entidades financieras por tipo ───────────────────────────
+      // OBRA_PRINCIPAL y TRABAJO_EXTRA → sus cobros vienen de distribucion-por-obra
+      // TRABAJO_ADICIONAL y OBRA_INDEPENDIENTE → sus cobros vienen de estadisticas-multiples
+      const efSinDistribucion = (entidadesFinancieras || []).filter(
+        ef => ef.tipoEntidad === 'TRABAJO_ADICIONAL' || ef.tipoEntidad === 'OBRA_INDEPENDIENTE'
+      );
+
+      // ── PASO 3: Llamar a estadisticas-multiples para TA y OI ────────────────────
+      const idsEfSinDistribucion = efSinDistribucion.map(ef => ef.id);
+      const estadisticasSinDistribucion = await obtenerEstadisticasMultiples(
+        empresaSeleccionada.id,
+        idsEfSinDistribucion
+      );
+
+      // Indexar estadísticas por entidadFinancieraId para lookup O(1)
+      const estadPorEfId = {};
+      (estadisticasSinDistribucion || []).forEach(e => {
+        estadPorEfId[e.entidadFinancieraId] = e;
+      });
+
+      // Indexar entidades financieras por (tipoEntidad + entidadId) para merge
+      const efPorTipoYEntidadId = {};
+      (entidadesFinancieras || []).forEach(ef => {
+        efPorTipoYEntidadId[`${ef.tipoEntidad}_${ef.entidadId}`] = ef;
+      });
+
+      // ── PASO 4: Construir lista unificada ────────────────────────────────────────
+
+      // 4a. Indexar distribucion-por-obra por obraId y por nombre (fallback)
+      const backendPorId = {};
       const backendPorNombre = {};
-      if (Array.isArray(distribucion)) {
-        distribucion.forEach(d => {
-          const key = d.nombreObra || `id_${d.obraId}`;
-          if (!backendPorNombre[key]) backendPorNombre[key] = d;
-        });
-      }
+      (distribucion || []).forEach(d => {
+        if (d.obraId != null) backendPorId[d.obraId] = d;
+        const key = d.nombreObra || `id_${d.obraId}`;
+        if (!backendPorNombre[key]) backendPorNombre[key] = d;
+      });
 
-      // 2. Construir lista COMPLETA de entidades desde obrasDisponibles
+      const getBd = (id, nombre) =>
+        (id != null && backendPorId[id]) ||
+        (nombre && backendPorNombre[nombre]) ||
+        {};
+
       const entidades = [];
+      const idsAgregados = new Set();
       const nombresAgregados = new Set();
 
+      // 4b. Obras principales y sus trabajos extra (datos desde distribucion-por-obra)
       (obrasDisponibles || []).forEach(obra => {
         const nombre = obra.nombreObra;
+        const idObra = obra.obraId || obra.id;
         const tipo = obra.esObraIndependiente ? 'OBRA_INDEPENDIENTE' : 'OBRA_PRINCIPAL';
-        const bd = backendPorNombre[nombre] || {};
-        if (!nombresAgregados.has(nombre)) {
+
+        // Para OBRA_INDEPENDIENTE usar entidades-financieras, no distribucion-por-obra
+        if (tipo === 'OBRA_INDEPENDIENTE') {
+          const ef = efPorTipoYEntidadId[`OBRA_INDEPENDIENTE_${idObra}`];
+          const est = ef ? (estadPorEfId[ef.id] || {}) : {};
+          const claveUnica = idObra ?? nombre;
+          if (!idsAgregados.has(claveUnica)) {
+            idsAgregados.add(claveUnica);
+            nombresAgregados.add(nombre);
+            entidades.push({
+              obraId:              idObra,
+              entidadFinancieraId: ef?.id,
+              nombreObra:          ef?.nombreDisplay || nombre,
+              tipo:                'OBRA_INDEPENDIENTE',
+              totalCobradoAsignado: parseFloat(est.totalCobrado || 0),
+              montoProfesionales:   null,
+              montoMateriales:      null,
+              montoGastosGenerales: null,
+              montoTrabajosExtra:   null,
+              asignacionId:         null,
+              enBackend:            !!ef,
+            });
+          }
+          return;
+        }
+
+        // OBRA_PRINCIPAL
+        const bd = getBd(idObra, nombre);
+        const claveUnica = idObra ?? nombre;
+        if (!idsAgregados.has(claveUnica)) {
+          idsAgregados.add(claveUnica);
           nombresAgregados.add(nombre);
+          if (bd.obraId != null) idsAgregados.add(bd.obraId);
           entidades.push({
-            obraId:              bd.obraId || obra.obraId || obra.id,
+            obraId:              bd.obraId || idObra,
             nombreObra:          nombre,
-            tipo,
+            tipo:                'OBRA_PRINCIPAL',
             totalCobradoAsignado: bd.totalCobradoAsignado || 0,
-            montoProfesionales:   bd.montoProfesionales  || 0,
-            montoMateriales:      bd.montoMateriales      || 0,
-            montoGastosGenerales: bd.montoGastosGenerales || 0,
-            montoTrabajosExtra:   bd.montoTrabajosExtra   || 0,
+            montoProfesionales:   bd.montoProfesionales   || 0,
+            montoMateriales:      bd.montoMateriales       || 0,
+            montoGastosGenerales: bd.montoGastosGenerales  || 0,
+            montoTrabajosExtra:   bd.montoTrabajosExtra    || 0,
             asignacionId:         bd.asignacionId,
             enBackend:            !!bd.obraId,
           });
         }
 
-        // Trabajos extra de esta obra
+        // Trabajos extra de esta obra (datos desde distribucion-por-obra)
         (obra.trabajosExtra || []).forEach(te => {
           const teNombre = te.nombre || `TE #${te.id}`;
-          const teKey = teNombre;
-          const teBd = backendPorNombre[teKey] || {};
-          if (!nombresAgregados.has(teKey)) {
-            nombresAgregados.add(teKey);
+          const teId = te.obraId || `te_${te.id}`;
+          const teBd = getBd(te.obraId, teNombre);
+          const teClaveUnica = te.obraId ?? teNombre;
+          if (!idsAgregados.has(teClaveUnica)) {
+            idsAgregados.add(teClaveUnica);
+            nombresAgregados.add(teNombre);
+            if (teBd.obraId != null) idsAgregados.add(teBd.obraId);
             entidades.push({
-              obraId:              teBd.obraId || `te_${te.id}`,
+              obraId:              teBd.obraId || teId,
               nombreObra:          teNombre,
               tipo:                'TRABAJO_EXTRA',
               obraPadreNombre:     nombre,
               totalCobradoAsignado: teBd.totalCobradoAsignado || 0,
-              montoProfesionales:   teBd.montoProfesionales  || 0,
-              montoMateriales:      teBd.montoMateriales      || 0,
-              montoGastosGenerales: teBd.montoGastosGenerales || 0,
-              montoTrabajosExtra:   teBd.montoTrabajosExtra   || 0,
+              montoProfesionales:   teBd.montoProfesionales   || 0,
+              montoMateriales:      teBd.montoMateriales       || 0,
+              montoGastosGenerales: teBd.montoGastosGenerales  || 0,
+              montoTrabajosExtra:   teBd.montoTrabajosExtra    || 0,
               asignacionId:         teBd.asignacionId,
               enBackend:            !!teBd.obraId,
             });
@@ -87,47 +162,46 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
         });
       });
 
-      // 3. Agregar entradas del backend que NO estén en obrasDisponibles (cobros empresa, etc.)
-      if (Array.isArray(distribucion)) {
-        distribucion.forEach(d => {
-          const key = d.nombreObra || `id_${d.obraId}`;
-          if (!nombresAgregados.has(key)) {
-            nombresAgregados.add(key);
-            entidades.push({ ...d, tipo: 'OTRO', enBackend: true });
-          }
-        });
-      }
-
-      // 4. Trabajos adicionales
-      try {
-        const { listarTrabajosAdicionales } = await import('../services/trabajosAdicionalesService');
-        const tas = await listarTrabajosAdicionales(empresaSeleccionada.id);
-        if (Array.isArray(tas)) {
-          tas.forEach(ta => {
-            const taNombre = ta.nombre || ta.descripcion || `Trabajo Adicional #${ta.id}`;
-            const taBd = backendPorNombre[taNombre] || {};
-            if (!nombresAgregados.has(taNombre)) {
-              nombresAgregados.add(taNombre);
-              entidades.push({
-                obraId:              taBd.obraId || `ta_${ta.id}`,
-                nombreObra:          taNombre,
-                tipo:                'TRABAJO_ADICIONAL',
-                totalCobradoAsignado: taBd.totalCobradoAsignado || parseFloat(ta.montoTotal || ta.monto || 0),
-                montoProfesionales:   taBd.montoProfesionales  || 0,
-                montoMateriales:      taBd.montoMateriales      || 0,
-                montoGastosGenerales: taBd.montoGastosGenerales || 0,
-                montoTrabajosExtra:   taBd.montoTrabajosExtra   || 0,
-                asignacionId:         taBd.asignacionId,
-                enBackend:            !!taBd.obraId,
-              });
-            }
+      // 4c. Trabajos adicionales → datos desde estadisticas-multiples
+      const efTrabajosAdicionales = (entidadesFinancieras || []).filter(
+        ef => ef.tipoEntidad === 'TRABAJO_ADICIONAL'
+      );
+      efTrabajosAdicionales.forEach(ef => {
+        const nombre = ef.nombreDisplay || `Trabajo Adicional #${ef.entidadId}`;
+        const claveUnica = `ta_ef_${ef.id}`;
+        if (!idsAgregados.has(claveUnica)) {
+          idsAgregados.add(claveUnica);
+          nombresAgregados.add(nombre);
+          const est = estadPorEfId[ef.id] || {};
+          entidades.push({
+            obraId:              `ta_${ef.entidadId}`,
+            entidadFinancieraId: ef.id,
+            nombreObra:          nombre,
+            tipo:                'TRABAJO_ADICIONAL',
+            totalCobradoAsignado: parseFloat(est.totalCobrado || 0),
+            montoProfesionales:   null,
+            montoMateriales:      null,
+            montoGastosGenerales: null,
+            montoTrabajosExtra:   null,
+            asignacionId:         null,
+            enBackend:            true,
           });
         }
-      } catch (err) {
-        console.warn('⚠️ TAs no cargados:', err.message);
-      }
+      });
 
-      console.log(`✅ [DetalleDistribucion] Total entidades a mostrar: ${entidades.length}`);
+      // 4d. Entradas del backend (distribucion-por-obra) que no matchean con ninguna entidad conocida
+      (distribucion || []).forEach(d => {
+        const yaIncluido =
+          (d.obraId != null && idsAgregados.has(d.obraId)) ||
+          (d.nombreObra && nombresAgregados.has(d.nombreObra));
+        if (!yaIncluido) {
+          if (d.obraId != null) idsAgregados.add(d.obraId);
+          nombresAgregados.add(d.nombreObra || `id_${d.obraId}`);
+          entidades.push({ ...d, tipo: 'OTRO', enBackend: true });
+        }
+      });
+
+      console.log(`✅ [DetalleDistribucion] Total entidades: ${entidades.length}`);
       setDistribucionPorObra(entidades);
     } catch (error) {
       console.error('Error cargando distribución:', error);
@@ -140,8 +214,21 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
   if (!show) return null;
 
   // Calcular totales basados en los datos REALES de distribucionPorObra
-  const totalCobradoAsignado = distribucionPorObra.reduce((sum, o) => sum + (o.totalCobradoAsignado || 0), 0);
+  // Obras Principales + Trabajos Extra (sistema antiguo)
+  const totalAsignadoPrincipalTE = distribucionPorObra.reduce((sum, o) => {
+    if (o.tipo !== 'OBRA_PRINCIPAL' && o.tipo !== 'TRABAJO_EXTRA' && o.tipo !== 'OTRO') return sum;
+    return sum + (o.totalCobradoAsignado || 0);
+  }, 0);
+  // Obras Independientes + Trabajos Adicionales (sistema nuevo)
+  const totalAsignadoTAOI = distribucionPorObra.reduce((sum, o) => {
+    if (o.tipo !== 'OBRA_INDEPENDIENTE' && o.tipo !== 'TRABAJO_ADICIONAL') return sum;
+    return sum + (o.totalCobradoAsignado || 0);
+  }, 0);
+  // Total global (para el alert superior)
+  const totalCobradoAsignado = totalAsignadoPrincipalTE + totalAsignadoTAOI;
   const totalDistribuidoItems = distribucionPorObra.reduce((sum, o) => {
+    // TRABAJO_ADICIONAL y OBRA_INDEPENDIENTE no distribuyen por ítems
+    if (o.tipo === 'TRABAJO_ADICIONAL' || o.tipo === 'OBRA_INDEPENDIENTE') return sum;
     const distribuido = (o.montoProfesionales || 0) +
                        (o.montoMateriales || 0) +
                        (o.montoGastosGenerales || 0) +
@@ -209,10 +296,11 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                   <div className="mt-3">
                     <div className="row text-center">
                       <div className="col-md-3">
-                        <strong className="fs-6">Total Asignado:</strong>
+                        <strong className="fs-6">Cobro asignado:</strong>
                         <div className="fw-bold fs-4 text-success">
-                          {formatearMoneda(totalCobradoAsignado)}
+                          {formatearMoneda(totalAsignadoPrincipalTE)}
                         </div>
+                        <small className="text-muted">Obras principales y trabajos extra</small>
                       </div>
                       <div className="col-md-3">
                         <strong className="fs-6">Distribuido en Items:</strong>
@@ -227,10 +315,11 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                         </div>
                       </div>
                       <div className="col-md-3">
-                        <strong className="fs-6">Saldo Disponible:</strong>
-                        <div className={`fw-bold fs-4 ${saldoDisponibleReal > 0 ? 'text-success' : 'text-muted'}`}>
-                          {formatearMoneda(saldoDisponibleReal)}
+                        <strong className="fs-6">Cobro asignado:</strong>
+                        <div className={`fw-bold fs-4 ${totalAsignadoTAOI > 0 ? 'text-info' : 'text-muted'}`}>
+                          {formatearMoneda(totalAsignadoTAOI)}
                         </div>
+                        <small className="text-muted">Obras independientes y trabajos adicionales</small>
                       </div>
                     </div>
                   </div>
@@ -256,7 +345,10 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                     </thead>
                     <tbody>
                       {distribucionPorObra.map((obra, idx) => {
-                        const totalDistribuido = (obra.montoProfesionales || 0) +
+                        // TRABAJO_ADICIONAL y OBRA_INDEPENDIENTE no distribuyen por ítems
+                        const noDistribuye = obra.tipo === 'TRABAJO_ADICIONAL' || obra.tipo === 'OBRA_INDEPENDIENTE';
+                        const totalDistribuido = noDistribuye ? 0 :
+                                                 (obra.montoProfesionales || 0) +
                                                  (obra.montoMateriales || 0) +
                                                  (obra.montoGastosGenerales || 0) +
                                                  (obra.montoTrabajosExtra || 0);
@@ -291,12 +383,20 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                             <td className={`text-end fw-bold ${tieneCobro ? 'text-success' : 'text-muted'}`}>
                               {formatearMoneda(obra.totalCobradoAsignado || 0)}
                             </td>
-                            <td className="text-end">{formatearMoneda(obra.montoProfesionales || 0)}</td>
-                            <td className="text-end">{formatearMoneda(obra.montoMateriales || 0)}</td>
-                            <td className="text-end">{formatearMoneda(obra.montoGastosGenerales || 0)}</td>
-                            <td className="text-end">{formatearMoneda(obra.montoTrabajosExtra || 0)}</td>
+                            <td className="text-end">
+                              {noDistribuye ? <span className="text-muted small">—</span> : formatearMoneda(obra.montoProfesionales || 0)}
+                            </td>
+                            <td className="text-end">
+                              {noDistribuye ? <span className="text-muted small">—</span> : formatearMoneda(obra.montoMateriales || 0)}
+                            </td>
+                            <td className="text-end">
+                              {noDistribuye ? <span className="text-muted small">—</span> : formatearMoneda(obra.montoGastosGenerales || 0)}
+                            </td>
+                            <td className="text-end">
+                              {noDistribuye ? <span className="text-muted small">—</span> : formatearMoneda(obra.montoTrabajosExtra || 0)}
+                            </td>
                             <td className={`text-end fw-bold ${totalDistribuido > 0 ? 'text-primary' : 'text-muted'}`}>
-                              {formatearMoneda(totalDistribuido)}
+                              {noDistribuye ? <span className="text-muted small">N/A</span> : formatearMoneda(totalDistribuido)}
                             </td>
                             <td className="text-end text-danger">{formatearMoneda(retiradoObra)}</td>
                             <td className="text-end">
@@ -370,9 +470,9 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                   <div className="col-md-3">
                     <div className="card border-success">
                       <div className="card-body text-center">
-                        <h6 className="text-muted">Total Asignado</h6>
-                        <h4 className="text-success mb-0">{formatearMoneda(totalCobradoAsignado)}</h4>
-                        <small className="text-muted">A obras</small>
+                        <h6 className="text-muted">Cobro asignado</h6>
+                        <h4 className="text-success mb-0">{formatearMoneda(totalAsignadoPrincipalTE)}</h4>
+                        <small className="text-muted">Obras principales y trabajos extra</small>
                       </div>
                     </div>
                   </div>
@@ -395,13 +495,13 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                     </div>
                   </div>
                   <div className="col-md-3">
-                    <div className="card border-success">
+                    <div className="card border-info">
                       <div className="card-body text-center">
-                        <h6 className="text-muted">Saldo Disponible</h6>
-                        <h4 className={`mb-0 ${saldoDisponibleReal > 0 ? 'text-success' : 'text-muted'}`}>
-                          {formatearMoneda(saldoDisponibleReal)}
+                        <h6 className="text-muted">Cobro asignado</h6>
+                        <h4 className={`mb-0 ${totalAsignadoTAOI > 0 ? 'text-info' : 'text-muted'}`}>
+                          {formatearMoneda(totalAsignadoTAOI)}
                         </h4>
-                        <small className="text-muted">Real disponible</small>
+                        <small className="text-muted">Obras independientes y trabajos adicionales</small>
                       </div>
                     </div>
                   </div>

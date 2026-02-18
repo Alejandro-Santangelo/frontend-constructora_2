@@ -287,6 +287,30 @@ const ObrasPage = ({ showNotification }) => {
           setProfesionalesDisponiblesTA(profesionalesData);
           console.log('✅ Profesionales cargados:', profesionalesData.length);
 
+          // Si estamos editando, restaurar desglose desde campos nativos del DTO
+          if (trabajoAdicionalEditar) {
+            const ta = trabajoAdicionalEditar;
+            if (ta.importeJornales || ta.importeMateriales || ta.importeHonorarios || ta.importeMayoresCostos) {
+              setUsarDesglose(true);
+              setImporteJornales(ta.importeJornales != null ? String(ta.importeJornales) : '');
+              setImporteMateriales(ta.importeMateriales != null ? String(ta.importeMateriales) : '');
+              setImporteHonorarios(ta.importeHonorarios != null ? String(ta.importeHonorarios) : '');
+              setTipoHonorarios(ta.tipoHonorarios || 'fijo');
+              setImporteMayoresCostos(ta.importeMayoresCostos != null ? String(ta.importeMayoresCostos) : '');
+              setTipoMayoresCostos(ta.tipoMayoresCostos || 'fijo');
+              console.log('📂 Desglose TA restaurado desde DTO:', ta);
+            } else {
+              setUsarDesglose(false);
+              setImporteJornales('');
+              setImporteMateriales('');
+              setImporteHonorarios('');
+              setTipoHonorarios('fijo');
+              setImporteMayoresCostos('');
+              setTipoMayoresCostos('fijo');
+              setImporteTotal('');
+            }
+          }
+
           // Si estamos editando, cargar los profesionales asignados
           if (trabajoAdicionalEditar && trabajoAdicionalEditar.profesionales) {
             const profRegistrados = [];
@@ -1028,6 +1052,26 @@ const ObrasPage = ({ showNotification }) => {
                 observaciones: obra.observaciones || ''
               });
 
+              // Restaurar desglose desde campos del DTO
+              if (obra.presupuestoJornales || obra.presupuestoMateriales || obra.presupuestoHonorarios || obra.presupuestoMayoresCostos) {
+                setUsarDesgloseObra(true);
+                setImporteJornalesObra(obra.presupuestoJornales != null ? String(obra.presupuestoJornales) : '');
+                setImporteMaterialesObra(obra.presupuestoMateriales != null ? String(obra.presupuestoMateriales) : '');
+                setImporteHonorariosObra(obra.presupuestoHonorarios != null ? String(obra.presupuestoHonorarios) : '');
+                setTipoHonorariosObra(obra.tipoHonorarioPresupuesto || 'fijo');
+                setImporteMayoresCostosObra(obra.presupuestoMayoresCostos != null ? String(obra.presupuestoMayoresCostos) : '');
+                setTipoMayoresCostosObra(obra.tipoMayoresCostosPresupuesto || 'fijo');
+              } else {
+                setUsarDesgloseObra(false);
+                setImporteMaterialesObra('');
+                setImporteJornalesObra('');
+                setImporteHonorariosObra('');
+                setTipoHonorariosObra('fijo');
+                setImporteMayoresCostosObra('');
+                setTipoMayoresCostosObra('fijo');
+                setImporteTotalObra('');
+              }
+
               // Activar modo edición
               setModoEdicion(true);
               setObraEditando(obra);
@@ -1568,6 +1612,13 @@ const ObrasPage = ({ showNotification }) => {
         presupuestoEstimado: formData.presupuestoEstimado ? parseFloat(formData.presupuestoEstimado) : null,
         descripcion: formData.descripcion || null,
         observaciones: formData.observaciones || null,
+        // Desglose de presupuesto (campos nativos del backend)
+        presupuestoJornales: usarDesgloseObra ? (parseFloat(importeJornalesObra) || null) : null,
+        presupuestoMateriales: usarDesgloseObra ? (parseFloat(importeMaterialesObra) || null) : null,
+        presupuestoHonorarios: usarDesgloseObra ? (parseFloat(importeHonorariosObra) || null) : null,
+        tipoHonorarioPresupuesto: usarDesgloseObra ? tipoHonorariosObra : null,
+        presupuestoMayoresCostos: usarDesgloseObra ? (parseFloat(importeMayoresCostosObra) || null) : null,
+        tipoMayoresCostosPresupuesto: usarDesgloseObra ? tipoMayoresCostosObra : null,
 
         // Dirección de la obra
         direccionObraCalle: formData.direccionObraCalle,
@@ -1734,6 +1785,13 @@ const ObrasPage = ({ showNotification }) => {
         presupuestoEstimado: formData.presupuestoEstimado ? parseFloat(formData.presupuestoEstimado) : null,
         descripcion: formData.descripcion || null,
         observaciones: formData.observaciones || null,
+        // Desglose de presupuesto (campos nativos del backend)
+        presupuestoJornales: usarDesgloseObra ? (parseFloat(importeJornalesObra) || null) : null,
+        presupuestoMateriales: usarDesgloseObra ? (parseFloat(importeMaterialesObra) || null) : null,
+        presupuestoHonorarios: usarDesgloseObra ? (parseFloat(importeHonorariosObra) || null) : null,
+        tipoHonorarioPresupuesto: usarDesgloseObra ? tipoHonorariosObra : null,
+        presupuestoMayoresCostos: usarDesgloseObra ? (parseFloat(importeMayoresCostosObra) || null) : null,
+        tipoMayoresCostosPresupuesto: usarDesgloseObra ? tipoMayoresCostosObra : null,
 
         // Dirección de la obra (calle y altura son obligatorios)
         direccionObraCalle: formData.direccionObraCalle,
@@ -6452,6 +6510,26 @@ const ObrasPage = ({ showNotification }) => {
                                           observaciones: obra.observaciones || ''
                                         });
 
+                                        // Restaurar desglose desde campos nativos del DTO
+                                        if (obra.presupuestoJornales || obra.presupuestoMateriales || obra.presupuestoHonorarios || obra.presupuestoMayoresCostos) {
+                                          setUsarDesgloseObra(true);
+                                          setImporteJornalesObra(obra.presupuestoJornales != null ? String(obra.presupuestoJornales) : '');
+                                          setImporteMaterialesObra(obra.presupuestoMateriales != null ? String(obra.presupuestoMateriales) : '');
+                                          setImporteHonorariosObra(obra.presupuestoHonorarios != null ? String(obra.presupuestoHonorarios) : '');
+                                          setTipoHonorariosObra(obra.tipoHonorarioPresupuesto || 'fijo');
+                                          setImporteMayoresCostosObra(obra.presupuestoMayoresCostos != null ? String(obra.presupuestoMayoresCostos) : '');
+                                          setTipoMayoresCostosObra(obra.tipoMayoresCostosPresupuesto || 'fijo');
+                                        } else {
+                                          setUsarDesgloseObra(false);
+                                          setImporteMaterialesObra('');
+                                          setImporteJornalesObra('');
+                                          setImporteHonorariosObra('');
+                                          setTipoHonorariosObra('fijo');
+                                          setImporteMayoresCostosObra('');
+                                          setTipoMayoresCostosObra('fijo');
+                                          setImporteTotalObra('');
+                                        }
+
                                         setModoEdicion(true);
                                         setObraEditando(obra);
                                         dispatch(setActiveTab('crear'));
@@ -10758,6 +10836,13 @@ Gestionar Trabajos Adicionales
                       fechaInicio: formData.get('fechaInicio'),
                       descripcion: formData.get('descripcion') || null,
                       observaciones: formData.get('observaciones') || null,
+                      // Desglose de importe (campos nativos del backend)
+                      importeJornales: usarDesglose ? (parseFloat(importeJornales) || null) : null,
+                      importeMateriales: usarDesglose ? (parseFloat(importeMateriales) || null) : null,
+                      importeHonorarios: usarDesglose ? (parseFloat(importeHonorarios) || null) : null,
+                      tipoHonorarios: usarDesglose ? tipoHonorarios : null,
+                      importeMayoresCostos: usarDesglose ? (parseFloat(importeMayoresCostos) || null) : null,
+                      tipoMayoresCostos: usarDesglose ? tipoMayoresCostos : null,
                       profesionales: todosLosProfesionales,
                       // Vinculación: SIEMPRE envía el ID de la obra padre
                       obraId: obraParaTrabajosAdicionales.id, // ID de la obra padre (siempre presente)

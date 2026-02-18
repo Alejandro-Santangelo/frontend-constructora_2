@@ -19,6 +19,7 @@ import NotificationToast from '../components/NotificationToast';
 import apiService from '../services/api';
 import { getTipoProfesionalBadgeClass, ordenarPorRubro } from '../utils/badgeColors';
 import { obtenerDistribucionPorObra } from '../services/cobrosEmpresaService';
+import { listarEntidadesFinancieras, obtenerEstadisticasMultiples } from '../services/entidadesFinancierasService';
 import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 
 const STORAGE_KEY = 'sistemaFinanciero_obraSeleccionada';
@@ -68,6 +69,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   }, [getEstadisticas]);
   const loadingEstadisticas = loadingFinancial;
   const errorEstadisticas = errorFinancial;
+
+  // 🆕 Total de cobros asignados a Trabajos Adicionales y Obras Independientes
+  const [totalAsignadoTAOI, setTotalAsignadoTAOI] = useState(0);
 
   // Estado para la obra/presupuesto seleccionado - cargar desde sessionStorage
   const [obraSeleccionada, setObraSeleccionada] = useState(() => {
@@ -147,6 +151,30 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     refreshTrigger,
     modoConsolidado
   );
+
+  // 🆕 Cargar cobros de TA y OI para la tarjeta "Total disponible de lo ya cobrado"
+  useEffect(() => {
+    const cargarTotalTAOI = async () => {
+      if (!empresaSeleccionada?.id) return;
+      try {
+        const todasEF = await listarEntidadesFinancieras(empresaSeleccionada.id, true);
+        const efSinDist = (todasEF || []).filter(
+          ef => ef.tipoEntidad === 'TRABAJO_ADICIONAL' || ef.tipoEntidad === 'OBRA_INDEPENDIENTE'
+        );
+        if (efSinDist.length === 0) { setTotalAsignadoTAOI(0); return; }
+        const estadisticasEF = await obtenerEstadisticasMultiples(
+          empresaSeleccionada.id,
+          efSinDist.map(ef => ef.id)
+        );
+        const total = (estadisticasEF || []).reduce((sum, e) => sum + parseFloat(e.totalCobrado || 0), 0);
+        setTotalAsignadoTAOI(total);
+      } catch (err) {
+        console.warn('⚠️ [SistemaFinanciero] Error cargando total TA/OI:', err.message);
+        setTotalAsignadoTAOI(0);
+      }
+    };
+    cargarTotalTAOI();
+  }, [empresaSeleccionada?.id, refreshTrigger]);
 
   // 🆕 Cargar distribución real de cobros por obra
   useEffect(() => {
@@ -2520,17 +2548,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             style={{cursor: 'pointer'}}
                           >
                             <i className="bi bi-bank fs-1 text-info"></i>
-                            <h6 className="text-muted mt-2 mb-1">Total Distribuido en Ítems de Obra</h6>
+                            <h6 className="text-muted mt-2 mb-1">Total Distribuido Obras</h6>
                             <h4 className="text-primary mb-0">
-                              {formatearMoneda(
-                                distribucionPorObra.reduce((sum, o) => {
-                                  return sum + (o.montoProfesionales || 0) + (o.montoMateriales || 0) +
-                                         (o.montoGastosGenerales || 0) + (o.montoTrabajosExtra || 0);
-                                }, 0)
-                              )}
+                              {formatearMoneda((statsFinales.totalAsignado || 0) + totalAsignadoTAOI)}
                             </h4>
                             <small className="text-muted">
-                              Profesionales, Materiales, Gastos y Trabajos Extra
+                              Obras principales, TE, OI y TA
                             </small>
                             <div className="mt-1">
                               <small className="text-info"><i className="bi bi-hand-index"></i></small>
@@ -2552,9 +2575,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                   return <span className="spinner-border spinner-border-sm" role="status"></span>;
                                 }
 
-                                // Calcular: Total Cobrado - Total Asignado a obras
+                                // Calcular: Total Cobrado - Total Asignado a obras (incluyendo TA y OI)
                                 const totalCobrado = statsFinales.totalCobradoEmpresa || statsFinales.totalCobrado || 0;
-                                const totalAsignado = statsFinales.totalAsignado || 0;
+                                const totalAsignado = (statsFinales.totalAsignado || 0) + totalAsignadoTAOI;
                                 const saldoDisponible = totalCobrado - totalAsignado;
 
                                 return formatearMoneda(saldoDisponible);

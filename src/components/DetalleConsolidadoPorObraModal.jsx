@@ -3,6 +3,7 @@ import { formatearMoneda } from '../services/cobrosObraService';
 import { listarPagosConsolidadosPorEmpresa } from '../services/pagosConsolidadosService';
 import apiService from '../services/api';
 import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
+import { listarEntidadesFinancieras, obtenerEstadisticasMultiples } from '../services/entidadesFinancierasService';
 
 /**
  * Modal para mostrar el desglose detallado por obra de un concepto financiero
@@ -16,6 +17,9 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   const [cargandoTrabajosAdicionales, setCargandoTrabajosAdicionales] = useState(false);
   const [trabajosExtra, setTrabajosExtra] = useState(new Map());
   const [cargandoTrabajosExtra, setCargandoTrabajosExtra] = useState(false);
+  // Cobros de TRABAJO_ADICIONAL y OBRA_INDEPENDIENTE para el desglose de saldo disponible
+  const [entidadesSinDistribucion, setEntidadesSinDistribucion] = useState([]);
+  const [cargandoEntidadesSinDist, setCargandoEntidadesSinDist] = useState(false);
 
   // 🆕 Cargar trabajos adicionales y extra cuando se abre el modal
   useEffect(() => {
@@ -24,6 +28,44 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
       cargarTrabajosExtra();
     }
   }, [show, empresaSeleccionada?.id, tipo]);
+
+  // Cargar cobros de TA y OI para el desglose de saldo disponible
+  useEffect(() => {
+    if (show && empresaSeleccionada?.id && tipo === 'saldoDisponible') {
+      cargarEntidadesSinDistribucion();
+    }
+  }, [show, empresaSeleccionada?.id, tipo]);
+
+  const cargarEntidadesSinDistribucion = async () => {
+    setCargandoEntidadesSinDist(true);
+    try {
+      const todasEF = await listarEntidadesFinancieras(empresaSeleccionada.id);
+      const efSinDist = (todasEF || []).filter(
+        ef => ef.tipoEntidad === 'TRABAJO_ADICIONAL' || ef.tipoEntidad === 'OBRA_INDEPENDIENTE'
+      );
+      if (efSinDist.length === 0) {
+        setEntidadesSinDistribucion([]);
+        return;
+      }
+      const estadisticasEF = await obtenerEstadisticasMultiples(
+        empresaSeleccionada.id,
+        efSinDist.map(ef => ef.id)
+      );
+      // Mapear al mismo formato que los datos de obras (nombreObra + totalCobrado)
+      const filas = (estadisticasEF || []).map(e => ({
+        nombreObra:   e.nombreDisplay,
+        totalCobrado: parseFloat(e.totalCobrado || 0),
+        tipoEntidad:  e.tipoEntidad,
+      }));
+      console.log('✅ [DetalleConsolidado] TA/OI cobros:', filas);
+      setEntidadesSinDistribucion(filas);
+    } catch (err) {
+      console.warn('⚠️ [DetalleConsolidado] Error cargando TA/OI:', err.message);
+      setEntidadesSinDistribucion([]);
+    } finally {
+      setCargandoEntidadesSinDist(false);
+    }
+  };
 
   const cargarTrabajosAdicionales = async () => {
     setCargandoTrabajosAdicionales(true);
@@ -1120,8 +1162,24 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
 
   const renderSaldoDisponible = () => {
     const totalCobrado = estadisticas?.totalCobradoEmpresa || estadisticas?.totalCobrado || 0;
-    const totalAsignado = datos.reduce((sum, o) => sum + (o.totalCobrado || 0), 0);
+    // Cobros de obras principales y trabajos extra (sistema antiguo: asignaciones_cobro_obra)
+    const totalAsignadoPrincipal = datos.reduce((sum, o) => sum + (o.totalCobrado || 0), 0);
+    // Cobros de TA y OI (sistema nuevo: cobros_entidad)
+    const totalAsignadoSinDist = entidadesSinDistribucion.reduce((sum, e) => sum + (e.totalCobrado || 0), 0);
+    const totalAsignado = totalAsignadoPrincipal + totalAsignadoSinDist;
     const saldoDisponible = totalCobrado - totalAsignado;
+
+    // Filas unificadas: obras/TE primero, luego TA y OI
+    const todasLasFilas = [
+      ...datos.map(o => ({ nombreObra: o.nombreObra, totalCobrado: o.totalCobrado || 0, tipoEntidad: 'OBRA' })),
+      ...entidadesSinDistribucion,
+    ];
+
+    const tipoBadge = (tipo) => {
+      if (tipo === 'TRABAJO_ADICIONAL') return <span className="badge bg-secondary ms-1">T. Adicional</span>;
+      if (tipo === 'OBRA_INDEPENDIENTE') return <span className="badge bg-info ms-1">Independiente</span>;
+      return null;
+    };
 
     return (
       <>
@@ -1133,12 +1191,18 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
             </div>
             <div className="col-md-4 text-center border-end">
               <div className="mb-1"><strong>Total Asignado a Obras</strong></div>
-              <div className="fs-4 text-primary fw-bold">{formatearMoneda(totalAsignado)}</div>
+              <div className="fs-4 text-primary fw-bold">
+                {cargandoEntidadesSinDist
+                  ? <span className="spinner-border spinner-border-sm text-primary" />
+                  : formatearMoneda(totalAsignado)}
+              </div>
             </div>
             <div className="col-md-4 text-center">
               <div className="mb-1"><strong>Saldo Disponible</strong></div>
               <div className={`fs-4 fw-bold ${saldoDisponible >= 0 ? 'text-success' : 'text-danger'}`}>
-                {formatearMoneda(saldoDisponible)}
+                {cargandoEntidadesSinDist
+                  ? <span className="spinner-border spinner-border-sm" />
+                  : formatearMoneda(saldoDisponible)}
               </div>
             </div>
           </div>
@@ -1148,22 +1212,33 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
           <table className="table table-hover table-striped">
             <thead className="table-success">
               <tr>
-                <th>Obra</th>
+                <th>Obra / Entidad</th>
                 <th className="text-end">Monto Asignado</th>
                 <th className="text-end">% del Total Cobrado</th>
               </tr>
             </thead>
             <tbody>
-              {datos.map((obra, idx) => {
-                const porcentaje = totalCobrado > 0 ? ((obra.totalCobrado || 0) / totalCobrado * 100) : 0;
+              {todasLasFilas.map((fila, idx) => {
+                const porcentaje = totalCobrado > 0 ? ((fila.totalCobrado || 0) / totalCobrado * 100) : 0;
                 return (
                   <tr key={idx}>
-                    <td><strong>{obra.nombreObra}</strong></td>
-                    <td className="text-end text-primary">{formatearMoneda(obra.totalCobrado || 0)}</td>
+                    <td>
+                      <strong>{fila.nombreObra}</strong>
+                      {tipoBadge(fila.tipoEntidad)}
+                    </td>
+                    <td className="text-end text-primary">{formatearMoneda(fila.totalCobrado || 0)}</td>
                     <td className="text-end">{porcentaje.toFixed(2)}%</td>
                   </tr>
                 );
               })}
+              {cargandoEntidadesSinDist && (
+                <tr>
+                  <td colSpan="3" className="text-center text-muted">
+                    <span className="spinner-border spinner-border-sm me-2" />
+                    Cargando trabajos adicionales y obras independientes...
+                  </td>
+                </tr>
+              )}
             </tbody>
             <tfoot className="table-light">
               <tr>
