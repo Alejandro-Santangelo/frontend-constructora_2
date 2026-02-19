@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 /**
  * Componente para manejar múltiples configuraciones de presupuesto
@@ -15,11 +15,13 @@ const ConfiguracionPresupuestoSection = ({
   itemsCalculadora = [],         // NUEVO: Items de la calculadora
   onConfigsChange,
   soloLectura = false,
-  mostrarSolo = 'ambos', // 'ambos', 'presupuestos', 'honorarios', 'mayoresCostos'
+  mostrarSolo = 'ambos', // 'ambos', 'presupuestos', 'honorarios', 'mayoresCostos', 'descuentos'
   honorarios = null, // NUEVO: honorarios desde el padre (si existe)
   onHonorariosChange = null, // NUEVO: callback para actualizar honorarios en el padre
   mayoresCostos = null, // NUEVO: mayores costos desde el padre (si existe) - CLON DE HONORARIOS
   onMayoresCostosChange = null, // NUEVO: callback para actualizar mayores costos en el padre - CLON DE HONORARIOS
+  descuentos = null, // NUEVO: descuentos desde el padre (si existe)
+  onDescuentosChange = null, // NUEVO: callback para actualizar descuentos en el padre
   presupuestoSugeridoProfesionales = null, // Presupuesto sugerido desde cálculo de m²
   presupuestoSugeridoMateriales = null, // Presupuesto sugerido desde cálculo de m²
   presupuestoSugeridoOtros = null // Presupuesto sugerido desde cálculo de m²
@@ -72,6 +74,16 @@ const ConfiguracionPresupuestoSection = ({
   const [aplicarGlobalMayoresCostos, setAplicarGlobalMayoresCostos] = useState(false); // Switch para aplicar mismo % a todos
   const [valorGlobalMayoresCostos, setValorGlobalMayoresCostos] = useState(''); // Valor global a aplicar
   const [tipoGlobalMayoresCostos, setTipoGlobalMayoresCostos] = useState('porcentaje'); // Tipo: 'porcentaje' o 'fijo'
+
+  // ========== ESTADOS PARA DESCUENTOS (SIMILAR A MAYORES COSTOS PERO RESTA EN LUGAR DE SUMAR) ==========
+  const [mostrarDescuentos, setMostrarDescuentos] = useState(false); // Colapsado por defecto
+  const [configuracionDescuentosAceptada, setConfiguracionDescuentosAceptada] = useState(false);
+  const [ocultarDescuentosEnPDF, setOcultarDescuentosEnPDF] = useState(true); // Controla si se oculta en PDF (marcado por defecto)
+
+  // ✨ ESTADOS PARA APLICACIÓN GLOBAL DE DESCUENTOS
+  const [aplicarGlobalDescuentos, setAplicarGlobalDescuentos] = useState(false); // Switch para aplicar mismo % a todos
+  const [valorGlobalDescuentos, setValorGlobalDescuentos] = useState(''); // Valor global a aplicar
+  const [tipoGlobalDescuentos, setTipoGlobalDescuentos] = useState('porcentaje'); // Tipo: 'porcentaje' o 'fijo'
 
   // ========== ESTADOS PARA COLAPSAR TARJETAS DE ESCASO USO ==========
   const [colapsadoProfesionalesHonorarios, setColapsadoProfesionalesHonorarios] = useState(true); // Colapsado por defecto
@@ -276,6 +288,97 @@ const ConfiguracionPresupuestoSection = ({
       onMayoresCostosChange(nuevoMayoresCostos);
     }
   }, [tipoGlobalMayoresCostos]); // Solo cuando cambia el tipo
+
+  // ========== DEFAULTS Y FUNCIONES PARA DESCUENTOS ==========
+  const defaultsDescuentos = {
+    explicacion: '', // Campo para explicar por qué se aplican descuentos
+    jornales: { activo: true, tipo: 'porcentaje', valor: '' },
+    materiales: { activo: true, tipo: 'porcentaje', valor: '' },
+    honorarios: { activo: true, tipo: 'porcentaje', valor: '' },
+    mayoresCostos: { activo: true, tipo: 'porcentaje', valor: '' } // Nueva tarjeta para descuentos sobre mayores costos
+  };
+
+  // � CAMBIO: Usar useMemo para que descuentosActual sea reactivo y se actualice cuando cambien las props
+  const [descuentosActual, setDescuentosActualState] = useState(() => ({
+    ...defaultsDescuentos,
+    explicacion: descuentos?.explicacion || '',
+    jornales: {
+      ...defaultsDescuentos.jornales,
+      ...(descuentos?.jornales || {}),
+      activo: (descuentos?.jornales?.activo === false) ? false : true
+    },
+    materiales: {
+      ...defaultsDescuentos.materiales,
+      ...(descuentos?.materiales || {}),
+      activo: (descuentos?.materiales?.activo === false) ? false : true
+    },
+    honorarios: {
+      ...defaultsDescuentos.honorarios,
+      ...(descuentos?.honorarios || {}),
+      activo: (descuentos?.honorarios?.activo === false) ? false : true
+    },
+    mayoresCostos: {
+      ...defaultsDescuentos.mayoresCostos,
+      ...(descuentos?.mayoresCostos || {}),
+      activo: (descuentos?.mayoresCostos?.activo === false) ? false : true
+    }
+  }));
+
+  // 🔧 Sincronizar descuentosActual cuando cambien las props descuentos
+  useEffect(() => {
+    if (descuentos) {
+      const actualizado = {
+        ...defaultsDescuentos,
+        explicacion: descuentos?.explicacion || '',
+        jornales: {
+          ...defaultsDescuentos.jornales,
+          ...(descuentos?.jornales || {}),
+          activo: (descuentos?.jornales?.activo === false) ? false : true
+        },
+        materiales: {
+          ...defaultsDescuentos.materiales,
+          ...(descuentos?.materiales || {}),
+          activo: (descuentos?.materiales?.activo === false) ? false : true
+        },
+        honorarios: {
+          ...defaultsDescuentos.honorarios,
+          ...(descuentos?.honorarios || {}),
+          activo: (descuentos?.honorarios?.activo === false) ? false : true
+        },
+        mayoresCostos: {
+          ...defaultsDescuentos.mayoresCostos,
+          ...(descuentos?.mayoresCostos || {}),
+          activo: (descuentos?.mayoresCostos?.activo === false) ? false : true
+        }
+      };
+
+      console.log('✅ [useEffect-descuentos] Sincronizando:', actualizado.jornales.valor);
+      setDescuentosActualState(actualizado);
+    }
+  }, [descuentos]);
+
+  // Función para actualizar descuentos
+  const setDescuentos = (updater) => {
+    if (onDescuentosChange) {
+      const nuevoValor = typeof updater === 'function' ? updater(descuentosActual) : updater;
+      onDescuentosChange(nuevoValor);
+    }
+    setConfiguracionDescuentosAceptada(false);
+  };
+
+  // ✨ useEffect para aplicar valor global de descuentos cuando cambia el tipo
+  useEffect(() => {
+    if (aplicarGlobalDescuentos && valorGlobalDescuentos && onDescuentosChange) {
+      const nuevoDescuentos = {
+        ...descuentosActual,
+        jornales: { ...descuentosActual.jornales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        materiales: { ...descuentosActual.materiales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        honorarios: { ...descuentosActual.honorarios, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        mayoresCostos: { ...descuentosActual.mayoresCostos, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos }
+      };
+      onDescuentosChange(nuevoDescuentos);
+    }
+  }, [tipoGlobalDescuentos]); // Solo cuando cambia el tipo
 
   // Determinar el rubro actual para cargar valores guardados
   const rubroActual = honorariosActual?.nombreRubroImportado ||
@@ -5083,6 +5186,1155 @@ const ConfiguracionPresupuestoSection = ({
                           disabled={configuracionMayoresCostosAceptada}
                         >
                           {configuracionMayoresCostosAceptada ? '✓ Configuración Aceptada' : '✅ Aceptar Configuración de Mayores Costos'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========== SECCIÓN DE DESCUENTOS (RESTA EN LUGAR DE SUMAR) ========== */}
+      {(mostrarSolo === 'ambos' || mostrarSolo === 'descuentos') && !soloLectura && (
+        <div className={`mt-3 border rounded p-3 ${ocultarDescuentosEnPDF ? 'ocultar-en-pdf' : ''}`} style={{backgroundColor: '#ffe7f3'}}>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h6
+              className="mb-0"
+              style={{cursor: 'pointer', fontWeight: 'bold', color: '#b30056'}}
+              onClick={() => {
+                setMostrarDescuentos(!mostrarDescuentos);
+                // Si descuentos es null, inicializarlo cuando se abre por primera vez
+                if (!mostrarDescuentos && !descuentosActual) {
+                  setDescuentos({
+                    jornales: { activo: true, tipo: 'porcentaje', valor: '' },
+                    materiales: { activo: true, tipo: 'porcentaje', valor: '' },
+                    honorarios: { activo: true, tipo: 'porcentaje', valor: '' },
+                    mayoresCostos: { activo: true, tipo: 'porcentaje', valor: '' }
+                  });
+                }
+              }}
+            >
+              💸 Configuración de Descuentos
+              <span className="ms-2 small">{mostrarDescuentos ? '▼' : '▶'}</span>
+            </h6>
+
+            <div className="form-check form-switch" onClick={(e) => e.stopPropagation()}>
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="ocultarDescuentosEnPDF"
+                checked={ocultarDescuentosEnPDF}
+                onChange={(e) => setOcultarDescuentosEnPDF(e.target.checked)}
+                title="Si está marcado, esta sección NO aparecerá en el PDF"
+              />
+              <label className="form-check-label small text-muted" htmlFor="ocultarDescuentosEnPDF" title="Si está marcado, esta sección NO aparecerá en el PDF">
+                🔒 Ocultar en PDF
+              </label>
+            </div>
+          </div>
+
+          {/* Campo de explicación de descuentos */}
+          {mostrarDescuentos && (
+            <div className="mb-3" onClick={(e) => e.stopPropagation()}>
+              <label className="form-label small fw-bold text-muted">
+                📝 Explicación / Justificación de Descuentos
+              </label>
+              <textarea
+                className="form-control form-control-sm"
+                rows={3}
+                placeholder="Ingrese aquí la explicación o justificación de por qué se aplican descuentos..."
+                value={descuentosActual.explicacion || ''}
+                onChange={(e) => setDescuentos(prev => ({ ...prev, explicacion: e.target.value }))}
+                disabled={soloLectura}
+              />
+              <small className="form-text text-muted">
+                Este texto aparecerá en el PDF explicando al cliente el motivo de los descuentos aplicados.
+              </small>
+            </div>
+          )}
+
+          {mostrarDescuentos && descuentosActual && (
+            <div className="border rounded p-3" style={{backgroundColor: '#ffd7e8'}}>
+              {/* Resumen de Descuentos */}
+              {(() => {
+                // Para descuentos, calcular resumen con honorarios normales (sin aplicar mayores costos)
+                const resumen = calcularResumenHonorarios();
+                const hayValores = resumen.totales.base > 0 || resumen.totales.honorarios > 0;
+
+                return hayValores && (
+                  <div className="mt-4 border rounded p-3 bg-white">
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h6 className="text-danger mb-0">
+                        📊 Resumen de Descuentos
+                      </h6>
+
+                      {/* ✨ Switch para aplicar mismo % a todos los items */}
+                      <div className="d-flex align-items-center gap-2">
+                        <div className="form-check form-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="switchGlobalDescuentos"
+                            checked={aplicarGlobalDescuentos}
+                            onChange={(e) => setAplicarGlobalDescuentos(e.target.checked)}
+                          />
+                          <label className="form-check-label small fw-bold text-muted" htmlFor="switchGlobalDescuentos">
+                            Asignar el mismo % a todos los items
+                          </label>
+                        </div>
+
+                        {/* Input global - solo visible si el switch está activado */}
+                        {aplicarGlobalDescuentos && (
+                          <div className="d-flex gap-1 align-items-center" style={{minWidth: '150px'}}>
+                            <select
+                              className="form-select form-select-sm"
+                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                              value={tipoGlobalDescuentos}
+                              onChange={(e) => setTipoGlobalDescuentos(e.target.value)}
+                            >
+                              <option value="porcentaje">%</option>
+                              <option value="fijo">$</option>
+                            </select>
+                            <input
+                              type="number"
+                              className="form-control form-control-sm"
+                              placeholder="Valor"
+                              value={valorGlobalDescuentos}
+                              onChange={(e) => {
+                                const valor = e.target.value;
+                                setValorGlobalDescuentos(valor);
+
+                                // Aplicar automáticamente a todos los items
+                                if (valor && onDescuentosChange) {
+                                  const nuevoDescuentos = {
+                                    ...descuentosActual,
+                                    jornales: { ...descuentosActual.jornales, tipo: tipoGlobalDescuentos, valor: valor },
+                                    materiales: { ...descuentosActual.materiales, tipo: tipoGlobalDescuentos, valor: valor },
+                                    honorarios: { ...descuentosActual.honorarios, tipo: tipoGlobalDescuentos, valor: valor },
+                                    mayoresCostos: { ...descuentosActual.mayoresCostos, tipo: tipoGlobalDescuentos, valor: valor }
+                                  };
+                                  onDescuentosChange(nuevoDescuentos);
+                                }
+                              }}
+                              style={{fontSize: '11px', padding: '4px', width: '80px'}}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="row g-3 mb-3">
+                      {/* Jornales */}
+                      {resumen.jornales && (resumen.jornales.baseOriginal > 0 || resumen.jornales.base > 0) && (
+                      <div className="col-md-3">
+                        <div className="border rounded p-2 bg-light">
+                          <div className="d-flex justify-content-between align-items-center mb-2">
+                            <small className="text-muted">🏗️ Jornales</small>
+                            <div className="form-check form-check-sm">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={descuentosActual.jornales?.activo !== false}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  jornales: { ...prev.jornales, activo: e.target.checked }
+                                }))}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              <label className="form-check-label small" style={{ fontSize: '10px' }}>
+                                Aplicar
+                              </label>
+                            </div>
+                          </div>
+                          <div className="d-flex justify-content-between mt-1">
+                            <span className="small">Base (sin honorarios):</span>
+                            <span className="small fw-bold">${(resumen.jornales.baseOriginal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                          </div>
+
+                          <div className="mt-2 mb-2">
+                            <div className="d-flex gap-1 align-items-center">
+                              <select
+                                className="form-select form-select-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                value={descuentosActual.jornales?.tipo || 'porcentaje'}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  jornales: { ...prev.jornales, tipo: e.target.value }
+                                }))}
+                              >
+                                <option value="porcentaje">%</option>
+                                <option value="fijo">$</option>
+                              </select>
+                              <input
+                                type="number"
+                                className="form-control form-control-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                placeholder={descuentosActual.jornales?.tipo === 'porcentaje' ? '10' : '1000'}
+                                value={descuentosActual.jornales?.valor || ''}
+                                onChange={(e) => {
+                                  setDescuentos(prev => ({
+                                    ...prev,
+                                    jornales: { ...prev.jornales, valor: e.target.value }
+                                  }));
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="d-flex justify-content-between text-danger">
+                            <span className="small">- Descuento:</span>
+                            <span className="small fw-bold">${(() => {
+                              if (descuentosActual.jornales?.activo === false) return '0,00';
+                              const base = resumen.jornales.baseOriginal || 0;
+                              const valor = Number(descuentosActual.jornales?.valor || 0);
+
+                              if (valor === 0) return '0,00';
+                              if (descuentosActual.jornales?.tipo === 'porcentaje') {
+                                return ((base * valor) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              } else {
+                                return valor.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              }
+                            })()}</span>
+                          </div>
+                          <hr className="my-1" />
+                          <div className="d-flex justify-content-between">
+                            <span className="small fw-bold">Total:</span>
+                            <span className="small fw-bold text-primary">${(() => {
+                              const base = resumen.jornales.baseOriginal || 0;
+                              if (descuentosActual.jornales?.activo === false) {
+                                return base.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              }
+                              const valor = Number(descuentosActual.jornales?.valor || 0);
+                              let descuento = 0;
+                              if (valor > 0) {
+                                if (descuentosActual.jornales?.tipo === 'porcentaje') {
+                                  descuento = (base * valor) / 100;
+                                } else {
+                                  descuento = valor;
+                                }
+                              }
+                              return (base - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}</span>
+                          </div>
+                        </div>
+                      </div>
+                      )}
+
+                      {/* Materiales */}
+                      {resumen.materiales && (resumen.materiales.baseOriginal > 0 || resumen.materiales.base > 0) && (
+                      <div className="col-md-3">
+                        <div className="border rounded p-2 bg-light">
+                          <div className="d-flex justify-content-between align-items-center mb-2">
+                            <small className="text-muted">🧱 Materiales</small>
+                            <div className="form-check form-check-sm">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={descuentosActual.materiales?.activo !== false}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  materiales: { ...prev.materiales, activo: e.target.checked }
+                                }))}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              <label className="form-check-label small" style={{ fontSize: '10px' }}>
+                                Aplicar
+                              </label>
+                            </div>
+                          </div>
+                          <div className="d-flex justify-content-between mt-1">
+                            <span className="small">Base (sin honorarios):</span>
+                            <span className="small fw-bold">${(resumen.materiales.baseOriginal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                          </div>
+
+                          <div className="mt-2 mb-2">
+                            <div className="d-flex gap-1 align-items-center">
+                              <select
+                                className="form-select form-select-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                value={descuentosActual.materiales.tipo}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  materiales: { ...prev.materiales, tipo: e.target.value }
+                                }))}
+                              >
+                                <option value="porcentaje">%</option>
+                                <option value="fijo">$</option>
+                              </select>
+                              <input
+                                type="number"
+                                className="form-control form-control-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                placeholder={descuentosActual.materiales.tipo === 'porcentaje' ? '10' : '1000'}
+                                value={descuentosActual.materiales.valor}
+                                onChange={(e) => {
+                                  const valor = e.target.value;
+                                  setDescuentos(prev => ({
+                                    ...prev,
+                                    materiales: {
+                                      ...prev.materiales,
+                                      valor,
+                                      activo: valor !== '' && Number(valor) !== 0
+                                    }
+                                  }));
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="d-flex justify-content-between text-danger">
+                            <span className="small">- Descuento:</span>
+                            <span className="small fw-bold">${(() => {
+                              if (descuentosActual.materiales?.activo === false) return '0,00';
+                              const base = resumen.materiales.baseOriginal || 0;
+                              const valor = Number(descuentosActual.materiales?.valor || 0);
+                              if (valor > 0 && descuentosActual.materiales?.tipo === 'porcentaje') {
+                                return ((base * valor) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              } else if (valor > 0) {
+                                return valor.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              }
+                              return '0,00';
+                            })()}</span>
+                          </div>
+                          <hr className="my-1" />
+                          <div className="d-flex justify-content-between">
+                            <span className="small fw-bold">Total:</span>
+                            <span className="small fw-bold text-primary">${(() => {
+                              const base = resumen.materiales.baseOriginal || 0;
+                              if (descuentosActual.materiales?.activo === false) return base.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              const valor = Number(descuentosActual.materiales?.valor || 0);
+                              let descuento = 0;
+                              if (valor > 0 && descuentosActual.materiales?.tipo === 'porcentaje') {
+                                descuento = (base * valor) / 100;
+                              } else if (valor > 0) {
+                                descuento = valor;
+                              }
+                              return (base - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}</span>
+                          </div>
+                        </div>
+                      </div>
+                      )}
+
+                      {/* Honorarios */}
+                      {resumen.honorarios && resumen.honorarios.base > 0 && (
+                      <div className="col-md-3">
+                        <div className="border rounded p-2 bg-light">
+                          <div className="d-flex justify-content-between align-items-center mb-2">
+                            <small className="text-muted">💰 Honorarios (total)</small>
+                            <div className="form-check form-check-sm">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={descuentosActual.honorarios?.activo !== false}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  honorarios: { ...prev.honorarios, activo: e.target.checked }
+                                }))}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              <label className="form-check-label small" style={{ fontSize: '10px' }}>
+                                Aplicar
+                              </label>
+                            </div>
+                          </div>
+                          <div className="d-flex justify-content-between mt-1">
+                            <span className="small">Base:</span>
+                            <span className="small fw-bold">${(resumen.honorarios?.base || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                          </div>
+
+                          <div className="mt-2 mb-2">
+                            <div className="d-flex gap-1 align-items-center">
+                              <select
+                                className="form-select form-select-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                value={descuentosActual.honorarios.tipo}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  honorarios: { ...prev.honorarios, tipo: e.target.value }
+                                }))}
+                              >
+                                <option value="porcentaje">%</option>
+                                <option value="fijo">$</option>
+                              </select>
+                              <input
+                                type="number"
+                                className="form-control form-control-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                placeholder={descuentosActual.honorarios.tipo === 'porcentaje' ? '10' : '1000'}
+                                value={descuentosActual.honorarios.valor}
+                                onChange={(e) => {
+                                  const valor = e.target.value;
+                                  setDescuentos(prev => ({
+                                    ...prev,
+                                    honorarios: {
+                                      ...prev.honorarios,
+                                      valor,
+                                      activo: valor !== '' && Number(valor) !== 0
+                                    }
+                                  }));
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="d-flex justify-content-between text-danger">
+                            <span className="small">- Descuento:</span>
+                            <span className="small fw-bold">${(() => {
+                              if (descuentosActual.honorarios?.activo === false) return '0,00';
+                              const base = resumen.honorarios?.base || 0;
+                              const valor = Number(descuentosActual.honorarios?.valor || 0);
+                              if (valor > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
+                                return ((base * valor) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              } else if (valor > 0) {
+                                return valor.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              }
+                              return '0,00';
+                            })()}</span>
+                          </div>
+                          <hr className="my-1" />
+                          <div className="d-flex justify-content-between">
+                            <span className="small fw-bold">Total:</span>
+                            <span className="small fw-bold text-primary">${(() => {
+                              if (descuentosActual.honorarios?.activo === false) {
+                                return (resumen.honorarios?.base || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              }
+                              const base = resumen.honorarios?.base || 0;
+                              const valor = Number(descuentosActual.honorarios?.valor || 0);
+                              let descuento = 0;
+                              if (valor > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
+                                descuento = (base * valor) / 100;
+                              } else if (valor > 0) {
+                                descuento = valor;
+                              }
+                              return (base - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}</span>
+                          </div>
+                        </div>
+                      </div>
+                      )}
+
+                      {/* Mayores Costos (Total de todos los mayores costos aplicados) */}
+                      {(() => {
+                        // Calcular total de mayores costos
+                        let totalMayoresCostos = 0;
+
+                        // Jornales
+                        if (mayoresCostosActual.jornales?.activo !== false) {
+                          const baseJornales = resumen.jornales?.baseOriginal || 0;
+                          const valorJornales = Number(mayoresCostosActual.jornales?.valor || 0);
+                          if (valorJornales > 0 && mayoresCostosActual.jornales?.tipo === 'porcentaje') {
+                            totalMayoresCostos += (baseJornales * valorJornales) / 100;
+                          } else if (valorJornales > 0) {
+                            totalMayoresCostos += valorJornales;
+                          }
+                        }
+
+                        // Profesionales
+                        if (mayoresCostosActual.profesionales?.activo !== false) {
+                          const baseProf = resumen.profesionales?.baseOriginal || 0;
+                          const valorProf = Number(mayoresCostosActual.profesionales?.valor || 0);
+                          if (valorProf > 0 && mayoresCostosActual.profesionales?.tipo === 'porcentaje') {
+                            totalMayoresCostos += (baseProf * valorProf) / 100;
+                          } else if (valorProf > 0) {
+                            totalMayoresCostos += valorProf;
+                          }
+                        }
+
+                        // Materiales
+                        if (mayoresCostosActual.materiales?.activo !== false) {
+                          const baseMat = resumen.materiales?.baseOriginal || 0;
+                          const valorMat = Number(mayoresCostosActual.materiales?.valor || 0);
+                          if (valorMat > 0 && mayoresCostosActual.materiales?.tipo === 'porcentaje') {
+                            totalMayoresCostos += (baseMat * valorMat) / 100;
+                          } else if (valorMat > 0) {
+                            totalMayoresCostos += valorMat;
+                          }
+                        }
+
+                        // Otros Costos
+                        if (mayoresCostosActual.otrosCostos?.activo !== false) {
+                          const baseOtros = (resumen.gastosGenerales?.baseOriginal || 0) + (resumen.otrosCostos?.baseOriginal || 0);
+                          const valorOtros = Number(mayoresCostosActual.otrosCostos?.valor || 0);
+                          if (valorOtros > 0 && mayoresCostosActual.otrosCostos?.tipo === 'porcentaje') {
+                            totalMayoresCostos += (baseOtros * valorOtros) / 100;
+                          } else if (valorOtros > 0) {
+                            totalMayoresCostos += valorOtros;
+                          }
+                        }
+
+                        // Configuración
+                        if (mayoresCostosActual.configuracionPresupuesto?.activo !== false) {
+                          const baseConfig = resumen.configuracionPresupuesto?.baseOriginal || 0;
+                          const valorConfig = Number(mayoresCostosActual.configuracionPresupuesto?.valor || 0);
+                          if (valorConfig > 0 && mayoresCostosActual.configuracionPresupuesto?.tipo === 'porcentaje') {
+                            totalMayoresCostos += (baseConfig * valorConfig) / 100;
+                          } else if (valorConfig > 0) {
+                            totalMayoresCostos += valorConfig;
+                          }
+                        }
+
+                        // Honorarios de mayores costos
+                        if (mayoresCostosActual.honorarios?.activo !== false) {
+                          const baseHon = resumen.honorarios?.base || 0;
+                          const valorHon = Number(mayoresCostosActual.honorarios?.valor || 0);
+                          if (valorHon > 0 && mayoresCostosActual.honorarios?.tipo === 'porcentaje') {
+                            totalMayoresCostos += (baseHon * valorHon) / 100;
+                          } else if (valorHon > 0) {
+                            totalMayoresCostos += valorHon;
+                          }
+                        }
+
+                        return totalMayoresCostos > 0 && (
+                      <div className="col-md-3">
+                        <div className="border rounded p-2 bg-light">
+                          <div className="d-flex justify-content-between align-items-center mb-2">
+                            <small className="text-muted">💰 Mayores Costos (total)</small>
+                            <div className="form-check form-check-sm">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={descuentosActual.mayoresCostos?.activo !== false}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  mayoresCostos: { ...prev.mayoresCostos, activo: e.target.checked }
+                                }))}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              <label className="form-check-label small" style={{ fontSize: '10px' }}>
+                                Aplicar
+                              </label>
+                            </div>
+                          </div>
+                          <div className="d-flex justify-content-between mt-1">
+                            <span className="small">Base (Total mayores costos):</span>
+                            <span className="small fw-bold">${totalMayoresCostos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                          </div>
+
+                          <div className="mt-2 mb-2">
+                            <div className="d-flex gap-1 align-items-center">
+                              <select
+                                className="form-select form-select-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                value={descuentosActual.mayoresCostos.tipo}
+                                onChange={(e) => setDescuentos(prev => ({
+                                  ...prev,
+                                  mayoresCostos: { ...prev.mayoresCostos, tipo: e.target.value }
+                                }))}
+                              >
+                                <option value="porcentaje">%</option>
+                                <option value="fijo">$</option>
+                              </select>
+                              <input
+                                type="number"
+                                className="form-control form-control-sm"
+                                style={{ fontSize: '10px', padding: '2px' }}
+                                placeholder={descuentosActual.mayoresCostos.tipo === 'porcentaje' ? '100' : totalMayoresCostos.toFixed(0)}
+                                value={descuentosActual.mayoresCostos.valor}
+                                onChange={(e) => {
+                                  const valor = e.target.value;
+                                  setDescuentos(prev => ({
+                                    ...prev,
+                                    mayoresCostos: {
+                                      ...prev.mayoresCostos,
+                                      valor,
+                                      activo: valor !== '' && Number(valor) !== 0
+                                    }
+                                  }));
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="d-flex justify-content-between text-danger">
+                            <span className="small">- Descuento:</span>
+                            <span className="small fw-bold">${(() => {
+                              if (descuentosActual.mayoresCostos?.activo === false) return '0,00';
+                              const valor = Number(descuentosActual.mayoresCostos?.valor || 0);
+                              if (valor > 0 && descuentosActual.mayoresCostos?.tipo === 'porcentaje') {
+                                return ((totalMayoresCostos * valor) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              } else if (valor > 0) {
+                                return valor.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              }
+                              return '0,00';
+                            })()}</span>
+                          </div>
+                          <hr className="my-1" />
+                          <div className="d-flex justify-content-between">
+                            <span className="small fw-bold">Total:</span>
+                            <span className="small fw-bold text-primary">${(() => {
+                              if (descuentosActual.mayoresCostos?.activo === false) {
+                                return totalMayoresCostos.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                              }
+                              const valor = Number(descuentosActual.mayoresCostos?.valor || 0);
+                              let descuento = 0;
+                              if (valor > 0 && descuentosActual.mayoresCostos?.tipo === 'porcentaje') {
+                                descuento = (totalMayoresCostos * valor) / 100;
+                              } else if (valor > 0) {
+                                descuento = valor;
+                              }
+                              // Si el descuento es del 100% o más, eliminar completamente los mayores costos
+                              if (descuentosActual.mayoresCostos?.tipo === 'porcentaje' && valor >= 100) {
+                                return '0,00';
+                              }
+                              return (totalMayoresCostos - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}</span>
+                          </div>
+                        </div>
+                      </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Total General de Descuentos */}
+                    <div className="border-top pt-3">
+                      <div className="row">
+                        <div className="col-md-4">
+                          <div className="d-flex justify-content-between">
+                            <span>Subtotal (Sin descuentos):</span>
+                            <span className="fw-bold">${(() => {
+                              // Subtotal = TODAS las bases con honorarios y mayores costos
+                              const baseJornales = resumen.jornales?.base || 0;
+                              const baseProfesionales = resumen.profesionales?.base || 0;
+                              const baseMateriales = resumen.materiales?.base || 0;
+                              const baseOtrosCostos = (resumen.gastosGenerales?.base || 0) + (resumen.otrosCostos?.base || 0);
+                              const baseConfiguracion = resumen.configuracionPresupuesto?.base || 0;
+                              const baseHonorarios = resumen.honorarios?.base || 0;
+
+                              // Calcular total de mayores costos
+                              let totalMayoresCostos = 0;
+                              if (mayoresCostosActual.jornales?.activo !== false) {
+                                const valorJornales = Number(mayoresCostosActual.jornales?.valor || 0);
+                                if (valorJornales > 0 && mayoresCostosActual.jornales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.jornales?.baseOriginal || 0) * valorJornales) / 100;
+                                } else if (valorJornales > 0) {
+                                  totalMayoresCostos += valorJornales;
+                                }
+                              }
+                              if (mayoresCostosActual.profesionales?.activo !== false) {
+                                const valorProf = Number(mayoresCostosActual.profesionales?.valor || 0);
+                                if (valorProf > 0 && mayoresCostosActual.profesionales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.profesionales?.baseOriginal || 0) * valorProf) / 100;
+                                } else if (valorProf > 0) {
+                                  totalMayoresCostos += valorProf;
+                                }
+                              }
+                              if (mayoresCostosActual.materiales?.activo !== false) {
+                                const valorMat = Number(mayoresCostosActual.materiales?.valor || 0);
+                                if (valorMat > 0 && mayoresCostosActual.materiales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.materiales?.baseOriginal || 0) * valorMat) / 100;
+                                } else if (valorMat > 0) {
+                                  totalMayoresCostos += valorMat;
+                                }
+                              }
+                              if (mayoresCostosActual.otrosCostos?.activo !== false) {
+                                const valorOtros = Number(mayoresCostosActual.otrosCostos?.valor || 0);
+                                const baseOtros = (resumen.gastosGenerales?.baseOriginal || 0) + (resumen.otrosCostos?.baseOriginal || 0);
+                                if (valorOtros > 0 && mayoresCostosActual.otrosCostos?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += (baseOtros * valorOtros) / 100;
+                                } else if (valorOtros > 0) {
+                                  totalMayoresCostos += valorOtros;
+                                }
+                              }
+                              if (mayoresCostosActual.configuracionPresupuesto?.activo !== false) {
+                                const valorConfig = Number(mayoresCostosActual.configuracionPresupuesto?.valor || 0);
+                                if (valorConfig > 0 && mayoresCostosActual.configuracionPresupuesto?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.configuracionPresupuesto?.baseOriginal || 0) * valorConfig) / 100;
+                                } else if (valorConfig > 0) {
+                                  totalMayoresCostos += valorConfig;
+                                }
+                              }
+                              if (mayoresCostosActual.honorarios?.activo !== false) {
+                                const valorHon = Number(mayoresCostosActual.honorarios?.valor || 0);
+                                if (valorHon > 0 && mayoresCostosActual.honorarios?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += (baseHonorarios * valorHon) / 100;
+                                } else if (valorHon > 0) {
+                                  totalMayoresCostos += valorHon;
+                                }
+                              }
+
+                              return (baseJornales + baseProfesionales + baseMateriales + baseOtrosCostos + baseConfiguracion + baseHonorarios + totalMayoresCostos).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}</span>
+                          </div>
+                        </div>
+                        <div className="col-md-4">
+                          <div className="d-flex justify-content-between text-danger">
+                            <span>Total Descuentos:</span>
+                            <span className="fw-bold">${(() => {
+                              // Calcular total de descuentos directamente respetando checkboxes
+                              let total = 0;
+
+                              // Jornales
+                              if (descuentosActual.jornales?.activo !== false) {
+                                const baseJornales = resumen.jornales?.baseOriginal || 0;
+                                const valorJornales = Number(descuentosActual.jornales?.valor || 0);
+                                if (valorJornales > 0 && descuentosActual.jornales?.tipo === 'porcentaje') {
+                                  total += (baseJornales * valorJornales) / 100;
+                                } else if (valorJornales > 0) {
+                                  total += valorJornales;
+                                }
+                              }
+
+                              // Materiales
+                              if (descuentosActual.materiales?.activo !== false) {
+                                const baseMat = resumen.materiales?.baseOriginal || 0;
+                                const valorMat = Number(descuentosActual.materiales?.valor || 0);
+                                if (valorMat > 0 && descuentosActual.materiales?.tipo === 'porcentaje') {
+                                  total += (baseMat * valorMat) / 100;
+                                } else if (valorMat > 0) {
+                                  total += valorMat;
+                                }
+                              }
+
+                              // Honorarios
+                              if (descuentosActual.honorarios?.activo !== false) {
+                                const baseHon = resumen.honorarios?.base || 0;
+                                const valorHon = Number(descuentosActual.honorarios?.valor || 0);
+                                if (valorHon > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
+                                  total += (baseHon * valorHon) / 100;
+                                } else if (valorHon > 0) {
+                                  total += valorHon;
+                                }
+                              }
+
+                              // Mayores Costos
+                              if (descuentosActual.mayoresCostos?.activo !== false) {
+                                // Calcular total de mayores costos primero
+                                let totalMayoresCostos = 0;
+                                if (mayoresCostosActual.jornales?.activo !== false) {
+                                  const valorJornales = Number(mayoresCostosActual.jornales?.valor || 0);
+                                  if (valorJornales > 0 && mayoresCostosActual.jornales?.tipo === 'porcentaje') {
+                                    totalMayoresCostos += ((resumen.jornales?.baseOriginal || 0) * valorJornales) / 100;
+                                  } else if (valorJornales > 0) {
+                                    totalMayoresCostos += valorJornales;
+                                  }
+                                }
+                                if (mayoresCostosActual.profesionales?.activo !== false) {
+                                  const valorProf = Number(mayoresCostosActual.profesionales?.valor || 0);
+                                  if (valorProf > 0 && mayoresCostosActual.profesionales?.tipo === 'porcentaje') {
+                                    totalMayoresCostos += ((resumen.profesionales?.baseOriginal || 0) * valorProf) / 100;
+                                  } else if (valorProf > 0) {
+                                    totalMayoresCostos += valorProf;
+                                  }
+                                }
+                                if (mayoresCostosActual.materiales?.activo !== false) {
+                                  const valorMat = Number(mayoresCostosActual.materiales?.valor || 0);
+                                  if (valorMat > 0 && mayoresCostosActual.materiales?.tipo === 'porcentaje') {
+                                    totalMayoresCostos += ((resumen.materiales?.baseOriginal || 0) * valorMat) / 100;
+                                  } else if (valorMat > 0) {
+                                    totalMayoresCostos += valorMat;
+                                  }
+                                }
+                                if (mayoresCostosActual.otrosCostos?.activo !== false) {
+                                  const valorOtros = Number(mayoresCostosActual.otrosCostos?.valor || 0);
+                                  const baseOtros = (resumen.gastosGenerales?.baseOriginal || 0) + (resumen.otrosCostos?.baseOriginal || 0);
+                                  if (valorOtros > 0 && mayoresCostosActual.otrosCostos?.tipo === 'porcentaje') {
+                                    totalMayoresCostos += (baseOtros * valorOtros) / 100;
+                                  } else if (valorOtros > 0) {
+                                    totalMayoresCostos += valorOtros;
+                                  }
+                                }
+                                if (mayoresCostosActual.configuracionPresupuesto?.activo !== false) {
+                                  const valorConfig = Number(mayoresCostosActual.configuracionPresupuesto?.valor || 0);
+                                  if (valorConfig > 0 && mayoresCostosActual.configuracionPresupuesto?.tipo === 'porcentaje') {
+                                    totalMayoresCostos += ((resumen.configuracionPresupuesto?.baseOriginal || 0) * valorConfig) / 100;
+                                  } else if (valorConfig > 0) {
+                                    totalMayoresCostos += valorConfig;
+                                  }
+                                }
+                                if (mayoresCostosActual.honorarios?.activo !== false) {
+                                  const valorHon = Number(mayoresCostosActual.honorarios?.valor || 0);
+                                  if (valorHon > 0 && mayoresCostosActual.honorarios?.tipo === 'porcentaje') {
+                                    totalMayoresCostos += ((resumen.honorarios?.base || 0) * valorHon) / 100;
+                                  } else if (valorHon > 0) {
+                                    totalMayoresCostos += valorHon;
+                                  }
+                                }
+
+                                // Aplicar descuento sobre el total de mayores costos
+                                const valorDescMayoresCostos = Number(descuentosActual.mayoresCostos?.valor || 0);
+                                if (valorDescMayoresCostos > 0 && descuentosActual.mayoresCostos?.tipo === 'porcentaje') {
+                                  total += (totalMayoresCostos * valorDescMayoresCostos) / 100;
+                                } else if (valorDescMayoresCostos > 0) {
+                                  total += valorDescMayoresCostos;
+                                }
+                              }
+
+                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}</span>
+                          </div>
+                        </div>
+                        <div className="col-md-4">
+                          <div className="d-flex justify-content-between">
+                            <span className="fs-5 fw-bold">TOTAL FINAL:</span>
+                            <span className="fs-5 fw-bold text-primary">${(() => {
+                              // Calcular total final: subtotal - total descuentos
+                              const baseJornales = resumen.jornales?.base || 0;
+                              const baseProfesionales = resumen.profesionales?.base || 0;
+                              const baseMateriales = resumen.materiales?.base || 0;
+                              const baseOtrosCostos = (resumen.gastosGenerales?.base || 0) + (resumen.otrosCostos?.base || 0);
+                              const baseConfiguracion = resumen.configuracionPresupuesto?.base || 0;
+                              const baseHonorarios = resumen.honorarios?.base || 0;
+
+                              // Bases originales sin honorarios (para calcular descuentos)
+                              const baseJornalesOriginal = resumen.jornales?.baseOriginal || 0;
+                              const baseMaterialesOriginal = resumen.materiales?.baseOriginal || 0;
+
+                              // Calcular total de mayores costos
+                              let totalMayoresCostos = 0;
+                              if (mayoresCostosActual.jornales?.activo !== false) {
+                                const valorJornales = Number(mayoresCostosActual.jornales?.valor || 0);
+                                if (valorJornales > 0 && mayoresCostosActual.jornales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.jornales?.baseOriginal || 0) * valorJornales) / 100;
+                                } else if (valorJornales > 0) {
+                                  totalMayoresCostos += valorJornales;
+                                }
+                              }
+                              if (mayoresCostosActual.profesionales?.activo !== false) {
+                                const valorProf = Number(mayoresCostosActual.profesionales?.valor || 0);
+                                if (valorProf > 0 && mayoresCostosActual.profesionales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.profesionales?.baseOriginal || 0) * valorProf) / 100;
+                                } else if (valorProf > 0) {
+                                  totalMayoresCostos += valorProf;
+                                }
+                              }
+                              if (mayoresCostosActual.materiales?.activo !== false) {
+                                const valorMat = Number(mayoresCostosActual.materiales?.valor || 0);
+                                if (valorMat > 0 && mayoresCostosActual.materiales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.materiales?.baseOriginal || 0) * valorMat) / 100;
+                                } else if (valorMat > 0) {
+                                  totalMayoresCostos += valorMat;
+                                }
+                              }
+                              if (mayoresCostosActual.otrosCostos?.activo !== false) {
+                                const valorOtros = Number(mayoresCostosActual.otrosCostos?.valor || 0);
+                                const baseOtros = (resumen.gastosGenerales?.baseOriginal || 0) + (resumen.otrosCostos?.baseOriginal || 0);
+                                if (valorOtros > 0 && mayoresCostosActual.otrosCostos?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += (baseOtros * valorOtros) / 100;
+                                } else if (valorOtros > 0) {
+                                  totalMayoresCostos += valorOtros;
+                                }
+                              }
+                              if (mayoresCostosActual.configuracionPresupuesto?.activo !== false) {
+                                const valorConfig = Number(mayoresCostosActual.configuracionPresupuesto?.valor || 0);
+                                if (valorConfig > 0 && mayoresCostosActual.configuracionPresupuesto?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.configuracionPresupuesto?.baseOriginal || 0) * valorConfig) / 100;
+                                } else if (valorConfig > 0) {
+                                  totalMayoresCostos += valorConfig;
+                                }
+                              }
+                              if (mayoresCostosActual.honorarios?.activo !== false) {
+                                const valorHon = Number(mayoresCostosActual.honorarios?.valor || 0);
+                                if (valorHon > 0 && mayoresCostosActual.honorarios?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += (baseHonorarios * valorHon) / 100;
+                                } else if (valorHon > 0) {
+                                  totalMayoresCostos += valorHon;
+                                }
+                              }
+
+                              const subtotal = baseJornales + baseProfesionales + baseMateriales + baseOtrosCostos + baseConfiguracion + baseHonorarios + totalMayoresCostos;
+
+                              // Calcular descuentos
+                              let totalDescuentos = 0;
+
+                              // Jornales (sobre base sin honorarios)
+                              if (descuentosActual.jornales?.activo !== false) {
+                                const valorJornales = Number(descuentosActual.jornales?.valor || 0);
+                                if (valorJornales > 0 && descuentosActual.jornales?.tipo === 'porcentaje') {
+                                  totalDescuentos += (baseJornalesOriginal * valorJornales) / 100;
+                                } else if (valorJornales > 0) {
+                                  totalDescuentos += valorJornales;
+                                }
+                              }
+
+                              // Materiales (sobre base sin honorarios)
+                              if (descuentosActual.materiales?.activo !== false) {
+                                const valorMat = Number(descuentosActual.materiales?.valor || 0);
+                                if (valorMat > 0 && descuentosActual.materiales?.tipo === 'porcentaje') {
+                                  totalDescuentos += (baseMaterialesOriginal * valorMat) / 100;
+                                } else if (valorMat > 0) {
+                                  totalDescuentos += valorMat;
+                                }
+                              }
+
+                              // Honorarios
+                              if (descuentosActual.honorarios?.activo !== false) {
+                                const valorHon = Number(descuentosActual.honorarios?.valor || 0);
+                                if (valorHon > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
+                                  totalDescuentos += (baseHonorarios * valorHon) / 100;
+                                } else if (valorHon > 0) {
+                                  totalDescuentos += valorHon;
+                                }
+                              }
+
+                              // Mayores Costos
+                              if (descuentosActual.mayoresCostos?.activo !== false) {
+                                const valorDescMayoresCostos = Number(descuentosActual.mayoresCostos?.valor || 0);
+                                if (valorDescMayoresCostos > 0 && descuentosActual.mayoresCostos?.tipo === 'porcentaje') {
+                                  totalDescuentos += (totalMayoresCostos * valorDescMayoresCostos) / 100;
+                                } else if (valorDescMayoresCostos > 0) {
+                                  totalDescuentos += valorDescMayoresCostos;
+                                }
+                              }
+
+                              return (subtotal - totalDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Desglose por sección */}
+                      <div className="alert alert-info mt-3 mb-0">
+                        <strong>💸 Descuentos por sección:</strong>
+                        <div className="row mt-2 small">
+                          {(() => {
+                            // Calcular descuento de jornales
+                            let descuentoJornales = 0;
+                            if (descuentosActual.jornales?.activo !== false) {
+                              const base = resumen.jornales?.baseOriginal || 0;
+                              const valor = Number(descuentosActual.jornales?.valor || 0);
+                              if (valor > 0 && descuentosActual.jornales?.tipo === 'porcentaje') {
+                                descuentoJornales = (base * valor) / 100;
+                              } else if (valor > 0) {
+                                descuentoJornales = valor;
+                              }
+                            }
+                            return descuentoJornales > 0 && (
+                              <div className="col-md-3">
+                                🏗️ Jornales: <strong>${descuentoJornales.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                              </div>
+                            );
+                          })()}
+                          {(() => {
+                            // Calcular descuento de materiales
+                            let descuentoMat = 0;
+                            if (descuentosActual.materiales?.activo !== false) {
+                              const base = resumen.materiales?.baseOriginal || 0;
+                              const valor = Number(descuentosActual.materiales?.valor || 0);
+                              if (valor > 0 && descuentosActual.materiales?.tipo === 'porcentaje') {
+                                descuentoMat = (base * valor) / 100;
+                              } else if (valor > 0) {
+                                descuentoMat = valor;
+                              }
+                            }
+                            return descuentoMat > 0 && (
+                              <div className="col-md-3">
+                                🧱 Materiales: <strong>${descuentoMat.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                              </div>
+                            );
+                          })()}
+                          {(() => {
+                            // Calcular descuento de honorarios
+                            let descuentoHon = 0;
+                            if (descuentosActual.honorarios?.activo !== false) {
+                              const base = resumen.honorarios?.base || 0;
+                              const valor = Number(descuentosActual.honorarios?.valor || 0);
+                              if (valor > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
+                                descuentoHon = (base * valor) / 100;
+                              } else if (valor > 0) {
+                                descuentoHon = valor;
+                              }
+                            }
+                            return descuentoHon > 0 && (
+                              <div className="col-md-3">
+                                💰 Honorarios: <strong>${descuentoHon.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                              </div>
+                            );
+                          })()}
+                          {(() => {
+                            // Calcular descuento sobre mayores costos
+                            let descuentoMayoresCostos = 0;
+                            if (descuentosActual.mayoresCostos?.activo !== false) {
+                              // Calcular total de mayores costos primero
+                              let totalMayoresCostos = 0;
+                              if (mayoresCostosActual.jornales?.activo !== false) {
+                                const valorJornales = Number(mayoresCostosActual.jornales?.valor || 0);
+                                if (valorJornales > 0 && mayoresCostosActual.jornales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.jornales?.baseOriginal || 0) * valorJornales) / 100;
+                                } else if (valorJornales > 0) {
+                                  totalMayoresCostos += valorJornales;
+                                }
+                              }
+                              if (mayoresCostosActual.profesionales?.activo !== false) {
+                                const valorProf = Number(mayoresCostosActual.profesionales?.valor || 0);
+                                if (valorProf > 0 && mayoresCostosActual.profesionales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.profesionales?.baseOriginal || 0) * valorProf) / 100;
+                                } else if (valorProf > 0) {
+                                  totalMayoresCostos += valorProf;
+                                }
+                              }
+                              if (mayoresCostosActual.materiales?.activo !== false) {
+                                const valorMat = Number(mayoresCostosActual.materiales?.valor || 0);
+                                if (valorMat > 0 && mayoresCostosActual.materiales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.materiales?.baseOriginal || 0) * valorMat) / 100;
+                                } else if (valorMat > 0) {
+                                  totalMayoresCostos += valorMat;
+                                }
+                              }
+                              if (mayoresCostosActual.otrosCostos?.activo !== false) {
+                                const valorOtros = Number(mayoresCostosActual.otrosCostos?.valor || 0);
+                                const baseOtros = (resumen.gastosGenerales?.baseOriginal || 0) + (resumen.otrosCostos?.baseOriginal || 0);
+                                if (valorOtros > 0 && mayoresCostosActual.otrosCostos?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += (baseOtros * valorOtros) / 100;
+                                } else if (valorOtros > 0) {
+                                  totalMayoresCostos += valorOtros;
+                                }
+                              }
+                              if (mayoresCostosActual.configuracionPresupuesto?.activo !== false) {
+                                const valorConfig = Number(mayoresCostosActual.configuracionPresupuesto?.valor || 0);
+                                if (valorConfig > 0 && mayoresCostosActual.configuracionPresupuesto?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.configuracionPresupuesto?.baseOriginal || 0) * valorConfig) / 100;
+                                } else if (valorConfig > 0) {
+                                  totalMayoresCostos += valorConfig;
+                                }
+                              }
+                              if (mayoresCostosActual.honorarios?.activo !== false) {
+                                const valorHon = Number(mayoresCostosActual.honorarios?.valor || 0);
+                                if (valorHon > 0 && mayoresCostosActual.honorarios?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.honorarios?.base || 0) * valorHon) / 100;
+                                } else if (valorHon > 0) {
+                                  totalMayoresCostos += valorHon;
+                                }
+                              }
+
+                              // Aplicar descuento sobre el total de mayores costos
+                              const valor = Number(descuentosActual.mayoresCostos?.valor || 0);
+                              if (valor > 0 && descuentosActual.mayoresCostos?.tipo === 'porcentaje') {
+                                descuentoMayoresCostos = (totalMayoresCostos * valor) / 100;
+                              } else if (valor > 0) {
+                                descuentoMayoresCostos = valor;
+                              }
+                            }
+                            return descuentoMayoresCostos > 0 && (
+                              <div className="col-md-3">
+                                💰 Mayores Costos: <strong>${descuentoMayoresCostos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                        <hr className="my-2" />
+                        <div className="text-center">
+                          <strong className="fs-6">🎯 TOTAL DESCUENTOS: ${(() => {
+                            let total = 0;
+
+                            // Jornales (sobre base sin honorarios)
+                            if (descuentosActual.jornales?.activo !== false) {
+                              const baseJornales = resumen.jornales?.baseOriginal || 0;
+                              const valorJornales = Number(descuentosActual.jornales?.valor || 0);
+                              if (valorJornales > 0 && descuentosActual.jornales?.tipo === 'porcentaje') {
+                                total += (baseJornales * valorJornales) / 100;
+                              } else if (valorJornales > 0) {
+                                total += valorJornales;
+                              }
+                            }
+
+                            // Materiales (sobre base sin honorarios)
+                            if (descuentosActual.materiales?.activo !== false) {
+                              const baseMat = resumen.materiales?.baseOriginal || 0;
+                              const valorMat = Number(descuentosActual.materiales?.valor || 0);
+                              if (valorMat > 0 && descuentosActual.materiales?.tipo === 'porcentaje') {
+                                total += (baseMat * valorMat) / 100;
+                              } else if (valorMat > 0) {
+                                total += valorMat;
+                              }
+                            }
+
+                            // Honorarios
+                            if (descuentosActual.honorarios?.activo !== false) {
+                              const baseHon = resumen.honorarios?.base || 0;
+                              const valorHon = Number(descuentosActual.honorarios?.valor || 0);
+                              if (valorHon > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
+                                total += (baseHon * valorHon) / 100;
+                              } else if (valorHon > 0) {
+                                total += valorHon;
+                              }
+                            }
+
+                            // Mayores Costos
+                            if (descuentosActual.mayoresCostos?.activo !== false) {
+                              // Calcular total de mayores costos primero
+                              let totalMayoresCostos = 0;
+                              if (mayoresCostosActual.jornales?.activo !== false) {
+                                const valorJornales = Number(mayoresCostosActual.jornales?.valor || 0);
+                                if (valorJornales > 0 && mayoresCostosActual.jornales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.jornales?.baseOriginal || 0) * valorJornales) / 100;
+                                } else if (valorJornales > 0) {
+                                  totalMayoresCostos += valorJornales;
+                                }
+                              }
+                              if (mayoresCostosActual.profesionales?.activo !== false) {
+                                const valorProf = Number(mayoresCostosActual.profesionales?.valor || 0);
+                                if (valorProf > 0 && mayoresCostosActual.profesionales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.profesionales?.baseOriginal || 0) * valorProf) / 100;
+                                } else if (valorProf > 0) {
+                                  totalMayoresCostos += valorProf;
+                                }
+                              }
+                              if (mayoresCostosActual.materiales?.activo !== false) {
+                                const valorMat = Number(mayoresCostosActual.materiales?.valor || 0);
+                                if (valorMat > 0 && mayoresCostosActual.materiales?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.materiales?.baseOriginal || 0) * valorMat) / 100;
+                                } else if (valorMat > 0) {
+                                  totalMayoresCostos += valorMat;
+                                }
+                              }
+                              if (mayoresCostosActual.otrosCostos?.activo !== false) {
+                                const valorOtros = Number(mayoresCostosActual.otrosCostos?.valor || 0);
+                                const baseOtros = (resumen.gastosGenerales?.baseOriginal || 0) + (resumen.otrosCostos?.baseOriginal || 0);
+                                if (valorOtros > 0 && mayoresCostosActual.otrosCostos?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += (baseOtros * valorOtros) / 100;
+                                } else if (valorOtros > 0) {
+                                  totalMayoresCostos += valorOtros;
+                                }
+                              }
+                              if (mayoresCostosActual.configuracionPresupuesto?.activo !== false) {
+                                const valorConfig = Number(mayoresCostosActual.configuracionPresupuesto?.valor || 0);
+                                if (valorConfig > 0 && mayoresCostosActual.configuracionPresupuesto?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.configuracionPresupuesto?.baseOriginal || 0) * valorConfig) / 100;
+                                } else if (valorConfig > 0) {
+                                  totalMayoresCostos += valorConfig;
+                                }
+                              }
+                              if (mayoresCostosActual.honorarios?.activo !== false) {
+                                const valorHon = Number(mayoresCostosActual.honorarios?.valor || 0);
+                                if (valorHon > 0 && mayoresCostosActual.honorarios?.tipo === 'porcentaje') {
+                                  totalMayoresCostos += ((resumen.honorarios?.base || 0) * valorHon) / 100;
+                                } else if (valorHon > 0) {
+                                  totalMayoresCostos += valorHon;
+                                }
+                              }
+
+                              // Aplicar descuento sobre el total de mayores costos
+                              const valorDescMayoresCostos = Number(descuentosActual.mayoresCostos?.valor || 0);
+                              if (valorDescMayoresCostos > 0 && descuentosActual.mayoresCostos?.tipo === 'porcentaje') {
+                                total += (totalMayoresCostos * valorDescMayoresCostos) / 100;
+                              } else if (valorDescMayoresCostos > 0) {
+                                total += valorDescMayoresCostos;
+                              }
+                            }
+
+                            return total.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                          })()}</strong>
+                        </div>
+                      </div>
+
+                      {/* Botón para aceptar la configuración */}
+                      <div className="mt-3 text-center">
+                        <button
+                          type="button"
+                          className={`btn ${configuracionDescuentosAceptada ? 'btn-secondary' : 'btn-success'} btn-lg`}
+                          onClick={() => {
+                            if (!configuracionDescuentosAceptada) {
+                              setConfiguracionDescuentosAceptada(true);
+                              alert('Configuración de descuentos guardada temporalmente. Presione "Guardar" al final para confirmar todos los cambios.');
+                            }
+                          }}
+                          disabled={configuracionDescuentosAceptada}
+                        >
+                          {configuracionDescuentosAceptada ? '✓ Configuración Aceptada' : '✅ Aceptar Configuración de Descuentos'}
                         </button>
                       </div>
                     </div>

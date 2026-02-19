@@ -28,6 +28,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   const safeInitial = initialData || {};
 
+  // 🐛 DEBUG: Ver TODO el objeto que llega del backend
+  if (safeInitial.id) {
+    console.log('📥 OBJETO COMPLETO RECIBIDO DEL BACKEND:', JSON.stringify(safeInitial, null, 2));
+    console.log('🔑 Campos de descuentos específicos:', {
+      descuentosExplicacion: safeInitial.descuentosExplicacion,
+      descuentosJornalesActivo: safeInitial.descuentosJornalesActivo,
+      descuentosJornalesTipo: safeInitial.descuentosJornalesTipo,
+      descuentosJornalesValor: safeInitial.descuentosJornalesValor,
+      descuentosMaterialesActivo: safeInitial.descuentosMaterialesActivo,
+      descuentosMaterialesTipo: safeInitial.descuentosMaterialesTipo,
+      descuentosMaterialesValor: safeInitial.descuentosMaterialesValor,
+      descuentosHonorariosActivo: safeInitial.descuentosHonorariosActivo,
+      descuentosHonorariosTipo: safeInitial.descuentosHonorariosTipo,
+      descuentosHonorariosValor: safeInitial.descuentosHonorariosValor,
+      descuentosMayoresCostosActivo: safeInitial.descuentosMayoresCostosActivo,
+      descuentosMayoresCostosTipo: safeInitial.descuentosMayoresCostosTipo,
+      descuentosMayoresCostosValor: safeInitial.descuentosMayoresCostosValor
+    });
+  }
+
   const normalizeModoCarga = (valor, defaultMode) => {
     if (valor === undefined || valor === null || valor === '') return defaultMode;
     if (typeof valor === 'string') {
@@ -105,6 +125,64 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         }
       };
     })(), // ✅ Forzar jornales.activo = true por defecto
+
+    descuentos: (() => {
+      // 🔄 Leer descuentos desde campos relacionales del presupuesto (igual que honorarios y mayores_costos)
+
+      // 🐛 DEBUG: Ver qué campos de descuentos llegan del backend
+      console.log('🔍 DESCUENTOS RECIBIDOS DEL BACKEND:', {
+        id: safeInitial.id,
+        explicacion: safeInitial.descuentosExplicacion,
+        jornales: {
+          activo: safeInitial.descuentosJornalesActivo,
+          tipo: safeInitial.descuentosJornalesTipo,
+          valor: safeInitial.descuentosJornalesValor
+        },
+        materiales: {
+          activo: safeInitial.descuentosMaterialesActivo,
+          tipo: safeInitial.descuentosMaterialesTipo,
+          valor: safeInitial.descuentosMaterialesValor
+        },
+        honorarios: {
+          activo: safeInitial.descuentosHonorariosActivo,
+          tipo: safeInitial.descuentosHonorariosTipo,
+          valor: safeInitial.descuentosHonorariosValor
+        },
+        mayoresCostos: {
+          activo: safeInitial.descuentosMayoresCostosActivo,
+          tipo: safeInitial.descuentosMayoresCostosTipo,
+          valor: safeInitial.descuentosMayoresCostosValor
+        }
+      });
+
+      const descuentosParseados = {
+        explicacion: safeInitial.descuentosExplicacion || '',
+        jornales: {
+          activo: safeInitial.descuentosJornalesActivo !== false,
+          tipo: safeInitial.descuentosJornalesTipo || 'porcentaje',
+          valor: safeInitial.descuentosJornalesValor || ''
+        },
+        materiales: {
+          activo: safeInitial.descuentosMaterialesActivo !== false,
+          tipo: safeInitial.descuentosMaterialesTipo || 'porcentaje',
+          valor: safeInitial.descuentosMaterialesValor || ''
+        },
+        honorarios: {
+          activo: safeInitial.descuentosHonorariosActivo !== false,
+          tipo: safeInitial.descuentosHonorariosTipo || 'porcentaje',
+          valor: safeInitial.descuentosHonorariosValor || ''
+        },
+        mayoresCostos: {
+          activo: safeInitial.descuentosMayoresCostosActivo !== false,
+          tipo: safeInitial.descuentosMayoresCostosTipo || 'porcentaje',
+          valor: safeInitial.descuentosMayoresCostosValor || ''
+        }
+      };
+
+      console.log('✅ DESCUENTOS PARSEADOS PARA EL FORM:', descuentosParseados);
+
+      return descuentosParseados;
+    })(),
 
     profesionales: safeInitial.profesionales || [],
     materiales: safeInitial.materiales || [],
@@ -4886,6 +4964,31 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         return null;
       })(),
 
+      // 🔧 DESCUENTOS: Parsear desde campos relacionales (igual que honorarios y mayores costos)
+      descuentos: {
+        explicacion: si.descuentosExplicacion || '',
+        jornales: {
+          activo: si.descuentosJornalesActivo !== false,
+          tipo: si.descuentosJornalesTipo || 'porcentaje',
+          valor: si.descuentosJornalesValor || ''
+        },
+        materiales: {
+          activo: si.descuentosMaterialesActivo !== false,
+          tipo: si.descuentosMaterialesTipo || 'porcentaje',
+          valor: si.descuentosMaterialesValor || ''
+        },
+        honorarios: {
+          activo: si.descuentosHonorariosActivo !== false,
+          tipo: si.descuentosHonorariosTipo || 'porcentaje',
+          valor: si.descuentosHonorariosValor || ''
+        },
+        mayoresCostos: {
+          activo: si.descuentosMayoresCostosActivo !== false,
+          tipo: si.descuentosMayoresCostosTipo || 'porcentaje',
+          valor: si.descuentosMayoresCostosValor || ''
+        }
+      },
+
       profesionales: parseIfString(si.profesionales || si.profesionalesJson).map(p => {
         const importeXHora = Number(p.importeXHora || p.importe_hora || p.importeHora || 0);
         const importeXDia = Number(p.importeXDia || p.importe_dia || p.importeDia || 0);
@@ -8514,6 +8617,68 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         tipo: payload.honorariosJornalesTipo,
         valor: payload.honorariosJornalesValor
       });
+    }
+
+    // 💸 DESCUENTOS - Enviar como campos relacionales (igual que honorarios y mayores_costos)
+    if (form.descuentos) {
+      // Explicación general de los descuentos
+      payload.descuentosExplicacion = form.descuentos.explicacion || '';
+
+      // Jornales
+      payload.descuentosJornalesActivo = form.descuentos.jornales?.activo !== false;
+      payload.descuentosJornalesTipo = form.descuentos.jornales?.tipo || 'porcentaje';
+      payload.descuentosJornalesValor = Number(form.descuentos.jornales?.valor) || 0;
+
+      // Materiales
+      payload.descuentosMaterialesActivo = form.descuentos.materiales?.activo !== false;
+      payload.descuentosMaterialesTipo = form.descuentos.materiales?.tipo || 'porcentaje';
+      payload.descuentosMaterialesValor = Number(form.descuentos.materiales?.valor) || 0;
+
+      // Honorarios
+      payload.descuentosHonorariosActivo = form.descuentos.honorarios?.activo !== false;
+      payload.descuentosHonorariosTipo = form.descuentos.honorarios?.tipo || 'porcentaje';
+      payload.descuentosHonorariosValor = Number(form.descuentos.honorarios?.valor) || 0;
+
+      // Mayores Costos
+      payload.descuentosMayoresCostosActivo = form.descuentos.mayoresCostos?.activo !== false;
+      payload.descuentosMayoresCostosTipo = form.descuentos.mayoresCostos?.tipo || 'porcentaje';
+      payload.descuentosMayoresCostosValor = Number(form.descuentos.mayoresCostos?.valor) || 0;
+
+      console.log('💸 DESCUENTOS → Backend (campos relacionales):', {
+        explicacion: payload.descuentosExplicacion,
+        jornales: {
+          activo: payload.descuentosJornalesActivo,
+          tipo: payload.descuentosJornalesTipo,
+          valor: payload.descuentosJornalesValor
+        },
+        materiales: {
+          activo: payload.descuentosMaterialesActivo,
+          tipo: payload.descuentosMaterialesTipo,
+          valor: payload.descuentosMaterialesValor
+        },
+        honorarios: {
+          activo: payload.descuentosHonorariosActivo,
+          tipo: payload.descuentosHonorariosTipo,
+          valor: payload.descuentosHonorariosValor
+        },
+        mayoresCostos: {
+          activo: payload.descuentosMayoresCostosActivo,
+          tipo: payload.descuentosMayoresCostosTipo,
+          valor: payload.descuentosMayoresCostosValor
+        }
+      });
+    } else {
+      // Si no hay descuentos, enviar campos en null/false
+      payload.descuentosExplicacion = '';
+      payload.descuentosJornalesActivo = false;
+      payload.descuentosJornalesValor = 0;
+      payload.descuentosMaterialesActivo = false;
+      payload.descuentosMaterialesValor = 0;
+      payload.descuentosHonorariosActivo = false;
+      payload.descuentosHonorariosValor = 0;
+      payload.descuentosMayoresCostosActivo = false;
+      payload.descuentosMayoresCostosValor = 0;
+      console.log('💸 Sin descuentos configurados');
     }
 
     // 🧹 LIMPIAR campos internos del frontend (que empiezan con "_")
@@ -13734,6 +13899,30 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               />
               </div>
 
+              <hr className="my-5" style={{border: '3px solid #6c757d', order: 6}} />
+
+              {/* Configuración de Descuentos (similar a Mayores Costos pero resta en lugar de sumar) */}
+              <div style={{order: 7}}>
+              <ConfiguracionPresupuestoSection
+                configsProfesionales={configsProfesionales}
+                configsMateriales={configsMateriales}
+                configsOtros={configsOtros}
+                profesionalesAgregados={form.profesionales}
+                materialesAgregados={form.materiales}
+                otrosCostosAgregados={form.otrosCostos}
+                itemsCalculadora={itemsCalculadora}
+                onConfigsChange={handleConfigsChange}
+                soloLectura={soloLectura}
+                mostrarSolo="descuentos"
+                honorarios={form.honorarios}
+                mayoresCostos={form.mayoresCostos}
+                descuentos={form.descuentos}
+                onDescuentosChange={(nuevoDescuentos) => {
+                  setForm(prev => ({ ...prev, descuentos: nuevoDescuentos }));
+                }}
+              />
+              </div>
+
               {/* ===MARCADOR_TEMPORAL_INSERTAR_MAYORES_COSTOS_AQUI=== */}
 
               </div> {/* Cierre del contenedor flex para reordenar */}
@@ -14430,27 +14619,140 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             {/* 💰 TOTAL FINAL - Destacado (honorarios ya incluidos en subtotales) */}
                             <div className="pt-3 border-top border-2 border-success">
                               <div className="bg-success bg-opacity-10 rounded p-3">
-                                <div className="d-flex justify-content-between align-items-center">
-                                  <div>
-                                    <h5 className="mb-0 fw-bold text-success">
-                                      <i className="fas fa-money-bill-wave me-2"></i>
-                                      TOTAL FINAL
-                                    </h5>
-                                  </div>
-                                  <h3 className="mb-0 fw-bold text-success">
-                                    {(() => {
-                                      // Sumar solo el campo total de cada rubro, sin duplicar mayores costos ni honorarios
-                                      // El campo 'total' de cada item ya debe incluir base + honorarios + mayores costos
-                                      const totalFinal = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
-                                      return `$${totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                                    })()}
-                                  </h3>
-                                </div>
-                                <div className="mt-2">
-                                  <small className="text-muted">
-                                    Incluye todos los rubros: mano de obra, materiales, jornales, honorarios.
-                                  </small>
-                                </div>
+                                {(() => {
+                                  // Calcular total sin descuento
+                                  const totalSinDescuento = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+
+                                  // Calcular descuentos aplicados
+                                  let totalDescuentos = 0;
+
+                                  // 🔧 VERIFICAR que form.descuentos exista y tenga valores
+                                  const descuentosConfig = form.descuentos || {};
+
+                                  if (descuentosConfig && Object.keys(descuentosConfig).length > 0) {
+                                    // Sumar las bases de TODAS las categorías de TODOS los rubros
+                                    const totalJornalesBase = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.subtotalJornales) || 0), 0);
+                                    const totalMaterialesBase = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.subtotalMateriales) || 0), 0);
+                                    const totalHonorarios = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.honorariosAplicados) || 0), 0);
+                                    const totalMayoresCostos = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.mayoresCostosAplicados) || 0), 0);
+
+                                    // Calcular descuento de Jornales
+                                    if (descuentosConfig.jornales?.activo !== false && totalJornalesBase > 0) {
+                                      const valor = Number(descuentosConfig.jornales.valor || 0);
+                                      if (valor > 0) {
+                                        if (descuentosConfig.jornales.tipo === 'porcentaje') {
+                                          totalDescuentos += (totalJornalesBase * valor) / 100;
+                                        } else {
+                                          totalDescuentos += valor;
+                                        }
+                                      }
+                                    }
+
+                                    // Calcular descuento de Materiales
+                                    if (descuentosConfig.materiales?.activo !== false && totalMaterialesBase > 0) {
+                                      const valor = Number(descuentosConfig.materiales.valor || 0);
+                                      if (valor > 0) {
+                                        if (descuentosConfig.materiales.tipo === 'porcentaje') {
+                                          totalDescuentos += (totalMaterialesBase * valor) / 100;
+                                        } else {
+                                          totalDescuentos += valor;
+                                        }
+                                      }
+                                    }
+
+                                    // Calcular descuento de Honorarios
+                                    if (descuentosConfig.honorarios?.activo !== false && totalHonorarios > 0) {
+                                      const valor = Number(descuentosConfig.honorarios.valor || 0);
+                                      if (valor > 0) {
+                                        if (descuentosConfig.honorarios.tipo === 'porcentaje') {
+                                          totalDescuentos += (totalHonorarios * valor) / 100;
+                                        } else {
+                                          totalDescuentos += valor;
+                                        }
+                                      }
+                                    }
+
+                                    // Calcular descuento de Mayores Costos
+                                    if (descuentosConfig.mayoresCostos?.activo !== false && totalMayoresCostos > 0) {
+                                      const valor = Number(descuentosConfig.mayoresCostos.valor || 0);
+                                      if (valor > 0) {
+                                        if (descuentosConfig.mayoresCostos.tipo === 'porcentaje') {
+                                          totalDescuentos += (totalMayoresCostos * valor) / 100;
+                                        } else {
+                                          totalDescuentos += valor;
+                                        }
+                                      }
+                                    }
+                                  }
+
+                                  const totalFinal = totalSinDescuento - totalDescuentos;
+                                  const hayDescuentos = totalDescuentos > 0;
+
+                                  return (
+                                    <>
+                                      {/* Si hay descuentos, mostrar desglose */}
+                                      {hayDescuentos ? (
+                                        <>
+                                          {/* Total sin descuento */}
+                                          <div className="d-flex justify-content-between align-items-center pb-2 border-bottom">
+                                            <span className="fw-bold text-success">Total sin descuento:</span>
+                                            <span className="fw-bold text-success">
+                                              ${totalSinDescuento.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                            </span>
+                                          </div>
+
+                                          {/* Descuentos aplicados */}
+                                          <div className="mt-2 pb-2 border-bottom">
+                                            <div className="d-flex justify-content-between align-items-center fw-bold">
+                                              <span className="text-danger">💸 Total Descuentos:</span>
+                                              <span className="text-danger">
+                                                - ${totalDescuentos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                              </span>
+                                            </div>
+                                          </div>
+
+                                          {/* Total Final */}
+                                          <div className="d-flex justify-content-between align-items-center mt-2">
+                                            <div>
+                                              <h5 className="mb-0 fw-bold text-success">
+                                                <i className="fas fa-money-bill-wave me-2"></i>
+                                                TOTAL FINAL
+                                              </h5>
+                                            </div>
+                                            <h3 className="mb-0 fw-bold text-success">
+                                              ${totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                            </h3>
+                                          </div>
+                                          <div className="mt-2">
+                                            <small className="text-muted">
+                                              Total después de aplicar descuentos.
+                                            </small>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <>
+                                          {/* Sin descuentos - mostrar formato original */}
+                                          <div className="d-flex justify-content-between align-items-center">
+                                            <div>
+                                              <h5 className="mb-0 fw-bold text-success">
+                                                <i className="fas fa-money-bill-wave me-2"></i>
+                                                TOTAL FINAL
+                                              </h5>
+                                            </div>
+                                            <h3 className="mb-0 fw-bold text-success">
+                                              ${totalSinDescuento.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                            </h3>
+                                          </div>
+                                          <div className="mt-2">
+                                            <small className="text-muted">
+                                              Incluye todos los rubros: mano de obra, materiales, jornales, honorarios.
+                                            </small>
+                                          </div>
+                                        </>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </>

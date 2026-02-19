@@ -226,8 +226,24 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     try {
       // El backend filtra automáticamente con Hibernate Filter
       const datos = await apiService.presupuestosNoCliente.getAll(empresaId);
+      console.log('📊 DATOS RECIBIDOS DEL BACKEND:', {
+        tipoDatos: typeof datos,
+        esArray: Array.isArray(datos),
+        cantidad: Array.isArray(datos) ? datos.length : 'No es array',
+        tieneContent: datos?.content ? true : false,
+        cantidadContent: datos?.content?.length || 0,
+        tieneDatos: datos?.datos ? true : false,
+        cantidadDatos: datos?.datos?.length || 0
+      });
 
       const lista = Array.isArray(datos) ? datos : (datos.datos || datos.content || []);
+      console.log('📋 LISTA DE PRESUPUESTOS EXTRAÍDA:', lista.length, 'presupuestos');
+      console.table(lista.map(p => ({
+        ID: p.id,
+        Numero: p.numeroPresupuesto,
+        Version: p.numeroVersion || p.version || 1,
+        Estado: p.estado
+      })));
 
       // 🆕 FILTRAR PARA MOSTRAR SOLO LA ÚLTIMA VERSIÓN DE CADA PRESUPUESTO
       // Agrupar por numeroPresupuesto
@@ -239,6 +255,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         }
         presupuestosPorNumero[numPresupuesto].push(p);
       });
+      console.log('🔢 PRESUPUESTOS AGRUPADOS POR NÚMERO:', Object.keys(presupuestosPorNumero).length, 'grupos');
 
       // Para cada número de presupuesto, seleccionar solo la versión más reciente (CUALQUIER ESTADO)
       const listaFiltrada = [];
@@ -251,6 +268,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         });
         listaFiltrada.push(versiones[0]); // Tomar la versión más reciente
       });
+      console.log('✅ LISTA FILTRADA (solo últimas versiones):', listaFiltrada.length, 'presupuestos');
 
       // 🔧 Cargar nombres de obras para presupuestos de trabajo extra
       const obrasIds = listaFiltrada
@@ -351,8 +369,19 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           }
         })
       );
+      console.log('📦 PRESUPUESTOS COMPLETOS CARGADOS:', presupuestosCompletos.length);
+      console.log('⚠️ PRESUPUESTOS CON ERRORES:', presupuestosCompletos.filter(p => p._loadError || p._errorBackend).length);
 
       // 🎯 AGRUPACIÓN INTELIGENTE: Agrupar por obra_id (presupuestos aprobados + trabajos extra) O por cliente_id
+      console.log('🎯 INICIANDO AGRUPACIÓN de', presupuestosCompletos.length, 'presupuestos');
+      console.table(presupuestosCompletos.map(p => ({
+        ID: p.id,
+        Numero: p.numeroPresupuesto,
+        Nombre: p.nombreObra,
+        TrabajoExtra: p.esPresupuestoTrabajoExtra ? 'SÍ' : 'NO',
+        ObraId: p.obraId,
+        ClienteId: p.clienteId
+      })));
 
       // 1. Agrupar presupuestos por obraId o por clienteId
       const gruposPorCliente = {};
@@ -394,17 +423,20 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       // 🆕 SEGUNDO PASO: Agregar trabajos extra a los grupos existentes
       presupuestosCompletos.forEach(p => {
         if (p.esPresupuestoTrabajoExtra) {
+          let agregado = false;
+
           // Buscar grupo por obraId si existe
           if (p.obraId) {
             const keyObra = `obra_${p.obraId}`;
             if (gruposPorObra[keyObra]) {
               gruposPorObra[keyObra].presupuestos.push(p);
+              agregado = true;
               return;
             }
           }
 
           // Si no encontró por obraId, buscar por clienteId
-          if (p.clienteId) {
+          if (!agregado && p.clienteId) {
             // Buscar un presupuesto padre del mismo cliente que tenga obra
             const presupuestoPadre = presupuestosCompletos.find(pp =>
               !pp.esPresupuestoTrabajoExtra && pp.clienteId === p.clienteId && pp.obraId
@@ -414,6 +446,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
               const keyObra = `obra_${presupuestoPadre.obraId}`;
               if (gruposPorObra[keyObra]) {
                 gruposPorObra[keyObra].presupuestos.push(p);
+                agregado = true;
                 return;
               }
             }
@@ -421,6 +454,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             // Si no encuentra presupuesto padre con obra, agrupar por cliente
             if (gruposPorCliente[p.clienteId]) {
               gruposPorCliente[p.clienteId].presupuestos.push(p);
+              agregado = true;
             } else {
               // Crear grupo de cliente si no existe
               gruposPorCliente[p.clienteId] = {
@@ -428,10 +462,53 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                 clienteId: p.clienteId,
                 presupuestos: [p]
               };
+              agregado = true;
             }
+          }
+
+          // 🛡️ SEGURIDAD: Si el trabajo extra no se agregó a ningún grupo (huérfano sin obra ni cliente),
+          // agregarlo a presupuestosSinCliente para que no se pierda
+          if (!agregado) {
+            console.warn('⚠️ Trabajo extra huérfano sin grupo:', {
+              id: p.id,
+              numero: p.numeroPresupuesto,
+              nombre: p.nombreObra,
+              obraId: p.obraId,
+              clienteId: p.clienteId
+            });
+            presupuestosSinCliente.push(p);
           }
         }
       });
+
+      console.log('📊 RESULTADO AGRUPACIÓN:');
+      console.log('  - Grupos por Obra:', Object.keys(gruposPorObra).length, '→', Object.values(gruposPorObra).map(g => g.presupuestos.length));
+      console.log('  - Grupos por Cliente:', Object.keys(gruposPorCliente).length, '→', Object.values(gruposPorCliente).map(g => g.presupuestos.length));
+      console.log('  - Sin Cliente:', presupuestosSinCliente.length);
+      const totalAgrupados =
+        Object.values(gruposPorObra).reduce((sum, g) => sum + g.presupuestos.length, 0) +
+        Object.values(gruposPorCliente).reduce((sum, g) => sum + g.presupuestos.length, 0) +
+        presupuestosSinCliente.length;
+      console.log('  - TOTAL AGRUPADOS:', totalAgrupados, 'de', presupuestosCompletos.length);
+      if (totalAgrupados !== presupuestosCompletos.length) {
+        console.error('❌ SE PERDIERON', presupuestosCompletos.length - totalAgrupados, 'PRESUPUESTOS EN LA AGRUPACIÓN');
+
+        // Identificar cuáles se perdieron
+        const agrupados = new Set();
+        Object.values(gruposPorObra).forEach(g => g.presupuestos.forEach(p => agrupados.add(p.id)));
+        Object.values(gruposPorCliente).forEach(g => g.presupuestos.forEach(p => agrupados.add(p.id)));
+        presupuestosSinCliente.forEach(p => agrupados.add(p.id));
+
+        const perdidos = presupuestosCompletos.filter(p => !agrupados.has(p.id));
+        console.error('🚨 PRESUPUESTOS PERDIDOS:', perdidos.map(p => ({
+          ID: p.id,
+          Numero: p.numeroPresupuesto,
+          Nombre: p.nombreObra,
+          TrabajoExtra: p.esPresupuestoTrabajoExtra,
+          ObraId: p.obraId,
+          ClienteId: p.clienteId
+        })));
+      }
 
       // 2. Ordenar presupuestos dentro de cada grupo
       // IMPORTANTE: Presupuesto padre (NO trabajo extra) arriba, trabajos extra abajo
@@ -521,9 +598,19 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       }
 
       // Aplicar filtros de búsqueda
+      console.log('🔍 ANTES DE FILTRAR - Lista ordenada:', listaOrdenada.length, 'presupuestos');
+      console.table(listaOrdenada.map(p => ({
+        ID: p.id,
+        Numero: p.numeroPresupuesto,
+        Version: p.numeroVersion || p.version || 1,
+        Estado: p.estado,
+        Nombre: p.nombreObra
+      })));
+
       const listaConFiltrosBusqueda = listaOrdenada.filter(presupuesto => {
         // Si todos los filtros están vacíos, mostrar todos
         const hayFiltros = Object.values(filtros).some(v => v && v.toString().trim() !== '');
+        console.log('🔍 Filtros activos:', hayFiltros, filtros);
         if (!hayFiltros) return true;
 
         // 📍 Filtros de Dirección de Obra
@@ -2201,11 +2288,133 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         <div>
                           <div className="fw-bold text-primary">
                             {(() => {
-                              // Usar el total que ya viene calculado del backend
-                              const total = row.totalFinal || row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
+                              // Obtener el total base del backend
+                              let total = row.totalFinal || row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
+
+                              // Verificar si hay descuentos activos
+                              const tieneDescuentos = (
+                                (row.descuentosJornalesActivo !== false && row.descuentosJornalesValor > 0) ||
+                                (row.descuentosMaterialesActivo !== false && row.descuentosMaterialesValor > 0) ||
+                                (row.descuentosHonorariosActivo !== false && row.descuentosHonorariosValor > 0) ||
+                                (row.descuentosMayoresCostosActivo !== false && row.descuentosMayoresCostosValor > 0)
+                              );
+
+                              // Calcular descuentos si existen y hay itemsCalculadora
+                              if (tieneDescuentos && row.itemsCalculadora && Array.isArray(row.itemsCalculadora)) {
+                                // Calcular bases desde itemsCalculadora (igual que en el modal)
+                                let baseJornales = 0;
+                                let baseMateriales = 0;
+                                let baseProfesionales = 0;
+                                let baseGastosGenerales = 0;
+
+                                row.itemsCalculadora.forEach(item => {
+                                  // Jornales
+                                  if (item.jornales && Array.isArray(item.jornales)) {
+                                    baseJornales += item.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+                                  }
+                                  // Materiales
+                                  if (item.materialesLista && Array.isArray(item.materialesLista)) {
+                                    baseMateriales += item.materialesLista.reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || 0), 0);
+                                  }
+                                  // Profesionales
+                                  if (item.profesionales && Array.isArray(item.profesionales)) {
+                                    baseProfesionales += item.profesionales.reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0);
+                                  }
+                                  // Gastos Generales
+                                  if (item.gastosGenerales && Array.isArray(item.gastosGenerales)) {
+                                    baseGastosGenerales += item.gastosGenerales.reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0);
+                                  }
+                                });
+
+                                // Base para Jornales incluye jornales directos + profesionales + gastos generales
+                                const baseJornalesCompleta = baseJornales + baseProfesionales + baseGastosGenerales;
+
+                                // Calcular honorarios si están configurados
+                                let totalHonorarios = 0;
+                                if (row.honorariosConfiguracionPresupuestoActivo !== false) {
+                                  const baseHonorarios = baseJornalesCompleta + baseMateriales;
+                                  const valorHon = Number(row.honorariosConfiguracionPresupuestoValor || 0);
+                                  if (row.honorariosConfiguracionPresupuestoTipo === 'porcentaje') {
+                                    totalHonorarios = (baseHonorarios * valorHon) / 100;
+                                  } else {
+                                    totalHonorarios = valorHon;
+                                  }
+                                }
+
+                                // Calcular mayores costos si están configurados
+                                let totalMayoresCostos = 0;
+                                if (row.mayoresCostosConfiguracionPresupuestoActivo !== false) {
+                                  const baseMayoresCostos = baseJornalesCompleta + baseMateriales + totalHonorarios;
+                                  const valorMC = Number(row.mayoresCostosConfiguracionPresupuestoValor || 0);
+                                  if (row.mayoresCostosConfiguracionPresupuestoTipo === 'porcentaje') {
+                                    totalMayoresCostos = (baseMayoresCostos * valorMC) / 100;
+                                  } else {
+                                    totalMayoresCostos = valorMC;
+                                  }
+                                }
+
+                                // Calcular descuentos sobre las bases correspondientes
+                                let totalDescuentos = 0;
+
+                                // Descuento Jornales
+                                if (row.descuentosJornalesActivo !== false && row.descuentosJornalesValor > 0) {
+                                  const valor = Number(row.descuentosJornalesValor);
+                                  if (row.descuentosJornalesTipo === 'porcentaje') {
+                                    totalDescuentos += (baseJornalesCompleta * valor) / 100;
+                                  } else {
+                                    totalDescuentos += valor;
+                                  }
+                                }
+
+                                // Descuento Materiales
+                                if (row.descuentosMaterialesActivo !== false && row.descuentosMaterialesValor > 0) {
+                                  const valor = Number(row.descuentosMaterialesValor);
+                                  if (row.descuentosMaterialesTipo === 'porcentaje') {
+                                    totalDescuentos += (baseMateriales * valor) / 100;
+                                  } else {
+                                    totalDescuentos += valor;
+                                  }
+                                }
+
+                                // Descuento Honorarios
+                                if (row.descuentosHonorariosActivo !== false && row.descuentosHonorariosValor > 0 && totalHonorarios > 0) {
+                                  const valor = Number(row.descuentosHonorariosValor);
+                                  if (row.descuentosHonorariosTipo === 'porcentaje') {
+                                    totalDescuentos += (totalHonorarios * valor) / 100;
+                                  } else {
+                                    totalDescuentos += valor;
+                                  }
+                                }
+
+                                // Descuento Mayores Costos
+                                if (row.descuentosMayoresCostosActivo !== false && row.descuentosMayoresCostosValor > 0 && totalMayoresCostos > 0) {
+                                  const valor = Number(row.descuentosMayoresCostosValor);
+                                  if (row.descuentosMayoresCostosTipo === 'porcentaje') {
+                                    totalDescuentos += (totalMayoresCostos * valor) / 100;
+                                  } else {
+                                    totalDescuentos += valor;
+                                  }
+                                }
+
+                                // Restar descuentos del total
+                                total = total - totalDescuentos;
+                              }
 
                               if (total && total > 0) {
-                                return `$${Number(total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                                return (
+                                  <>
+                                    {`$${Number(total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                    {tieneDescuentos && (
+                                      <span
+                                        className="ms-1"
+                                        style={{ fontSize: '0.85em', opacity: 0.65 }}
+                                        title="Descuentos aplicados"
+                                      >
+                                        🏷️
+                                      </span>
+                                    )}
+                                  </>
+                                );
                               }
 
                               return <span className="text-muted">Sin datos</span>;
