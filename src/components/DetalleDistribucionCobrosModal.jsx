@@ -213,20 +213,23 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
 
   if (!show) return null;
 
-  // Calcular totales basados en los datos REALES de distribucionPorObra
+  // 🔍 Filtrar solo obras/entidades con cobros asignados
+  const distribucionConCobros = distribucionPorObra.filter(obra => (obra.totalCobradoAsignado || 0) > 0);
+
+  // Calcular totales basados en los datos REALES de distribucionConCobros
   // Obras Principales + Trabajos Extra (sistema antiguo)
-  const totalAsignadoPrincipalTE = distribucionPorObra.reduce((sum, o) => {
+  const totalAsignadoPrincipalTE = distribucionConCobros.reduce((sum, o) => {
     if (o.tipo !== 'OBRA_PRINCIPAL' && o.tipo !== 'TRABAJO_EXTRA' && o.tipo !== 'OTRO') return sum;
     return sum + (o.totalCobradoAsignado || 0);
   }, 0);
   // Obras Independientes + Trabajos Adicionales (sistema nuevo)
-  const totalAsignadoTAOI = distribucionPorObra.reduce((sum, o) => {
+  const totalAsignadoTAOI = distribucionConCobros.reduce((sum, o) => {
     if (o.tipo !== 'OBRA_INDEPENDIENTE' && o.tipo !== 'TRABAJO_ADICIONAL') return sum;
     return sum + (o.totalCobradoAsignado || 0);
   }, 0);
   // Total global (para el alert superior)
   const totalCobradoAsignado = totalAsignadoPrincipalTE + totalAsignadoTAOI;
-  const totalDistribuidoItems = distribucionPorObra.reduce((sum, o) => {
+  const totalDistribuidoItems = distribucionConCobros.reduce((sum, o) => {
     // TRABAJO_ADICIONAL y OBRA_INDEPENDIENTE no distribuyen por ítems
     if (o.tipo === 'TRABAJO_ADICIONAL' || o.tipo === 'OBRA_INDEPENDIENTE') return sum;
     const distribuido = (o.montoProfesionales || 0) +
@@ -277,7 +280,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                 <div className="alert alert-info">
                   <div>
                     <i className="bi bi-info-circle me-2"></i>
-                    <strong>Vista consolidada:</strong> Mostrando distribución de cobros en <strong>{distribucionPorObra.length} obra(s)</strong>
+                    <strong>Vista consolidada:</strong> Mostrando distribución de cobros en <strong>{distribucionConCobros.length} obra(s)</strong>
                     {estadisticas && ((estadisticas.cantidadTrabajosExtra || 0) > 0 || (estadisticas.cantidadTrabajosAdicionales || 0) > 0) && (
                       <>
                         {(estadisticas.cantidadTrabajosExtra || 0) > 0 && (
@@ -344,7 +347,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                       </tr>
                     </thead>
                     <tbody>
-                      {distribucionPorObra.map((obra, idx) => {
+                      {distribucionConCobros.map((obra, idx) => {
                         // TRABAJO_ADICIONAL y OBRA_INDEPENDIENTE no distribuyen por ítems
                         const noDistribuye = obra.tipo === 'TRABAJO_ADICIONAL' || obra.tipo === 'OBRA_INDEPENDIENTE';
                         const totalDistribuido = noDistribuye ? 0 :
@@ -438,16 +441,16 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                           {formatearMoneda(totalCobradoAsignado)}
                         </td>
                         <td className="text-end">
-                          {formatearMoneda(distribucionPorObra.reduce((sum, o) => sum + (o.montoProfesionales || 0), 0))}
+                          {formatearMoneda(distribucionConCobros.reduce((sum, o) => sum + (o.montoProfesionales || 0), 0))}
                         </td>
                         <td className="text-end">
-                          {formatearMoneda(distribucionPorObra.reduce((sum, o) => sum + (o.montoMateriales || 0), 0))}
+                          {formatearMoneda(distribucionConCobros.reduce((sum, o) => sum + (o.montoMateriales || 0), 0))}
                         </td>
                         <td className="text-end">
-                          {formatearMoneda(distribucionPorObra.reduce((sum, o) => sum + (o.montoGastosGenerales || 0), 0))}
+                          {formatearMoneda(distribucionConCobros.reduce((sum, o) => sum + (o.montoGastosGenerales || 0), 0))}
                         </td>
                         <td className="text-end">
-                          {formatearMoneda(distribucionPorObra.reduce((sum, o) => sum + (o.montoTrabajosExtra || 0), 0))}
+                          {formatearMoneda(distribucionConCobros.reduce((sum, o) => sum + (o.montoTrabajosExtra || 0), 0))}
                         </td>
                         <td className="text-end text-primary fs-6">
                           {formatearMoneda(totalDistribuidoItems)}

@@ -83,6 +83,7 @@ const ObrasPage = ({ showNotification }) => {
 
   // ✅ Procesamiento de obras para detectar obras independientes
   const obrasConFlags = React.useMemo(() => {
+    console.log('🔍 [ObrasPage] Procesando obras:', obras.length);
     return obras.map(obra => {
       // Detectar si es obra independiente (sin presupuesto)
       const tienePresupuesto = obra.presupuestoId ||
@@ -91,6 +92,19 @@ const ObrasPage = ({ showNotification }) => {
                               obra.presupuestoCompleto?.id;
 
       const esObraIndependiente = !tienePresupuesto;
+
+      // 🔍 Debug: mostrar TODAS las obras con sus campos clave
+      console.log(`🔍 [ObrasPage] Obra id:${obra.id}:`, {
+        tienePresupuesto,
+        esObraIndependiente,
+        presupuestoId: obra.presupuestoId,
+        presupuestoNoClienteId: obra.presupuestoNoClienteId,
+        presupuestoEstimado: obra.presupuestoEstimado,
+        nombre: obra.nombre,
+        nombreObra: obra.nombreObra,
+        descripcion: obra.descripcion,
+        direccion: obra.direccion
+      });
 
       return {
         ...obra,
@@ -9392,7 +9406,7 @@ Gestionar Trabajos Adicionales
           obrasDisponibles={obrasConFlags} // ✅ Pasar obras con flags esObraIndependiente
           obrasSeleccionadas={new Set()} // ✅ Sin selección específica (mostrar todas)
           trabajosExtraSeleccionados={new Set()} // ✅ Sin filtro de trabajos extra
-          trabajosAdicionalesDisponibles={[]} // ✅ Sin trabajos adicionales por ahora
+          trabajosAdicionalesDisponibles={trabajosAdicionales} // ✅ Pasar TAs ya cargados
         />
       )}
 

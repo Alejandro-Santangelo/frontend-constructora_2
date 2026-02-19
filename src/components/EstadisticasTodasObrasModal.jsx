@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { useEstadisticasConsolidadas } from '../hooks/useEstadisticasConsolidadas';
 import DetalleConsolidadoPorObraModal from './DetalleConsolidadoPorObraModal';
@@ -11,7 +11,7 @@ const EstadisticasTodasObrasModal = ({
   showNotification,
   obrasDisponibles = [], // ✅ Obras cargadas (incluye obras independientes)
   obrasSeleccionadas = new Set(), // ✅ IDs de obras seleccionadas
-  trabajosExtraSeleccionados = new Set(), // ✅ Trabajos extra seleccionados
+  trabajosExtraSeleccionados = new Set(), // ✅ IDs de trabajos extra seleccionados
   trabajosAdicionalesDisponibles = [] // ✅ Trabajos adicionales disponibles
 }) => {
   const [showDesglose, setShowDesglose] = useState(false);
@@ -19,54 +19,268 @@ const EstadisticasTodasObrasModal = ({
   const [desgloseTitulo, setDesgloseTitulo] = useState('');
   const [showDistribucionCobros, setShowDistribucionCobros] = useState(false);
 
+  // 🆕 Estado para datos cargados internamente
+  const [taInternos, setTaInternos] = useState([]);
+  // Presupuestos cargados directamente (igual que SistemaFinancieroPage)
+  const [pptoNormalesInternos, setPptoNormalesInternos] = useState([]);
+  const [pptoTeInternos, setPptoTeInternos] = useState([]);
+  const [cobradoTAOI, setCobradoTAOI] = useState(0);
+
+  // 🔍 Log de datos recibidos desde props
+  useEffect(() => {
+    console.log('🚀 [EstadisticasModal] Props recibidas:', {
+      totalObras: obrasDisponibles.length,
+      obrasIndependientes: obrasDisponibles.filter(o => o.esObraIndependiente).length,
+      obrasPrincipales: obrasDisponibles.filter(o => !o.esObraIndependiente).length,
+      detalleOIs: obrasDisponibles.filter(o => o.esObraIndependiente).map(o => ({
+        id: o.id,
+        nombre: o.nombreObra,
+        direccion: o.direccion,
+        presupuestoEstimado: o.presupuestoEstimado
+      }))
+    });
+  }, [obrasDisponibles]);
+
   const {
     estadisticas,
     loading,
     error
   } = useEstadisticasConsolidadas(empresaId, null, true);
 
-  // ✅ Calcular estadísticas personalizadas que incluyan obras independientes
+  // 🆕 Cargar TA y EF-stats cuando el modal se monta
+  useEffect(() => {
+    if (!empresaId) return;
+    let activo = true;
+
+    const cargar = async () => {
+      try {
+        const [{ listarTrabajosAdicionales }, efService, { default: api }] = await Promise.all([
+          import('../services/trabajosAdicionalesService'),
+          import('../services/entidadesFinancierasService'),
+          import('../services/api')
+        ]);
+
+        // Trabajos adicionales
+        const taProp = Array.isArray(trabajosAdicionalesDisponibles) && trabajosAdicionalesDisponibles.length > 0
+          ? trabajosAdicionalesDisponibles
+          : await listarTrabajosAdicionales(empresaId).catch(() => []);
+        if (activo) setTaInternos(taProp);
+
+        // ─── Cargar presupuestosNoCliente igual que SistemaFinancieroPage ──────────
+        // Esto incluye TEs (esPresupuestoTrabajoExtra=true) y obras normales.
+        try {
+          const pptosResp = await api.presupuestosNoCliente.getAll(empresaId);
+          const extract = (r) => Array.isArray(r) ? r : (r?.datos || r?.content || r?.data || []);
+          const todos = extract(pptosResp);
+
+          // Solo APROBADO y EN_EJECUCION
+          const activos = todos.filter(p =>
+            (p.estado === 'APROBADO' || p.estado === 'EN_EJECUCION') && p.estado !== 'CANCELADO'
+          );
+
+          // Deduplicar por nombre+nro presupuesto (igual que el hook), quedarse con ID más alto
+          const pptoMap = new Map();
+          activos.forEach(p => {
+            const key = `${p.nombreObra || ''}-${p.numeroPresupuesto || ''}`;
+            if (!pptoMap.has(key) || p.id > pptoMap.get(key).id) pptoMap.set(key, p);
+          });
+          const unicos = Array.from(pptoMap.values());
+
+          const isTE = (p) => p.esPresupuestoTrabajoExtra === true ||
+                              p.esPresupuestoTrabajoExtra === 'V' ||
+                              p.es_presupuesto_trabajo_extra === true;
+
+          if (activo) {
+            setPptoNormalesInternos(unicos.filter(p => !isTE(p)));
+            setPptoTeInternos(unicos.filter(p => isTE(p)));
+            console.log('[EstadisticasModal] Presupuestos cargados:',
+              'normales:', unicos.filter(p => !isTE(p)).length,
+              'TEs:', unicos.filter(p => isTE(p)).length);
+          }
+        } catch (ePpto) {
+          console.warn('[EstadisticasModal] Error cargando presupuestos:', ePpto.message);
+        }
+
+        // EF stats para TA y OI (circuito nuevo)
+        const todasEFs = await efService.listarEntidadesFinancieras(empresaId, true).catch(() => []);
+        const taOiEFs = (Array.isArray(todasEFs) ? todasEFs : []).filter(ef =>
+          ef.tipoEntidad === 'TRABAJO_ADICIONAL' || ef.tipoEntidad === 'OBRA_INDEPENDIENTE'
+        );
+        const ids = taOiEFs.map(ef => ef.id).filter(Boolean);
+        if (ids.length > 0) {
+          const stats = await efService.obtenerEstadisticasMultiples(empresaId, ids).catch(() => []);
+          const total = (Array.isArray(stats) ? stats : []).reduce((s, e) => s + parseFloat(e.totalCobrado || 0), 0);
+          if (activo) setCobradoTAOI(total);
+        }
+      } catch (e) {
+        console.warn('[EstadisticasModal] Error cargando TA/EF:', e.message);
+      }
+    };
+
+    cargar();
+    return () => { activo = false; };
+  }, [empresaId]);
+
+  // ✅ Calcular estadísticas personalizadas
   const statsPersonalizadas = React.useMemo(() => {
-    if (!estadisticas || obrasDisponibles.length === 0) {
-      return estadisticas;
+    if (!estadisticas) return estadisticas;
+
+    // ─── Modo "sin selección" (llamado desde ObrasPage con Sets vacíos) ──────────
+    // El hook useEstadisticasConsolidadas ya calculó todo desde el backend:
+    // totalPresupuesto incluye OP + OI + TE + TA reales.
+    // No reemplazar esos valores con datos incompletos del store Redux.
+    if (obrasSeleccionadas.size === 0 && trabajosExtraSeleccionados.size === 0) {
+      // ─── Misma lógica que SistemaFinancieroPage ───────────────────────────────
+
+      // 1. OP — desde presupuestosNoCliente (normales), campo igual que SFP
+      const getTotal = (p) => parseFloat(
+        p.totalPresupuestoConHonorarios ||
+        p.totalFinal ||
+        p.totalPresupuesto ||
+        p.montoTotal ||
+        p.valorTotal || 0
+      );
+      const totalOP = pptoNormalesInternos.reduce((s, p) => s + getTotal(p), 0);
+      const cantidadOP = pptoNormalesInternos.length;
+
+      // 2. TE — desde presupuestosNoCliente con esPresupuestoTrabajoExtra=true
+      const totalTE = pptoTeInternos.reduce((s, p) => s + getTotal(p), 0);
+      const cantidadTE = pptoTeInternos.length;
+
+      // 3. OI — desde obrasDisponibles (no tienen presupuesto, nunca en el hook)
+      const oiMap = new Map();
+      obrasDisponibles.forEach(obra => {
+        if (!obra.esObraIndependiente) return;
+        const clave = `${obra.nombreObra || ''}_${obra.direccion || ''}`.trim();
+        const monto = parseFloat(obra.totalPresupuesto || obra.presupuestoEstimado || 0);
+        if (!oiMap.has(clave) || monto > (oiMap.get(clave) || 0)) oiMap.set(clave, monto);
+      });
+      const totalOI = Array.from(oiMap.values()).reduce((s, v) => s + v, 0);
+      const cantidadOI = oiMap.size;
+
+      // 4. TA — desde taInternos
+      const taIds = new Set();
+      const totalTA = taInternos.reduce((s, ta) => {
+        if (!taIds.has(ta.id)) { taIds.add(ta.id); return s + parseFloat(ta.importe || ta.montoTotal || ta.monto || 0); }
+        return s;
+      }, 0);
+      const cantidadTA = taIds.size;
+
+      // Esperar a que carguen los presupuestos antes de mostrar el total
+      const cargando = pptoNormalesInternos.length === 0 && pptoTeInternos.length === 0 && taInternos.length === 0;
+      const totalPresupuestoFinal = cargando
+        ? (estadisticas.totalPresupuesto || 0)   // Mientras carga: usar el hook
+        : totalOP + totalTE + totalOI + totalTA;  // Cargado: calcular igual que SFP
+
+      console.log('✅ [EstadisticasModal - Modo ObrasPage] Totales (igual que SFP):', {
+        totalOP, cantidadOP,
+        totalTE, cantidadTE,
+        totalOI, cantidadOI,
+        totalTA, cantidadTA,
+        totalPresupuestoFinal
+      });
+
+      return {
+        ...estadisticas,
+        cantidadObras: cantidadOP + cantidadTE + cantidadOI,  // igual que hook: incluye TEs
+        cantidadTrabajosExtra: cantidadTE,
+        cantidadTrabajosAdicionales: cantidadTA,
+        totalPresupuesto: totalPresupuestoFinal,
+        _totalTE: totalTE,
+        _totalTA: totalTA
+      };
     }
 
-    const obrasIndependientes = new Map();
+    // ─── Modo "con selecciones activas" (llamado desde SistemaFinancieroPage) ───
+    // Aquí obrasDisponibles sí tiene presupuestoCompleto completo.
+    const taDisponibles = taInternos.length > 0 ? taInternos : trabajosAdicionalesDisponibles;
+
+    let cantidadObrasConPresupuesto = 0;
     let cantidadObrasIndependientes = 0;
+    const presupuestosUnicos = new Map();
+    const obrasIndepMap = new Map();
+    let totalTrabajosExtra = 0;
+    let cantidadTrabajosExtra = 0; // 🆕 Contador de TEs
 
-    // Filtrar obras independientes (si hay selección, solo las seleccionadas)
-    const obrasIndependientesArray = obrasDisponibles.filter(obra => {
-      if (!obra.esObraIndependiente) return false;
-      // Si hay selección, solo incluir seleccionadas
-      if (obrasSeleccionadas.size > 0) {
-        return obrasSeleccionadas.has(obra.id);
+    obrasDisponibles
+      .filter(o => obrasSeleccionadas.has(o.id))
+      .forEach(obra => {
+        if (obra.esObraIndependiente) {
+          // 🆕 Deduplicar OIs por nombre_direccion (no por ID que puede variar)
+          const claveUnica = `${obra.nombreObra || ''}_${obra.direccion || ''}`.trim();
+          const existente = obrasIndepMap.get(claveUnica);
+          const montoActual = parseFloat(obra.totalPresupuesto || obra.presupuestoEstimado || 0);
+
+          if (!existente || montoActual > existente.monto) {
+            obrasIndepMap.set(claveUnica, { monto: montoActual, id: obra.id });
+            if (!existente) cantidadObrasIndependientes++;
+          }
+          return;
+        }
+        const idPpto = obra.presupuestoCompleto?.id ?? obra.presupuestoNoClienteId ?? obra.presupuestoNoCliente?.id;
+        if (idPpto && !presupuestosUnicos.has(idPpto)) {
+          const monto = parseFloat(
+            obra.presupuestoCompleto?.totalPresupuestoConHonorarios ??
+            obra.presupuestoCompleto?.totalFinal ??
+            obra.presupuestoCompleto?.montoTotal ??
+            obra.totalPresupuestoConHonorarios ??
+            obra.totalFinal ??
+            obra.totalPresupuesto ?? 0
+          );
+          presupuestosUnicos.set(idPpto, monto);
+          cantidadObrasConPresupuesto++;
+        }
+        if (obra.trabajosExtra && obra.trabajosExtra.length > 0) {
+          const sel = trabajosExtraSeleccionados.size > 0
+            ? obra.trabajosExtra.filter(te => trabajosExtraSeleccionados.has(te.id))
+            : obra.trabajosExtra;
+          totalTrabajosExtra += sel.reduce((s, te) => s + parseFloat(te.totalCalculado || te.totalFinal || 0), 0);
+          cantidadTrabajosExtra += sel.length; // 🆕 Contar TEs
+        }
+      });
+
+    // 🆕 Deduplicar TAs por ID antes de sumar
+    const taIdsContados = new Set();
+    const totalTA = taDisponibles.reduce((sum, ta) => {
+      if (!taIdsContados.has(ta.id)) {
+        taIdsContados.add(ta.id);
+        return sum + parseFloat(ta.importe || ta.montoTotal || ta.monto || 0);
       }
-      return true; // Si no hay selección, incluir todas
+      return sum;
+    }, 0);
+
+    const totalIndependientes = Array.from(obrasIndepMap.values()).reduce((s, v) => s + v.monto, 0);
+    const totalPresupuestos = Array.from(presupuestosUnicos.values()).reduce((s, v) => s + v, 0);
+    const totalPresupuestoCalculado = totalPresupuestos + totalIndependientes + totalTrabajosExtra + totalTA;
+
+    console.log('✅ [EstadisticasModal] Totales calculados:', {
+      totalPresupuestos,
+      totalIndependientes,
+      totalTrabajosExtra,
+      totalTA,
+      taUnicosContados: taIdsContados.size,
+      oiUnicosContados: obrasIndepMap.size,
+      cantidadTrabajosExtra,
+      totalPresupuestoCalculado
     });
 
-    obrasIndependientesArray.forEach(obra => {
-      if (!obrasIndependientes.has(obra.id)) {
-        const monto = obra.totalPresupuesto || obra.presupuestoEstimado || 0;
-        obrasIndependientes.set(obra.id, monto);
-        cantidadObrasIndependientes++;
-      }
-    });
-
-    // Calcular total de obras independientes
-    const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
-
-    // Retornar estadísticas con obras independientes incluidas
     return {
       ...estadisticas,
-      totalPresupuesto: (estadisticas.totalPresupuesto || 0) + totalIndependientes,
-      cantidadObras: (estadisticas.cantidadObras || 0) + cantidadObrasIndependientes,
-      cantidadObrasConPresupuesto: estadisticas.cantidadObras || 0,
-      cantidadObrasIndependientes
+      totalPresupuesto: totalPresupuestoCalculado > 0 ? totalPresupuestoCalculado : (estadisticas.totalPresupuesto || 0),
+      cantidadObras: cantidadObrasConPresupuesto + cantidadObrasIndependientes + taDisponibles.length,
+      cantidadObrasConPresupuesto,
+      cantidadObrasIndependientes,
+      _totalTE: totalTrabajosExtra,
+      _totalTA: totalTA,
+      cantidadTrabajosExtra, // 🆕 Cantidad de TEs
+      cantidadTrabajosAdicionales: taIdsContados.size // 🆕 Cantidad de TAs únicos
     };
-  }, [estadisticas, obrasDisponibles, obrasSeleccionadas]);
+  }, [estadisticas, obrasDisponibles, obrasSeleccionadas, trabajosExtraSeleccionados, taInternos, pptoNormalesInternos, pptoTeInternos, trabajosAdicionalesDisponibles, cobradoTAOI]);
 
   const abrirDesglose = (tipo, titulo) => {
-    if (!statsPersonalizadas?.desglosePorObra || statsPersonalizadas.desglosePorObra.length === 0) {
+    // 'cobros' y 'saldoPorCobrar' cargan datos internamente en el modal — no requieren desglosePorObra
+    const tiposSinDesglose = ['cobros', 'saldoPorCobrar'];
+    if (!tiposSinDesglose.includes(tipo) && (!statsPersonalizadas?.desglosePorObra || statsPersonalizadas.desglosePorObra.length === 0)) {
       showNotification?.('warning', 'No hay datos de desglose disponibles');
       return;
     }
@@ -106,7 +320,7 @@ const EstadisticasTodasObrasModal = ({
           <div className="modal-header bg-success text-white">
             <h5 className="modal-title">
               <i className="fas fa-chart-bar me-2"></i>
-              Estadísticas Consolidadas - {statsPersonalizadas.cantidadObras} Obra(s)
+              Estadísticas Consolidadas - {(estadisticas?.cantidadObras || statsPersonalizadas.cantidadObras)} Obra(s)
             </h5>
             <button type="button" className="btn btn-light btn-sm ms-auto" onClick={onClose}>
               Cerrar
@@ -143,7 +357,11 @@ const EstadisticasTodasObrasModal = ({
                       <i className="bi bi-cash-stack fs-1 text-info"></i>
                       <h6 className="text-muted mt-2 mb-1">Total Presupuestado</h6>
                       <h4 className="text-info mb-0">{formatearMoneda(statsPersonalizadas.totalPresupuesto)}</h4>
-                      <small className="text-muted">De {statsPersonalizadas.cantidadObras} obra(s)</small>
+                      <small className="text-muted">
+                        De {statsPersonalizadas.cantidadObras || 0} obra(s)
+                        {(statsPersonalizadas.cantidadTrabajosExtra || 0) > 0 ? ` + ${statsPersonalizadas.cantidadTrabajosExtra} TE` : ''}
+                        {(statsPersonalizadas.cantidadTrabajosAdicionales || 0) > 0 ? ` + ${statsPersonalizadas.cantidadTrabajosAdicionales} TA` : ''}
+                      </small>
                       <div className="mt-1">
                         <small className="text-info"><i className="bi bi-hand-index"></i></small>
                       </div>
@@ -227,16 +445,12 @@ const EstadisticasTodasObrasModal = ({
                       style={{cursor: 'pointer'}}
                     >
                       <i className="bi bi-bank fs-1 text-info"></i>
-                      <h6 className="text-muted mt-2 mb-1">Saldo disponible del Total Cobrado y Asignaciones por Ítems</h6>
-                      <h4 className="text-info mb-0">
-                        {(() => {
-                          const totalCobrado = statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0;
-                          const totalAsignado = statsPersonalizadas.totalAsignado || 0;
-                          return formatearMoneda(totalCobrado - totalAsignado);
-                        })()}
+                      <h6 className="text-muted mt-2 mb-1">Total Distribuido Obras</h6>
+                      <h4 className="text-primary mb-0">
+                        {formatearMoneda((statsPersonalizadas.totalAsignado || 0) + cobradoTAOI)}
                       </h4>
                       <small className="text-muted">
-                        Cobrado sin asignar a rubros
+                        Obras principales, TE, OI y TA
                       </small>
                       <div className="mt-1">
                         <small className="text-info"><i className="bi bi-hand-index"></i></small>
@@ -253,14 +467,12 @@ const EstadisticasTodasObrasModal = ({
                       <h6 className="text-muted mt-2 mb-1">Total disponible de lo ya cobrado</h6>
                       <h4 className="mb-0 text-primary">
                         {(() => {
-                          // Total cobrado menos total asignado a obras
                           if (loading) {
                             return <span className="spinner-border spinner-border-sm" role="status"></span>;
                           }
-
-                          // Calcular: Total Cobrado - Total Asignado a obras
+                          // Calcular: Total Cobrado - Total Asignado a obras (incluyendo TA y OI)
                           const totalCobrado = statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0;
-                          const totalAsignado = statsPersonalizadas.totalAsignado || 0;
+                          const totalAsignado = (statsPersonalizadas.totalAsignado || 0) + cobradoTAOI;
                           const saldoDisponible = totalCobrado - totalAsignado;
                           return formatearMoneda(saldoDisponible);
                         })()}
@@ -450,28 +662,55 @@ const EstadisticasTodasObrasModal = ({
     {showDesglose && (() => {
       // ✅ Agregar obras independientes al desglose
       const desgloseBase = statsPersonalizadas?.desglosePorObra || [];
-      const obrasIndependientesParaDesglose = obrasDisponibles
-        .filter(obra => {
-          if (!obra.esObraIndependiente) return false;
-          // Si hay selección, solo incluir seleccionadas
-          if (obrasSeleccionadas.size > 0) {
-            return obrasSeleccionadas.has(obra.id);
-          }
-          return true; // Si no hay selección, incluir todas
-        })
-        .map(obra => ({
-          id: obra.id,
-          obraId: obra.id,
-          nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
-          numeroPresupuesto: null,
-          estado: obra.estado || 'APROBADO',
-          totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0,
-          esObraIndependiente: true,
-          totalCobrado: 0,
-          totalPagado: 0,
-          totalRetirado: 0,
-          saldoDisponible: 0
-        }));
+
+      // Deduplicar OI por nombreObra (clave única real), priorizando la que tenga totalPresupuesto > 0
+      const oiMap = new Map();
+      const oiCandidatas = obrasDisponibles.filter(obra => {
+        if (!obra.esObraIndependiente) return false;
+        if (obrasSeleccionadas.size > 0) return obrasSeleccionadas.has(obra.id);
+        return true;
+      });
+
+      console.log(`🔍 [EstadisticasModal] OI candidatas antes de deduplicar:`, oiCandidatas.map(o => ({
+        id: o.id,
+        nombre: o.nombreObra,
+        direccion: o.direccion,
+        monto: o.totalPresupuesto || o.presupuestoEstimado || 0
+      })));
+
+      oiCandidatas.forEach(obra => {
+        // ✅ Usar nombreObra + direccion como clave única
+        // Si ambos están vacíos, usar ID para evitar colisiones incorrectas
+        const nombre = obra.nombreObra || '';
+        const dir = obra.direccion || '';
+        const claveUnica = (nombre || dir) ? `${nombre}_${dir}`.trim() : `id_${obra.id}`;
+
+        const monto = parseFloat(obra.totalPresupuesto || obra.presupuestoEstimado || 0);
+        const existente = oiMap.get(claveUnica);
+
+        if (!existente || monto > (existente.totalPresupuesto || 0)) {
+          oiMap.set(claveUnica, {
+            id: obra.id,
+            obraId: obra.id,
+            nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
+            numeroPresupuesto: null,
+            estado: obra.estado || 'APROBADO',
+            totalPresupuesto: monto,
+            esObraIndependiente: true,
+            totalCobrado: 0,
+            totalPagado: 0,
+            totalRetirado: 0,
+            saldoDisponible: 0
+          });
+        }
+      });
+      const obrasIndependientesParaDesglose = Array.from(oiMap.values());
+
+      console.log(`✅ [EstadisticasModal] OI deduplicadas (${obrasIndependientesParaDesglose.length}):`, obrasIndependientesParaDesglose.map(o => ({
+        id: o.id,
+        nombre: o.nombreObra,
+        monto: o.totalPresupuesto
+      })));
 
       const datosDesglose = [...desgloseBase, ...obrasIndependientesParaDesglose];
 
