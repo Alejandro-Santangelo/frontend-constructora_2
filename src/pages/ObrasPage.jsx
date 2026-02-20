@@ -6554,7 +6554,9 @@ const ObrasPage = ({ showNotification }) => {
                                       </div>
                                     </div>
                                   </div>
+                                </div>
 
+                                <div className="row">
                                   {/* Gastos Generales */}
                                   <div className="col-md-6 mb-4">
                                     <div className="border rounded p-3" style={{ backgroundColor: '#f0fdf4', borderColor: '#10b981 !important' }}>
@@ -11631,6 +11633,23 @@ Gestionar Trabajos Adicionales
                                             }}
                                           />
                                         </div>
+                                        {honorarioJornales && importeJornales && (
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#fef3c7',
+                                            borderRadius: '4px',
+                                            border: '1px solid #f59e0b',
+                                            fontSize: '0.75rem',
+                                            color: '#92400e',
+                                            fontWeight: '600'
+                                          }}>
+                                            {`Honorario: $${(() => {
+                                              const importe = parseFloat(importeJornales);
+                                              const hon = parseFloat(honorarioJornales);
+                                              const montoHon = tipoHonorarioJornales === 'fijo' ? hon : (importe * hon / 100);
+                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}`}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -11714,6 +11733,23 @@ Gestionar Trabajos Adicionales
                                             }}
                                           />
                                         </div>
+                                        {honorarioMateriales && importeMateriales && (
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#dbeafe',
+                                            borderRadius: '4px',
+                                            border: '1px solid #3b82f6',
+                                            fontSize: '0.75rem',
+                                            color: '#1e40af',
+                                            fontWeight: '600'
+                                          }}>
+                                            {`Honorario: $${(() => {
+                                              const importe = parseFloat(importeMateriales);
+                                              const hon = parseFloat(honorarioMateriales);
+                                              const montoHon = tipoHonorarioMateriales === 'fijo' ? hon : (importe * hon / 100);
+                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}`}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -11797,6 +11833,23 @@ Gestionar Trabajos Adicionales
                                             }}
                                           />
                                         </div>
+                                        {honorarioGastosGenerales && importeGastosGenerales && (
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#d1fae5',
+                                            borderRadius: '4px',
+                                            border: '1px solid #10b981',
+                                            fontSize: '0.75rem',
+                                            color: '#065f46',
+                                            fontWeight: '600'
+                                          }}>
+                                            {`Honorario: $${(() => {
+                                              const importe = parseFloat(importeGastosGenerales);
+                                              const hon = parseFloat(honorarioGastosGenerales);
+                                              const montoHon = tipoHonorarioGastosGenerales === 'fijo' ? hon : (importe * hon / 100);
+                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}`}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -11880,6 +11933,23 @@ Gestionar Trabajos Adicionales
                                             }}
                                           />
                                         </div>
+                                        {honorarioMayoresCostos && importeMayoresCostos && (
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#fee2e2',
+                                            borderRadius: '4px',
+                                            border: '1px solid #ef4444',
+                                            fontSize: '0.75rem',
+                                            color: '#991b1b',
+                                            fontWeight: '600'
+                                          }}>
+                                            {`Honorario: $${(() => {
+                                              const importe = parseFloat(importeMayoresCostos);
+                                              const hon = parseFloat(honorarioMayoresCostos);
+                                              const montoHon = tipoHonorarioMayoresCostos === 'fijo' ? hon : (importe * hon / 100);
+                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}`}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -11899,6 +11969,19 @@ Gestionar Trabajos Adicionales
                                         <i className="fas fa-tag me-1"></i>
                                         Desc. Jornales
                                       </label>
+                                      {/* Mostrar Base */}
+                                      {importeJornales && (
+                                        <div className="mb-1 p-1 text-center" style={{
+                                          backgroundColor: '#fef3c7',
+                                          borderRadius: '4px',
+                                          border: '1px solid #f59e0b',
+                                          fontSize: '0.75rem',
+                                          color: '#92400e',
+                                          fontWeight: '500'
+                                        }}>
+                                          📊 Base: ${parseFloat(importeJornales).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
                                         <button
                                           type="button"
@@ -11942,6 +12025,42 @@ Gestionar Trabajos Adicionales
                                           }}
                                         />
                                       </div>
+                                      {/* Mostrar Descuento y Total */}
+                                      {descuentoJornales && importeJornales && (
+                                        <>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#fed7aa',
+                                            borderRadius: '4px',
+                                            border: '1px solid #ea580c',
+                                            fontSize: '0.75rem',
+                                            color: '#7c2d12',
+                                            fontWeight: '600'
+                                          }}>
+                                            💰 Descuento: ${(() => {
+                                              const base = parseFloat(importeJornales);
+                                              const desc = parseFloat(descuentoJornales);
+                                              const montoDesc = tipoDescuentoJornales === 'fijo' ? desc : (base * desc / 100);
+                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#dcfce7',
+                                            borderRadius: '4px',
+                                            border: '1px solid #16a34a',
+                                            fontSize: '0.75rem',
+                                            color: '#14532d',
+                                            fontWeight: '700'
+                                          }}>
+                                            💵 Total: ${(() => {
+                                              const base = parseFloat(importeJornales);
+                                              const desc = parseFloat(descuentoJornales);
+                                              const montoDesc = tipoDescuentoJornales === 'fijo' ? desc : (base * desc / 100);
+                                              const total = base - montoDesc;
+                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
 
                                     {/* Descuento Materiales */}
@@ -11950,6 +12069,19 @@ Gestionar Trabajos Adicionales
                                         <i className="fas fa-tag me-1"></i>
                                         Desc. Materiales
                                       </label>
+                                      {/* Mostrar Base */}
+                                      {importeMateriales && (
+                                        <div className="mb-1 p-1 text-center" style={{
+                                          backgroundColor: '#dbeafe',
+                                          borderRadius: '4px',
+                                          border: '1px solid #3b82f6',
+                                          fontSize: '0.75rem',
+                                          color: '#1e40af',
+                                          fontWeight: '500'
+                                        }}>
+                                          📊 Base: ${parseFloat(importeMateriales).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
                                         <button
                                           type="button"
@@ -11993,6 +12125,42 @@ Gestionar Trabajos Adicionales
                                           }}
                                         />
                                       </div>
+                                      {/* Mostrar Descuento y Total */}
+                                      {descuentoMateriales && importeMateriales && (
+                                        <>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#bfdbfe',
+                                            borderRadius: '4px',
+                                            border: '1px solid #2563eb',
+                                            fontSize: '0.75rem',
+                                            color: '#1e3a8a',
+                                            fontWeight: '600'
+                                          }}>
+                                            💰 Descuento: ${(() => {
+                                              const base = parseFloat(importeMateriales);
+                                              const desc = parseFloat(descuentoMateriales);
+                                              const montoDesc = tipoDescuentoMateriales === 'fijo' ? desc : (base * desc / 100);
+                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#dcfce7',
+                                            borderRadius: '4px',
+                                            border: '1px solid #16a34a',
+                                            fontSize: '0.75rem',
+                                            color: '#14532d',
+                                            fontWeight: '700'
+                                          }}>
+                                            💵 Total: ${(() => {
+                                              const base = parseFloat(importeMateriales);
+                                              const desc = parseFloat(descuentoMateriales);
+                                              const montoDesc = tipoDescuentoMateriales === 'fijo' ? desc : (base * desc / 100);
+                                              const total = base - montoDesc;
+                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
 
                                     {/* Descuento Gastos Generales */}
@@ -12001,6 +12169,19 @@ Gestionar Trabajos Adicionales
                                         <i className="fas fa-tag me-1"></i>
                                         Desc. Gastos Generales
                                       </label>
+                                      {/* Mostrar Base */}
+                                      {importeGastosGenerales && (
+                                        <div className="mb-1 p-1 text-center" style={{
+                                          backgroundColor: '#d1fae5',
+                                          borderRadius: '4px',
+                                          border: '1px solid #10b981',
+                                          fontSize: '0.75rem',
+                                          color: '#065f46',
+                                          fontWeight: '500'
+                                        }}>
+                                          📊 Base: ${parseFloat(importeGastosGenerales).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
                                         <button
                                           type="button"
@@ -12044,6 +12225,42 @@ Gestionar Trabajos Adicionales
                                           }}
                                         />
                                       </div>
+                                      {/* Mostrar Descuento y Total */}
+                                      {descuentoGastosGenerales && importeGastosGenerales && (
+                                        <>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#a7f3d0',
+                                            borderRadius: '4px',
+                                            border: '1px solid #059669',
+                                            fontSize: '0.75rem',
+                                            color: '#064e3b',
+                                            fontWeight: '600'
+                                          }}>
+                                            💰 Descuento: ${(() => {
+                                              const base = parseFloat(importeGastosGenerales);
+                                              const desc = parseFloat(descuentoGastosGenerales);
+                                              const montoDesc = tipoDescuentoGastosGenerales === 'fijo' ? desc : (base * desc / 100);
+                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#dcfce7',
+                                            borderRadius: '4px',
+                                            border: '1px solid #16a34a',
+                                            fontSize: '0.75rem',
+                                            color: '#14532d',
+                                            fontWeight: '700'
+                                          }}>
+                                            💵 Total: ${(() => {
+                                              const base = parseFloat(importeGastosGenerales);
+                                              const desc = parseFloat(descuentoGastosGenerales);
+                                              const montoDesc = tipoDescuentoGastosGenerales === 'fijo' ? desc : (base * desc / 100);
+                                              const total = base - montoDesc;
+                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
 
                                     {/* Descuento Mayores Costos */}
@@ -12052,6 +12269,19 @@ Gestionar Trabajos Adicionales
                                         <i className="fas fa-tag me-1"></i>
                                         Desc. Mayores Costos
                                       </label>
+                                      {/* Mostrar Base */}
+                                      {importeMayoresCostos && (
+                                        <div className="mb-1 p-1 text-center" style={{
+                                          backgroundColor: '#fee2e2',
+                                          borderRadius: '4px',
+                                          border: '1px solid #ef4444',
+                                          fontSize: '0.75rem',
+                                          color: '#991b1b',
+                                          fontWeight: '500'
+                                        }}>
+                                          📊 Base: ${parseFloat(importeMayoresCostos).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
                                         <button
                                           type="button"
@@ -12095,6 +12325,42 @@ Gestionar Trabajos Adicionales
                                           }}
                                         />
                                       </div>
+                                      {/* Mostrar Descuento y Total */}
+                                      {descuentoMayoresCostos && importeMayoresCostos && (
+                                        <>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#fecaca',
+                                            borderRadius: '4px',
+                                            border: '1px solid #dc2626',
+                                            fontSize: '0.75rem',
+                                            color: '#7f1d1d',
+                                            fontWeight: '600'
+                                          }}>
+                                            💰 Descuento: ${(() => {
+                                              const base = parseFloat(importeMayoresCostos);
+                                              const desc = parseFloat(descuentoMayoresCostos);
+                                              const montoDesc = tipoDescuentoMayoresCostos === 'fijo' ? desc : (base * desc / 100);
+                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1 text-center" style={{
+                                            backgroundColor: '#dcfce7',
+                                            borderRadius: '4px',
+                                            border: '1px solid #16a34a',
+                                            fontSize: '0.75rem',
+                                            color: '#14532d',
+                                            fontWeight: '700'
+                                          }}>
+                                            💵 Total: ${(() => {
+                                              const base = parseFloat(importeMayoresCostos);
+                                              const desc = parseFloat(descuentoMayoresCostos);
+                                              const montoDesc = tipoDescuentoMayoresCostos === 'fijo' ? desc : (base * desc / 100);
+                                              const total = base - montoDesc;
+                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -12166,6 +12432,45 @@ Gestionar Trabajos Adicionales
                                           }}
                                         />
                                       </div>
+                                      {/* Honorario Base */}
+                                      {honorarioJornales && importeJornales && (
+                                        <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#78350f', fontWeight: 'bold' }}>
+                                          📊 Hon. Base: $
+                                          {(tipoHonorarioJornales === 'fijo'
+                                            ? parseFloat(honorarioJornales || 0)
+                                            : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioJornales && descuentoHonorarioJornales && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioJornales === 'fijo'
+                                                ? parseFloat(honorarioJornales || 0)
+                                                : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioJornales === 'fijo'
+                                                ? parseFloat(descuentoHonorarioJornales || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioJornales || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioJornales === 'fijo'
+                                                ? parseFloat(honorarioJornales || 0)
+                                                : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioJornales === 'fijo'
+                                                ? parseFloat(descuentoHonorarioJornales || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioJornales || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
 
                                     {/* Descuento Honorario Materiales */}
