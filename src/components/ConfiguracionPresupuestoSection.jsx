@@ -294,7 +294,14 @@ const ConfiguracionPresupuestoSection = ({
     explicacion: '', // Campo para explicar por qué se aplican descuentos
     jornales: { activo: true, tipo: 'porcentaje', valor: '' },
     materiales: { activo: true, tipo: 'porcentaje', valor: '' },
-    honorarios: { activo: true, tipo: 'porcentaje', valor: '' },
+    // Honorarios desglosados por sub-tipo (para aplicar descuento individual por tipo de honorario)
+    honorariosJornales: { activo: true, tipo: 'porcentaje', valor: '' },
+    honorariosProfesionales: { activo: true, tipo: 'porcentaje', valor: '' },
+    honorariosMateriales: { activo: true, tipo: 'porcentaje', valor: '' },
+    honorariosOtros: { activo: true, tipo: 'porcentaje', valor: '' },
+    honorariosGastosGenerales: { activo: true, tipo: 'porcentaje', valor: '' },
+    honorariosConfiguracion: { activo: true, tipo: 'porcentaje', valor: '' },
+    honorarios: { activo: true, tipo: 'porcentaje', valor: '' }, // Legacy / backward compat
     mayoresCostos: { activo: true, tipo: 'porcentaje', valor: '' } // Nueva tarjeta para descuentos sobre mayores costos
   };
 
@@ -311,6 +318,37 @@ const ConfiguracionPresupuestoSection = ({
       ...defaultsDescuentos.materiales,
       ...(descuentos?.materiales || {}),
       activo: (descuentos?.materiales?.activo === false) ? false : true
+    },
+    // Honorarios desglosados por sub-tipo
+    honorariosJornales: {
+      ...defaultsDescuentos.honorariosJornales,
+      ...(descuentos?.honorariosJornales || {}),
+      activo: (descuentos?.honorariosJornales?.activo === false) ? false : true
+    },
+    honorariosProfesionales: {
+      ...defaultsDescuentos.honorariosProfesionales,
+      ...(descuentos?.honorariosProfesionales || {}),
+      activo: (descuentos?.honorariosProfesionales?.activo === false) ? false : true
+    },
+    honorariosMateriales: {
+      ...defaultsDescuentos.honorariosMateriales,
+      ...(descuentos?.honorariosMateriales || {}),
+      activo: (descuentos?.honorariosMateriales?.activo === false) ? false : true
+    },
+    honorariosOtros: {
+      ...defaultsDescuentos.honorariosOtros,
+      ...(descuentos?.honorariosOtros || {}),
+      activo: (descuentos?.honorariosOtros?.activo === false) ? false : true
+    },
+    honorariosGastosGenerales: {
+      ...defaultsDescuentos.honorariosGastosGenerales,
+      ...(descuentos?.honorariosGastosGenerales || {}),
+      activo: (descuentos?.honorariosGastosGenerales?.activo === false) ? false : true
+    },
+    honorariosConfiguracion: {
+      ...defaultsDescuentos.honorariosConfiguracion,
+      ...(descuentos?.honorariosConfiguracion || {}),
+      activo: (descuentos?.honorariosConfiguracion?.activo === false) ? false : true
     },
     honorarios: {
       ...defaultsDescuentos.honorarios,
@@ -339,6 +377,37 @@ const ConfiguracionPresupuestoSection = ({
           ...defaultsDescuentos.materiales,
           ...(descuentos?.materiales || {}),
           activo: (descuentos?.materiales?.activo === false) ? false : true
+        },
+        // Honorarios desglosados por sub-tipo
+        honorariosJornales: {
+          ...defaultsDescuentos.honorariosJornales,
+          ...(descuentos?.honorariosJornales || {}),
+          activo: (descuentos?.honorariosJornales?.activo === false) ? false : true
+        },
+        honorariosProfesionales: {
+          ...defaultsDescuentos.honorariosProfesionales,
+          ...(descuentos?.honorariosProfesionales || {}),
+          activo: (descuentos?.honorariosProfesionales?.activo === false) ? false : true
+        },
+        honorariosMateriales: {
+          ...defaultsDescuentos.honorariosMateriales,
+          ...(descuentos?.honorariosMateriales || {}),
+          activo: (descuentos?.honorariosMateriales?.activo === false) ? false : true
+        },
+        honorariosOtros: {
+          ...defaultsDescuentos.honorariosOtros,
+          ...(descuentos?.honorariosOtros || {}),
+          activo: (descuentos?.honorariosOtros?.activo === false) ? false : true
+        },
+        honorariosGastosGenerales: {
+          ...defaultsDescuentos.honorariosGastosGenerales,
+          ...(descuentos?.honorariosGastosGenerales || {}),
+          activo: (descuentos?.honorariosGastosGenerales?.activo === false) ? false : true
+        },
+        honorariosConfiguracion: {
+          ...defaultsDescuentos.honorariosConfiguracion,
+          ...(descuentos?.honorariosConfiguracion || {}),
+          activo: (descuentos?.honorariosConfiguracion?.activo === false) ? false : true
         },
         honorarios: {
           ...defaultsDescuentos.honorarios,
@@ -373,6 +442,12 @@ const ConfiguracionPresupuestoSection = ({
         ...descuentosActual,
         jornales: { ...descuentosActual.jornales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
         materiales: { ...descuentosActual.materiales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        honorariosJornales: { ...descuentosActual.honorariosJornales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        honorariosProfesionales: { ...descuentosActual.honorariosProfesionales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        honorariosMateriales: { ...descuentosActual.honorariosMateriales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        honorariosOtros: { ...descuentosActual.honorariosOtros, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        honorariosGastosGenerales: { ...descuentosActual.honorariosGastosGenerales, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
+        honorariosConfiguracion: { ...descuentosActual.honorariosConfiguracion, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
         honorarios: { ...descuentosActual.honorarios, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos },
         mayoresCostos: { ...descuentosActual.mayoresCostos, tipo: tipoGlobalDescuentos, valor: valorGlobalDescuentos }
       };
@@ -1159,6 +1234,49 @@ const ConfiguracionPresupuestoSection = ({
         final: baseParaResumen + totalHonorarios
       }
     };
+  };
+
+  /**
+   * Calcula el total de descuentos sobre honorarios usando sub-tipos individuales.
+   * Si hay algún sub-tipo configurado, usa esa lógica desglosada.
+   * Si no, hace fallback al honorario "total" (backward compat).
+   */
+  const calcularDescuentoHonorarios = (resumen, cfg) => {
+    // otrosCostos y gastosGenerales son sinónimos — usar el que tenga valor configurado,
+    // nunca ambos al mismo tiempo para evitar doble conteo.
+    const baseOtros = resumen.otrosCostos?.honorario || resumen.gastosGenerales?.honorario || 0;
+    const usaGastosGenerales = Number(cfg.honorariosGastosGenerales?.valor || 0) > 0;
+
+    const subtipos = [
+      { key: 'honorariosJornales', base: resumen.jornales?.honorario || 0 },
+      { key: 'honorariosProfesionales', base: resumen.profesionales?.honorario || 0 },
+      { key: 'honorariosMateriales', base: resumen.materiales?.honorario || 0 },
+      { key: 'honorariosOtros', base: usaGastosGenerales ? 0 : baseOtros },
+      { key: 'honorariosGastosGenerales', base: baseOtros },
+      { key: 'honorariosConfiguracion', base: resumen.configuracionPresupuesto?.honorario || 0 }
+    ];
+
+    const haySubtipoCfg = subtipos.some(({ key }) => Number(cfg[key]?.valor || 0) > 0);
+
+    if (haySubtipoCfg) {
+      return subtipos.reduce((acc, { key, base }) => {
+        const c = cfg[key];
+        if (c?.activo === false || !(base > 0)) return acc;
+        const valor = Number(c?.valor || 0);
+        if (valor <= 0) return acc;
+        return acc + (c.tipo === 'porcentaje' ? (base * valor) / 100 : valor);
+      }, 0);
+    }
+
+    // Fallback legacy
+    if (cfg.honorarios?.activo !== false) {
+      const baseHon = resumen.honorarios?.base || 0;
+      const valor = Number(cfg.honorarios?.valor || 0);
+      if (valor > 0) {
+        return cfg.honorarios.tipo === 'porcentaje' ? (baseHon * valor) / 100 : valor;
+      }
+    }
+    return 0;
   };
 
   // ========== FUNCIONES PROFESIONALES ==========
@@ -5313,6 +5431,12 @@ const ConfiguracionPresupuestoSection = ({
                                     ...descuentosActual,
                                     jornales: { ...descuentosActual.jornales, tipo: tipoGlobalDescuentos, valor: valor },
                                     materiales: { ...descuentosActual.materiales, tipo: tipoGlobalDescuentos, valor: valor },
+                                    honorariosJornales: { ...descuentosActual.honorariosJornales, tipo: tipoGlobalDescuentos, valor: valor },
+                                    honorariosProfesionales: { ...descuentosActual.honorariosProfesionales, tipo: tipoGlobalDescuentos, valor: valor },
+                                    honorariosMateriales: { ...descuentosActual.honorariosMateriales, tipo: tipoGlobalDescuentos, valor: valor },
+                                    honorariosOtros: { ...descuentosActual.honorariosOtros, tipo: tipoGlobalDescuentos, valor: valor },
+                                    honorariosGastosGenerales: { ...descuentosActual.honorariosGastosGenerales, tipo: tipoGlobalDescuentos, valor: valor },
+                                    honorariosConfiguracion: { ...descuentosActual.honorariosConfiguracion, tipo: tipoGlobalDescuentos, valor: valor },
                                     honorarios: { ...descuentosActual.honorarios, tipo: tipoGlobalDescuentos, valor: valor },
                                     mayoresCostos: { ...descuentosActual.mayoresCostos, tipo: tipoGlobalDescuentos, valor: valor }
                                   };
@@ -5326,6 +5450,138 @@ const ConfiguracionPresupuestoSection = ({
                       </div>
                     </div>
 
+                    {/* ===== FILA 1: DESCUENTOS SOBRE HONORARIOS (por tipo individual) ===== */}
+                    {(()=>{
+                      const baseOtrosGG = resumen.otrosCostos?.honorario || resumen.gastosGenerales?.honorario || 0;
+                      return [
+                        { key: 'honorariosJornales', base: resumen.jornales?.honorario || 0 },
+                        { key: 'honorariosProfesionales', base: resumen.profesionales?.honorario || 0 },
+                        { key: 'honorariosMateriales', base: resumen.materiales?.honorario || 0 },
+                        { key: 'honorariosGastosGenerales', base: baseOtrosGG },
+                        { key: 'honorariosConfiguracion', base: resumen.configuracionPresupuesto?.honorario || 0 }
+                      ];
+                    })().some(item => item.base > 0) && (
+                      <>
+                        <div className="d-flex align-items-center gap-2 mb-2 mt-1 px-2 py-1 rounded" style={{backgroundColor:'#fff3cd', border:'1px solid #ffd54f'}}>
+                          <span style={{color:'#e65100', fontWeight:'bold', fontSize:'13px'}}>💰 Descuentos sobre Honorarios</span>
+                          <small className="text-muted">(checkbox activos por defecto — ingresá el % o $ a descontar)</small>
+                        </div>
+                        <div className="row g-3 mb-2">
+                          {(()=>{
+                            const baseOtrosGG = resumen.otrosCostos?.honorario || resumen.gastosGenerales?.honorario || 0;
+                            // Mostrar solo UNA tarjeta para otrosCostos/gastosGenerales (son lo mismo)
+                            // Preferir la key que ya tenga valor configurado, sino honorariosGastosGenerales
+                            const keyOtros = Number(descuentosActual.honorariosOtros?.valor || 0) > 0
+                              ? 'honorariosOtros'
+                              : 'honorariosGastosGenerales';
+                            return [
+                              { key: 'honorariosJornales', label: '💰 Hon. Jornales', base: resumen.jornales?.honorario || 0 },
+                              { key: 'honorariosProfesionales', label: '💰 Hon. Profesionales', base: resumen.profesionales?.honorario || 0 },
+                              { key: 'honorariosMateriales', label: '💰 Hon. Materiales', base: resumen.materiales?.honorario || 0 },
+                              { key: keyOtros, label: '💰 Hon. Otros / Gastos Grales.', base: baseOtrosGG },
+                              { key: 'honorariosConfiguracion', label: '💰 Hon. Config. Presup.', base: resumen.configuracionPresupuesto?.honorario || 0 }
+                            ];
+                          })().filter(item => item.base > 0).map(({ key, label, base }) => (
+                            <div className="col-md-3" key={key}>
+                              <div className="border rounded p-2" style={{backgroundColor: '#fff8e1'}}>
+                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                  <small className="fw-bold" style={{color:'#e65100'}}>{label}</small>
+                                  <div className="form-check form-check-sm">
+                                    <input
+                                      className="form-check-input"
+                                      type="checkbox"
+                                      checked={descuentosActual[key]?.activo !== false}
+                                      onChange={(e) => setDescuentos(prev => ({
+                                        ...prev,
+                                        [key]: { ...(prev[key] || {}), activo: e.target.checked }
+                                      }))}
+                                      style={{ cursor: 'pointer' }}
+                                    />
+                                    <label className="form-check-label small" style={{ fontSize: '10px' }}>
+                                      Aplicar
+                                    </label>
+                                  </div>
+                                </div>
+                                <div className="d-flex justify-content-between mt-1">
+                                  <span className="small">Base:</span>
+                                  <span className="small fw-bold">${base.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="mt-2 mb-2">
+                                  <div className="d-flex gap-1 align-items-center">
+                                    <select
+                                      className="form-select form-select-sm"
+                                      style={{ fontSize: '10px', padding: '2px' }}
+                                      value={descuentosActual[key]?.tipo || 'porcentaje'}
+                                      onChange={(e) => setDescuentos(prev => ({
+                                        ...prev,
+                                        [key]: { ...(prev[key] || {}), tipo: e.target.value }
+                                      }))}
+                                    >
+                                      <option value="porcentaje">%</option>
+                                      <option value="fijo">$</option>
+                                    </select>
+                                    <input
+                                      type="number"
+                                      className="form-control form-control-sm"
+                                      style={{ fontSize: '10px', padding: '2px' }}
+                                      placeholder={descuentosActual[key]?.tipo === 'porcentaje' ? '10' : '1000'}
+                                      value={descuentosActual[key]?.valor || ''}
+                                      onChange={(e) => {
+                                        const valor = e.target.value;
+                                        setDescuentos(prev => ({
+                                          ...prev,
+                                          [key]: {
+                                            ...(prev[key] || {}),
+                                            valor,
+                                            activo: valor !== '' && Number(valor) !== 0
+                                          }
+                                        }));
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="d-flex justify-content-between text-danger">
+                                  <span className="small">- Descuento:</span>
+                                  <span className="small fw-bold">${(() => {
+                                    if (descuentosActual[key]?.activo === false) return '0,00';
+                                    const valor = Number(descuentosActual[key]?.valor || 0);
+                                    if (valor > 0 && descuentosActual[key]?.tipo === 'porcentaje') {
+                                      return ((base * valor) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                                    } else if (valor > 0) {
+                                      return valor.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                                    }
+                                    return '0,00';
+                                  })()}</span>
+                                </div>
+                                <hr className="my-1" />
+                                <div className="d-flex justify-content-between">
+                                  <span className="small fw-bold">Total:</span>
+                                  <span className="small fw-bold text-primary">${(() => {
+                                    if (descuentosActual[key]?.activo === false) {
+                                      return base.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                                    }
+                                    const valor = Number(descuentosActual[key]?.valor || 0);
+                                    let descuento = 0;
+                                    if (valor > 0 && descuentosActual[key]?.tipo === 'porcentaje') {
+                                      descuento = (base * valor) / 100;
+                                    } else if (valor > 0) {
+                                      descuento = valor;
+                                    }
+                                    return (base - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                                  })()}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <hr className="my-2" />
+                      </>
+                    )}
+
+                    {/* ===== FILA 2: DESCUENTOS SOBRE BASES Y MAYORES COSTOS ===== */}
+                    <div className="d-flex align-items-center gap-2 mb-2 px-2 py-1 rounded" style={{backgroundColor:'#e8f5e9', border:'1px solid #a5d6a7'}}>
+                      <span style={{color:'#2e7d32', fontWeight:'bold', fontSize:'13px'}}>🔢 Descuentos sobre Bases y Mayores Costos</span>
+                    </div>
                     <div className="row g-3 mb-3">
                       {/* Jornales */}
                       {resumen.jornales && (resumen.jornales.baseOriginal > 0 || resumen.jornales.base > 0) && (
@@ -5519,103 +5775,7 @@ const ConfiguracionPresupuestoSection = ({
                       </div>
                       )}
 
-                      {/* Honorarios */}
-                      {resumen.honorarios && resumen.honorarios.base > 0 && (
-                      <div className="col-md-3">
-                        <div className="border rounded p-2 bg-light">
-                          <div className="d-flex justify-content-between align-items-center mb-2">
-                            <small className="text-muted">💰 Honorarios (total)</small>
-                            <div className="form-check form-check-sm">
-                              <input
-                                className="form-check-input"
-                                type="checkbox"
-                                checked={descuentosActual.honorarios?.activo !== false}
-                                onChange={(e) => setDescuentos(prev => ({
-                                  ...prev,
-                                  honorarios: { ...prev.honorarios, activo: e.target.checked }
-                                }))}
-                                style={{ cursor: 'pointer' }}
-                              />
-                              <label className="form-check-label small" style={{ fontSize: '10px' }}>
-                                Aplicar
-                              </label>
-                            </div>
-                          </div>
-                          <div className="d-flex justify-content-between mt-1">
-                            <span className="small">Base:</span>
-                            <span className="small fw-bold">${(resumen.honorarios?.base || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-
-                          <div className="mt-2 mb-2">
-                            <div className="d-flex gap-1 align-items-center">
-                              <select
-                                className="form-select form-select-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                value={descuentosActual.honorarios.tipo}
-                                onChange={(e) => setDescuentos(prev => ({
-                                  ...prev,
-                                  honorarios: { ...prev.honorarios, tipo: e.target.value }
-                                }))}
-                              >
-                                <option value="porcentaje">%</option>
-                                <option value="fijo">$</option>
-                              </select>
-                              <input
-                                type="number"
-                                className="form-control form-control-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={descuentosActual.honorarios.tipo === 'porcentaje' ? '10' : '1000'}
-                                value={descuentosActual.honorarios.valor}
-                                onChange={(e) => {
-                                  const valor = e.target.value;
-                                  setDescuentos(prev => ({
-                                    ...prev,
-                                    honorarios: {
-                                      ...prev.honorarios,
-                                      valor,
-                                      activo: valor !== '' && Number(valor) !== 0
-                                    }
-                                  }));
-                                }}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="d-flex justify-content-between text-danger">
-                            <span className="small">- Descuento:</span>
-                            <span className="small fw-bold">${(() => {
-                              if (descuentosActual.honorarios?.activo === false) return '0,00';
-                              const base = resumen.honorarios?.base || 0;
-                              const valor = Number(descuentosActual.honorarios?.valor || 0);
-                              if (valor > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
-                                return ((base * valor) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 });
-                              } else if (valor > 0) {
-                                return valor.toLocaleString('es-AR', { minimumFractionDigits: 2 });
-                              }
-                              return '0,00';
-                            })()}</span>
-                          </div>
-                          <hr className="my-1" />
-                          <div className="d-flex justify-content-between">
-                            <span className="small fw-bold">Total:</span>
-                            <span className="small fw-bold text-primary">${(() => {
-                              if (descuentosActual.honorarios?.activo === false) {
-                                return (resumen.honorarios?.base || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
-                              }
-                              const base = resumen.honorarios?.base || 0;
-                              const valor = Number(descuentosActual.honorarios?.valor || 0);
-                              let descuento = 0;
-                              if (valor > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
-                                descuento = (base * valor) / 100;
-                              } else if (valor > 0) {
-                                descuento = valor;
-                              }
-                              return (base - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2 });
-                            })()}</span>
-                          </div>
-                        </div>
-                      </div>
-                      )}
+                      {/* Honorarios ya mostrados en la fila superior */}
 
                       {/* Mayores Costos (Total de todos los mayores costos aplicados) */}
                       {(() => {
@@ -5889,16 +6049,8 @@ const ConfiguracionPresupuestoSection = ({
                                 }
                               }
 
-                              // Honorarios
-                              if (descuentosActual.honorarios?.activo !== false) {
-                                const baseHon = resumen.honorarios?.base || 0;
-                                const valorHon = Number(descuentosActual.honorarios?.valor || 0);
-                                if (valorHon > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
-                                  total += (baseHon * valorHon) / 100;
-                                } else if (valorHon > 0) {
-                                  total += valorHon;
-                                }
-                              }
+                              // Honorarios (desglosado por sub-tipo)
+                              total += calcularDescuentoHonorarios(resumen, descuentosActual);
 
                               // Mayores Costos
                               if (descuentosActual.mayoresCostos?.activo !== false) {
@@ -6060,15 +6212,8 @@ const ConfiguracionPresupuestoSection = ({
                                 }
                               }
 
-                              // Honorarios
-                              if (descuentosActual.honorarios?.activo !== false) {
-                                const valorHon = Number(descuentosActual.honorarios?.valor || 0);
-                                if (valorHon > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
-                                  totalDescuentos += (baseHonorarios * valorHon) / 100;
-                                } else if (valorHon > 0) {
-                                  totalDescuentos += valorHon;
-                                }
-                              }
+                              // Honorarios (desglosado por sub-tipo)
+                              totalDescuentos += calcularDescuentoHonorarios(resumen, descuentosActual);
 
                               // Mayores Costos
                               if (descuentosActual.mayoresCostos?.activo !== false) {
@@ -6127,17 +6272,8 @@ const ConfiguracionPresupuestoSection = ({
                             );
                           })()}
                           {(() => {
-                            // Calcular descuento de honorarios
-                            let descuentoHon = 0;
-                            if (descuentosActual.honorarios?.activo !== false) {
-                              const base = resumen.honorarios?.base || 0;
-                              const valor = Number(descuentosActual.honorarios?.valor || 0);
-                              if (valor > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
-                                descuentoHon = (base * valor) / 100;
-                              } else if (valor > 0) {
-                                descuentoHon = valor;
-                              }
-                            }
+                            // Calcular descuento de honorarios (desglosado)
+                            const descuentoHon = calcularDescuentoHonorarios(resumen, descuentosActual);
                             return descuentoHon > 0 && (
                               <div className="col-md-3">
                                 💰 Honorarios: <strong>${descuentoHon.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
@@ -6242,16 +6378,8 @@ const ConfiguracionPresupuestoSection = ({
                               }
                             }
 
-                            // Honorarios
-                            if (descuentosActual.honorarios?.activo !== false) {
-                              const baseHon = resumen.honorarios?.base || 0;
-                              const valorHon = Number(descuentosActual.honorarios?.valor || 0);
-                              if (valorHon > 0 && descuentosActual.honorarios?.tipo === 'porcentaje') {
-                                total += (baseHon * valorHon) / 100;
-                              } else if (valorHon > 0) {
-                                total += valorHon;
-                              }
-                            }
+                            // Honorarios (desglosado por sub-tipo)
+                            total += calcularDescuentoHonorarios(resumen, descuentosActual);
 
                             // Mayores Costos
                             if (descuentosActual.mayoresCostos?.activo !== false) {

@@ -167,6 +167,37 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           tipo: safeInitial.descuentosMaterialesTipo || 'porcentaje',
           valor: safeInitial.descuentosMaterialesValor || ''
         },
+        // Honorarios desglosados por sub-tipo
+        honorariosJornales: {
+          activo: safeInitial.descuentosHonorariosJornalesActivo !== false,
+          tipo: safeInitial.descuentosHonorariosJornalesTipo || 'porcentaje',
+          valor: safeInitial.descuentosHonorariosJornalesValor || ''
+        },
+        honorariosProfesionales: {
+          activo: safeInitial.descuentosHonorariosProfesionalesActivo !== false,
+          tipo: safeInitial.descuentosHonorariosProfesionalesTipo || 'porcentaje',
+          valor: safeInitial.descuentosHonorariosProfesionalesValor || ''
+        },
+        honorariosMateriales: {
+          activo: safeInitial.descuentosHonorariosMaterialesActivo !== false,
+          tipo: safeInitial.descuentosHonorariosMaterialesTipo || 'porcentaje',
+          valor: safeInitial.descuentosHonorariosMaterialesValor || ''
+        },
+        honorariosOtros: {
+          activo: safeInitial.descuentosHonorariosOtrosActivo !== false,
+          tipo: safeInitial.descuentosHonorariosOtrosTipo || 'porcentaje',
+          valor: safeInitial.descuentosHonorariosOtrosValor || ''
+        },
+        honorariosGastosGenerales: {
+          activo: safeInitial.descuentosHonorariosGastosGeneralesActivo !== false,
+          tipo: safeInitial.descuentosHonorariosGastosGeneralesTipo || 'porcentaje',
+          valor: safeInitial.descuentosHonorariosGastosGeneralesValor || ''
+        },
+        honorariosConfiguracion: {
+          activo: safeInitial.descuentosHonorariosConfiguracionActivo !== false,
+          tipo: safeInitial.descuentosHonorariosConfiguracionTipo || 'porcentaje',
+          valor: safeInitial.descuentosHonorariosConfiguracionValor || ''
+        },
         honorarios: {
           activo: safeInitial.descuentosHonorariosActivo !== false,
           tipo: safeInitial.descuentosHonorariosTipo || 'porcentaje',
@@ -4977,6 +5008,37 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           tipo: si.descuentosMaterialesTipo || 'porcentaje',
           valor: si.descuentosMaterialesValor || ''
         },
+        // Honorarios desglosados por sub-tipo
+        honorariosJornales: {
+          activo: si.descuentosHonorariosJornalesActivo !== false,
+          tipo: si.descuentosHonorariosJornalesTipo || 'porcentaje',
+          valor: si.descuentosHonorariosJornalesValor || ''
+        },
+        honorariosProfesionales: {
+          activo: si.descuentosHonorariosProfesionalesActivo !== false,
+          tipo: si.descuentosHonorariosProfesionalesTipo || 'porcentaje',
+          valor: si.descuentosHonorariosProfesionalesValor || ''
+        },
+        honorariosMateriales: {
+          activo: si.descuentosHonorariosMaterialesActivo !== false,
+          tipo: si.descuentosHonorariosMaterialesTipo || 'porcentaje',
+          valor: si.descuentosHonorariosMaterialesValor || ''
+        },
+        honorariosOtros: {
+          activo: si.descuentosHonorariosOtrosActivo !== false,
+          tipo: si.descuentosHonorariosOtrosTipo || 'porcentaje',
+          valor: si.descuentosHonorariosOtrosValor || ''
+        },
+        honorariosGastosGenerales: {
+          activo: si.descuentosHonorariosGastosGeneralesActivo !== false,
+          tipo: si.descuentosHonorariosGastosGeneralesTipo || 'porcentaje',
+          valor: si.descuentosHonorariosGastosGeneralesValor || ''
+        },
+        honorariosConfiguracion: {
+          activo: si.descuentosHonorariosConfiguracionActivo !== false,
+          tipo: si.descuentosHonorariosConfiguracionTipo || 'porcentaje',
+          valor: si.descuentosHonorariosConfiguracionValor || ''
+        },
         honorarios: {
           activo: si.descuentosHonorariosActivo !== false,
           tipo: si.descuentosHonorariosTipo || 'porcentaje',
@@ -5744,6 +5806,65 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       ...prev,
       otrosCostos: (prev.otrosCostos || []).map((o, i) => i === idx ? { ...o, [key]: value } : o)
     }));
+  };
+
+  // Calcula el total final del presupuesto ya con los descuentos restados.
+  // Se usa al construir el payload para persistir el valor calculado en el backend.
+  const calcularTotalConDescuentos = () => {
+    const items = itemsCalculadoraConsolidados || [];
+    const totalSinDescuento = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+    let totalDescuentos = 0;
+    const cfg = form.descuentos || {};
+
+    if (Object.keys(cfg).length > 0) {
+      const baseJornales = items.reduce((sum, i) => sum + (Number(i.subtotalJornales) || 0), 0);
+      const baseMateriales = items.reduce((sum, i) => sum + (Number(i.subtotalMateriales) || 0), 0);
+      const baseHonorarios = items.reduce((sum, i) => sum + (Number(i.honorariosAplicados) || 0), 0);
+      const baseMayoresCostos = items.reduce((sum, i) => sum + (Number(i.mayoresCostosAplicados) || 0), 0);
+
+      // Jornales
+      if (cfg.jornales?.activo !== false && baseJornales > 0) {
+        const v = Number(cfg.jornales?.valor || 0);
+        if (v > 0) totalDescuentos += cfg.jornales.tipo === 'porcentaje' ? (baseJornales * v) / 100 : v;
+      }
+      // Materiales
+      if (cfg.materiales?.activo !== false && baseMateriales > 0) {
+        const v = Number(cfg.materiales?.valor || 0);
+        if (v > 0) totalDescuentos += cfg.materiales.tipo === 'porcentaje' ? (baseMateriales * v) / 100 : v;
+      }
+      // Honorarios sub-tipos
+      const honDesglosados = calcularHonorarios();
+      const tieneSubtipos = ['honorariosJornales','honorariosProfesionales','honorariosMateriales',
+        'honorariosOtros','honorariosGastosGenerales','honorariosConfiguracion'
+      ].some(k => Number(cfg[k]?.valor || 0) > 0);
+      if (tieneSubtipos) {
+        const baseOtros = honDesglosados.otrosCostos || 0;
+        const usaGG = Number(cfg.honorariosGastosGenerales?.valor || 0) > 0;
+        [
+          { key: 'honorariosJornales', base: honDesglosados.jornales || 0 },
+          { key: 'honorariosProfesionales', base: honDesglosados.profesionales || 0 },
+          { key: 'honorariosMateriales', base: honDesglosados.materiales || 0 },
+          { key: 'honorariosOtros', base: usaGG ? 0 : baseOtros },
+          { key: 'honorariosGastosGenerales', base: baseOtros },
+          { key: 'honorariosConfiguracion', base: honDesglosados.configuracionPresupuesto || 0 }
+        ].forEach(({ key, base }) => {
+          const c = cfg[key];
+          if (c?.activo !== false && base > 0) {
+            const v = Number(c?.valor || 0);
+            if (v > 0) totalDescuentos += c.tipo === 'porcentaje' ? (base * v) / 100 : v;
+          }
+        });
+      } else if (cfg.honorarios?.activo !== false && baseHonorarios > 0) {
+        const v = Number(cfg.honorarios?.valor || 0);
+        if (v > 0) totalDescuentos += cfg.honorarios.tipo === 'porcentaje' ? (baseHonorarios * v) / 100 : v;
+      }
+      // Mayores Costos
+      if (cfg.mayoresCostos?.activo !== false && baseMayoresCostos > 0) {
+        const v = Number(cfg.mayoresCostos?.valor || 0);
+        if (v > 0) totalDescuentos += cfg.mayoresCostos.tipo === 'porcentaje' ? (baseMayoresCostos * v) / 100 : v;
+      }
+    }
+    return totalSinDescuento - totalDescuentos;
   };
 
   const calcularHonorarios = () => {
@@ -7354,16 +7475,16 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     }
 
 // 🔧 CRÍTICO: PRESERVAR esPresupuestoTrabajoExtra
-    // Si tiene idObra, ES un trabajo extra (incluso si el flag está en false por error)
-    // Si el flag está en true (o 'V'), preservarlo SIEMPRE
-    if (form.id && (initialData?.esPresupuestoTrabajoExtra === true || initialData?.esPresupuestoTrabajoExtra === 'V')) {
-      // Modo EDICIÓN: preservar el flag original del presupuesto guardado
+    if (form.id) {
+      // Modo EDICIÓN: respetar SIEMPRE el valor original guardado en el backend,
+      // independientemente de si tiene obraId o no.
+      const valorOriginal = initialData?.esPresupuestoTrabajoExtra;
+      payload.esPresupuestoTrabajoExtra = valorOriginal === true || valorOriginal === 'V' || valorOriginal === 1;
+      console.log('🔧 MODO EDICIÓN: Preservando esPresupuestoTrabajoExtra desde initialData:', payload.esPresupuestoTrabajoExtra);
+    } else if (modoTrabajoExtra || (payload.idObra || payload.obraId)) {
+      // Modo CREACIÓN: si viene de un contexto de trabajo extra o tiene obra padre → es trabajo extra
       payload.esPresupuestoTrabajoExtra = true;
-      console.log('🔧 MODO EDICIÓN: Preservando esPresupuestoTrabajoExtra = true desde initialData');
-    } else if (payload.idObra || payload.obraId) {
-      // Si tiene idObra, DEBE ser trabajo extra
-      payload.esPresupuestoTrabajoExtra = true;
-      console.log('🔧 FORZANDO esPresupuestoTrabajoExtra = true porque tiene idObra');
+      console.log('🔧 NUEVO PRESUPUESTO: esPresupuestoTrabajoExtra = true (modoTrabajoExtra o tiene obraId)');
     } else {
       // Nuevo presupuesto sin obra vinculada
       payload.esPresupuestoTrabajoExtra = form.esPresupuestoTrabajoExtra || false;
@@ -8634,10 +8755,35 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       payload.descuentosMaterialesTipo = form.descuentos.materiales?.tipo || 'porcentaje';
       payload.descuentosMaterialesValor = Number(form.descuentos.materiales?.valor) || 0;
 
-      // Honorarios
+      // Honorarios (legacy total - backward compat)
       payload.descuentosHonorariosActivo = form.descuentos.honorarios?.activo !== false;
       payload.descuentosHonorariosTipo = form.descuentos.honorarios?.tipo || 'porcentaje';
       payload.descuentosHonorariosValor = Number(form.descuentos.honorarios?.valor) || 0;
+
+      // Honorarios desglosados por sub-tipo
+      payload.descuentosHonorariosJornalesActivo = form.descuentos.honorariosJornales?.activo !== false;
+      payload.descuentosHonorariosJornalesTipo = form.descuentos.honorariosJornales?.tipo || 'porcentaje';
+      payload.descuentosHonorariosJornalesValor = Number(form.descuentos.honorariosJornales?.valor) || 0;
+
+      payload.descuentosHonorariosProfesionalesActivo = form.descuentos.honorariosProfesionales?.activo !== false;
+      payload.descuentosHonorariosProfesionalesTipo = form.descuentos.honorariosProfesionales?.tipo || 'porcentaje';
+      payload.descuentosHonorariosProfesionalesValor = Number(form.descuentos.honorariosProfesionales?.valor) || 0;
+
+      payload.descuentosHonorariosMaterialesActivo = form.descuentos.honorariosMateriales?.activo !== false;
+      payload.descuentosHonorariosMaterialesTipo = form.descuentos.honorariosMateriales?.tipo || 'porcentaje';
+      payload.descuentosHonorariosMaterialesValor = Number(form.descuentos.honorariosMateriales?.valor) || 0;
+
+      payload.descuentosHonorariosOtrosActivo = form.descuentos.honorariosOtros?.activo !== false;
+      payload.descuentosHonorariosOtrosTipo = form.descuentos.honorariosOtros?.tipo || 'porcentaje';
+      payload.descuentosHonorariosOtrosValor = Number(form.descuentos.honorariosOtros?.valor) || 0;
+
+      payload.descuentosHonorariosGastosGeneralesActivo = form.descuentos.honorariosGastosGenerales?.activo !== false;
+      payload.descuentosHonorariosGastosGeneralesTipo = form.descuentos.honorariosGastosGenerales?.tipo || 'porcentaje';
+      payload.descuentosHonorariosGastosGeneralesValor = Number(form.descuentos.honorariosGastosGenerales?.valor) || 0;
+
+      payload.descuentosHonorariosConfiguracionActivo = form.descuentos.honorariosConfiguracion?.activo !== false;
+      payload.descuentosHonorariosConfiguracionTipo = form.descuentos.honorariosConfiguracion?.tipo || 'porcentaje';
+      payload.descuentosHonorariosConfiguracionValor = Number(form.descuentos.honorariosConfiguracion?.valor) || 0;
 
       // Mayores Costos
       payload.descuentosMayoresCostosActivo = form.descuentos.mayoresCostos?.activo !== false;
@@ -8676,10 +8822,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       payload.descuentosMaterialesValor = 0;
       payload.descuentosHonorariosActivo = false;
       payload.descuentosHonorariosValor = 0;
+      payload.descuentosHonorariosJornalesActivo = false;
+      payload.descuentosHonorariosJornalesValor = 0;
+      payload.descuentosHonorariosProfesionalesActivo = false;
+      payload.descuentosHonorariosProfesionalesValor = 0;
+      payload.descuentosHonorariosMaterialesActivo = false;
+      payload.descuentosHonorariosMaterialesValor = 0;
+      payload.descuentosHonorariosOtrosActivo = false;
+      payload.descuentosHonorariosOtrosValor = 0;
+      payload.descuentosHonorariosGastosGeneralesActivo = false;
+      payload.descuentosHonorariosGastosGeneralesValor = 0;
+      payload.descuentosHonorariosConfiguracionActivo = false;
+      payload.descuentosHonorariosConfiguracionValor = 0;
       payload.descuentosMayoresCostosActivo = false;
       payload.descuentosMayoresCostosValor = 0;
       console.log('💸 Sin descuentos configurados');
     }
+
+    // 💰 TOTAL CON DESCUENTOS: calculado en frontend y persistido en backend
+    // Permite que la lista muestre el total correcto sin recalcular
+    payload.totalConDescuentos = calcularTotalConDescuentos();
 
     // 🧹 LIMPIAR campos internos del frontend (que empiezan con "_")
     // Estos campos son solo para control interno y no deben enviarse al backend
@@ -14623,8 +14785,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   // Calcular total sin descuento
                                   const totalSinDescuento = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
 
-                                  // Calcular descuentos aplicados
+                                  // Calcular descuentos aplicados con detalle por ítem
                                   let totalDescuentos = 0;
+                                  const detalleDescuentos = []; // { label, importe }
 
                                   // 🔧 VERIFICAR que form.descuentos exista y tenga valores
                                   const descuentosConfig = form.descuentos || {};
@@ -14640,11 +14803,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     if (descuentosConfig.jornales?.activo !== false && totalJornalesBase > 0) {
                                       const valor = Number(descuentosConfig.jornales.valor || 0);
                                       if (valor > 0) {
-                                        if (descuentosConfig.jornales.tipo === 'porcentaje') {
-                                          totalDescuentos += (totalJornalesBase * valor) / 100;
-                                        } else {
-                                          totalDescuentos += valor;
-                                        }
+                                        const imp = descuentosConfig.jornales.tipo === 'porcentaje'
+                                          ? (totalJornalesBase * valor) / 100
+                                          : valor;
+                                        totalDescuentos += imp;
+                                        detalleDescuentos.push({ label: 'Descuento en Jornales', importe: imp });
                                       }
                                     }
 
@@ -14652,23 +14815,57 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     if (descuentosConfig.materiales?.activo !== false && totalMaterialesBase > 0) {
                                       const valor = Number(descuentosConfig.materiales.valor || 0);
                                       if (valor > 0) {
-                                        if (descuentosConfig.materiales.tipo === 'porcentaje') {
-                                          totalDescuentos += (totalMaterialesBase * valor) / 100;
-                                        } else {
-                                          totalDescuentos += valor;
-                                        }
+                                        const imp = descuentosConfig.materiales.tipo === 'porcentaje'
+                                          ? (totalMaterialesBase * valor) / 100
+                                          : valor;
+                                        totalDescuentos += imp;
+                                        detalleDescuentos.push({ label: 'Descuento en Materiales', importe: imp });
                                       }
                                     }
 
-                                    // Calcular descuento de Honorarios
-                                    if (descuentosConfig.honorarios?.activo !== false && totalHonorarios > 0) {
+                                    // Calcular descuento de Honorarios (desglosado por sub-tipo si está configurado)
+                                    const honorariosDesglosados = calcularHonorarios();
+                                    const tieneDescuentosHonDesglosados = [
+                                      'honorariosJornales', 'honorariosProfesionales', 'honorariosMateriales',
+                                      'honorariosOtros', 'honorariosGastosGenerales', 'honorariosConfiguracion'
+                                    ].some(k => Number(descuentosConfig[k]?.valor || 0) > 0);
+
+                                    if (tieneDescuentosHonDesglosados) {
+                                      let totalDescHonorarios = 0;
+                                      // Nota: honorariosOtros y honorariosGastosGenerales son sinónimos
+                                      // (ambos usan la misma base otrosCostos). Solo se aplica el que tenga valor.
+                                      const baseOtrosCostos = honorariosDesglosados.otrosCostos || 0;
+                                      const usaGastosGenerales = Number(descuentosConfig.honorariosGastosGenerales?.valor || 0) > 0;
+                                      [
+                                        { key: 'honorariosJornales', base: honorariosDesglosados.jornales || 0 },
+                                        { key: 'honorariosProfesionales', base: honorariosDesglosados.profesionales || 0 },
+                                        { key: 'honorariosMateriales', base: honorariosDesglosados.materiales || 0 },
+                                        // Si hay descuento en gastos generales, no aplicar también el de otrosCostos (son lo mismo)
+                                        { key: 'honorariosOtros', base: usaGastosGenerales ? 0 : baseOtrosCostos },
+                                        { key: 'honorariosGastosGenerales', base: baseOtrosCostos },
+                                        { key: 'honorariosConfiguracion', base: honorariosDesglosados.configuracionPresupuesto || 0 }
+                                      ].forEach(({ key, base }) => {
+                                        const cfg = descuentosConfig[key];
+                                        if (cfg?.activo !== false && base > 0) {
+                                          const valor = Number(cfg?.valor || 0);
+                                          if (valor > 0) {
+                                            const imp = cfg.tipo === 'porcentaje' ? (base * valor) / 100 : valor;
+                                            totalDescuentos += imp;
+                                            totalDescHonorarios += imp;
+                                          }
+                                        }
+                                      });
+                                      if (totalDescHonorarios > 0) {
+                                        detalleDescuentos.push({ label: 'Descuento en Honorarios', importe: totalDescHonorarios });
+                                      }
+                                    } else if (descuentosConfig.honorarios?.activo !== false && totalHonorarios > 0) {
                                       const valor = Number(descuentosConfig.honorarios.valor || 0);
                                       if (valor > 0) {
-                                        if (descuentosConfig.honorarios.tipo === 'porcentaje') {
-                                          totalDescuentos += (totalHonorarios * valor) / 100;
-                                        } else {
-                                          totalDescuentos += valor;
-                                        }
+                                        const imp = descuentosConfig.honorarios.tipo === 'porcentaje'
+                                          ? (totalHonorarios * valor) / 100
+                                          : valor;
+                                        totalDescuentos += imp;
+                                        detalleDescuentos.push({ label: 'Descuento en Honorarios', importe: imp });
                                       }
                                     }
 
@@ -14676,11 +14873,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     if (descuentosConfig.mayoresCostos?.activo !== false && totalMayoresCostos > 0) {
                                       const valor = Number(descuentosConfig.mayoresCostos.valor || 0);
                                       if (valor > 0) {
-                                        if (descuentosConfig.mayoresCostos.tipo === 'porcentaje') {
-                                          totalDescuentos += (totalMayoresCostos * valor) / 100;
-                                        } else {
-                                          totalDescuentos += valor;
-                                        }
+                                        const imp = descuentosConfig.mayoresCostos.tipo === 'porcentaje'
+                                          ? (totalMayoresCostos * valor) / 100
+                                          : valor;
+                                        totalDescuentos += imp;
+                                        detalleDescuentos.push({ label: 'Descuento en Mayores Costos', importe: imp });
                                       }
                                     }
                                   }
@@ -14701,14 +14898,24 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                             </span>
                                           </div>
 
-                                          {/* Descuentos aplicados */}
+                                          {/* Descuentos aplicados - detalle por ítem */}
                                           <div className="mt-2 pb-2 border-bottom">
-                                            <div className="d-flex justify-content-between align-items-center fw-bold">
-                                              <span className="text-danger">💸 Total Descuentos:</span>
-                                              <span className="text-danger">
-                                                - ${totalDescuentos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                              </span>
-                                            </div>
+                                            {detalleDescuentos.map((d, idx) => (
+                                              <div key={idx} className="d-flex justify-content-between align-items-center py-1">
+                                                <span className="small text-danger">💸 {d.label}:</span>
+                                                <span className="small fw-bold text-danger">
+                                                  - ${d.importe.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                </span>
+                                              </div>
+                                            ))}
+                                            {detalleDescuentos.length > 1 && (
+                                              <div className="d-flex justify-content-between align-items-center pt-1 border-top fw-bold">
+                                                <span className="text-danger">Total Descuentos:</span>
+                                                <span className="text-danger">
+                                                  - ${totalDescuentos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                </span>
+                                              </div>
+                                            )}
                                           </div>
 
                                           {/* Total Final */}

@@ -11,6 +11,7 @@ import HistorialVersionesPresupuestoNoClienteModal from '../components/Historial
 import EnviarPresupuestoModal from '../components/EnviarPresupuestoModal';
 import PlantillaPageLayout from '../components/PlantillaPageLayout';
 import SidebarPresupuestosMenu from '../components/SidebarPresupuestosMenu';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 const PresupuestosNoClientePage = ({ showNotification }) => {
   const { setPresupuestoControls } = useContext(SidebarContext) || {};
@@ -2288,134 +2289,35 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         <div>
                           <div className="fw-bold text-primary">
                             {(() => {
-                              // Obtener el total base del backend
-                              let total = row.totalFinal || row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
-
-                              // Verificar si hay descuentos activos
-                              const tieneDescuentos = (
-                                (row.descuentosJornalesActivo !== false && row.descuentosJornalesValor > 0) ||
-                                (row.descuentosMaterialesActivo !== false && row.descuentosMaterialesValor > 0) ||
-                                (row.descuentosHonorariosActivo !== false && row.descuentosHonorariosValor > 0) ||
-                                (row.descuentosMayoresCostosActivo !== false && row.descuentosMayoresCostosValor > 0)
-                              );
-
-                              // Calcular descuentos si existen y hay itemsCalculadora
-                              if (tieneDescuentos && row.itemsCalculadora && Array.isArray(row.itemsCalculadora)) {
-                                // Calcular bases desde itemsCalculadora (igual que en el modal)
-                                let baseJornales = 0;
-                                let baseMateriales = 0;
-                                let baseProfesionales = 0;
-                                let baseGastosGenerales = 0;
-
-                                row.itemsCalculadora.forEach(item => {
-                                  // Jornales
-                                  if (item.jornales && Array.isArray(item.jornales)) {
-                                    baseJornales += item.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
-                                  }
-                                  // Materiales
-                                  if (item.materialesLista && Array.isArray(item.materialesLista)) {
-                                    baseMateriales += item.materialesLista.reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || 0), 0);
-                                  }
-                                  // Profesionales
-                                  if (item.profesionales && Array.isArray(item.profesionales)) {
-                                    baseProfesionales += item.profesionales.reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0);
-                                  }
-                                  // Gastos Generales
-                                  if (item.gastosGenerales && Array.isArray(item.gastosGenerales)) {
-                                    baseGastosGenerales += item.gastosGenerales.reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0);
-                                  }
-                                });
-
-                                // Base para Jornales incluye jornales directos + profesionales + gastos generales
-                                const baseJornalesCompleta = baseJornales + baseProfesionales + baseGastosGenerales;
-
-                                // Calcular honorarios si están configurados
-                                let totalHonorarios = 0;
-                                if (row.honorariosConfiguracionPresupuestoActivo !== false) {
-                                  const baseHonorarios = baseJornalesCompleta + baseMateriales;
-                                  const valorHon = Number(row.honorariosConfiguracionPresupuestoValor || 0);
-                                  if (row.honorariosConfiguracionPresupuestoTipo === 'porcentaje') {
-                                    totalHonorarios = (baseHonorarios * valorHon) / 100;
-                                  } else {
-                                    totalHonorarios = valorHon;
-                                  }
-                                }
-
-                                // Calcular mayores costos si están configurados
-                                let totalMayoresCostos = 0;
-                                if (row.mayoresCostosConfiguracionPresupuestoActivo !== false) {
-                                  const baseMayoresCostos = baseJornalesCompleta + baseMateriales + totalHonorarios;
-                                  const valorMC = Number(row.mayoresCostosConfiguracionPresupuestoValor || 0);
-                                  if (row.mayoresCostosConfiguracionPresupuestoTipo === 'porcentaje') {
-                                    totalMayoresCostos = (baseMayoresCostos * valorMC) / 100;
-                                  } else {
-                                    totalMayoresCostos = valorMC;
-                                  }
-                                }
-
-                                // Calcular descuentos sobre las bases correspondientes
-                                let totalDescuentos = 0;
-
-                                // Descuento Jornales
-                                if (row.descuentosJornalesActivo !== false && row.descuentosJornalesValor > 0) {
-                                  const valor = Number(row.descuentosJornalesValor);
-                                  if (row.descuentosJornalesTipo === 'porcentaje') {
-                                    totalDescuentos += (baseJornalesCompleta * valor) / 100;
-                                  } else {
-                                    totalDescuentos += valor;
-                                  }
-                                }
-
-                                // Descuento Materiales
-                                if (row.descuentosMaterialesActivo !== false && row.descuentosMaterialesValor > 0) {
-                                  const valor = Number(row.descuentosMaterialesValor);
-                                  if (row.descuentosMaterialesTipo === 'porcentaje') {
-                                    totalDescuentos += (baseMateriales * valor) / 100;
-                                  } else {
-                                    totalDescuentos += valor;
-                                  }
-                                }
-
-                                // Descuento Honorarios
-                                if (row.descuentosHonorariosActivo !== false && row.descuentosHonorariosValor > 0 && totalHonorarios > 0) {
-                                  const valor = Number(row.descuentosHonorariosValor);
-                                  if (row.descuentosHonorariosTipo === 'porcentaje') {
-                                    totalDescuentos += (totalHonorarios * valor) / 100;
-                                  } else {
-                                    totalDescuentos += valor;
-                                  }
-                                }
-
-                                // Descuento Mayores Costos
-                                if (row.descuentosMayoresCostosActivo !== false && row.descuentosMayoresCostosValor > 0 && totalMayoresCostos > 0) {
-                                  const valor = Number(row.descuentosMayoresCostosValor);
-                                  if (row.descuentosMayoresCostosTipo === 'porcentaje') {
-                                    totalDescuentos += (totalMayoresCostos * valor) / 100;
-                                  } else {
-                                    totalDescuentos += valor;
-                                  }
-                                }
-
-                                // Restar descuentos del total
-                                total = total - totalDescuentos;
-                              }
-
-                              if (total && total > 0) {
+                              // 1. Backend ya calculó el total con descuentos → usar directamente
+                              if (row.totalConDescuentos != null && Number(row.totalConDescuentos) > 0) {
                                 return (
                                   <>
-                                    {`$${Number(total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                    {tieneDescuentos && (
-                                      <span
-                                        className="ms-1"
-                                        style={{ fontSize: '0.85em', opacity: 0.65 }}
-                                        title="Descuentos aplicados"
-                                      >
-                                        🏷️
-                                      </span>
-                                    )}
+                                    {`$${Number(row.totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                    <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
                                   </>
                                 );
                               }
+
+                              // 2. Recalcular desde itemsCalculadora con la utilidad compartida
+                              const items = row.itemsCalculadora;
+                              if (items && Array.isArray(items) && items.length > 0) {
+                                const { totalFinal, totalDescuentos } = calcularTotalConDescuentosDesdeItems(items, row);
+                                if (totalFinal > 0) {
+                                  return (
+                                    <>
+                                      {`$${totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                      {totalDescuentos > 0 && (
+                                        <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
+                                      )}
+                                    </>
+                                  );
+                                }
+                              }
+
+                              // 3. Fallback final: priorizar el campo que incluye honorarios + mayores costos
+                              const total = row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || row.totalFinal || 0;
+                              if (total > 0) return `$${Number(total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
 
                               return <span className="text-muted">Sin datos</span>;
                             })()}
