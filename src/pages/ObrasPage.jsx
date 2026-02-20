@@ -10918,7 +10918,7 @@ Gestionar Trabajos Adicionales
       <SeleccionarProfesionalesModal
         show={mostrarModalSeleccionProfesionales}
         onHide={() => setMostrarModalSeleccionProfesionales(false)}
-        profesionalesDisponibles={profesionalesAsignadosForm}
+        profesionalesDisponibles={profesionalesDisponibles}
         profesionalesSeleccionados={profesionalesAsignadosForm}
         onConfirmar={(seleccionados) => {
           setProfesionalesAsignadosForm(seleccionados);
@@ -10928,8 +10928,11 @@ Gestionar Trabajos Adicionales
         semanaActual={null}
         fechaInicio={null}
         fechaFin={null}
-        empresaSeleccionada={{ id: empresaId }}
-        multiplesSeleccion={true}
+        empresaId={empresaId}
+        showNotification={showNotification}
+        onNuevoProfesional={async () => {
+          await refrescarProfesionalesDisponibles();
+        }}
       />
 
       {/* Modal de estadísticas de obra seleccionada */}
