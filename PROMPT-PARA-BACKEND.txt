@@ -1,0 +1,189 @@
+PROBLEMA CRÍTICO: ENDPOINTS DE OBRAS DESHABILITADOS - SISTEMA NO FUNCIONAL
+
+CONTEXTO:
+Tengo un frontend React que gestiona obras de construcción. La base de datos tiene 9 obras registradas (obras independientes, trabajos extra y obras principales), pero la interfaz muestra 0 obras porque los endpoints principales están deshabilitados con el error "Método temporalmente deshabilitado - pendiente arreglo MapStruct".
+
+ERRORES ACTUALES EN CONSOLA:
+- GET /api/obras/todas?idEmpresa=1 → 400 Bad Request
+- GET /api/obras/empresa/1?empresaId=1 → 400 Bad Request
+- GET /api/obras/activas?empresaId=1 → 400 Bad Request
+- GET /api/obras/estado/{estado}?idEmpresa=1 → 400 Bad Request
+
+Todos devuelven: "Método temporalmente deshabilitado - pendiente arreglo MapStruct"
+
+ENDPOINT ÚNICO DISPONIBLE:
+Solo funciona GET /api/obras/borradores?empresaId={id} pero este ÚNICAMENTE devuelve obras en estado BORRADOR, excluyendo todas las obras en estados: A_ENVIAR, APROBADO, EN_PROGRESO, COMPLETADO, SUSPENDIDA, CANCELADO.
+
+PROBLEMA PRINCIPAL:
+Las 9 obras en base de datos no se pueden visualizar porque:
+1. Los endpoints generales están deshabilitados
+2. El único endpoint disponible solo muestra estado BORRADOR
+3. No hay forma de listar TODAS las obras de una empresa
+
+SOLUCIÓN REQUERIDA (PERSISTENTE Y ROBUSTA):
+Necesito que implementes UN endpoint que devuelva TODAS las obras de una empresa, sin importar su estado. Este debe ser el endpoint principal para consulta de obras.
+
+ESPECIFICACIÓN TÉCNICA REQUERIDA:
+
+Endpoint Principal (Obligatorio):
+GET /api/obras?empresaId={id}
+
+Descripción: Devuelve TODAS las obras de una empresa, incluyendo:
+- Obras independientes (creadas manualmente, sin presupuesto)
+- Obras principales (creadas desde presupuestos de clientes)
+- Trabajos extra (creadas desde presupuestos tipo trabajo extra)
+- Todos los estados: BORRADOR, A_ENVIAR, APROBADO, EN_PROGRESO, COMPLETADO, SUSPENDIDA, CANCELADO
+
+Request:
+- Query param: empresaId (Long, obligatorio)
+- Headers: accept: application/json
+
+Response esperado: Array de ObraResponseDTO con TODAS las obras
+
+Estructura ObraResponseDTO debe incluir MÍNIMO estos campos:
+{
+  "id": Long,
+  "nombre": String,
+  "estado": String (BORRADOR | A_ENVIAR | APROBADO | EN_PROGRESO | COMPLETADO | SUSPENDIDA | CANCELADO),
+  "fechaInicio": LocalDate,
+  "fechaFin": LocalDate,
+  "presupuestoEstimado": BigDecimal,
+  "descripcion": String,
+  "observaciones": String,
+
+  // Dirección completa (6 campos)
+  "direccionObraCalle": String,
+  "direccionObraAltura": String,
+  "direccionObraBarrio": String,
+  "direccionObraTorre": String,
+  "direccionObraPiso": String,
+  "direccionObraDepartamento": String,
+
+  // Desglose presupuestario (4 categorías base)
+  "presupuestoJornales": BigDecimal,
+  "presupuestoMateriales": BigDecimal,
+  "importeGastosGeneralesObra": BigDecimal,
+  "presupuestoMayoresCostos": BigDecimal,
+
+  // Honorarios por categoría (8 campos - valor + tipo)
+  "honorarioJornalesObra": BigDecimal,
+  "tipoHonorarioJornalesObra": String (fijo | porcentaje),
+  "honorarioMaterialesObra": BigDecimal,
+  "tipoHonorarioMaterialesObra": String,
+  "honorarioGastosGeneralesObra": BigDecimal,
+  "tipoHonorarioGastosGeneralesObra": String,
+  "honorarioMayoresCostosObra": BigDecimal,
+  "tipoHonorarioMayoresCostosObra": String,
+
+  // Descuentos sobre importes base (8 campos)
+  "descuentoJornalesObra": BigDecimal,
+  "tipoDescuentoJornalesObra": String,
+  "descuentoMaterialesObra": BigDecimal,
+  "tipoDescuentoMaterialesObra": String,
+  "descuentoGastosGeneralesObra": BigDecimal,
+  "tipoDescuentoGastosGeneralesObra": String,
+  "descuentoMayoresCostosObra": BigDecimal,
+  "tipoDescuentoMayoresCostosObra": String,
+
+  // Descuentos sobre honorarios (8 campos)
+  "descuentoHonorarioJornalesObra": BigDecimal,
+  "tipoDescuentoHonorarioJornalesObra": String,
+  "descuentoHonorarioMaterialesObra": BigDecimal,
+  "tipoDescuentoHonorarioMaterialesObra": String,
+  "descuentoHonorarioGastosGeneralesObra": BigDecimal,
+  "tipoDescuentoHonorarioGastosGeneralesObra": String,
+  "descuentoHonorarioMayoresCostosObra": BigDecimal,
+  "tipoDescuentoHonorarioMayoresCostosObra": String,
+
+  // Datos de cliente
+  "idCliente": Long,
+  "nombreSolicitante": String,
+  "telefono": String,
+  "mail": String,
+  "direccionParticular": String,
+
+  // Relaciones
+  "empresaId": Long,
+  "presupuestoId": Long (nullable),
+  "obraPadreId": Long (nullable - para trabajos extra),
+
+  // Metadatos
+  "fechaCreacion": LocalDateTime,
+  "esManual": Boolean (true si es obra independiente),
+  "esTrabajoExtra": Boolean,
+
+  // Profesionales asignados
+  "profesionalesAsignados": Array de profesionales
+}
+
+IMPLEMENTACIÓN BACKEND REQUERIDA:
+
+Controller (ObraController.java):
+@GetMapping("/api/obras")
+public ResponseEntity<List<ObraResponseDTO>> listarTodasObras(@RequestParam Long empresaId) {
+    List<ObraResponseDTO> obras = obraService.listarTodasObrasPorEmpresa(empresaId);
+    return ResponseEntity.ok(obras);
+}
+
+Service (ObraService.java):
+public List<ObraResponseDTO> listarTodasObrasPorEmpresa(Long empresaId) {
+    List<Obra> obras = obraRepository.findByEmpresaIdOrderByFechaCreacionDesc(empresaId);
+    return obras.stream()
+        .map(obraMapper::toResponseDTO)
+        .collect(Collectors.toList());
+}
+
+Repository (ObraRepository.java):
+@Query("SELECT o FROM Obra o WHERE o.empresaId = :empresaId ORDER BY o.fechaCreacion DESC")
+List<Obra> findByEmpresaIdOrderByFechaCreacionDesc(@Param("empresaId") Long empresaId);
+
+ENDPOINTS ADICIONALES NECESARIOS (Opcionales pero recomendados):
+
+1. Filtrado por estado:
+GET /api/obras?empresaId={id}&estado={estado}
+
+2. Filtrado por múltiples estados:
+GET /api/obras?empresaId={id}&estados=APROBADO,EN_PROGRESO
+
+3. Solo obras activas:
+GET /api/obras?empresaId={id}&soloActivas=true
+(Considera activas: APROBADO, EN_PROGRESO, A_ENVIAR)
+
+4. Con paginación para escalabilidad:
+GET /api/obras?empresaId={id}&page=0&size=20
+
+VALIDACIONES NECESARIAS:
+1. empresaId es obligatorio (return 400 si falta)
+2. empresaId debe existir en base de datos (return 404 si no existe)
+3. Return 200 con array vacío [] si la empresa no tiene obras
+4. Return 200 con array de obras si existen
+5. Ordenar por fechaCreacion DESC (más recientes primero)
+
+PROBLEMA MAPSTRUCT A RESOLVER:
+El mensaje de error menciona "pendiente arreglo MapStruct". Necesitas:
+1. Verificar que ObraMapper.toResponseDTO() mapea TODOS los 33 campos correctamente
+2. Verificar que los nombres de campos en DTO coinciden con los de la entidad
+3. Manejar campos nullable correctamente (no lanzar NullPointerException)
+4. Mapear relaciones (cliente, presupuesto, profesionales) sin lazy loading issues
+
+PRUEBAS REQUERIDAS:
+1. GET /api/obras?empresaId=1 debe devolver 9 obras
+2. Verificar que incluye obras con diferentes estados
+3. Verificar que todos los 33 campos se devuelven correctamente
+4. Sin errores de mapeo ni lazy loading
+
+CRITERIOS DE ACEPTACIÓN:
+- Endpoint GET /api/obras?empresaId={id} funcional
+- Devuelve TODAS las obras sin filtrar por estado
+- Response con 9 obras cuando empresaId=1
+- Estructura completa con 33 campos por obra
+- Status 200 OK
+- Sin errores de MapStruct
+- Performance < 2 segundos para hasta 100 obras
+- Código robusto y sin workarounds temporales
+
+NOTA IMPORTANTE:
+NO necesito soluciones temporales ni workarounds. Necesito que soluciones el problema de MapStruct definitivamente y habilites el endpoint de forma permanente y robusta. Este es un endpoint crítico del sistema que debe funcionar de forma confiable.
+
+FRONTEND ESTÁ ESPERANDO:
+Una vez implementado, el frontend llamará a GET /api/obras?empresaId=1 y mostrará las 9 obras en la interfaz. El código del frontend ya está preparado para consumir este endpoint correctamente con los 33 campos especificados.

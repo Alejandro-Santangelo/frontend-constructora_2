@@ -132,7 +132,7 @@ const EstadoPresupuestoBadge = ({ obraId, estadoObra }) => {
 
     return (
       <span className="badge bg-warning text-dark">
-        Sin presupuesto APROBADO
+        Presupuesto Abreviado
       </span>
     );
   }

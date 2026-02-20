@@ -118,7 +118,7 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
           cargando: false,
           tipo: 'warning',
           icono: '⚠️',
-          mensaje: 'Sin presupuesto válido',
+          mensaje: 'Presupuesto Abreviado',
           detalles: null
         });
         return;

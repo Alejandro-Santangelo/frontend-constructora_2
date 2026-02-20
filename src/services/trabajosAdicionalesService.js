@@ -6,7 +6,7 @@ const BASE_URL = '/api/trabajos-adicionales';
 // El backend ya devuelve los datos en camelCase, no necesitamos transformación
 
 /**
- * Crear un nuevo trabajo adicional
+ * Crear un nuevo trabajo adicional (directo, sin borrador)
  * @param {Object} data - TrabajoAdicionalRequestDTO
  * @returns {Promise} - TrabajoAdicionalResponseDTO
  */
@@ -17,6 +17,73 @@ export const crearTrabajoAdicional = async (data) => {
   } catch (error) {
     console.error('❌ Error al crear trabajo adicional:', error);
     throw error;
+  }
+};
+
+/**
+ * Crear un borrador de trabajo adicional (estado BORRADOR)
+ * @param {Object} data - TrabajoAdicionalRequestDTO
+ * @returns {Promise} - TrabajoAdicionalResponseDTO
+ */
+export const crearBorradorTrabajoAdicional = async (data) => {
+  try {
+    const response = await apiClient.post(`${BASE_URL}/borrador`, data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error al crear borrador trabajo adicional:', error);
+    throw error;
+  }
+};
+
+/**
+ * Actualizar un borrador de trabajo adicional existente
+ * @param {number} id - ID del borrador
+ * @param {Object} data - TrabajoAdicionalRequestDTO (campos a actualizar)
+ * @returns {Promise} - TrabajoAdicionalResponseDTO
+ */
+export const actualizarBorradorTrabajoAdicional = async (id, data) => {
+  try {
+    const response = await apiClient.put(`${BASE_URL}/borrador/${id}`, data);
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Error al actualizar borrador trabajo adicional ${id}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Confirmar un borrador de trabajo adicional (BORRADOR → PENDIENTE)
+ * @param {number} id - ID del borrador
+ * @returns {Promise} - TrabajoAdicionalResponseDTO
+ */
+export const confirmarBorradorTrabajoAdicional = async (id) => {
+  try {
+    const response = await apiClient.post(`${BASE_URL}/borrador/${id}/confirmar`);
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Error al confirmar borrador trabajo adicional ${id}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Listar borradores de trabajos adicionales
+ * @param {number} empresaId - ID de la empresa (obligatorio)
+ * @param {number} obraId - ID de la obra (opcional)
+ * @returns {Promise<Array>} - Array de TrabajoAdicionalResponseDTO
+ */
+export const listarBorradoresTrabajoAdicional = async (empresaId, obraId = null) => {
+  try {
+    const params = { empresaId };
+    if (obraId) {
+      params.obraId = obraId;
+    }
+
+    const response = await apiClient.get(`${BASE_URL}/borradores`, { params });
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (error) {
+    console.error('❌ Error al listar borradores trabajos adicionales:', error.message);
+    return [];
   }
 };
 
@@ -161,6 +228,10 @@ export const ICONOS_ESTADO = {
 
 export default {
   crearTrabajoAdicional,
+  crearBorradorTrabajoAdicional,
+  actualizarBorradorTrabajoAdicional,
+  confirmarBorradorTrabajoAdicional,
+  listarBorradoresTrabajoAdicional,
   listarTrabajosAdicionales,
   obtenerTrabajoAdicionalPorId,
   actualizarTrabajoAdicional,

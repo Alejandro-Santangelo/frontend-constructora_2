@@ -209,86 +209,361 @@ const ObrasPage = ({ showNotification }) => {
   const [usarDesglose, setUsarDesglose] = React.useState(false);
   const [importeMateriales, setImporteMateriales] = React.useState('');
   const [importeJornales, setImporteJornales] = React.useState('');
-  const [importeHonorarios, setImporteHonorarios] = React.useState('');
-  const [tipoHonorarios, setTipoHonorarios] = React.useState('fijo'); // 'fijo' o 'porcentaje'
+  const [importeGastosGenerales, setImporteGastosGenerales] = React.useState('');
   const [importeMayoresCostos, setImporteMayoresCostos] = React.useState('');
-  const [tipoMayoresCostos, setTipoMayoresCostos] = React.useState('fijo'); // 'fijo' o 'porcentaje'
   const [importeTotal, setImporteTotal] = React.useState('');
+
+  // Honorarios individuales para cada categoría (Trabajos Adicionales)
+  const [honorarioJornales, setHonorarioJornales] = React.useState('');
+  const [tipoHonorarioJornales, setTipoHonorarioJornales] = React.useState('fijo');
+  const [honorarioMateriales, setHonorarioMateriales] = React.useState('');
+  const [tipoHonorarioMateriales, setTipoHonorarioMateriales] = React.useState('fijo');
+  const [honorarioGastosGenerales, setHonorarioGastosGenerales] = React.useState('');
+  const [tipoHonorarioGastosGenerales, setTipoHonorarioGastosGenerales] = React.useState('fijo');
+  const [honorarioMayoresCostos, setHonorarioMayoresCostos] = React.useState('');
+  const [tipoHonorarioMayoresCostos, setTipoHonorarioMayoresCostos] = React.useState('fijo');
+
+  // Descuentos individuales para cada categoría (Trabajos Adicionales)
+  const [descuentoJornales, setDescuentoJornales] = React.useState('');
+  const [tipoDescuentoJornales, setTipoDescuentoJornales] = React.useState('fijo');
+  const [descuentoMateriales, setDescuentoMateriales] = React.useState('');
+  const [tipoDescuentoMateriales, setTipoDescuentoMateriales] = React.useState('fijo');
+  const [descuentoGastosGenerales, setDescuentoGastosGenerales] = React.useState('');
+  const [tipoDescuentoGastosGenerales, setTipoDescuentoGastosGenerales] = React.useState('fijo');
+  const [descuentoMayoresCostos, setDescuentoMayoresCostos] = React.useState('');
+  const [tipoDescuentoMayoresCostos, setTipoDescuentoMayoresCostos] = React.useState('fijo');
+
+  // Descuentos específicos para honorarios (Trabajos Adicionales)
+  const [descuentoHonorarioJornales, setDescuentoHonorarioJornales] = React.useState('');
+  const [tipoDescuentoHonorarioJornales, setTipoDescuentoHonorarioJornales] = React.useState('fijo');
+  const [descuentoHonorarioMateriales, setDescuentoHonorarioMateriales] = React.useState('');
+  const [tipoDescuentoHonorarioMateriales, setTipoDescuentoHonorarioMateriales] = React.useState('fijo');
+  const [descuentoHonorarioGastosGenerales, setDescuentoHonorarioGastosGenerales] = React.useState('');
+  const [tipoDescuentoHonorarioGastosGenerales, setTipoDescuentoHonorarioGastosGenerales] = React.useState('fijo');
+  const [descuentoHonorarioMayoresCostos, setDescuentoHonorarioMayoresCostos] = React.useState('');
+  const [tipoDescuentoHonorarioMayoresCostos, setTipoDescuentoHonorarioMayoresCostos] = React.useState('fijo');
 
   // Calcular importe total cuando cambian los desgloses
   React.useEffect(() => {
     if (usarDesglose) {
-      const materiales = parseFloat(importeMateriales) || 0;
-      const jornales = parseFloat(importeJornales) || 0;
-      const base = materiales + jornales;
+      let total = 0;
 
-      // Calcular honorarios (fijo o porcentaje sobre la base)
-      let honorarios = 0;
-      if (tipoHonorarios === 'porcentaje') {
-        const porcentajeHonorarios = parseFloat(importeHonorarios) || 0;
-        honorarios = (base * porcentajeHonorarios) / 100;
+      // Jornales: Base + Honorarios con descuentos por separado
+      const baseJornales = parseFloat(importeJornales) || 0;
+      let honorariosJ = 0;
+      if (tipoHonorarioJornales === 'porcentaje') {
+        honorariosJ = (baseJornales * (parseFloat(honorarioJornales) || 0)) / 100;
       } else {
-        honorarios = parseFloat(importeHonorarios) || 0;
+        honorariosJ = parseFloat(honorarioJornales) || 0;
       }
 
-      // Calcular mayores costos (fijo o porcentaje sobre la base)
-      let mayoresCostos = 0;
-      if (tipoMayoresCostos === 'porcentaje') {
-        const porcentajeMayores = parseFloat(importeMayoresCostos) || 0;
-        mayoresCostos = (base * porcentajeMayores) / 100;
+      // Descuento sobre el importe base
+      let descuentoBaseJ = 0;
+      if (tipoDescuentoJornales === 'porcentaje') {
+        descuentoBaseJ = (baseJornales * (parseFloat(descuentoJornales) || 0)) / 100;
       } else {
-        mayoresCostos = parseFloat(importeMayoresCostos) || 0;
+        descuentoBaseJ = parseFloat(descuentoJornales) || 0;
       }
 
-      const total = base + honorarios + mayoresCostos;
+      // Descuento sobre los honorarios
+      let descuentoHonorarioJ = 0;
+      if (tipoDescuentoHonorarioJornales === 'porcentaje') {
+        descuentoHonorarioJ = (honorariosJ * (parseFloat(descuentoHonorarioJornales) || 0)) / 100;
+      } else {
+        descuentoHonorarioJ = parseFloat(descuentoHonorarioJornales) || 0;
+      }
+
+      const subtotalJ = (baseJornales - descuentoBaseJ) + (honorariosJ - descuentoHonorarioJ);
+      total += subtotalJ;
+
+      // Materiales: Base + Honorarios con descuentos por separado
+      const baseMateriales = parseFloat(importeMateriales) || 0;
+      let honorariosM = 0;
+      if (tipoHonorarioMateriales === 'porcentaje') {
+        honorariosM = (baseMateriales * (parseFloat(honorarioMateriales) || 0)) / 100;
+      } else {
+        honorariosM = parseFloat(honorarioMateriales) || 0;
+      }
+
+      // Descuento sobre el importe base
+      let descuentoBaseM = 0;
+      if (tipoDescuentoMateriales === 'porcentaje') {
+        descuentoBaseM = (baseMateriales * (parseFloat(descuentoMateriales) || 0)) / 100;
+      } else {
+        descuentoBaseM = parseFloat(descuentoMateriales) || 0;
+      }
+
+      // Descuento sobre los honorarios
+      let descuentoHonorarioM = 0;
+      if (tipoDescuentoHonorarioMateriales === 'porcentaje') {
+        descuentoHonorarioM = (honorariosM * (parseFloat(descuentoHonorarioMateriales) || 0)) / 100;
+      } else {
+        descuentoHonorarioM = parseFloat(descuentoHonorarioMateriales) || 0;
+      }
+
+      const subtotalM = (baseMateriales - descuentoBaseM) + (honorariosM - descuentoHonorarioM);
+      total += subtotalM;
+
+      // Gastos Generales: Base + Honorarios con descuentos por separado
+      const baseGastosGenerales = parseFloat(importeGastosGenerales) || 0;
+      let honorariosG = 0;
+      if (tipoHonorarioGastosGenerales === 'porcentaje') {
+        honorariosG = (baseGastosGenerales * (parseFloat(honorarioGastosGenerales) || 0)) / 100;
+      } else {
+        honorariosG = parseFloat(honorarioGastosGenerales) || 0;
+      }
+
+      // Descuento sobre el importe base
+      let descuentoBaseG = 0;
+      if (tipoDescuentoGastosGenerales === 'porcentaje') {
+        descuentoBaseG = (baseGastosGenerales * (parseFloat(descuentoGastosGenerales) || 0)) / 100;
+      } else {
+        descuentoBaseG = parseFloat(descuentoGastosGenerales) || 0;
+      }
+
+      // Descuento sobre los honorarios
+      let descuentoHonorarioG = 0;
+      if (tipoDescuentoHonorarioGastosGenerales === 'porcentaje') {
+        descuentoHonorarioG = (honorariosG * (parseFloat(descuentoHonorarioGastosGenerales) || 0)) / 100;
+      } else {
+        descuentoHonorarioG = parseFloat(descuentoHonorarioGastosGenerales) || 0;
+      }
+
+      const subtotalG = (baseGastosGenerales - descuentoBaseG) + (honorariosG - descuentoHonorarioG);
+      total += subtotalG;
+
+      // Mayores Costos: Base + Honorarios con descuentos por separado
+      const baseMayoresCostos = parseFloat(importeMayoresCostos) || 0;
+      let honorariosMC = 0;
+      if (tipoHonorarioMayoresCostos === 'porcentaje') {
+        honorariosMC = (baseMayoresCostos * (parseFloat(honorarioMayoresCostos) || 0)) / 100;
+      } else {
+        honorariosMC = parseFloat(honorarioMayoresCostos) || 0;
+      }
+
+      // Descuento sobre el importe base
+      let descuentoBaseMC = 0;
+      if (tipoDescuentoMayoresCostos === 'porcentaje') {
+        descuentoBaseMC = (baseMayoresCostos * (parseFloat(descuentoMayoresCostos) || 0)) / 100;
+      } else {
+        descuentoBaseMC = parseFloat(descuentoMayoresCostos) || 0;
+      }
+
+      // Descuento sobre los honorarios
+      let descuentoHonorarioMC = 0;
+      if (tipoDescuentoHonorarioMayoresCostos === 'porcentaje') {
+        descuentoHonorarioMC = (honorariosMC * (parseFloat(descuentoHonorarioMayoresCostos) || 0)) / 100;
+      } else {
+        descuentoHonorarioMC = parseFloat(descuentoHonorarioMayoresCostos) || 0;
+      }
+
+      const subtotalMC = (baseMayoresCostos - descuentoBaseMC) + (honorariosMC - descuentoHonorarioMC);
+      total += subtotalMC;
+
       setImporteTotal(total > 0 ? total.toString() : '');
     }
-  }, [usarDesglose, importeMateriales, importeJornales, importeHonorarios, tipoHonorarios, importeMayoresCostos, tipoMayoresCostos]);
+  }, [
+    usarDesglose,
+    importeJornales, honorarioJornales, tipoHonorarioJornales, descuentoJornales, tipoDescuentoJornales, descuentoHonorarioJornales, tipoDescuentoHonorarioJornales,
+    importeMateriales, honorarioMateriales, tipoHonorarioMateriales, descuentoMateriales, tipoDescuentoMateriales, descuentoHonorarioMateriales, tipoDescuentoHonorarioMateriales,
+    importeGastosGenerales, honorarioGastosGenerales, tipoHonorarioGastosGenerales, descuentoGastosGenerales, tipoDescuentoGastosGenerales, descuentoHonorarioGastosGenerales, tipoDescuentoHonorarioGastosGenerales,
+    importeMayoresCostos, honorarioMayoresCostos, tipoHonorarioMayoresCostos, descuentoMayoresCostos, tipoDescuentoMayoresCostos, descuentoHonorarioMayoresCostos, tipoDescuentoHonorarioMayoresCostos
+  ]);
 
   // Estados para desglose de importe en obras independientes
   const [usarDesgloseObra, setUsarDesgloseObra] = React.useState(false);
   const [importeMaterialesObra, setImporteMaterialesObra] = React.useState('');
   const [importeJornalesObra, setImporteJornalesObra] = React.useState('');
-  const [importeHonorariosObra, setImporteHonorariosObra] = React.useState('');
-  const [tipoHonorariosObra, setTipoHonorariosObra] = React.useState('fijo'); // 'fijo' o 'porcentaje'
+  const [importeGastosGeneralesObra, setImporteGastosGeneralesObra] = React.useState('');
   const [importeMayoresCostosObra, setImporteMayoresCostosObra] = React.useState('');
-  const [tipoMayoresCostosObra, setTipoMayoresCostosObra] = React.useState('fijo'); // 'fijo' o 'porcentaje'
   const [importeTotalObra, setImporteTotalObra] = React.useState('');
+
+  // Ref para evitar cálculo inmediato al alternar el desglose
+  const desgloseJustToggled = React.useRef(false);
+
+  // Estados legacy para compatibilidad (solo para reseteo)
+  const [importeHonorariosObra, setImporteHonorariosObra] = React.useState('');
+  const [tipoHonorariosObra, setTipoHonorariosObra] = React.useState('fijo');
+  const [tipoMayoresCostosObra, setTipoMayoresCostosObra] = React.useState('fijo');
+
+  // Honorarios individuales para cada categoría (Obras)
+  const [honorarioJornalesObra, setHonorarioJornalesObra] = React.useState('');
+  const [tipoHonorarioJornalesObra, setTipoHonorarioJornalesObra] = React.useState('fijo');
+  const [honorarioMaterialesObra, setHonorarioMaterialesObra] = React.useState('');
+  const [tipoHonorarioMaterialesObra, setTipoHonorarioMaterialesObra] = React.useState('fijo');
+  const [honorarioGastosGeneralesObra, setHonorarioGastosGeneralesObra] = React.useState('');
+  const [tipoHonorarioGastosGeneralesObra, setTipoHonorarioGastosGeneralesObra] = React.useState('fijo');
+  const [honorarioMayoresCostosObra, setHonorarioMayoresCostosObra] = React.useState('');
+  const [tipoHonorarioMayoresCostosObra, setTipoHonorarioMayoresCostosObra] = React.useState('fijo');
+
+  // Descuentos individuales para cada categoría (Obras)
+  const [descuentoJornalesObra, setDescuentoJornalesObra] = React.useState('');
+  const [tipoDescuentoJornalesObra, setTipoDescuentoJornalesObra] = React.useState('fijo');
+  const [descuentoMaterialesObra, setDescuentoMaterialesObra] = React.useState('');
+  const [tipoDescuentoMaterialesObra, setTipoDescuentoMaterialesObra] = React.useState('fijo');
+  const [descuentoGastosGeneralesObra, setDescuentoGastosGeneralesObra] = React.useState('');
+  const [tipoDescuentoGastosGeneralesObra, setTipoDescuentoGastosGeneralesObra] = React.useState('fijo');
+  const [descuentoMayoresCostosObra, setDescuentoMayoresCostosObra] = React.useState('');
+  const [tipoDescuentoMayoresCostosObra, setTipoDescuentoMayoresCostosObra] = React.useState('fijo');
+
+  // Descuentos específicos para honorarios (Obras)
+  const [descuentoHonorarioJornalesObra, setDescuentoHonorarioJornalesObra] = React.useState('');
+  const [tipoDescuentoHonorarioJornalesObra, setTipoDescuentoHonorarioJornalesObra] = React.useState('fijo');
+  const [descuentoHonorarioMaterialesObra, setDescuentoHonorarioMaterialesObra] = React.useState('');
+  const [tipoDescuentoHonorarioMaterialesObra, setTipoDescuentoHonorarioMaterialesObra] = React.useState('fijo');
+  const [descuentoHonorarioGastosGeneralesObra, setDescuentoHonorarioGastosGeneralesObra] = React.useState('');
+  const [tipoDescuentoHonorarioGastosGeneralesObra, setTipoDescuentoHonorarioGastosGeneralesObra] = React.useState('fijo');
+  const [descuentoHonorarioMayoresCostosObra, setDescuentoHonorarioMayoresCostosObra] = React.useState('');
+  const [tipoDescuentoHonorarioMayoresCostosObra, setTipoDescuentoHonorarioMayoresCostosObra] = React.useState('fijo');
 
   // Calcular importe total para obras cuando cambian los desgloses
   React.useEffect(() => {
+    // Si acabamos de hacer toggle del desglose, no ejecutar cálculos en este render
+    if (desgloseJustToggled.current) {
+      desgloseJustToggled.current = false;
+      return;
+    }
+
     if (usarDesgloseObra) {
-      const materiales = parseFloat(importeMaterialesObra) || 0;
-      const jornales = parseFloat(importeJornalesObra) || 0;
-      const base = materiales + jornales;
+      let total = 0;
 
-      // Calcular honorarios (fijo o porcentaje sobre la base)
-      let honorarios = 0;
-      if (tipoHonorariosObra === 'porcentaje') {
-        const porcentajeHonorarios = parseFloat(importeHonorariosObra) || 0;
-        honorarios = (base * porcentajeHonorarios) / 100;
+      // Jornales: Base + Honorarios con descuentos por separado
+      const baseJornales = parseFloat(importeJornalesObra) || 0;
+      let honorariosJ = 0;
+      if (tipoHonorarioJornalesObra === 'porcentaje') {
+        honorariosJ = (baseJornales * (parseFloat(honorarioJornalesObra) || 0)) / 100;
       } else {
-        honorarios = parseFloat(importeHonorariosObra) || 0;
+        honorariosJ = parseFloat(honorarioJornalesObra) || 0;
       }
 
-      // Calcular mayores costos (fijo o porcentaje sobre la base)
-      let mayoresCostos = 0;
-      if (tipoMayoresCostosObra === 'porcentaje') {
-        const porcentajeMayores = parseFloat(importeMayoresCostosObra) || 0;
-        mayoresCostos = (base * porcentajeMayores) / 100;
+      // Descuento sobre el importe base
+      let descuentoBaseJ = 0;
+      if (tipoDescuentoJornalesObra === 'porcentaje') {
+        descuentoBaseJ = (baseJornales * (parseFloat(descuentoJornalesObra) || 0)) / 100;
       } else {
-        mayoresCostos = parseFloat(importeMayoresCostosObra) || 0;
+        descuentoBaseJ = parseFloat(descuentoJornalesObra) || 0;
       }
 
-      const total = base + honorarios + mayoresCostos;
+      // Descuento sobre los honorarios
+      let descuentoHonorarioJ = 0;
+      if (tipoDescuentoHonorarioJornalesObra === 'porcentaje') {
+        descuentoHonorarioJ = (honorariosJ * (parseFloat(descuentoHonorarioJornalesObra) || 0)) / 100;
+      } else {
+        descuentoHonorarioJ = parseFloat(descuentoHonorarioJornalesObra) || 0;
+      }
+
+      const subtotalJ = (baseJornales - descuentoBaseJ) + (honorariosJ - descuentoHonorarioJ);
+      total += subtotalJ;
+
+      // Materiales: Base + Honorarios con descuentos por separado
+      const baseMateriales = parseFloat(importeMaterialesObra) || 0;
+      let honorariosM = 0;
+      if (tipoHonorarioMaterialesObra === 'porcentaje') {
+        honorariosM = (baseMateriales * (parseFloat(honorarioMaterialesObra) || 0)) / 100;
+      } else {
+        honorariosM = parseFloat(honorarioMaterialesObra) || 0;
+      }
+
+      // Descuento sobre el importe base
+      let descuentoBaseM = 0;
+      if (tipoDescuentoMaterialesObra === 'porcentaje') {
+        descuentoBaseM = (baseMateriales * (parseFloat(descuentoMaterialesObra) || 0)) / 100;
+      } else {
+        descuentoBaseM = parseFloat(descuentoMaterialesObra) || 0;
+      }
+
+      // Descuento sobre los honorarios
+      let descuentoHonorarioM = 0;
+      if (tipoDescuentoHonorarioMaterialesObra === 'porcentaje') {
+        descuentoHonorarioM = (honorariosM * (parseFloat(descuentoHonorarioMaterialesObra) || 0)) / 100;
+      } else {
+        descuentoHonorarioM = parseFloat(descuentoHonorarioMaterialesObra) || 0;
+      }
+
+      const subtotalM = (baseMateriales - descuentoBaseM) + (honorariosM - descuentoHonorarioM);
+      total += subtotalM;
+
+      // Gastos Generales: Base + Honorarios con descuentos por separado
+      const baseGastosGenerales = parseFloat(importeGastosGeneralesObra) || 0;
+      let honorariosG = 0;
+      if (tipoHonorarioGastosGeneralesObra === 'porcentaje') {
+        honorariosG = (baseGastosGenerales * (parseFloat(honorarioGastosGeneralesObra) || 0)) / 100;
+      } else {
+        honorariosG = parseFloat(honorarioGastosGeneralesObra) || 0;
+      }
+
+      // Descuento sobre el importe base
+      let descuentoBaseG = 0;
+      if (tipoDescuentoGastosGeneralesObra === 'porcentaje') {
+        descuentoBaseG = (baseGastosGenerales * (parseFloat(descuentoGastosGeneralesObra) || 0)) / 100;
+      } else {
+        descuentoBaseG = parseFloat(descuentoGastosGeneralesObra) || 0;
+      }
+
+      // Descuento sobre los honorarios
+      let descuentoHonorarioG = 0;
+      if (tipoDescuentoHonorarioGastosGeneralesObra === 'porcentaje') {
+        descuentoHonorarioG = (honorariosG * (parseFloat(descuentoHonorarioGastosGeneralesObra) || 0)) / 100;
+      } else {
+        descuentoHonorarioG = parseFloat(descuentoHonorarioGastosGeneralesObra) || 0;
+      }
+
+      const subtotalG = (baseGastosGenerales - descuentoBaseG) + (honorariosG - descuentoHonorarioG);
+      total += subtotalG;
+
+      // Mayores Costos: Base + Honorarios con descuentos por separado
+      const baseMayoresCostos = parseFloat(importeMayoresCostosObra) || 0;
+      let honorariosMC = 0;
+      if (tipoHonorarioMayoresCostosObra === 'porcentaje') {
+        honorariosMC = (baseMayoresCostos * (parseFloat(honorarioMayoresCostosObra) || 0)) / 100;
+      } else {
+        honorariosMC = parseFloat(honorarioMayoresCostosObra) || 0;
+      }
+
+      // Descuento sobre el importe base
+      let descuentoBaseMC = 0;
+      if (tipoDescuentoMayoresCostosObra === 'porcentaje') {
+        descuentoBaseMC = (baseMayoresCostos * (parseFloat(descuentoMayoresCostosObra) || 0)) / 100;
+      } else {
+        descuentoBaseMC = parseFloat(descuentoMayoresCostosObra) || 0;
+      }
+
+      // Descuento sobre los honorarios
+      let descuentoHonorarioMC = 0;
+      if (tipoDescuentoHonorarioMayoresCostosObra === 'porcentaje') {
+        descuentoHonorarioMC = (honorariosMC * (parseFloat(descuentoHonorarioMayoresCostosObra) || 0)) / 100;
+      } else {
+        descuentoHonorarioMC = parseFloat(descuentoHonorarioMayoresCostosObra) || 0;
+      }
+
+      const subtotalMC = (baseMayoresCostos - descuentoBaseMC) + (honorariosMC - descuentoHonorarioMC);
+      total += subtotalMC;
+
       setImporteTotalObra(total > 0 ? total.toString() : '');
 
-      // Actualizar el campo presupuestoEstimado del formulario
-      if (total > 0) {
-        setFormData(prev => ({...prev, presupuestoEstimado: total.toString()}));
+      // IMPORTANTE: Solo actualizar presupuestoEstimado si hay valores en el desglose
+      // Si no hay valores, mantener el que ya estaba
+      const hayValoresEnDesglose = importeJornalesObra || importeMaterialesObra ||
+                                    importeGastosGeneralesObra || importeMayoresCostosObra ||
+                                    honorarioJornalesObra || honorarioMaterialesObra ||
+                                    honorarioGastosGeneralesObra || honorarioMayoresCostosObra;
+
+      // Solo actualizar si hay valores Y el total es mayor a 0
+      // NO actualizar si no hay valores (para mantener el valor original)
+      if (hayValoresEnDesglose) {
+        if (total > 0) {
+          setFormData(prev => ({...prev, presupuestoEstimado: total.toString()}));
+        }
       }
+      // Si no hay valores en el desglose, NO tocar presupuestoEstimado (mantener valor existente)
     }
-  }, [usarDesgloseObra, importeMaterialesObra, importeJornalesObra, importeHonorariosObra, tipoHonorariosObra, importeMayoresCostosObra, tipoMayoresCostosObra]);
+  }, [
+    usarDesgloseObra, // Necesario porque se usa dentro del efecto
+    importeJornalesObra, honorarioJornalesObra, tipoHonorarioJornalesObra, descuentoJornalesObra, tipoDescuentoJornalesObra, descuentoHonorarioJornalesObra, tipoDescuentoHonorarioJornalesObra,
+    importeMaterialesObra, honorarioMaterialesObra, tipoHonorarioMaterialesObra, descuentoMaterialesObra, tipoDescuentoMaterialesObra, descuentoHonorarioMaterialesObra, tipoDescuentoHonorarioMaterialesObra,
+    importeGastosGeneralesObra, honorarioGastosGeneralesObra, tipoHonorarioGastosGeneralesObra, descuentoGastosGeneralesObra, tipoDescuentoGastosGeneralesObra, descuentoHonorarioGastosGeneralesObra, tipoDescuentoHonorarioGastosGeneralesObra,
+    importeMayoresCostosObra, honorarioMayoresCostosObra, tipoHonorarioMayoresCostosObra, descuentoMayoresCostosObra, tipoDescuentoMayoresCostosObra, descuentoHonorarioMayoresCostosObra, tipoDescuentoHonorarioMayoresCostosObra
+  ]);
 
   // Cargar profesionales cuando se abre el modal de trabajo adicional
   React.useEffect(() => {
@@ -304,25 +579,93 @@ const ObrasPage = ({ showNotification }) => {
           // Si estamos editando, restaurar desglose desde campos nativos del DTO
           if (trabajoAdicionalEditar) {
             const ta = trabajoAdicionalEditar;
-            if (ta.importeJornales || ta.importeMateriales || ta.importeHonorarios || ta.importeMayoresCostos) {
+            // Verificar si tiene desglose (cualquier campo de desglose presente)
+            if (ta.importeJornales || ta.importeMateriales || ta.importeGastosGenerales || ta.importeMayoresCostos ||
+                ta.honorarioJornales || ta.honorarioMateriales || ta.honorarioGastosGenerales || ta.honorarioMayoresCostos) {
               setUsarDesglose(true);
+
+              // Restaurar importes base
               setImporteJornales(ta.importeJornales != null ? String(ta.importeJornales) : '');
               setImporteMateriales(ta.importeMateriales != null ? String(ta.importeMateriales) : '');
-              setImporteHonorarios(ta.importeHonorarios != null ? String(ta.importeHonorarios) : '');
-              setTipoHonorarios(ta.tipoHonorarios || 'fijo');
+              setImporteGastosGenerales(ta.importeGastosGenerales != null ? String(ta.importeGastosGenerales) : '');
               setImporteMayoresCostos(ta.importeMayoresCostos != null ? String(ta.importeMayoresCostos) : '');
-              setTipoMayoresCostos(ta.tipoMayoresCostos || 'fijo');
+
+              // Restaurar honorarios de Jornales
+              setHonorarioJornales(ta.honorarioJornales != null ? String(ta.honorarioJornales) : '');
+              setTipoHonorarioJornales(ta.tipoHonorarioJornales || 'fijo');
+
+              // Restaurar honorarios de Materiales
+              setHonorarioMateriales(ta.honorarioMateriales != null ? String(ta.honorarioMateriales) : '');
+              setTipoHonorarioMateriales(ta.tipoHonorarioMateriales || 'fijo');
+
+              // Restaurar honorarios de Gastos Generales
+              setHonorarioGastosGenerales(ta.honorarioGastosGenerales != null ? String(ta.honorarioGastosGenerales) : '');
+              setTipoHonorarioGastosGenerales(ta.tipoHonorarioGastosGenerales || 'fijo');
+
+              // Restaurar honorarios de Mayores Costos
+              setHonorarioMayoresCostos(ta.honorarioMayoresCostos != null ? String(ta.honorarioMayoresCostos) : '');
+              setTipoHonorarioMayoresCostos(ta.tipoHonorarioMayoresCostos || 'fijo');
+
+              // Restaurar descuentos de Jornales
+              setDescuentoJornales(ta.descuentoJornales != null ? String(ta.descuentoJornales) : '');
+              setTipoDescuentoJornales(ta.tipoDescuentoJornales || 'fijo');
+
+              // Restaurar descuentos de Materiales
+              setDescuentoMateriales(ta.descuentoMateriales != null ? String(ta.descuentoMateriales) : '');
+              setTipoDescuentoMateriales(ta.tipoDescuentoMateriales || 'fijo');
+
+              // Restaurar descuentos de Gastos Generales
+              setDescuentoGastosGenerales(ta.descuentoGastosGenerales != null ? String(ta.descuentoGastosGenerales) : '');
+              setTipoDescuentoGastosGenerales(ta.tipoDescuentoGastosGenerales || 'fijo');
+
+              // Restaurar descuentos de Mayores Costos
+              setDescuentoMayoresCostos(ta.descuentoMayoresCostos != null ? String(ta.descuentoMayoresCostos) : '');
+              setTipoDescuentoMayoresCostos(ta.tipoDescuentoMayoresCostos || 'fijo');
+
+              // Restaurar descuentos específicos para honorarios
+              setDescuentoHonorarioJornales(ta.descuentoHonorarioJornales != null ? String(ta.descuentoHonorarioJornales) : '');
+              setTipoDescuentoHonorarioJornales(ta.tipoDescuentoHonorarioJornales || 'fijo');
+
+              setDescuentoHonorarioMateriales(ta.descuentoHonorarioMateriales != null ? String(ta.descuentoHonorarioMateriales) : '');
+              setTipoDescuentoHonorarioMateriales(ta.tipoDescuentoHonorarioMateriales || 'fijo');
+
+              setDescuentoHonorarioGastosGenerales(ta.descuentoHonorarioGastosGenerales != null ? String(ta.descuentoHonorarioGastosGenerales) : '');
+              setTipoDescuentoHonorarioGastosGenerales(ta.tipoDescuentoHonorarioGastosGenerales || 'fijo');
+
+              setDescuentoHonorarioMayoresCostos(ta.descuentoHonorarioMayoresCostos != null ? String(ta.descuentoHonorarioMayoresCostos) : '');
+              setTipoDescuentoHonorarioMayoresCostos(ta.tipoDescuentoHonorarioMayoresCostos || 'fijo');
+
               console.log('📂 Desglose TA restaurado desde DTO:', ta);
             } else {
               setUsarDesglose(false);
               setImporteJornales('');
               setImporteMateriales('');
-              setImporteHonorarios('');
-              setTipoHonorarios('fijo');
+              setImporteGastosGenerales('');
               setImporteMayoresCostos('');
-              setTipoMayoresCostos('fijo');
-              setImporteTotal('');
-            }
+              setHonorarioJornales('');
+              setTipoHonorarioJornales('fijo');
+              setHonorarioMateriales('');
+              setTipoHonorarioMateriales('fijo');
+              setHonorarioGastosGenerales('');
+              setTipoHonorarioGastosGenerales('fijo');
+              setHonorarioMayoresCostos('');
+              setTipoHonorarioMayoresCostos('fijo');
+              setDescuentoJornales('');
+              setTipoDescuentoJornales('fijo');
+              setDescuentoMateriales('');
+              setTipoDescuentoMateriales('fijo');
+              setDescuentoGastosGenerales('');
+              setTipoDescuentoGastosGenerales('fijo');
+              setDescuentoMayoresCostos('');
+              setTipoDescuentoMayoresCostos('fijo');
+      setDescuentoHonorarioJornales('');
+      setTipoDescuentoHonorarioJornales('fijo');
+      setDescuentoHonorarioMateriales('');
+      setTipoDescuentoHonorarioMateriales('fijo');
+      setDescuentoHonorarioGastosGenerales('');
+      setTipoDescuentoHonorarioGastosGenerales('fijo');
+      setDescuentoHonorarioMayoresCostos('');
+      setTipoDescuentoHonorarioMayoresCostos('fijo');
           }
 
           // Si estamos editando, cargar los profesionales asignados
@@ -355,6 +698,7 @@ const ObrasPage = ({ showNotification }) => {
             setProfesionalesAdhoc(profAdhoc);
             console.log('📋 Profesionales cargados para edición:', { registrados: profRegistrados.length, adhoc: profAdhoc.length });
           }
+        }
         } catch (error) {
           console.error('❌ Error cargando profesionales:', error);
           showNotification('Error al cargar profesionales', 'error');
@@ -998,6 +1342,11 @@ const ObrasPage = ({ showNotification }) => {
 
   // Enviar controles al Sidebar
   useEffect(() => {
+    // No ejecutar este efecto si estamos en modo edición o en el tab de crear
+    if (modoEdicion || activeTab === 'crear') {
+      return;
+    }
+
     if (setObrasControls) {
       // Verificar si la obra seleccionada tiene presupuesto
       const obraSeleccionada = selectedObraId ? obras.find(o => o.id === selectedObraId) : null;
@@ -1067,14 +1416,69 @@ const ObrasPage = ({ showNotification }) => {
               });
 
               // Restaurar desglose desde campos del DTO
-              if (obra.presupuestoJornales || obra.presupuestoMateriales || obra.presupuestoHonorarios || obra.presupuestoMayoresCostos) {
+              if (obra.presupuestoJornales || obra.presupuestoMateriales || obra.importeGastosGeneralesObra || obra.presupuestoMayoresCostos ||
+                  obra.presupuestoHonorarios) {
                 setUsarDesgloseObra(true);
                 setImporteJornalesObra(obra.presupuestoJornales != null ? String(obra.presupuestoJornales) : '');
                 setImporteMaterialesObra(obra.presupuestoMateriales != null ? String(obra.presupuestoMateriales) : '');
-                setImporteHonorariosObra(obra.presupuestoHonorarios != null ? String(obra.presupuestoHonorarios) : '');
-                setTipoHonorariosObra(obra.tipoHonorarioPresupuesto || 'fijo');
+                setImporteGastosGeneralesObra(obra.importeGastosGeneralesObra != null ? String(obra.importeGastosGeneralesObra) : '');
                 setImporteMayoresCostosObra(obra.presupuestoMayoresCostos != null ? String(obra.presupuestoMayoresCostos) : '');
-                setTipoMayoresCostosObra(obra.tipoMayoresCostosPresupuesto || 'fijo');
+
+                // Restaurar honorarios si existen
+                if (obra.honorarioJornalesObra != null) {
+                  setHonorarioJornalesObra(String(obra.honorarioJornalesObra));
+                  setTipoHonorarioJornalesObra(obra.tipoHonorarioJornalesObra || 'fijo');
+                }
+                if (obra.honorarioMaterialesObra != null) {
+                  setHonorarioMaterialesObra(String(obra.honorarioMaterialesObra));
+                  setTipoHonorarioMaterialesObra(obra.tipoHonorarioMaterialesObra || 'fijo');
+                }
+                if (obra.honorarioGastosGeneralesObra != null) {
+                  setHonorarioGastosGeneralesObra(String(obra.honorarioGastosGeneralesObra));
+                  setTipoHonorarioGastosGeneralesObra(obra.tipoHonorarioGastosGeneralesObra || 'fijo');
+                }
+                if (obra.honorarioMayoresCostosObra != null) {
+                  setHonorarioMayoresCostosObra(String(obra.honorarioMayoresCostosObra));
+                  setTipoHonorarioMayoresCostosObra(obra.tipoHonorarioMayoresCostosObra || 'fijo');
+                }
+
+                // Restaurar descuentos base si existen
+                if (obra.descuentoJornalesObra != null) {
+                  setDescuentoJornalesObra(String(obra.descuentoJornalesObra));
+                  setTipoDescuentoJornalesObra(obra.tipoDescuentoJornalesObra || 'fijo');
+                }
+                if (obra.descuentoMaterialesObra != null) {
+                  setDescuentoMaterialesObra(String(obra.descuentoMaterialesObra));
+                  setTipoDescuentoMaterialesObra(obra.tipoDescuentoMaterialesObra || 'fijo');
+                }
+                if (obra.descuentoGastosGeneralesObra != null) {
+                  setDescuentoGastosGeneralesObra(String(obra.descuentoGastosGeneralesObra));
+                  setTipoDescuentoGastosGeneralesObra(obra.tipoDescuentoGastosGeneralesObra || 'fijo');
+                }
+                if (obra.descuentoMayoresCostosObra != null) {
+                  setDescuentoMayoresCostosObra(String(obra.descuentoMayoresCostosObra));
+                  setTipoDescuentoMayoresCostosObra(obra.tipoDescuentoMayoresCostosObra || 'fijo');
+                }
+
+                // Restaurar descuentos sobre honorarios si existen
+                if (obra.descuentoHonorarioJornalesObra != null) {
+                  setDescuentoHonorarioJornalesObra(String(obra.descuentoHonorarioJornalesObra));
+                  setTipoDescuentoHonorarioJornalesObra(obra.tipoDescuentoHonorarioJornalesObra || 'fijo');
+                }
+                if (obra.descuentoHonorarioMaterialesObra != null) {
+                  setDescuentoHonorarioMaterialesObra(String(obra.descuentoHonorarioMaterialesObra));
+                  setTipoDescuentoHonorarioMaterialesObra(obra.tipoDescuentoHonorarioMaterialesObra || 'fijo');
+                }
+                if (obra.descuentoHonorarioGastosGeneralesObra != null) {
+                  setDescuentoHonorarioGastosGeneralesObra(String(obra.descuentoHonorarioGastosGeneralesObra));
+                  setTipoDescuentoHonorarioGastosGeneralesObra(obra.tipoDescuentoHonorarioGastosGeneralesObra || 'fijo');
+                }
+                if (obra.descuentoHonorarioMayoresCostosObra != null) {
+                  setDescuentoHonorarioMayoresCostosObra(String(obra.descuentoHonorarioMayoresCostosObra));
+                  setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'fijo');
+                }
+
+                console.log('📂 Desglose obra restaurado desde DTO:', obra);
               } else {
                 setUsarDesgloseObra(false);
                 setImporteMaterialesObra('');
@@ -1190,7 +1594,7 @@ const ObrasPage = ({ showNotification }) => {
         setObrasControls(null);
       }
     };
-  }, [selectedObraId, setObrasControls, obras, presupuestosObras]);
+  }, [selectedObraId, setObrasControls, obras, presupuestosObras, modoEdicion, activeTab]);
 
   // Enviar controles de trabajos extra al Sidebar
   useEffect(() => {
@@ -1616,6 +2020,14 @@ const ObrasPage = ({ showNotification }) => {
         (estadoAnterior === 'SUSPENDIDA' || estadoAnterior === 'CANCELADO') &&
         estadoNuevo !== estadoAnterior;
 
+      // 🔍 DEBUG: Valores de variables de estado ANTES de construir payload
+      console.log('🔍 DEBUG ESTADO DESGLOSE:');
+      console.log('  usarDesgloseObra:', usarDesgloseObra);
+      console.log('  importeJornalesObra:', importeJornalesObra);
+      console.log('  importeMaterialesObra:', importeMaterialesObra);
+      console.log('  importeGastosGeneralesObra:', importeGastosGeneralesObra);
+      console.log('  importeMayoresCostosObra:', importeMayoresCostosObra);
+
       // Preparar datos para actualización
       const obraData = {
         id: obraEditando.id,
@@ -1626,13 +2038,42 @@ const ObrasPage = ({ showNotification }) => {
         presupuestoEstimado: formData.presupuestoEstimado ? parseFloat(formData.presupuestoEstimado) : null,
         descripcion: formData.descripcion || null,
         observaciones: formData.observaciones || null,
-        // Desglose de presupuesto (campos nativos del backend)
+        // ⚠️ MAPEO CORRECTO SEGÚN ESPECIFICACIÓN BACKEND
+        // Desglose de presupuesto - importes base (4 categorías)
         presupuestoJornales: usarDesgloseObra ? (parseFloat(importeJornalesObra) || null) : null,
         presupuestoMateriales: usarDesgloseObra ? (parseFloat(importeMaterialesObra) || null) : null,
-        presupuestoHonorarios: usarDesgloseObra ? (parseFloat(importeHonorariosObra) || null) : null,
-        tipoHonorarioPresupuesto: usarDesgloseObra ? tipoHonorariosObra : null,
+        importeGastosGeneralesObra: usarDesgloseObra ? (parseFloat(importeGastosGeneralesObra) || null) : null,
         presupuestoMayoresCostos: usarDesgloseObra ? (parseFloat(importeMayoresCostosObra) || null) : null,
-        tipoMayoresCostosPresupuesto: usarDesgloseObra ? tipoMayoresCostosObra : null,
+
+        // Honorarios individuales para cada categoría (8 campos)
+        honorarioJornalesObra: usarDesgloseObra ? (parseFloat(honorarioJornalesObra) || null) : null,
+        tipoHonorarioJornalesObra: usarDesgloseObra ? tipoHonorarioJornalesObra : null,
+        honorarioMaterialesObra: usarDesgloseObra ? (parseFloat(honorarioMaterialesObra) || null) : null,
+        tipoHonorarioMaterialesObra: usarDesgloseObra ? tipoHonorarioMaterialesObra : null,
+        honorarioGastosGeneralesObra: usarDesgloseObra ? (parseFloat(honorarioGastosGeneralesObra) || null) : null,
+        tipoHonorarioGastosGeneralesObra: usarDesgloseObra ? tipoHonorarioGastosGeneralesObra : null,
+        honorarioMayoresCostosObra: usarDesgloseObra ? (parseFloat(honorarioMayoresCostosObra) || null) : null,
+        tipoHonorarioMayoresCostosObra: usarDesgloseObra ? tipoHonorarioMayoresCostosObra : null,
+
+        // Descuentos sobre importes base (8 campos)
+        descuentoJornalesObra: usarDesgloseObra ? (parseFloat(descuentoJornalesObra) || null) : null,
+        tipoDescuentoJornalesObra: usarDesgloseObra ? tipoDescuentoJornalesObra : null,
+        descuentoMaterialesObra: usarDesgloseObra ? (parseFloat(descuentoMaterialesObra) || null) : null,
+        tipoDescuentoMaterialesObra: usarDesgloseObra ? tipoDescuentoMaterialesObra : null,
+        descuentoGastosGeneralesObra: usarDesgloseObra ? (parseFloat(descuentoGastosGeneralesObra) || null) : null,
+        tipoDescuentoGastosGeneralesObra: usarDesgloseObra ? tipoDescuentoGastosGeneralesObra : null,
+        descuentoMayoresCostosObra: usarDesgloseObra ? (parseFloat(descuentoMayoresCostosObra) || null) : null,
+        tipoDescuentoMayoresCostosObra: usarDesgloseObra ? tipoDescuentoMayoresCostosObra : null,
+
+        // Descuentos sobre honorarios (8 campos)
+        descuentoHonorarioJornalesObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioJornalesObra) || null) : null,
+        tipoDescuentoHonorarioJornalesObra: usarDesgloseObra ? tipoDescuentoHonorarioJornalesObra : null,
+        descuentoHonorarioMaterialesObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioMaterialesObra) || null) : null,
+        tipoDescuentoHonorarioMaterialesObra: usarDesgloseObra ? tipoDescuentoHonorarioMaterialesObra : null,
+        descuentoHonorarioGastosGeneralesObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioGastosGeneralesObra) || null) : null,
+        tipoDescuentoHonorarioGastosGeneralesObra: usarDesgloseObra ? tipoDescuentoHonorarioGastosGeneralesObra : null,
+        descuentoHonorarioMayoresCostosObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioMayoresCostosObra) || null) : null,
+        tipoDescuentoHonorarioMayoresCostosObra: usarDesgloseObra ? tipoDescuentoHonorarioMayoresCostosObra : null,
 
         // Dirección de la obra
         direccionObraCalle: formData.direccionObraCalle,
@@ -1648,6 +2089,10 @@ const ObrasPage = ({ showNotification }) => {
         // EmpresaId
         empresaId: formData.empresaId || empresaId || 1
       };
+
+      // 📦 DEBUG: Payload final a enviar
+      console.log('📦 PAYLOAD FINAL A ENVIAR:', JSON.stringify(obraData, null, 2));
+      window.PAYLOAD_OBRA_UPDATE = obraData; // Para debugging en consola
 
 
 
@@ -1722,10 +2167,32 @@ const ObrasPage = ({ showNotification }) => {
       setUsarDesgloseObra(false);
       setImporteMaterialesObra('');
       setImporteJornalesObra('');
-      setImporteHonorariosObra('');
-      setTipoHonorariosObra('fijo');
+      setImporteGastosGeneralesObra('');
       setImporteMayoresCostosObra('');
-      setTipoMayoresCostosObra('fijo');
+      setHonorarioJornalesObra('');
+      setTipoHonorarioJornalesObra('fijo');
+      setHonorarioMaterialesObra('');
+      setTipoHonorarioMaterialesObra('fijo');
+      setHonorarioGastosGeneralesObra('');
+      setTipoHonorarioGastosGeneralesObra('fijo');
+      setHonorarioMayoresCostosObra('');
+      setTipoHonorarioMayoresCostosObra('fijo');
+      setDescuentoJornalesObra('');
+      setTipoDescuentoJornalesObra('fijo');
+      setDescuentoMaterialesObra('');
+      setTipoDescuentoMaterialesObra('fijo');
+      setDescuentoGastosGeneralesObra('');
+      setTipoDescuentoGastosGeneralesObra('fijo');
+      setDescuentoMayoresCostosObra('');
+      setTipoDescuentoMayoresCostosObra('fijo');
+      setDescuentoHonorarioJornalesObra('');
+      setTipoDescuentoHonorarioJornalesObra('fijo');
+      setDescuentoHonorarioMaterialesObra('');
+      setTipoDescuentoHonorarioMaterialesObra('fijo');
+      setDescuentoHonorarioGastosGeneralesObra('');
+      setTipoDescuentoHonorarioGastosGeneralesObra('fijo');
+      setDescuentoHonorarioMayoresCostosObra('');
+      setTipoDescuentoHonorarioMayoresCostosObra('fijo');
       setImporteTotalObra('');
 
       // Cambiar a la pestaña de lista y recargar obras
@@ -1799,13 +2266,42 @@ const ObrasPage = ({ showNotification }) => {
         presupuestoEstimado: formData.presupuestoEstimado ? parseFloat(formData.presupuestoEstimado) : null,
         descripcion: formData.descripcion || null,
         observaciones: formData.observaciones || null,
-        // Desglose de presupuesto (campos nativos del backend)
+        // ⚠️ MAPEO CORRECTO SEGÚN ESPECIFICACIÓN BACKEND
+        // Desglose de presupuesto - importes base (4 categorías)
         presupuestoJornales: usarDesgloseObra ? (parseFloat(importeJornalesObra) || null) : null,
         presupuestoMateriales: usarDesgloseObra ? (parseFloat(importeMaterialesObra) || null) : null,
-        presupuestoHonorarios: usarDesgloseObra ? (parseFloat(importeHonorariosObra) || null) : null,
-        tipoHonorarioPresupuesto: usarDesgloseObra ? tipoHonorariosObra : null,
+        importeGastosGeneralesObra: usarDesgloseObra ? (parseFloat(importeGastosGeneralesObra) || null) : null,
         presupuestoMayoresCostos: usarDesgloseObra ? (parseFloat(importeMayoresCostosObra) || null) : null,
-        tipoMayoresCostosPresupuesto: usarDesgloseObra ? tipoMayoresCostosObra : null,
+
+        // Honorarios individuales para cada categoría (8 campos)
+        honorarioJornalesObra: usarDesgloseObra ? (parseFloat(honorarioJornalesObra) || null) : null,
+        tipoHonorarioJornalesObra: usarDesgloseObra ? tipoHonorarioJornalesObra : null,
+        honorarioMaterialesObra: usarDesgloseObra ? (parseFloat(honorarioMaterialesObra) || null) : null,
+        tipoHonorarioMaterialesObra: usarDesgloseObra ? tipoHonorarioMaterialesObra : null,
+        honorarioGastosGeneralesObra: usarDesgloseObra ? (parseFloat(honorarioGastosGeneralesObra) || null) : null,
+        tipoHonorarioGastosGeneralesObra: usarDesgloseObra ? tipoHonorarioGastosGeneralesObra : null,
+        honorarioMayoresCostosObra: usarDesgloseObra ? (parseFloat(honorarioMayoresCostosObra) || null) : null,
+        tipoHonorarioMayoresCostosObra: usarDesgloseObra ? tipoHonorarioMayoresCostosObra : null,
+
+        // Descuentos sobre importes base (8 campos)
+        descuentoJornalesObra: usarDesgloseObra ? (parseFloat(descuentoJornalesObra) || null) : null,
+        tipoDescuentoJornalesObra: usarDesgloseObra ? tipoDescuentoJornalesObra : null,
+        descuentoMaterialesObra: usarDesgloseObra ? (parseFloat(descuentoMaterialesObra) || null) : null,
+        tipoDescuentoMaterialesObra: usarDesgloseObra ? tipoDescuentoMaterialesObra : null,
+        descuentoGastosGeneralesObra: usarDesgloseObra ? (parseFloat(descuentoGastosGeneralesObra) || null) : null,
+        tipoDescuentoGastosGeneralesObra: usarDesgloseObra ? tipoDescuentoGastosGeneralesObra : null,
+        descuentoMayoresCostosObra: usarDesgloseObra ? (parseFloat(descuentoMayoresCostosObra) || null) : null,
+        tipoDescuentoMayoresCostosObra: usarDesgloseObra ? tipoDescuentoMayoresCostosObra : null,
+
+        // Descuentos sobre honorarios (8 campos)
+        descuentoHonorarioJornalesObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioJornalesObra) || null) : null,
+        tipoDescuentoHonorarioJornalesObra: usarDesgloseObra ? tipoDescuentoHonorarioJornalesObra : null,
+        descuentoHonorarioMaterialesObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioMaterialesObra) || null) : null,
+        tipoDescuentoHonorarioMaterialesObra: usarDesgloseObra ? tipoDescuentoHonorarioMaterialesObra : null,
+        descuentoHonorarioGastosGeneralesObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioGastosGeneralesObra) || null) : null,
+        tipoDescuentoHonorarioGastosGeneralesObra: usarDesgloseObra ? tipoDescuentoHonorarioGastosGeneralesObra : null,
+        descuentoHonorarioMayoresCostosObra: usarDesgloseObra ? (parseFloat(descuentoHonorarioMayoresCostosObra) || null) : null,
+        tipoDescuentoHonorarioMayoresCostosObra: usarDesgloseObra ? tipoDescuentoHonorarioMayoresCostosObra : null,
 
         // Dirección de la obra (calle y altura son obligatorios)
         direccionObraCalle: formData.direccionObraCalle,
@@ -1843,7 +2339,24 @@ const ObrasPage = ({ showNotification }) => {
           }))
       };
 
-      console.log('📝¤ Enviando obra al backend:', obraData);
+      console.log('�🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
+      console.log('📤 PAYLOAD COMPLETO A ENVIAR AL BACKEND:');
+      console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
+      console.log(JSON.stringify(obraData, null, 2));
+      console.log('========================================');
+
+      // Guardar payload en variable global
+      window.PAYLOAD_OBRA = obraData;
+      console.warn('========================================');
+      console.warn('>>> PAYLOAD GUARDADO EN: window.PAYLOAD_OBRA <<<');
+      console.warn('========================================');
+      console.warn('CAMPOS PRINCIPALES:');
+      console.warn('  idCliente:', obraData.idCliente);
+      console.warn('  empresaId:', obraData.empresaId);
+      console.warn('  direccionObraCalle:', obraData.direccionObraCalle);
+      console.warn('  direccionObraAltura:', obraData.direccionObraAltura);
+      console.warn('  profesionalesAsignadosForm length:', obraData.profesionalesAsignadosForm?.length);
+      console.warn('========================================');
 
       await dispatch(createObra(obraData)).unwrap();
       showNotification(' Obra creada exitosamente', 'success');
@@ -1883,10 +2396,32 @@ const ObrasPage = ({ showNotification }) => {
       setUsarDesgloseObra(false);
       setImporteMaterialesObra('');
       setImporteJornalesObra('');
-      setImporteHonorariosObra('');
-      setTipoHonorariosObra('fijo');
+      setImporteGastosGeneralesObra('');
       setImporteMayoresCostosObra('');
-      setTipoMayoresCostosObra('fijo');
+      setHonorarioJornalesObra('');
+      setTipoHonorarioJornalesObra('fijo');
+      setHonorarioMaterialesObra('');
+      setTipoHonorarioMaterialesObra('fijo');
+      setHonorarioGastosGeneralesObra('');
+      setTipoHonorarioGastosGeneralesObra('fijo');
+      setHonorarioMayoresCostosObra('');
+      setTipoHonorarioMayoresCostosObra('fijo');
+      setDescuentoJornalesObra('');
+      setTipoDescuentoJornalesObra('fijo');
+      setDescuentoMaterialesObra('');
+      setTipoDescuentoMaterialesObra('fijo');
+      setDescuentoGastosGeneralesObra('');
+      setTipoDescuentoGastosGeneralesObra('fijo');
+      setDescuentoMayoresCostosObra('');
+      setTipoDescuentoMayoresCostosObra('fijo');
+      setDescuentoHonorarioJornalesObra('');
+      setTipoDescuentoHonorarioJornalesObra('fijo');
+      setDescuentoHonorarioMaterialesObra('');
+      setTipoDescuentoHonorarioMaterialesObra('fijo');
+      setDescuentoHonorarioGastosGeneralesObra('');
+      setTipoDescuentoHonorarioGastosGeneralesObra('fijo');
+      setDescuentoHonorarioMayoresCostosObra('');
+      setTipoDescuentoHonorarioMayoresCostosObra('fijo');
       setImporteTotalObra('');
 
       // Cambiar a la pestaña de lista y recargar obras
@@ -4991,7 +5526,7 @@ const ObrasPage = ({ showNotification }) => {
                                     return (
                                       <span className="badge bg-info text-dark" title="Obra creada sin presupuesto detallado">
                                         <i className="fas fa-hand-pointer me-1"></i>
-                                        Sin Presupuesto Detallado
+                                        Presupuesto Abreviado
                                       </span>
                                     );
                                   }
@@ -5115,7 +5650,7 @@ const ObrasPage = ({ showNotification }) => {
                                                     </div>
                                                     <small className="text-muted">
                                                       <i className="fas fa-info-circle me-1"></i>
-                                                      Sin presupuesto detallado
+                                                      Presupuesto Abreviado
                                                     </small>
                                                   </div>
                                                 </div>
@@ -5777,7 +6312,7 @@ const ObrasPage = ({ showNotification }) => {
                               className="form-control"
                               step="0.01"
                               placeholder="0.00"
-                              value={usarDesgloseObra ? importeTotalObra : formData.presupuestoEstimado}
+                              value={usarDesgloseObra ? (importeTotalObra || formData.presupuestoEstimado) : formData.presupuestoEstimado}
                               onChange={(e) => setFormData({...formData, presupuestoEstimado: e.target.value})}
                               disabled={usarDesgloseObra}
                               style={{
@@ -5796,26 +6331,10 @@ const ObrasPage = ({ showNotification }) => {
                                 type="button"
                                 className="btn btn-sm btn-outline-primary"
                                 onClick={() => {
+                                  // Marcar que estamos haciendo toggle para que el useEffect no calcule inmediatamente
+                                  desgloseJustToggled.current = true;
+                                  // Solo alternar la visibilidad, sin modificar valores
                                   setUsarDesgloseObra(!usarDesgloseObra);
-                                  if (!usarDesgloseObra) {
-                                    // Limpiar campos al activar desglose
-                                    setImporteMaterialesObra('');
-                                    setImporteJornalesObra('');
-                                    setImporteHonorariosObra('');
-                                    setTipoHonorariosObra('fijo');
-                                    setImporteMayoresCostosObra('');
-                                    setTipoMayoresCostosObra('fijo');
-                                    setImporteTotalObra('');
-                                  } else {
-                                    // Limpiar campos al desactivar desglose
-                                    setImporteMaterialesObra('');
-                                    setImporteJornalesObra('');
-                                    setImporteHonorariosObra('');
-                                    setTipoHonorariosObra('fijo');
-                                    setImporteMayoresCostosObra('');
-                                    setTipoMayoresCostosObra('fijo');
-                                    setImporteTotalObra('');
-                                  }
                                 }}
                                 style={{ borderRadius: '8px', fontSize: '0.85rem' }}
                               >
@@ -5850,161 +6369,1091 @@ const ObrasPage = ({ showNotification }) => {
                               </div>
                               <div className="card-body p-3">
                                 <div className="row">
-                                  {/* Importe de Jornales */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-user-hard-hat me-2 text-warning"></i>
-                                      Jornales
-                                    </label>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#fef3c7',
-                                        color: '#92400e',
-                                        border: '1px solid #f59e0b'
-                                      }}>
-                                        $
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder="0.00"
-                                        step="0.01"
-                                        min="0"
-                                        value={importeJornalesObra}
-                                        onChange={(e) => setImporteJornalesObra(e.target.value)}
-                                        style={{
+                                  {/* Jornales */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#fffbeb', borderColor: '#f59e0b !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#92400e', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-user-hard-hat me-2"></i>
+                                        Jornales
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
+                                          border: '1px solid #f59e0b'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeJornalesObra}
+                                          onChange={(e) => setImporteJornalesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #f59e0b',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Jornales */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioJornalesObra === 'fijo' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                            onClick={() => setTipoHonorarioJornalesObra('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioJornalesObra === 'porcentaje' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                            onClick={() => setTipoHonorarioJornalesObra('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#fef3c7',
+                                            color: '#92400e',
+                                            border: '1px solid #f59e0b',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioJornalesObra === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioJornalesObra === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioJornalesObra === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioJornalesObra === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioJornalesObra}
+                                            onChange={(e) => setHonorarioJornalesObra(e.target.value)}
+                                            style={{
+                                              border: '1px solid #f59e0b',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                        {/* Cálculo en tiempo real */}
+                                        {importeJornalesObra && honorarioJornalesObra && (
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.75rem', color: '#92400e' }}>
+                                            <strong>💰 Importe:</strong> $
+                                            {tipoHonorarioJornalesObra === 'fijo'
+                                              ? parseFloat(honorarioJornalesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeJornalesObra || 0) * parseFloat(honorarioJornalesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Materiales */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#eff6ff', borderColor: '#3b82f6 !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#1e40af', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-boxes me-2"></i>
+                                        Materiales
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#dbeafe',
+                                          color: '#1e40af',
+                                          border: '1px solid #3b82f6'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeMaterialesObra}
+                                          onChange={(e) => setImporteMaterialesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #3b82f6',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Materiales */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMaterialesObra === 'fijo' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                            onClick={() => setTipoHonorarioMaterialesObra('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMaterialesObra === 'porcentaje' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                            onClick={() => setTipoHonorarioMaterialesObra('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#dbeafe',
+                                            color: '#1e40af',
+                                            border: '1px solid #3b82f6',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioMaterialesObra === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioMaterialesObra === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioMaterialesObra === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioMaterialesObra === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioMaterialesObra}
+                                            onChange={(e) => setHonorarioMaterialesObra(e.target.value)}
+                                            style={{
+                                              border: '1px solid #3b82f6',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                        {/* Cálculo en tiempo real */}
+                                        {importeMaterialesObra && honorarioMaterialesObra && (
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.75rem', color: '#1e40af' }}>
+                                            <strong>💰 Importe:</strong> $
+                                            {tipoHonorarioMaterialesObra === 'fijo'
+                                              ? parseFloat(honorarioMaterialesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeMaterialesObra || 0) * parseFloat(honorarioMaterialesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Gastos Generales */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#f0fdf4', borderColor: '#10b981 !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#065f46', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-file-invoice-dollar me-2"></i>
+                                        Gastos Generales
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#d1fae5',
+                                          color: '#065f46',
+                                          border: '1px solid #10b981'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeGastosGeneralesObra}
+                                          onChange={(e) => setImporteGastosGeneralesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #10b981',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Gastos Generales */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioGastosGeneralesObra === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
+                                            onClick={() => setTipoHonorarioGastosGeneralesObra('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioGastosGeneralesObra === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
+                                            onClick={() => setTipoHonorarioGastosGeneralesObra('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#d1fae5',
+                                            color: '#065f46',
+                                            border: '1px solid #10b981',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioGastosGeneralesObra === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioGastosGeneralesObra === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioGastosGeneralesObra === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioGastosGeneralesObra === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioGastosGeneralesObra}
+                                            onChange={(e) => setHonorarioGastosGeneralesObra(e.target.value)}
+                                            style={{
+                                              border: '1px solid #10b981',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                        {/* Cálculo en tiempo real */}
+                                        {importeGastosGeneralesObra && honorarioGastosGeneralesObra && (
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.75rem', color: '#065f46' }}>
+                                            <strong>💰 Importe:</strong> $
+                                            {tipoHonorarioGastosGeneralesObra === 'fijo'
+                                              ? parseFloat(honorarioGastosGeneralesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Mayores Costos */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#fef2f2', borderColor: '#ef4444 !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#991b1b', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-chart-line me-2"></i>
+                                        Mayores Costos
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fee2e2',
+                                          color: '#991b1b',
+                                          border: '1px solid #ef4444'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeMayoresCostosObra}
+                                          onChange={(e) => setImporteMayoresCostosObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #ef4444',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Mayores Costos */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMayoresCostosObra === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                            onClick={() => setTipoHonorarioMayoresCostosObra('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMayoresCostosObra === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                            onClick={() => setTipoHonorarioMayoresCostosObra('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#fee2e2',
+                                            color: '#991b1b',
+                                            border: '1px solid #ef4444',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioMayoresCostosObra === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioMayoresCostosObra === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioMayoresCostosObra === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioMayoresCostosObra === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioMayoresCostosObra}
+                                            onChange={(e) => setHonorarioMayoresCostosObra(e.target.value)}
+                                            style={{
+                                              border: '1px solid #ef4444',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                        {/* Cálculo en tiempo real */}
+                                        {importeMayoresCostosObra && honorarioMayoresCostosObra && (
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.75rem', color: '#991b1b' }}>
+                                            <strong>💰 Importe:</strong> $
+                                            {tipoHonorarioMayoresCostosObra === 'fijo'
+                                              ? parseFloat(honorarioMayoresCostosObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Sección de Descuentos */}
+                                <div className="mt-4 pt-3" style={{ borderTop: '2px dashed #e5e7eb' }}>
+                                  <h6 className="mb-3" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                                    <i className="fas fa-percent me-2 text-danger"></i>
+                                    Descuentos Aplicables
+                                  </h6>
+
+                                  <div className="row">
+                                    {/* Descuento Jornales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Jornales
+                                      </label>
+                                      {/* Importe base */}
+                                      {importeJornalesObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e', border: '1px solid #f59e0b' }}>
+                                          <strong>📊 Base:</strong> ${parseFloat(importeJornalesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoJornalesObra === 'fijo' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                          onClick={() => setTipoDescuentoJornalesObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoJornalesObra === 'porcentaje' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                          onClick={() => setTipoDescuentoJornalesObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
                                           border: '1px solid #f59e0b',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoJornalesObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoJornalesObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoJornalesObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoJornalesObra}
+                                          onChange={(e) => setDescuentoJornalesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #f59e0b',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Cálculo descuento */}
+                                      {importeJornalesObra && descuentoJornalesObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {tipoDescuentoJornalesObra === 'fijo'
+                                              ? parseFloat(descuentoJornalesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeJornalesObra || 0) * parseFloat(descuentoJornalesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Total: $
+                                            {(() => {
+                                              const base = parseFloat(importeJornalesObra || 0);
+                                              const desc = tipoDescuentoJornalesObra === 'fijo'
+                                                ? parseFloat(descuentoJornalesObra || 0)
+                                                : (base * parseFloat(descuentoJornalesObra || 0) / 100);
+                                              return (base - desc).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
-                                  </div>
 
-                                  {/* Importe de Materiales */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-boxes me-2 text-primary"></i>
-                                      Materiales
-                                    </label>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#dbeafe',
-                                        color: '#1e40af',
-                                        border: '1px solid #3b82f6'
-                                      }}>
-                                        $
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder="0.00"
-                                        step="0.01"
-                                        min="0"
-                                        value={importeMaterialesObra}
-                                        onChange={(e) => setImporteMaterialesObra(e.target.value)}
-                                        style={{
+                                    {/* Descuento Materiales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Materiales
+                                      </label>
+                                      {/* Importe base */}
+                                      {importeMaterialesObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af', border: '1px solid #3b82f6' }}>
+                                          <strong>📊 Base:</strong> ${parseFloat(importeMaterialesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMaterialesObra === 'fijo' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoMaterialesObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMaterialesObra === 'porcentaje' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoMaterialesObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#dbeafe',
+                                          color: '#1e40af',
                                           border: '1px solid #3b82f6',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoMaterialesObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoMaterialesObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoMaterialesObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoMaterialesObra}
+                                          onChange={(e) => setDescuentoMaterialesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #3b82f6',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Cálculo descuento */}
+                                      {importeMaterialesObra && descuentoMaterialesObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {tipoDescuentoMaterialesObra === 'fijo'
+                                              ? parseFloat(descuentoMaterialesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeMaterialesObra || 0) * parseFloat(descuentoMaterialesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#3b82f6', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Total: $
+                                            {(() => {
+                                              const base = parseFloat(importeMaterialesObra || 0);
+                                              const desc = tipoDescuentoMaterialesObra === 'fijo'
+                                                ? parseFloat(descuentoMaterialesObra || 0)
+                                                : (base * parseFloat(descuentoMaterialesObra || 0) / 100);
+                                              return (base - desc).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
-                                  </div>
 
-                                  {/* Importe de Honorarios */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-handshake me-2 text-success"></i>
-                                      Honorarios
-                                    </label>
-                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoHonorariosObra === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
-                                        onClick={() => setTipoHonorariosObra('fijo')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        $ Fijo
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoHonorariosObra === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
-                                        onClick={() => setTipoHonorariosObra('porcentaje')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        % Porcentaje
-                                      </button>
-                                    </div>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#d1fae5',
-                                        color: '#065f46',
-                                        border: '1px solid #10b981'
-                                      }}>
-                                        {tipoHonorariosObra === 'fijo' ? '$' : '%'}
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder={tipoHonorariosObra === 'fijo' ? '0.00' : '0'}
-                                        step={tipoHonorariosObra === 'fijo' ? '0.01' : '1'}
-                                        min="0"
-                                        max={tipoHonorariosObra === 'porcentaje' ? '100' : undefined}
-                                        value={importeHonorariosObra}
-                                        onChange={(e) => setImporteHonorariosObra(e.target.value)}
-                                        style={{
+                                    {/* Descuento Gastos Generales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Gastos Generales
+                                      </label>
+                                      {/* Importe base */}
+                                      {importeGastosGeneralesObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46', border: '1px solid #10b981' }}>
+                                          <strong>📊 Base:</strong> ${parseFloat(importeGastosGeneralesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoGastosGeneralesObra === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoGastosGeneralesObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoGastosGeneralesObra === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoGastosGeneralesObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#d1fae5',
+                                          color: '#065f46',
                                           border: '1px solid #10b981',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoGastosGeneralesObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoGastosGeneralesObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoGastosGeneralesObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoGastosGeneralesObra}
+                                          onChange={(e) => setDescuentoGastosGeneralesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #10b981',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Cálculo descuento */}
+                                      {importeGastosGeneralesObra && descuentoGastosGeneralesObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {tipoDescuentoGastosGeneralesObra === 'fijo'
+                                              ? parseFloat(descuentoGastosGeneralesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(descuentoGastosGeneralesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#10b981', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Total: $
+                                            {(() => {
+                                              const base = parseFloat(importeGastosGeneralesObra || 0);
+                                              const desc = tipoDescuentoGastosGeneralesObra === 'fijo'
+                                                ? parseFloat(descuentoGastosGeneralesObra || 0)
+                                                : (base * parseFloat(descuentoGastosGeneralesObra || 0) / 100);
+                                              return (base - desc).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* Descuento Mayores Costos */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Mayores Costos
+                                      </label>
+                                      {/* Importe base */}
+                                      {importeMayoresCostosObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b', border: '1px solid #ef4444' }}>
+                                          <strong>📊 Base:</strong> ${parseFloat(importeMayoresCostosObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMayoresCostosObra === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoMayoresCostosObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMayoresCostosObra === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoMayoresCostosObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fee2e2',
+                                          color: '#991b1b',
+                                          border: '1px solid #ef4444',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoMayoresCostosObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoMayoresCostosObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoMayoresCostosObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoMayoresCostosObra}
+                                          onChange={(e) => setDescuentoMayoresCostosObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #ef4444',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Cálculo descuento */}
+                                      {importeMayoresCostosObra && descuentoMayoresCostosObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {tipoDescuentoMayoresCostosObra === 'fijo'
+                                              ? parseFloat(descuentoMayoresCostosObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                              : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(descuentoMayoresCostosObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            }
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#ef4444', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Total: $
+                                            {(() => {
+                                              const base = parseFloat(importeMayoresCostosObra || 0);
+                                              const desc = tipoDescuentoMayoresCostosObra === 'fijo'
+                                                ? parseFloat(descuentoMayoresCostosObra || 0)
+                                                : (base * parseFloat(descuentoMayoresCostosObra || 0) / 100);
+                                              return (base - desc).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
+                                </div>
 
-                                  {/* Importe de Mayores Costos */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-chart-line me-2 text-danger"></i>
-                                      Mayores Costos
-                                    </label>
-                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoMayoresCostosObra === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                        onClick={() => setTipoMayoresCostosObra('fijo')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        $ Fijo
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoMayoresCostosObra === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                        onClick={() => setTipoMayoresCostosObra('porcentaje')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        % Porcentaje
-                                      </button>
+                                {/* Sección de Descuentos sobre Honorarios */}
+                                <div className="mt-4 pt-3" style={{ borderTop: '2px dashed #dc3545' }}>
+                                  <h6 className="mb-3" style={{ fontWeight: '600', color: '#dc3545', fontSize: '0.95rem' }}>
+                                    <i className="fas fa-percentage me-2 text-danger"></i>
+                                    Descuentos sobre Honorarios
+                                  </h6>
+
+                                  <div className="row">
+                                    {/* Descuento Honorario Jornales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Jornales
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioJornalesObra && importeJornalesObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e', border: '1px solid #f59e0b' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioJornalesObra === 'fijo'
+                                            ? parseFloat(honorarioJornalesObra || 0)
+                                            : ((parseFloat(importeJornalesObra || 0) * parseFloat(honorarioJornalesObra || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioJornalesObra === 'fijo' ? 'btn-outline-warning' : 'btn-outline-warning active'}`}
+                                          onClick={() => setTipoDescuentoHonorarioJornalesObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioJornalesObra === 'porcentaje' ? 'btn-outline-warning active' : 'btn-outline-warning'}`}
+                                          onClick={() => setTipoDescuentoHonorarioJornalesObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
+                                          border: '1px solid #f59e0b',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioJornalesObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioJornalesObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioJornalesObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioJornalesObra}
+                                          onChange={(e) => setDescuentoHonorarioJornalesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #f59e0b',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioJornalesObra && descuentoHonorarioJornalesObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioJornalesObra === 'fijo'
+                                                ? parseFloat(honorarioJornalesObra || 0)
+                                                : ((parseFloat(importeJornalesObra || 0) * parseFloat(honorarioJornalesObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioJornalesObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioJornalesObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioJornalesObra || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioJornalesObra === 'fijo'
+                                                ? parseFloat(honorarioJornalesObra || 0)
+                                                : ((parseFloat(importeJornalesObra || 0) * parseFloat(honorarioJornalesObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioJornalesObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioJornalesObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioJornalesObra || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#fee2e2',
-                                        color: '#991b1b',
-                                        border: '1px solid #ef4444'
-                                      }}>
-                                        {tipoMayoresCostosObra === 'fijo' ? '$' : '%'}
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder={tipoMayoresCostosObra === 'fijo' ? '0.00' : '0'}
-                                        step={tipoMayoresCostosObra === 'fijo' ? '0.01' : '1'}
-                                        min="0"
-                                        max={tipoMayoresCostosObra === 'porcentaje' ? '100' : undefined}
-                                        value={importeMayoresCostosObra}
-                                        onChange={(e) => setImporteMayoresCostosObra(e.target.value)}
-                                        style={{
+
+                                    {/* Descuento Honorario Materiales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Materiales
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioMaterialesObra && importeMaterialesObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af', border: '1px solid #3b82f6' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioMaterialesObra === 'fijo'
+                                            ? parseFloat(honorarioMaterialesObra || 0)
+                                            : ((parseFloat(importeMaterialesObra || 0) * parseFloat(honorarioMaterialesObra || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMaterialesObra === 'fijo' ? 'btn-outline-primary active' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMaterialesObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMaterialesObra === 'porcentaje' ? 'btn-outline-primary active' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMaterialesObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#dbeafe',
+                                          color: '#1e40af',
+                                          border: '1px solid #3b82f6',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioMaterialesObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioMaterialesObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioMaterialesObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioMaterialesObra}
+                                          onChange={(e) => setDescuentoHonorarioMaterialesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #3b82f6',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioMaterialesObra && descuentoHonorarioMaterialesObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMaterialesObra === 'fijo'
+                                                ? parseFloat(honorarioMaterialesObra || 0)
+                                                : ((parseFloat(importeMaterialesObra || 0) * parseFloat(honorarioMaterialesObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMaterialesObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMaterialesObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMaterialesObra || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#3b82f6', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMaterialesObra === 'fijo'
+                                                ? parseFloat(honorarioMaterialesObra || 0)
+                                                : ((parseFloat(importeMaterialesObra || 0) * parseFloat(honorarioMaterialesObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMaterialesObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMaterialesObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMaterialesObra || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* Descuento Honorario Gastos Generales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Gastos Generales
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioGastosGeneralesObra && importeGastosGeneralesObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46', border: '1px solid #10b981' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioGastosGeneralesObra === 'fijo'
+                                            ? parseFloat(honorarioGastosGeneralesObra || 0)
+                                            : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioGastosGeneralesObra === 'fijo' ? 'btn-outline-success active' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoHonorarioGastosGeneralesObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioGastosGeneralesObra === 'porcentaje' ? 'btn-outline-success active' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoHonorarioGastosGeneralesObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#d1fae5',
+                                          color: '#065f46',
+                                          border: '1px solid #10b981',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioGastosGeneralesObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioGastosGeneralesObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioGastosGeneralesObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioGastosGeneralesObra}
+                                          onChange={(e) => setDescuentoHonorarioGastosGeneralesObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #10b981',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Honorario Base */}
+                                      {honorarioGastosGeneralesObra && importeGastosGeneralesObra && (
+                                        <div className="mt-1 p-1" style={{ backgroundColor: '#ecfdf5', borderRadius: '4px', fontSize: '0.7rem', color: '#047857', fontWeight: 'bold' }}>
+                                          📊 Hon. Base: $
+                                          {(tipoHonorarioGastosGeneralesObra === 'fijo'
+                                            ? parseFloat(honorarioGastosGeneralesObra || 0)
+                                            : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioGastosGeneralesObra && descuentoHonorarioGastosGeneralesObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioGastosGeneralesObra === 'fijo'
+                                                ? parseFloat(honorarioGastosGeneralesObra || 0)
+                                                : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioGastosGeneralesObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioGastosGeneralesObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioGastosGeneralesObra || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#10b981', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioGastosGeneralesObra === 'fijo'
+                                                ? parseFloat(honorarioGastosGeneralesObra || 0)
+                                                : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioGastosGeneralesObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioGastosGeneralesObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioGastosGeneralesObra || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* Descuento Honorario Mayores Costos */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Mayores Costos
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioMayoresCostosObra && importeMayoresCostosObra && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b', border: '1px solid #ef4444' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioMayoresCostosObra === 'fijo'
+                                            ? parseFloat(honorarioMayoresCostosObra || 0)
+                                            : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMayoresCostosObra === 'fijo' ? 'btn-outline-danger active' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMayoresCostosObra('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMayoresCostosObra === 'porcentaje' ? 'btn-outline-danger active' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMayoresCostosObra('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fee2e2',
+                                          color: '#991b1b',
                                           border: '1px solid #ef4444',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioMayoresCostosObra === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioMayoresCostosObra === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioMayoresCostosObra === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioMayoresCostosObra}
+                                          onChange={(e) => setDescuentoHonorarioMayoresCostosObra(e.target.value)}
+                                          style={{
+                                            border: '1px solid #ef4444',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Honorario Base */}
+                                      {honorarioMayoresCostosObra && importeMayoresCostosObra && (
+                                        <div className="mt-1 p-1" style={{ backgroundColor: '#fef2f2', borderRadius: '4px', fontSize: '0.7rem', color: '#7f1d1d', fontWeight: 'bold' }}>
+                                          📊 Hon. Base: $
+                                          {(tipoHonorarioMayoresCostosObra === 'fijo'
+                                            ? parseFloat(honorarioMayoresCostosObra || 0)
+                                            : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioMayoresCostosObra && descuentoHonorarioMayoresCostosObra && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMayoresCostosObra === 'fijo'
+                                                ? parseFloat(honorarioMayoresCostosObra || 0)
+                                                : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMayoresCostosObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMayoresCostosObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMayoresCostosObra || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#ef4444', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMayoresCostosObra === 'fijo'
+                                                ? parseFloat(honorarioMayoresCostosObra || 0)
+                                                : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMayoresCostosObra === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMayoresCostosObra || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMayoresCostosObra || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -6025,11 +7474,41 @@ const ObrasPage = ({ showNotification }) => {
                                         ${parseFloat(importeTotalObra).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                       </span>
                                     </div>
-                                    <small className="text-muted d-block mt-1">
-                                      Jornales: ${(parseFloat(importeJornalesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
-                                      Materiales: ${(parseFloat(importeMaterialesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
-                                      Honorarios: {tipoHonorariosObra === 'porcentaje' ? `${importeHonorariosObra}%` : `$${(parseFloat(importeHonorariosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`} +
-                                      Mayores Costos: {tipoMayoresCostosObra === 'porcentaje' ? `${importeMayoresCostosObra}%` : `$${(parseFloat(importeMayoresCostosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                    <small className="text-muted d-block mt-2">
+                                      <div className="row">
+                                        <div className="col-6 mb-1">
+                                          ⚒️ <strong>Jornales:</strong> ${(parseFloat(importeJornalesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioJornalesObra && parseFloat(honorarioJornalesObra) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioJornalesObra === 'porcentaje' ? `${honorarioJornalesObra}%` : `$${(parseFloat(honorarioJornalesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="col-6 mb-1">
+                                          📦 <strong>Materiales:</strong> ${(parseFloat(importeMaterialesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioMaterialesObra && parseFloat(honorarioMaterialesObra) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioMaterialesObra === 'porcentaje' ? `${honorarioMaterialesObra}%` : `$${(parseFloat(honorarioMaterialesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="col-6 mb-1">
+                                          💼 <strong>Gastos Generales:</strong> ${(parseFloat(importeGastosGeneralesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioGastosGeneralesObra && parseFloat(honorarioGastosGeneralesObra) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioGastosGeneralesObra === 'porcentaje' ? `${honorarioGastosGeneralesObra}%` : `$${(parseFloat(honorarioGastosGeneralesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="col-6 mb-1">
+                                          📈 <strong>Mayores Costos:</strong> ${(parseFloat(importeMayoresCostosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioMayoresCostosObra && parseFloat(honorarioMayoresCostosObra) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioMayoresCostosObra === 'porcentaje' ? `${honorarioMayoresCostosObra}%` : `$${(parseFloat(honorarioMayoresCostosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
                                     </small>
                                   </div>
                                 )}
@@ -6229,10 +7708,24 @@ const ObrasPage = ({ showNotification }) => {
                             setUsarDesgloseObra(false);
                             setImporteMaterialesObra('');
                             setImporteJornalesObra('');
-                            setImporteHonorariosObra('');
-                            setTipoHonorariosObra('fijo');
+                            setImporteGastosGeneralesObra('');
                             setImporteMayoresCostosObra('');
-                            setTipoMayoresCostosObra('fijo');
+                            setHonorarioJornalesObra('');
+                            setTipoHonorarioJornalesObra('fijo');
+                            setHonorarioMaterialesObra('');
+                            setTipoHonorarioMaterialesObra('fijo');
+                            setHonorarioGastosGeneralesObra('');
+                            setTipoHonorarioGastosGeneralesObra('fijo');
+                            setHonorarioMayoresCostosObra('');
+                            setTipoHonorarioMayoresCostosObra('fijo');
+                            setDescuentoJornalesObra('');
+                            setTipoDescuentoJornalesObra('fijo');
+                            setDescuentoMaterialesObra('');
+                            setTipoDescuentoMaterialesObra('fijo');
+                            setDescuentoGastosGeneralesObra('');
+                            setTipoDescuentoGastosGeneralesObra('fijo');
+                            setDescuentoMayoresCostosObra('');
+                            setTipoDescuentoMayoresCostosObra('fijo');
                             setImporteTotalObra('');
                           }
                           dispatch(setActiveTab('lista'));
@@ -6525,14 +8018,69 @@ const ObrasPage = ({ showNotification }) => {
                                         });
 
                                         // Restaurar desglose desde campos nativos del DTO
-                                        if (obra.presupuestoJornales || obra.presupuestoMateriales || obra.presupuestoHonorarios || obra.presupuestoMayoresCostos) {
+                                        if (obra.presupuestoJornales || obra.presupuestoMateriales || obra.importeGastosGeneralesObra || obra.presupuestoMayoresCostos ||
+                                            obra.presupuestoHonorarios) {
                                           setUsarDesgloseObra(true);
                                           setImporteJornalesObra(obra.presupuestoJornales != null ? String(obra.presupuestoJornales) : '');
                                           setImporteMaterialesObra(obra.presupuestoMateriales != null ? String(obra.presupuestoMateriales) : '');
-                                          setImporteHonorariosObra(obra.presupuestoHonorarios != null ? String(obra.presupuestoHonorarios) : '');
-                                          setTipoHonorariosObra(obra.tipoHonorarioPresupuesto || 'fijo');
+                                          setImporteGastosGeneralesObra(obra.importeGastosGeneralesObra != null ? String(obra.importeGastosGeneralesObra) : '');
                                           setImporteMayoresCostosObra(obra.presupuestoMayoresCostos != null ? String(obra.presupuestoMayoresCostos) : '');
-                                          setTipoMayoresCostosObra(obra.tipoMayoresCostosPresupuesto || 'fijo');
+
+                                          // Restaurar honorarios si existen
+                                          if (obra.honorarioJornalesObra != null) {
+                                            setHonorarioJornalesObra(String(obra.honorarioJornalesObra));
+                                            setTipoHonorarioJornalesObra(obra.tipoHonorarioJornalesObra || 'fijo');
+                                          }
+                                          if (obra.honorarioMaterialesObra != null) {
+                                            setHonorarioMaterialesObra(String(obra.honorarioMaterialesObra));
+                                            setTipoHonorarioMaterialesObra(obra.tipoHonorarioMaterialesObra || 'fijo');
+                                          }
+                                          if (obra.honorarioGastosGeneralesObra != null) {
+                                            setHonorarioGastosGeneralesObra(String(obra.honorarioGastosGeneralesObra));
+                                            setTipoHonorarioGastosGeneralesObra(obra.tipoHonorarioGastosGeneralesObra || 'fijo');
+                                          }
+                                          if (obra.honorarioMayoresCostosObra != null) {
+                                            setHonorarioMayoresCostosObra(String(obra.honorarioMayoresCostosObra));
+                                            setTipoHonorarioMayoresCostosObra(obra.tipoHonorarioMayoresCostosObra || 'fijo');
+                                          }
+
+                                          // Restaurar descuentos base si existen
+                                          if (obra.descuentoJornalesObra != null) {
+                                            setDescuentoJornalesObra(String(obra.descuentoJornalesObra));
+                                            setTipoDescuentoJornalesObra(obra.tipoDescuentoJornalesObra || 'fijo');
+                                          }
+                                          if (obra.descuentoMaterialesObra != null) {
+                                            setDescuentoMaterialesObra(String(obra.descuentoMaterialesObra));
+                                            setTipoDescuentoMaterialesObra(obra.tipoDescuentoMaterialesObra || 'fijo');
+                                          }
+                                          if (obra.descuentoGastosGeneralesObra != null) {
+                                            setDescuentoGastosGeneralesObra(String(obra.descuentoGastosGeneralesObra));
+                                            setTipoDescuentoGastosGeneralesObra(obra.tipoDescuentoGastosGeneralesObra || 'fijo');
+                                          }
+                                          if (obra.descuentoMayoresCostosObra != null) {
+                                            setDescuentoMayoresCostosObra(String(obra.descuentoMayoresCostosObra));
+                                            setTipoDescuentoMayoresCostosObra(obra.tipoDescuentoMayoresCostosObra || 'fijo');
+                                          }
+
+                                          // Restaurar descuentos sobre honorarios si existen
+                                          if (obra.descuentoHonorarioJornalesObra != null) {
+                                            setDescuentoHonorarioJornalesObra(String(obra.descuentoHonorarioJornalesObra));
+                                            setTipoDescuentoHonorarioJornalesObra(obra.tipoDescuentoHonorarioJornalesObra || 'fijo');
+                                          }
+                                          if (obra.descuentoHonorarioMaterialesObra != null) {
+                                            setDescuentoHonorarioMaterialesObra(String(obra.descuentoHonorarioMaterialesObra));
+                                            setTipoDescuentoHonorarioMaterialesObra(obra.tipoDescuentoHonorarioMaterialesObra || 'fijo');
+                                          }
+                                          if (obra.descuentoHonorarioGastosGeneralesObra != null) {
+                                            setDescuentoHonorarioGastosGeneralesObra(String(obra.descuentoHonorarioGastosGeneralesObra));
+                                            setTipoDescuentoHonorarioGastosGeneralesObra(obra.tipoDescuentoHonorarioGastosGeneralesObra || 'fijo');
+                                          }
+                                          if (obra.descuentoHonorarioMayoresCostosObra != null) {
+                                            setDescuentoHonorarioMayoresCostosObra(String(obra.descuentoHonorarioMayoresCostosObra));
+                                            setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'fijo');
+                                          }
+
+                                          console.log('📂 Desglose obra restaurado desde DTO (tabla):', obra);
                                         } else {
                                           setUsarDesgloseObra(false);
                                           setImporteMaterialesObra('');
@@ -9949,25 +11497,28 @@ Gestionar Trabajos Adicionales
                               className="btn btn-sm btn-outline-primary"
                               onClick={() => {
                                 setUsarDesglose(!usarDesglose);
-                                if (!usarDesglose) {
-                                  // Limpiar campos al activar desglose
-                                  setImporteMateriales('');
-                                  setImporteJornales('');
-                                  setImporteHonorarios('');
-                                  setTipoHonorarios('fijo');
-                                  setImporteMayoresCostos('');
-                                  setTipoMayoresCostos('fijo');
-                                  setImporteTotal('');
-                                } else {
-                                  // Limpiar campos al desactivar desglose
-                                  setImporteMateriales('');
-                                  setImporteJornales('');
-                                  setImporteHonorarios('');
-                                  setTipoHonorarios('fijo');
-                                  setImporteMayoresCostos('');
-                                  setTipoMayoresCostos('fijo');
-                                  setImporteTotal('');
-                                }
+                                // Limpiar todos los campos al activar/desactivar
+                                setImporteMateriales('');
+                                setImporteJornales('');
+                                setImporteGastosGenerales('');
+                                setImporteMayoresCostos('');
+                                setHonorarioJornales('');
+                                setTipoHonorarioJornales('fijo');
+                                setHonorarioMateriales('');
+                                setTipoHonorarioMateriales('fijo');
+                                setHonorarioGastosGenerales('');
+                                setTipoHonorarioGastosGenerales('fijo');
+                                setHonorarioMayoresCostos('');
+                                setTipoHonorarioMayoresCostos('fijo');
+                                setDescuentoJornales('');
+                                setTipoDescuentoJornales('fijo');
+                                setDescuentoMateriales('');
+                                setTipoDescuentoMateriales('fijo');
+                                setDescuentoGastosGenerales('');
+                                setTipoDescuentoGastosGenerales('fijo');
+                                setDescuentoMayoresCostos('');
+                                setTipoDescuentoMayoresCostos('fijo');
+                                setImporteTotal('');
                               }}
                               style={{ borderRadius: '8px', fontSize: '0.85rem' }}
                             >
@@ -10001,161 +11552,920 @@ Gestionar Trabajos Adicionales
                               </div>
                               <div className="card-body p-3">
                                 <div className="row">
-                                  {/* Importe de Jornales */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-user-hard-hat me-2 text-warning"></i>
-                                      Jornales
-                                    </label>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#fef3c7',
-                                        color: '#92400e',
-                                        border: '1px solid #f59e0b'
-                                      }}>
-                                        $
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder="0.00"
-                                        step="0.01"
-                                        min="0"
-                                        value={importeJornales}
-                                        onChange={(e) => setImporteJornales(e.target.value)}
-                                        style={{
+                                  {/* Jornales */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#fffbeb', borderColor: '#f59e0b !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#92400e', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-user-hard-hat me-2"></i>
+                                        Jornales
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
+                                          border: '1px solid #f59e0b'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeJornales}
+                                          onChange={(e) => setImporteJornales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #f59e0b',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Jornales */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioJornales === 'fijo' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                            onClick={() => setTipoHonorarioJornales('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioJornales === 'porcentaje' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                            onClick={() => setTipoHonorarioJornales('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#fef3c7',
+                                            color: '#92400e',
+                                            border: '1px solid #f59e0b',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioJornales === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioJornales === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioJornales === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioJornales === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioJornales}
+                                            onChange={(e) => setHonorarioJornales(e.target.value)}
+                                            style={{
+                                              border: '1px solid #f59e0b',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Materiales */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#eff6ff', borderColor: '#3b82f6 !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#1e40af', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-boxes me-2"></i>
+                                        Materiales
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#dbeafe',
+                                          color: '#1e40af',
+                                          border: '1px solid #3b82f6'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeMateriales}
+                                          onChange={(e) => setImporteMateriales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #3b82f6',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Materiales */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMateriales === 'fijo' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                            onClick={() => setTipoHonorarioMateriales('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMateriales === 'porcentaje' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                            onClick={() => setTipoHonorarioMateriales('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#dbeafe',
+                                            color: '#1e40af',
+                                            border: '1px solid #3b82f6',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioMateriales === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioMateriales === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioMateriales === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioMateriales === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioMateriales}
+                                            onChange={(e) => setHonorarioMateriales(e.target.value)}
+                                            style={{
+                                              border: '1px solid #3b82f6',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Gastos Generales */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#f0fdf4', borderColor: '#10b981 !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#065f46', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-file-invoice-dollar me-2"></i>
+                                        Gastos Generales
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#d1fae5',
+                                          color: '#065f46',
+                                          border: '1px solid #10b981'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeGastosGenerales}
+                                          onChange={(e) => setImporteGastosGenerales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #10b981',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Gastos Generales */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioGastosGenerales === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
+                                            onClick={() => setTipoHonorarioGastosGenerales('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioGastosGenerales === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
+                                            onClick={() => setTipoHonorarioGastosGenerales('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#d1fae5',
+                                            color: '#065f46',
+                                            border: '1px solid #10b981',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioGastosGenerales === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioGastosGenerales === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioGastosGenerales === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioGastosGenerales === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioGastosGenerales}
+                                            onChange={(e) => setHonorarioGastosGenerales(e.target.value)}
+                                            style={{
+                                              border: '1px solid #10b981',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Mayores Costos */}
+                                  <div className="col-md-6 mb-4">
+                                    <div className="border rounded p-3" style={{ backgroundColor: '#fef2f2', borderColor: '#ef4444 !important' }}>
+                                      <label className="form-label fw-bold" style={{ color: '#991b1b', fontSize: '0.95rem' }}>
+                                        <i className="fas fa-chart-line me-2"></i>
+                                        Mayores Costos
+                                      </label>
+                                      <div className="input-group mb-2">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fee2e2',
+                                          color: '#991b1b',
+                                          border: '1px solid #ef4444'
+                                        }}>
+                                          $
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0.00"
+                                          step="0.01"
+                                          min="0"
+                                          value={importeMayoresCostos}
+                                          onChange={(e) => setImporteMayoresCostos(e.target.value)}
+                                          style={{
+                                            border: '1px solid #ef4444',
+                                            borderLeft: 'none'
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Honorarios para Mayores Costos */}
+                                      <div className="mt-2">
+                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
+                                          <i className="fas fa-handshake me-1"></i>
+                                          Honorarios
+                                        </label>
+                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMayoresCostos === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                            onClick={() => setTipoHonorarioMayoresCostos('fijo')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            $ Fijo
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={`btn btn-sm ${tipoHonorarioMayoresCostos === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                            onClick={() => setTipoHonorarioMayoresCostos('porcentaje')}
+                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                          >
+                                            % Porcentaje
+                                          </button>
+                                        </div>
+                                        <div className="input-group input-group-sm">
+                                          <span className="input-group-text" style={{
+                                            backgroundColor: '#fee2e2',
+                                            color: '#991b1b',
+                                            border: '1px solid #ef4444',
+                                            fontSize: '0.8rem'
+                                          }}>
+                                            {tipoHonorarioMayoresCostos === 'fijo' ? '$' : '%'}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            className="form-control"
+                                            placeholder={tipoHonorarioMayoresCostos === 'fijo' ? '0.00' : '0'}
+                                            step={tipoHonorarioMayoresCostos === 'fijo' ? '0.01' : '1'}
+                                            min="0"
+                                            max={tipoHonorarioMayoresCostos === 'porcentaje' ? '100' : undefined}
+                                            value={honorarioMayoresCostos}
+                                            onChange={(e) => setHonorarioMayoresCostos(e.target.value)}
+                                            style={{
+                                              border: '1px solid #ef4444',
+                                              borderLeft: 'none',
+                                              fontSize: '0.85rem'
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Sección de Descuentos */}
+                                <div className="mt-4 pt-3" style={{ borderTop: '2px dashed #e5e7eb' }}>
+                                  <h6 className="mb-3" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
+                                    <i className="fas fa-percent me-2 text-danger"></i>
+                                    Descuentos Aplicables
+                                  </h6>
+
+                                  <div className="row">
+                                    {/* Descuento Jornales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Jornales
+                                      </label>
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoJornales === 'fijo' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                          onClick={() => setTipoDescuentoJornales('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoJornales === 'porcentaje' ? 'btn-warning' : 'btn-outline-warning'}`}
+                                          onClick={() => setTipoDescuentoJornales('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
                                           border: '1px solid #f59e0b',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoJornales === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoJornales === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoJornales === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoJornales}
+                                          onChange={(e) => setDescuentoJornales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #f59e0b',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
 
-                                  {/* Importe de Materiales */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-boxes me-2 text-primary"></i>
-                                      Materiales
-                                    </label>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#dbeafe',
-                                        color: '#1e40af',
-                                        border: '1px solid #3b82f6'
-                                      }}>
-                                        $
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder="0.00"
-                                        step="0.01"
-                                        min="0"
-                                        value={importeMateriales}
-                                        onChange={(e) => setImporteMateriales(e.target.value)}
-                                        style={{
+                                    {/* Descuento Materiales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Materiales
+                                      </label>
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMateriales === 'fijo' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoMateriales('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMateriales === 'porcentaje' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoMateriales('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#dbeafe',
+                                          color: '#1e40af',
                                           border: '1px solid #3b82f6',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoMateriales === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoMateriales === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoMateriales === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoMateriales}
+                                          onChange={(e) => setDescuentoMateriales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #3b82f6',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
 
-                                  {/* Importe de Honorarios */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-handshake me-2 text-success"></i>
-                                      Honorarios
-                                    </label>
-                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoHonorarios === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
-                                        onClick={() => setTipoHonorarios('fijo')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        $ Fijo
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoHonorarios === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
-                                        onClick={() => setTipoHonorarios('porcentaje')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        % Porcentaje
-                                      </button>
-                                    </div>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#d1fae5',
-                                        color: '#065f46',
-                                        border: '1px solid #10b981'
-                                      }}>
-                                        {tipoHonorarios === 'fijo' ? '$' : '%'}
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder={tipoHonorarios === 'fijo' ? '0.00' : '0'}
-                                        step={tipoHonorarios === 'fijo' ? '0.01' : '1'}
-                                        min="0"
-                                        max={tipoHonorarios === 'porcentaje' ? '100' : undefined}
-                                        value={importeHonorarios}
-                                        onChange={(e) => setImporteHonorarios(e.target.value)}
-                                        style={{
+                                    {/* Descuento Gastos Generales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Gastos Generales
+                                      </label>
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoGastosGenerales === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoGastosGenerales('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoGastosGenerales === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoGastosGenerales('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#d1fae5',
+                                          color: '#065f46',
                                           border: '1px solid #10b981',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoGastosGenerales === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoGastosGenerales === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoGastosGenerales === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoGastosGenerales}
+                                          onChange={(e) => setDescuentoGastosGenerales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #10b981',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+
+                                    {/* Descuento Mayores Costos */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-tag me-1"></i>
+                                        Desc. Mayores Costos
+                                      </label>
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMayoresCostos === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoMayoresCostos('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoMayoresCostos === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoMayoresCostos('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fee2e2',
+                                          color: '#991b1b',
+                                          border: '1px solid #ef4444',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoMayoresCostos === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoMayoresCostos === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoMayoresCostos === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoMayoresCostos}
+                                          onChange={(e) => setDescuentoMayoresCostos(e.target.value)}
+                                          style={{
+                                            border: '1px solid #ef4444',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
                                     </div>
                                   </div>
+                                </div>
 
-                                  {/* Importe de Mayores Costos */}
-                                  <div className="col-md-6 col-lg-3 mb-3">
-                                    <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.9rem' }}>
-                                      <i className="fas fa-chart-line me-2 text-danger"></i>
-                                      Mayores Costos
-                                    </label>
-                                    <div className="btn-group d-flex mb-2" role="group" style={{ borderRadius: '8px' }}>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoMayoresCostos === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                        onClick={() => setTipoMayoresCostos('fijo')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        $ Fijo
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${tipoMayoresCostos === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                        onClick={() => setTipoMayoresCostos('porcentaje')}
-                                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
-                                      >
-                                        % Porcentaje
-                                      </button>
+                                {/* Sección de Descuentos sobre Honorarios */}
+                                <div className="mt-4 pt-3" style={{ borderTop: '2px dashed #dc3545' }}>
+                                  <h6 className="mb-3" style={{ fontWeight: '600', color: '#dc3545', fontSize: '0.95rem' }}>
+                                    <i className="fas fa-percentage me-2 text-danger"></i>
+                                    Descuentos sobre Honorarios
+                                  </h6>
+
+                                  <div className="row">
+                                    {/* Descuento Honorario Jornales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Jornales
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioJornales && importeJornales && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e', border: '1px solid #f59e0b' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioJornales === 'fijo'
+                                            ? parseFloat(honorarioJornales || 0)
+                                            : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioJornales === 'fijo' ? 'btn-outline-warning active' : 'btn-outline-warning'}`}
+                                          onClick={() => setTipoDescuentoHonorarioJornales('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioJornales === 'porcentaje' ? 'btn-outline-warning active' : 'btn-outline-warning'}`}
+                                          onClick={() => setTipoDescuentoHonorarioJornales('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
+                                          border: '1px solid #f59e0b',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioJornales === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioJornales === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioJornales === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioJornales}
+                                          onChange={(e) => setDescuentoHonorarioJornales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #f59e0b',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
                                     </div>
-                                    <div className="input-group">
-                                      <span className="input-group-text" style={{
-                                        backgroundColor: '#fee2e2',
-                                        color: '#991b1b',
-                                        border: '1px solid #ef4444'
-                                      }}>
-                                        {tipoMayoresCostos === 'fijo' ? '$' : '%'}
-                                      </span>
-                                      <input
-                                        type="number"
-                                        className="form-control"
-                                        placeholder={tipoMayoresCostos === 'fijo' ? '0.00' : '0'}
-                                        step={tipoMayoresCostos === 'fijo' ? '0.01' : '1'}
-                                        min="0"
-                                        max={tipoMayoresCostos === 'porcentaje' ? '100' : undefined}
-                                        value={importeMayoresCostos}
-                                        onChange={(e) => setImporteMayoresCostos(e.target.value)}
-                                        style={{
+
+                                    {/* Descuento Honorario Materiales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Materiales
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioMateriales && importeMateriales && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af', border: '1px solid #3b82f6' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioMateriales === 'fijo'
+                                            ? parseFloat(honorarioMateriales || 0)
+                                            : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMateriales === 'fijo' ? 'btn-outline-primary active' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMateriales('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMateriales === 'porcentaje' ? 'btn-outline-primary active' : 'btn-outline-primary'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMateriales('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#dbeafe',
+                                          color: '#1e40af',
+                                          border: '1px solid #3b82f6',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioMateriales === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioMateriales === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioMateriales === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioMateriales}
+                                          onChange={(e) => setDescuentoHonorarioMateriales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #3b82f6',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Honorario Base */}
+                                      {honorarioMateriales && importeMateriales && (
+                                        <div className="mt-1 p-1" style={{ backgroundColor: '#eff6ff', borderRadius: '4px', fontSize: '0.7rem', color: '#1e3a8a', fontWeight: 'bold' }}>
+                                          📊 Hon. Base: $
+                                          {(tipoHonorarioMateriales === 'fijo'
+                                            ? parseFloat(honorarioMateriales || 0)
+                                            : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioMateriales && descuentoHonorarioMateriales && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMateriales === 'fijo'
+                                                ? parseFloat(honorarioMateriales || 0)
+                                                : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMateriales === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMateriales || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMateriales || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#3b82f6', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMateriales === 'fijo'
+                                                ? parseFloat(honorarioMateriales || 0)
+                                                : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMateriales === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMateriales || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMateriales || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* Descuento Honorario Gastos Generales */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Gastos Generales
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioGastosGenerales && importeGastosGenerales && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46', border: '1px solid #10b981' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioGastosGenerales === 'fijo'
+                                            ? parseFloat(honorarioGastosGenerales || 0)
+                                            : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioGastosGenerales === 'fijo' ? 'btn-outline-success active' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoHonorarioGastosGenerales('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioGastosGenerales === 'porcentaje' ? 'btn-outline-success active' : 'btn-outline-success'}`}
+                                          onClick={() => setTipoDescuentoHonorarioGastosGenerales('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#d1fae5',
+                                          color: '#065f46',
+                                          border: '1px solid #10b981',
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioGastosGenerales === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioGastosGenerales === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioGastosGenerales === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioGastosGenerales}
+                                          onChange={(e) => setDescuentoHonorarioGastosGenerales(e.target.value)}
+                                          style={{
+                                            border: '1px solid #10b981',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Honorario Base */}
+                                      {honorarioGastosGenerales && importeGastosGenerales && (
+                                        <div className="mt-1 p-1" style={{ backgroundColor: '#ecfdf5', borderRadius: '4px', fontSize: '0.7rem', color: '#047857', fontWeight: 'bold' }}>
+                                          📊 Hon. Base: $
+                                          {(tipoHonorarioGastosGenerales === 'fijo'
+                                            ? parseFloat(honorarioGastosGenerales || 0)
+                                            : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioGastosGenerales && descuentoHonorarioGastosGenerales && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioGastosGenerales === 'fijo'
+                                                ? parseFloat(honorarioGastosGenerales || 0)
+                                                : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioGastosGenerales === 'fijo'
+                                                ? parseFloat(descuentoHonorarioGastosGenerales || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioGastosGenerales || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#10b981', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioGastosGenerales === 'fijo'
+                                                ? parseFloat(honorarioGastosGenerales || 0)
+                                                : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioGastosGenerales === 'fijo'
+                                                ? parseFloat(descuentoHonorarioGastosGenerales || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioGastosGenerales || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* Descuento Honorario Mayores Costos */}
+                                    <div className="col-md-6 col-lg-3 mb-3">
+                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
+                                        <i className="fas fa-percentage me-1"></i>
+                                        Desc. Hon. Mayores Costos
+                                      </label>
+                                      {/* Honorario base */}
+                                      {honorarioMayoresCostos && importeMayoresCostos && (
+                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b', border: '1px solid #ef4444' }}>
+                                          <strong>📊 Hon. Base:</strong> $
+                                          {(tipoHonorarioMayoresCostos === 'fijo'
+                                            ? parseFloat(honorarioMayoresCostos || 0)
+                                            : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMayoresCostos === 'fijo' ? 'btn-outline-danger active' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMayoresCostos('fijo')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          $ Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`btn btn-sm ${tipoDescuentoHonorarioMayoresCostos === 'porcentaje' ? 'btn-outline-danger active' : 'btn-outline-danger'}`}
+                                          onClick={() => setTipoDescuentoHonorarioMayoresCostos('porcentaje')}
+                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                                        >
+                                          % Porcentaje
+                                        </button>
+                                      </div>
+                                      <div className="input-group input-group-sm">
+                                        <span className="input-group-text" style={{
+                                          backgroundColor: '#fee2e2',
+                                          color: '#991b1b',
                                           border: '1px solid #ef4444',
-                                          borderLeft: 'none'
-                                        }}
-                                      />
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          {tipoDescuentoHonorarioMayoresCostos === 'fijo' ? '$' : '%'}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          className="form-control"
+                                          placeholder="0"
+                                          step={tipoDescuentoHonorarioMayoresCostos === 'fijo' ? '0.01' : '1'}
+                                          min="0"
+                                          max={tipoDescuentoHonorarioMayoresCostos === 'porcentaje' ? '100' : undefined}
+                                          value={descuentoHonorarioMayoresCostos}
+                                          onChange={(e) => setDescuentoHonorarioMayoresCostos(e.target.value)}
+                                          style={{
+                                            border: '1px solid #ef4444',
+                                            borderLeft: 'none',
+                                            fontSize: '0.8rem'
+                                          }}
+                                        />
+                                      </div>
+                                      {/* Honorario Base */}
+                                      {honorarioMayoresCostos && importeMayoresCostos && (
+                                        <div className="mt-1 p-1" style={{ backgroundColor: '#fef2f2', borderRadius: '4px', fontSize: '0.7rem', color: '#7f1d1d', fontWeight: 'bold' }}>
+                                          📊 Hon. Base: $
+                                          {(tipoHonorarioMayoresCostos === 'fijo'
+                                            ? parseFloat(honorarioMayoresCostos || 0)
+                                            : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100)
+                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                      )}
+                                      {/* Cálculo descuento sobre honorario */}
+                                      {honorarioMayoresCostos && descuentoHonorarioMayoresCostos && (
+                                        <>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b' }}>
+                                            <strong>💰 Descuento:</strong> $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMayoresCostos === 'fijo'
+                                                ? parseFloat(honorarioMayoresCostos || 0)
+                                                : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMayoresCostos === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMayoresCostos || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMayoresCostos || 0) / 100);
+                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                          <div className="mt-1 p-1" style={{ backgroundColor: '#ef4444', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                            💵 Hon. Final: $
+                                            {(() => {
+                                              const honorario = tipoHonorarioMayoresCostos === 'fijo'
+                                                ? parseFloat(honorarioMayoresCostos || 0)
+                                                : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100);
+                                              const descuento = tipoDescuentoHonorarioMayoresCostos === 'fijo'
+                                                ? parseFloat(descuentoHonorarioMayoresCostos || 0)
+                                                : (honorario * parseFloat(descuentoHonorarioMayoresCostos || 0) / 100);
+                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            })()}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -10176,11 +12486,41 @@ Gestionar Trabajos Adicionales
                                         ${parseFloat(importeTotal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                       </span>
                                     </div>
-                                    <small className="text-muted d-block mt-1">
-                                      Jornales: ${(parseFloat(importeJornales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
-                                      Materiales: ${(parseFloat(importeMateriales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} +
-                                      Honorarios: {tipoHonorarios === 'porcentaje' ? `${importeHonorarios}%` : `$${(parseFloat(importeHonorarios) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`} +
-                                      Mayores Costos: {tipoMayoresCostos === 'porcentaje' ? `${importeMayoresCostos}%` : `$${(parseFloat(importeMayoresCostos) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                    <small className="text-muted d-block mt-2">
+                                      <div className="row">
+                                        <div className="col-6 mb-1">
+                                          ⚒️ <strong>Jornales:</strong> ${(parseFloat(importeJornales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioJornales && parseFloat(honorarioJornales) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioJornales === 'porcentaje' ? `${honorarioJornales}%` : `$${(parseFloat(honorarioJornales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="col-6 mb-1">
+                                          📦 <strong>Materiales:</strong> ${(parseFloat(importeMateriales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioMateriales && parseFloat(honorarioMateriales) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioMateriales === 'porcentaje' ? `${honorarioMateriales}%` : `$${(parseFloat(honorarioMateriales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="col-6 mb-1">
+                                          💼 <strong>Gastos Generales:</strong> ${(parseFloat(importeGastosGenerales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioGastosGenerales && parseFloat(honorarioGastosGenerales) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioGastosGenerales === 'porcentaje' ? `${honorarioGastosGenerales}%` : `$${(parseFloat(honorarioGastosGenerales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="col-6 mb-1">
+                                          📈 <strong>Mayores Costos:</strong> ${(parseFloat(importeMayoresCostos) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          {honorarioMayoresCostos && parseFloat(honorarioMayoresCostos) > 0 && (
+                                            <span className="ms-1 text-success">
+                                              + Hon. {tipoHonorarioMayoresCostos === 'porcentaje' ? `${honorarioMayoresCostos}%` : `$${(parseFloat(honorarioMayoresCostos) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
                                     </small>
                                   </div>
                                 )}
@@ -10850,13 +13190,38 @@ Gestionar Trabajos Adicionales
                       fechaInicio: formData.get('fechaInicio'),
                       descripcion: formData.get('descripcion') || null,
                       observaciones: formData.get('observaciones') || null,
-                      // Desglose de importe (campos nativos del backend)
+                      // Desglose de importe - importes base
                       importeJornales: usarDesglose ? (parseFloat(importeJornales) || null) : null,
                       importeMateriales: usarDesglose ? (parseFloat(importeMateriales) || null) : null,
-                      importeHonorarios: usarDesglose ? (parseFloat(importeHonorarios) || null) : null,
-                      tipoHonorarios: usarDesglose ? tipoHonorarios : null,
+                      importeGastosGenerales: usarDesglose ? (parseFloat(importeGastosGenerales) || null) : null,
                       importeMayoresCostos: usarDesglose ? (parseFloat(importeMayoresCostos) || null) : null,
-                      tipoMayoresCostos: usarDesglose ? tipoMayoresCostos : null,
+                      // Honorarios individuales para cada categoría
+                      honorarioJornales: usarDesglose ? (parseFloat(honorarioJornales) || null) : null,
+                      tipoHonorarioJornales: usarDesglose ? tipoHonorarioJornales : null,
+                      honorarioMateriales: usarDesglose ? (parseFloat(honorarioMateriales) || null) : null,
+                      tipoHonorarioMateriales: usarDesglose ? tipoHonorarioMateriales : null,
+                      honorarioGastosGenerales: usarDesglose ? (parseFloat(honorarioGastosGenerales) || null) : null,
+                      tipoHonorarioGastosGenerales: usarDesglose ? tipoHonorarioGastosGenerales : null,
+                      honorarioMayoresCostos: usarDesglose ? (parseFloat(honorarioMayoresCostos) || null) : null,
+                      tipoHonorarioMayoresCostos: usarDesglose ? tipoHonorarioMayoresCostos : null,
+                      // Descuentos individuales para cada categoría
+                      descuentoJornales: usarDesglose ? (parseFloat(descuentoJornales) || null) : null,
+                      tipoDescuentoJornales: usarDesglose ? tipoDescuentoJornales : null,
+                      descuentoMateriales: usarDesglose ? (parseFloat(descuentoMateriales) || null) : null,
+                      tipoDescuentoMateriales: usarDesglose ? tipoDescuentoMateriales : null,
+                      descuentoGastosGenerales: usarDesglose ? (parseFloat(descuentoGastosGenerales) || null) : null,
+                      tipoDescuentoGastosGenerales: usarDesglose ? tipoDescuentoGastosGenerales : null,
+                      descuentoMayoresCostos: usarDesglose ? (parseFloat(descuentoMayoresCostos) || null) : null,
+                      tipoDescuentoMayoresCostos: usarDesglose ? tipoDescuentoMayoresCostos : null,
+                      // Descuentos específicos para honorarios
+                      descuentoHonorarioJornales: usarDesglose ? (parseFloat(descuentoHonorarioJornales) || null) : null,
+                      tipoDescuentoHonorarioJornales: usarDesglose ? tipoDescuentoHonorarioJornales : null,
+                      descuentoHonorarioMateriales: usarDesglose ? (parseFloat(descuentoHonorarioMateriales) || null) : null,
+                      tipoDescuentoHonorarioMateriales: usarDesglose ? tipoDescuentoHonorarioMateriales : null,
+                      descuentoHonorarioGastosGenerales: usarDesglose ? (parseFloat(descuentoHonorarioGastosGenerales) || null) : null,
+                      tipoDescuentoHonorarioGastosGenerales: usarDesglose ? tipoDescuentoHonorarioGastosGenerales : null,
+                      descuentoHonorarioMayoresCostos: usarDesglose ? (parseFloat(descuentoHonorarioMayoresCostos) || null) : null,
+                      tipoDescuentoHonorarioMayoresCostos: usarDesglose ? tipoDescuentoHonorarioMayoresCostos : null,
                       profesionales: todosLosProfesionales,
                       // Vinculación: SIEMPRE envía el ID de la obra padre
                       obraId: obraParaTrabajosAdicionales.id, // ID de la obra padre (siempre presente)

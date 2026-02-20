@@ -117,14 +117,15 @@ apiClient.interceptors.request.use(
     // Obtener empresaId desde localStorage
     const empresaId = getEmpresaSeleccionada();
 
-    // 🔍 DEBUG: Log del interceptor
-    if (DEBUG_MODE && (config.url.includes('/profesionales/asignaciones/') || config.url.includes('/pagos-consolidados'))) {
-      console.log('🔍 [Interceptor] URL:', config.url);
-      console.log('🔍 [Interceptor] EmpresaId obtenida:', empresaId);
-      console.log('🔍 [Interceptor] Config inicial:', {
-        params: config.params,
-        headers: config.headers
-      });
+    // 🔍 DEBUG: Log del interceptor - OBRAS BORRADOR SIEMPRE
+    const esPostObras = config.method?.toLowerCase() === 'post' && config.url.includes('/obras');
+    if (esPostObras || (DEBUG_MODE && (config.url.includes('/profesionales/asignaciones/') || config.url.includes('/pagos-consolidados') || config.url.includes('/obras/borrador')))) {
+      console.log('🟦🟦🟦 [Interceptor REQUEST] URL:', config.url);
+      console.log('🟦 Method:', config.method);
+      console.log('🟦 EmpresaId obtenida desde localStorage:', empresaId);
+      console.log('🟦 Config inicial - params:', config.params);
+      console.log('🟦 Config inicial - data:', config.data);
+      console.log('🟦 Config inicial - headers:', config.headers);
     }
 
     // ⚠️ CRÍTICO: INYECTAR empresaId en TODAS las peticiones (excepto /empresas)
@@ -154,17 +155,21 @@ apiClient.interceptors.request.use(
 
       // 2️⃣ Agregar empresaId al BODY (para POST, PUT, PATCH) - SOLO si NO es FormData
       if (['post', 'put', 'patch'].includes(config.method?.toLowerCase())) {
-        // Endpoints que NO deben tener empresaId en el body (solo en params)
+        // ⚠️ ENDPOINTS QUE TOMAN empresaId SOLO DE HEADERS (NO del body)
+        // Según documentación backend: empresaId va en header, no en body JSON
         const endpointsQueryParamOnly = [
           '/aprobar-y-crear-obra',
           '/aprobar',
           '/rechazar',
           '/enviar',
           '/asignar-cliente',
-          '/duplicar'
+          '/duplicar',
+          '/obras/borrador',  // ✅ Backend mapea empresaId desde HEADERS, no body (incluye /obras/borrador y /obras/borrador/{id})
         ];
 
-        const noAgregarEnBody = endpointsQueryParamOnly.some(endpoint => config.url.includes(endpoint));
+        // 🔹 Verificar si la URL coincide con algún patrón
+        const noAgregarEnBody = endpointsQueryParamOnly.some(endpoint => config.url.includes(endpoint)) ||
+          /\/obras\/\d+$/.test(config.url); // ✅ Coincide con /api/obras/39, /api/obras/123, etc.
 
         if (!isFormData && !noAgregarEnBody && config.data && typeof config.data === 'object' && !Array.isArray(config.data)) {
           // Solo agregar si no existe ya en el body
@@ -176,7 +181,11 @@ apiClient.interceptors.request.use(
             };
           } else {
           }
-        } else if (noAgregarEnBody) {
+        } else if (noAgregarEnBody && config.data && typeof config.data === 'object') {
+          // ✅ REMOVER empresaId del body si existe (backend lo toma de headers)
+          const { empresaId: removed1, idEmpresa: removed2, ...dataWithoutEmpresaId } = config.data;
+          config.data = dataWithoutEmpresaId;
+          console.log('🔧 [Interceptor] empresaId removido del body para:', config.url);
         }
         // Si es FormData, empresaId ya debe estar en los params (query string)
       }
@@ -192,29 +201,30 @@ apiClient.interceptors.request.use(
       config.headers['x-tenant-id'] = empresaIdFinal; // Minúsculas por si acaso
     }
 
-    // 🔍 DEBUG: Log final del interceptor
-    if (DEBUG_MODE && (config.url.includes('/profesionales/asignaciones/') || config.url.includes('/pagos-consolidados'))) {
-      console.log('🔍 [Interceptor] Config final:');
-      console.log('   - URL:', config.url);
-      console.log('   - Method:', config.method);
-      console.log('   - Params:', config.params);
-      console.log('   - Body (data):', config.data);
-      console.log('   - Headers empresaId:', config.headers['empresaId'] || config.headers['empresaid']);
-      console.log('   - Headers X-Tenant-ID:', config.headers['X-Tenant-ID']);
-      console.log('   - Headers Content-Type:', config.headers['Content-Type']);
+    // 🔍 DEBUG: Log final del interceptor - OBRAS BORRADOR SIEMPRE
+    const esPostObrasFinal = config.method?.toLowerCase() === 'post' && config.url.includes('/obras');
+    const esPutObrasFinal = config.method?.toLowerCase() === 'put' && config.url.includes('/obras');
+    if (esPostObrasFinal || esPutObrasFinal || (DEBUG_MODE && (config.url.includes('/profesionales/asignaciones/') || config.url.includes('/pagos-consolidados') || config.url.includes('/obras/borrador')))) {
+      console.log('🟩🟩🟩 [Interceptor REQUEST FINAL - ANTES DE ENVIAR] 🟩🟩🟩');
+      console.log('   🔹 URL:', config.url);
+      console.log('   🔹 Method:', config.method);
+      console.log('   🔹 Params:', config.params);
+      console.log('   🔹 Headers empresaId:', config.headers['empresaId']);
+      console.log('   🔹 Headers X-Tenant-ID:', config.headers['X-Tenant-ID']);
+      console.log('   🔹 Headers Content-Type:', config.headers['Content-Type']);
 
-      // Construir URL final manualmente
+      // Construir URL final completa
       const finalURL = config.url + (config.params ? '?' + Object.entries(config.params).map(([k,v]) => `${k}=${v}`).join('&') : '');
-      console.log('   - Final URL:', finalURL);
+      console.log('   🔹 Final URL completa:', finalURL);
 
-      // Log del body parseado si es string
-      if (typeof config.data === 'string') {
-        try {
-          console.log('   - Body parseado:', JSON.parse(config.data));
-        } catch (e) {
-          console.log('   - Body (raw string):', config.data);
-        }
+      // Log del BODY con máximo detalle
+      console.log('   🔹 Body (data) - Type:', typeof config.data);
+      console.log('   🔹 Body (data) - Value:', config.data);
+      if (config.data && typeof config.data === 'object') {
+        console.log('   🔹 Body JSON stringified:', JSON.stringify(config.data, null, 2));
       }
+
+      console.log('🟩🟩🟩 [FIN REQUEST CONFIG] 🟩🟩🟩');
     }
 
     // ⚠️ GUARD: Verificar que todas las requests tengan empresaId (excepto /empresas)
@@ -363,6 +373,44 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     const { response, request, message } = error;
+
+    // 🚨 LOGGING DETALLADO PARA ERROR 409 EN /obras O /obras/borrador
+    if (response && response.status === 409 && request?.responseURL?.includes('/obras')) {
+      console.error('🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴');
+      console.error('❌ ERROR 409 CONFLICT en endpoint /obras');
+      console.error('🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴');
+      console.error('');
+      console.error('📍 URL completa request:', request?.responseURL);
+      console.error('📍 Status:', response.status, response.statusText);
+      console.error('');
+      console.error('📦 Response.data (lo que envió el backend):', response.data);
+      console.error('');
+      console.error('📦 Response.data type:', typeof response.data);
+
+      // Intentar parsear el error si es string
+      if (typeof response.data === 'string') {
+        try {
+          const parsed = JSON.parse(response.data);
+          console.error('📦 Response.data parseado:', parsed);
+        } catch (e) {
+          console.error('📦 Response.data es string plano:', response.data);
+        }
+      }
+
+      // Intentar obtener el mensaje de error del backend
+      const errorMessage = response.data?.message || response.data?.error || response.data || 'Error desconocido';
+      console.error('');
+      console.error('💬 Mensaje del backend:', errorMessage);
+      console.error('');
+      console.error('📋 Response completa (objeto full):', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data,
+        headers: response.headers
+      });
+      console.error('');
+      console.error('🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴');
+    }
 
     // 🚨 MANEJO ESPECIAL: Errores 400 en presupuestos-no-cliente (problema conocido del backend)
     if (response && response.status === 400 && request.responseURL?.includes('presupuestos-no-cliente')) {
@@ -665,12 +713,28 @@ export const apiService = {
   },
 
   // ==================== OBRAS ====================
+  // ✅ ENDPOINTS CORREGIDOS SEGÚN DOCUMENTACIÓN BACKEND (20/02/2026)
+  // Header obligatorio: empresaId: "1"
+  // Query param obligatorio: empresaId=1
   obras: {
-    getAll: (empresaId) => apiService.get('/api/obras/todas', { idEmpresa: empresaId }),
-    getById: (id, empresaId) => apiService.get(`/api/obras/${id}`, { idEmpresa: empresaId }),
-    create: (data) => apiService.post('/api/obras', data),
+    // ✅ ENDPOINT PRINCIPAL - TODAS LAS OBRAS (RECOMENDADO)
+    // GET /api/obras/todas?empresaId=1
+    // Devuelve TODAS las obras (cualquier estado) con 33 campos completos
+    getAll: (empresaId) => apiService.get('/api/obras/todas', { empresaId }),
+
+    // ✅ GET /api/obras/{id}
+    getById: (id, empresaId) => apiService.get(`/api/obras/${id}`, { empresaId }),
+
+    // ✅ POST /api/obras/borrador (crear obra independiente)
+    create: (data) => apiService.post('/api/obras/borrador', data),
+
+    // ✅ PUT /api/obras/{id}
     update: (id, data) => apiService.put(`/api/obras/${id}`, data),
+
+    // ✅ DELETE /api/obras/{id}?empresaId=1
     delete: (id, empresaId) => apiService.delete(`/api/obras/${id}`, { empresaId }),
+
+    // ✅ GET /api/obras/empresa/{empresaId}?empresaId=1
     getPorEmpresa: (empresaId, soloManuales = false) => {
       const params = { empresaId };
       if (soloManuales) {
@@ -678,12 +742,35 @@ export const apiService = {
       }
       return apiService.get(`/api/obras/empresa/${empresaId}`, params);
     },
-    getObrasManuales: (empresaId) => apiService.get(`/api/obras/empresa/${empresaId}`, { empresaId, soloManuales: true }),
+
+    // ✅ GET /api/obras/empresa/{empresaId}?empresaId=1&soloManuales=true
+    getObrasManuales: (empresaId) =>
+      apiService.get(`/api/obras/empresa/${empresaId}`, { empresaId, soloManuales: true }),
+
+    // ✅ GET /api/obras/cliente/{clienteId}
     getPorCliente: (clienteId) => apiService.get(`/api/obras/cliente/${clienteId}`),
-    getPorEstado: (estado, empresaId) => apiService.get(`/api/obras/estado/${estado}`, { idEmpresa: empresaId }),
-    cambiarEstado: (id, estado, empresaId) => apiService.patch(`/api/obras/${id}/estado`, null, { estado, empresaId }),
+
+    // ✅ GET /api/obras/estado/{estado}?empresaId=1
+    // Estados: APROBADO, EN_EJECUCION, BORRADOR, EN_PLANIFICACION, EN_REVISION, SUSPENDIDA, FINALIZADA, CANCELADA
+    getPorEstado: (estado, empresaId) => apiService.get(`/api/obras/estado/${estado}`, { empresaId }),
+
+    // ✅ PATCH /api/obras/{id}/estado?estado={estado}&empresaId=1
+    cambiarEstado: (id, estado, empresaId) =>
+      apiService.patch(`/api/obras/${id}/estado`, null, { estado, empresaId }),
+
+    // ✅ GET /api/obras/activas?empresaId=1
+    // Devuelve obras con estado EN_EJECUCION
     getActivas: (empresaId) => apiService.get('/api/obras/activas', { empresaId }),
-    getProfesionales: (id, empresaId) => apiService.get(`/api/obras/${id}/profesionales`, {}, { headers: { empresaId } }),
+
+    // ✅ GET /api/obras/{id}/profesionales
+    getProfesionales: (id, empresaId) =>
+      apiService.get(`/api/obras/${id}/profesionales`, { empresaId }),
+
+    // ✅ Endpoints de borradores - SISTEMA DE PERSISTENCIA
+    createBorrador: (data) => apiService.post('/api/obras/borrador', data),
+    updateBorrador: (id, data) => apiService.put(`/api/obras/borrador/${id}`, data),
+    confirmarBorrador: (id) => apiService.post(`/api/obras/borrador/${id}/confirmar`),
+    getBorradores: (empresaId) => apiService.get('/api/obras/borradores', { empresaId }),
   },
 
   // ==================== TRABAJOS EXTRA ====================

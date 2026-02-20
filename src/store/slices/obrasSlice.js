@@ -33,14 +33,13 @@ export const crearPresupuesto = createAsyncThunk(
 // Obtener obra por ID
 export const fetchObraById = createAsyncThunk(
   'obras/fetchObraById',
-  async (id, { rejectWithValue }) => {
+  async ({ id, empresaId }, { rejectWithValue }) => {
     try {
-  const response = await fetch(`/api/obras/${id}`);
-      if (!response.ok) {
-        throw new Error('Error fetching obra');
-      }
-      return await response.json();
+      // ✅ Usar apiService para que pase por interceptores
+      const data = await apiService.obras.getById(id, empresaId);
+      return data;
     } catch (error) {
+      console.error('❌ Error en fetchObraById:', error);
       return rejectWithValue(error.message);
     }
   }
@@ -85,29 +84,10 @@ export const fetchObrasPorCliente = createAsyncThunk(
   'obras/fetchObrasPorCliente',
   async (clienteId, { rejectWithValue }) => {
     try {
-  const url = `/api/obras/cliente/${clienteId}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        const errorText = await response.text();
-
-        // Si es error 500 y el mensaje contiene "No static resource", problema de configuración
-        if (response.status === 500 && errorText.includes('No static resource')) {
-          if (!window.obraBackendWarningShown) {
-            console.warn('⚠️ Backend: Endpoints de obras no disponibles. Funcionando en modo offline.');
-            window.obraBackendWarningShown = true;
-          }
-          return [];
-        }
-
-        throw new Error('Error fetching obras por cliente');
-      }
-      return await response.json();
+      // ✅ Usar apiService para que pase por interceptores
+      const data = await apiService.obras.getPorCliente(clienteId);
+      return data;
     } catch (error) {
-      // Si es error de configuración del backend, funcionar silenciosamente
-      if (error.message.includes('No static resource')) {
-        return [];
-      }
-
       console.error('❌ Error en fetchObrasPorCliente:', error);
       return rejectWithValue(error.message);
     }
@@ -132,15 +112,12 @@ export const fetchObrasActivas = createAsyncThunk(
   'obras/fetchObrasActivas',
   async (empresaId, { rejectWithValue }) => {
     try {
+      // ✅ Backend devuelve obras con estado EN_EJECUCION
       const data = await apiService.obras.getActivas(empresaId);
+      console.log('✅ Obras activas obtenidas:', data?.length, 'obras');
       return data;
     } catch (error) {
-      // Si es error de endpoint no disponible, retornar lista vacía
-      if (error.message && (error.message.includes('No static resource') || error.message.includes('fetch'))) {
-        console.warn('⚠️ Backend de obras activas no disponible.');
-        return [];
-      }
-
+      console.error('❌ Error en fetchObrasActivas:', error);
       return rejectWithValue(error.message);
     }
   }
@@ -153,26 +130,13 @@ export const createObra = createAsyncThunk(
     try {
       console.log('🔄 Creando obra:', obraData);
 
-  // URL correcta confirmada por Swagger: /api/obras
-  const response = await fetch('/api/obras', {
-        method: 'POST',
-        headers: {
-          'accept': '*/*',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(obraData)
-      });
+      // ✅ Usar apiService para que pase por interceptores
+      // El interceptor agregará automáticamente:
+      // - Header: empresaId: "1"
+      // - Header: X-Tenant-ID: "1"
+      // - Query param: empresaId=1 (si necesario)
+      const data = await apiService.obras.create(obraData);
 
-      console.log('📡 Response status:', response.status);
-      console.log('📡 Request URL final:', response.url);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response body:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText || 'Error creating obra'}`);
-      }
-
-      const data = await response.json();
       console.log('✅ Obra creada exitosamente:', data);
       return data;
     } catch (error) {
@@ -187,20 +151,23 @@ export const updateObra = createAsyncThunk(
   'obras/updateObra',
   async ({ id, obraData }, { rejectWithValue }) => {
     try {
-  const response = await fetch(`/api/obras/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(obraData)
-      });
+      console.log('🔄 Actualizando obra ID:', id, 'con data:', obraData);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
+      // ✅ Usar apiService para que pase por interceptores
+      // Si es borrador, usar endpoint de borrador; si no, endpoint normal
+      let data;
+      if (obraData.estado === 'BORRADOR' || obraData.estado === 'EN_PLANIFICACION') {
+        console.log('📝 Actualizando como borrador');
+        data = await apiService.obras.updateBorrador(id, obraData);
+      } else {
+        console.log('📝 Actualizando obra normal');
+        data = await apiService.obras.update(id, obraData);
       }
-      return await response.json();
+
+      console.log('✅ Obra actualizada exitosamente:', data);
+      return data;
     } catch (error) {
+      console.error('❌ Error en updateObra:', error);
       return rejectWithValue(error.message);
     }
   }
