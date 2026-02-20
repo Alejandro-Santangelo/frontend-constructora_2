@@ -13,6 +13,7 @@ import PlantillaPageLayout from '../components/PlantillaPageLayout';
 import SidebarPresupuestosMenu from '../components/SidebarPresupuestosMenu';
 import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
+
 const PresupuestosNoClientePage = ({ showNotification }) => {
   const { setPresupuestoControls } = useContext(SidebarContext) || {};
   const { empresaSeleccionada } = useEmpresa();
@@ -162,6 +163,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const [nombresObras, setNombresObras] = useState({});
   // Estado para almacenar relación obraId -> numeroPresupuesto padre
   const [mapObraAPresupuesto, setMapObraAPresupuesto] = useState({});
+  // Mapa: extra.obraId -> obraOrigenId (obra padre) — para vincular sub-obras al presupuesto principal
+  const [obraOrigenIdMap, setObraOrigenIdMap] = useState({});
+
+  // Colapso de subgrupos de Adicionales Obra por presupuesto: { 'adicionales_ID': bool }
+  const [gruposColapsados, setGruposColapsados] = useState({});
 
   // Función para cargar filtros por defecto desde localStorage
   const cargarFiltrosPorDefecto = () => {
@@ -221,6 +227,62 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const [filtros, setFiltros] = useState(filtrosIniciales);
   const [tieneFiltrosPorDefecto, setTieneFiltrosPorDefecto] = useState(!!cargarFiltrosPorDefecto());
 
+  // Mapa: presupuestoId (principal) -> { adicionalesObra }
+  // Adicionales Obra = presupuestosNoCliente con esPresupuestoTrabajoExtra=true
+  // Vinculo en orden de prioridad:
+  //   1) mismo obraId directo
+  //   2) obraOrigenIdMap[extra.obraId] == principal.obraId  (campo backend si está disponible)
+  //   3) nombre del extra empieza con nombre del principal + espacio  (igual que ObrasPage)
+  //   4) mismo clienteId como fallback final
+  const { gruposMap, extrasEnSubgrupoIds } = React.useMemo(() => {
+    const map = {};
+    const cubiertos = new Set();
+    const extras = list.filter(p => p.esPresupuestoTrabajoExtra);
+    const principals = list.filter(p => !p.esPresupuestoTrabajoExtra);
+
+    principals.forEach(principal => {
+      // 1. Match directo por obraId (mismo presupuesto aprobó la misma obra)
+      const porObraDirecta = principal.obraId
+        ? extras.filter(e => !cubiertos.has(e.id) && Number(e.obraId) === Number(principal.obraId))
+        : [];
+      porObraDirecta.forEach(e => cubiertos.add(e.id));
+
+      // 2. Match via obraOrigenIdMap (campo backend, cuando esté disponible)
+      const porObraOrigen = principal.obraId
+        ? extras.filter(e => {
+            if (cubiertos.has(e.id)) return false;
+            const origenId = obraOrigenIdMap[e.obraId];
+            return origenId != null && Number(origenId) === Number(principal.obraId);
+          })
+        : [];
+      porObraOrigen.forEach(e => cubiertos.add(e.id));
+
+      // 3. Match por nombre: igual que ObrasPage
+      //    si nombreExtra empieza con nombrePrincipal + ' ' → es sub-obra
+      const nombrePrincipal = (principal.nombreObra || '').trim();
+      const porNombre = nombrePrincipal
+        ? extras.filter(e => {
+            if (cubiertos.has(e.id)) return false;
+            const nombreExtra = (e.nombreObra || '').trim();
+            return nombreExtra.startsWith(nombrePrincipal + ' ');
+          })
+        : [];
+      porNombre.forEach(e => cubiertos.add(e.id));
+
+      // 4. Match por clienteId como fallback
+      const porClienteId = principal.clienteId
+        ? extras.filter(e =>
+            !cubiertos.has(e.id) &&
+            Number(e.clienteId) === Number(principal.clienteId)
+          )
+        : [];
+      porClienteId.forEach(e => cubiertos.add(e.id));
+
+      map[principal.id] = { adicionalesObra: [...porObraDirecta, ...porObraOrigen, ...porNombre, ...porClienteId] };
+    });
+    return { gruposMap: map, extrasEnSubgrupoIds: cubiertos };
+  }, [list, obraOrigenIdMap]);
+
   const loadList = async () => {
     if (!empresaId) return;
     setLoading(true);
@@ -271,37 +333,56 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       });
       console.log('✅ LISTA FILTRADA (solo últimas versiones):', listaFiltrada.length, 'presupuestos');
 
-      // 🔧 Cargar nombres de obras para presupuestos de trabajo extra
+      // 🔧 Recuperar clienteId perdido en versiones más recientes
+      // A veces versiones nuevas tienen clienteId=null aunque versiones anteriores lo tenían.
+      // Construimos un mapa numeroPresupuesto → clienteId a partir de TODAS las versiones.
+      const clienteIdPorNumero = {};
+      lista.forEach(p => {
+        if (p.numeroPresupuesto != null && p.clienteId) {
+          clienteIdPorNumero[p.numeroPresupuesto] = p.clienteId;
+        }
+      });
+      // Aplicar la recuperación a la lista filtrada
+      listaFiltrada.forEach((p, i) => {
+        if (!p.clienteId && clienteIdPorNumero[p.numeroPresupuesto]) {
+          listaFiltrada[i] = { ...p, clienteId: clienteIdPorNumero[p.numeroPresupuesto] };
+        }
+      });
+
+      // 🔧 Cargar todas las obras de la empresa (una sola llamada)
+      // Usamos getAll porque el endpoint /obras/todas retorna campos completos incluyendo obraOrigenId
       const obrasIds = listaFiltrada
         .filter(p => p.esPresupuestoTrabajoExtra && p.obraId)
         .map(p => p.obraId);
 
-      const mapObraAPresupuesto = {}; // Mapa: obraId -> numeroPresupuesto que creó esa obra
+      const mapObraAPresupuesto = {};
+      const obraOrigenIdMapTemp = {}; // Mapa: extra.obraId -> obraOrigenId (obra padre)
 
       if (obrasIds.length > 0) {
-        const nombresObrasTemp = {};
-        for (const obraId of obrasIds) {
-          try {
-            const obra = await apiService.obras.getById(obraId, empresaId);
+        try {
+          const todasLasObras = await apiService.obras.getAll(empresaId);
+          const obrasArray = Array.isArray(todasLasObras) ? todasLasObras : (todasLasObras?.datos || todasLasObras?.content || []);
+
+          const nombresObrasTemp = {};
+          obrasArray.forEach(obra => {
+            const obraId = obra.id || obra.obraId;
+            if (!obrasIds.includes(obraId)) return;
+
             nombresObrasTemp[obraId] = obra.nombre || obra.nombreObra || `Obra #${obraId}`;
 
-            // 🔍 Guardar qué presupuesto creó esta obra
-            // El backend debería devolver presupuesto_id o presupuestoNoClienteId
-            const presupuestoQueCreoObra = obra.presupuesto_id || obra.presupuestoNoClienteId || obra.presupuestoId;
-            if (presupuestoQueCreoObra) {
-              // Buscar el numeroPresupuesto correspondiente
-              const presupuestoPadre = listaFiltrada.find(p => p.id === presupuestoQueCreoObra);
-              if (presupuestoPadre) {
-                mapObraAPresupuesto[obraId] = presupuestoPadre.numeroPresupuesto;
-              }
+            // Capturar obraOrigenId para construir el vínculo con el principal
+            const origenId = obra.obraOrigenId || obra.obra_origen_id || obra.obraOrigen?.id || null;
+            if (origenId) {
+              obraOrigenIdMapTemp[obraId] = Number(origenId);
             }
-          } catch (error) {
-            console.warn(`⚠️ No se pudo cargar nombre de obra ${obraId}:`, error);
-            nombresObrasTemp[obraId] = `Obra #${obraId}`;
-          }
+          });
+
+          console.log('🗺️ obraOrigenIdMap (getAll):', obraOrigenIdMapTemp);
+          setNombresObras(nombresObrasTemp);
+          setObraOrigenIdMap(obraOrigenIdMapTemp);
+        } catch (error) {
+          console.warn('⚠️ No se pudieron cargar obras:', error);
         }
-        setNombresObras(nombresObrasTemp);
-        setMapObraAPresupuesto(mapObraAPresupuesto);
       }
 
       const presupuestosCompletos = await Promise.all(
@@ -381,6 +462,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         Nombre: p.nombreObra,
         TrabajoExtra: p.esPresupuestoTrabajoExtra ? 'SÍ' : 'NO',
         ObraId: p.obraId,
+        ObraOrigenId: p.obraOrigenId || p.obra_origen_id || null,
         ClienteId: p.clienteId
       })));
 
@@ -1725,6 +1807,28 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   };
 
   // Ver presupuesto seleccionado en modo SOLO LECTURA
+  // Abrir un presupuesto adicional (trabajo extra) en el modal de edición
+  // Sirve para abrir Adicionales Obra (presupuestosNoCliente con esPresupuestoTrabajoExtra=true)
+  const handleAbrirAdicionalObra = async (presupuestoId) => {
+    if (!presupuestoId) {
+      showNotification && showNotification('Este ítem no tiene presupuesto vinculado', 'warning');
+      return;
+    }
+    try {
+      const presupuesto = await api.presupuestosNoCliente.getById(presupuestoId, empresaId);
+      const presupuestoNormalizado = {
+        ...presupuesto,
+        obraId: presupuesto.obraId || presupuesto.idObra || null,
+        clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null)
+      };
+      setPresupuestoData(presupuestoNormalizado);
+      setForzarModoLectura(false);
+      setShowEditarModal(true);
+    } catch (error) {
+      showNotification && showNotification('Error al cargar presupuesto: ' + error.message, 'error');
+    }
+  };
+
   const handleVerPresupuestoSeleccionado = async () => {
     if (!selectedId) {
       showNotification && showNotification('Seleccione un presupuesto primero', 'warning');
@@ -1891,7 +1995,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.map((row, index) => {
+                  {list.filter(row => !row.esPresupuestoTrabajoExtra || !extrasEnSubgrupoIds.has(row.id)).map((row, index) => {
                     const esEditable = esPresupuestoEditable(row);
                     const esSemanal = row.tipoPresupuesto === 'TRABAJOS_SEMANALES';
                     const alertaInicio = obtenerAlertaInicio(row);
@@ -1906,12 +2010,6 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     const grupoIndex = row._grupoIndex || 0;
                     const totalEnGrupo = row._totalEnGrupo || 1;
                     const grupoTipo = row._grupoTipo || null;
-
-                    // Verificar si es un cambio de grupo (comparar con el anterior)
-                    const esCambioDeGrupo = index > 0 && (
-                      list[index - 1]._grupoCliente !== row._grupoCliente ||
-                      list[index - 1]._grupoObra !== row._grupoObra
-                    );
 
                     // Colores alternados para grupos (más visibles)
                     const coloresGrupo = [
@@ -1967,7 +2065,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     return (
                     <React.Fragment key={rowId}>
                       {/* Separador visual entre grupos */}
-                      {esCambioDeGrupo && (
+                      {index > 0 && (
                         <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
                           <td colSpan="11" style={{
                             padding: 0,
@@ -1979,20 +2077,6 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         </tr>
                       )}
 
-                      {/* 🔴 Línea roja delgada entre presupuestos del mismo grupo */}
-                      {index > 0 && perteneceAGrupo &&
-                       list[index - 1] &&
-                       list[index - 1]._grupoIndex === row._grupoIndex &&
-                       !esCambioDeGrupo && (
-                        <tr style={{ height: '6px', backgroundColor: '#ffcc99' }}>  {/* Naranja suave */}
-                          <td colSpan="11" style={{
-                            padding: 0,
-                            height: '6px',
-                            borderTop: '2px solid #dc3545',
-                            backgroundColor: '#ffcc99'  /* Naranja suave */
-                          }}></td>
-                        </tr>
-                      )}
                     <tr
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2009,6 +2093,9 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         borderLeft: row.esPresupuestoTrabajoExtra
                           ? '5px solid #ffc107'
                           : (perteneceAGrupo ? '4px solid #6c757d' : 'none'),
+                        borderBottom: (gruposMap[row.id]?.adicionalesObra?.length > 0)
+                          ? '1px solid rgba(253, 126, 20, 0.45)'
+                          : undefined,
                         transition: 'all 0.2s ease'
                       }}
                       className={`${
@@ -2325,6 +2412,83 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         </div>
                       </td>
                     </tr>
+
+                    {/* ══════════════════════════════════════════════════
+                        SUBGRUPOS DEL PRESUPUESTO PRINCIPAL
+                        ══════════════════════════════════════════════════ */}
+                    {(() => {
+                      const { adicionalesObra = [] } = gruposMap[row.id] || {};
+                      if (adicionalesObra.length === 0) return null;
+                      const colAd = !!gruposColapsados[`adicionales_${row.id}`];
+                      return (
+                        <>
+                          {/* ── Subgrupo: Adicionales Obra ── */}
+                          {adicionalesObra.length > 0 && (
+                            <>
+                              {/* Header subgrupo Adicionales */}
+                              <tr
+                                onClick={(e) => { e.stopPropagation(); setGruposColapsados(p => ({ ...p, [`adicionales_${row.id}`]: !p[`adicionales_${row.id}`] })); }}
+                                style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                              >
+                                <td colSpan="11" className="py-1 px-3 small">
+                                  <span className="fw-bold text-primary">
+                                    <i className={`fas fa-chevron-${colAd ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
+                                    📋 Adicionales Obra
+                                    <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{adicionalesObra.length}</span>
+                                  </span>
+                                  <span className="text-muted ms-3 small">Clic para {colAd ? 'mostrar' : 'ocultar'}</span>
+                                </td>
+                              </tr>
+                              {!colAd && adicionalesObra.map(adic => {
+                                const adicSel = selectedId === adic.id;
+                                const adicTotal = adic.totalConDescuentos || adic.totalPresupuestoConHonorarios || adic.totalGeneral || adic.montoTotal || adic.totalFinal || 0;
+                                const adicDir = [adic.direccionObraCalle, adic.direccionObraAltura].filter(Boolean).join(' ');
+                                return (
+                                  <tr
+                                    key={`adic_${adic.id}`}
+                                    onClick={(e) => { e.stopPropagation(); setSelectedId(adicSel ? null : adic.id); }}
+                                    onDoubleClick={(e) => { e.stopPropagation(); handleAbrirAdicionalObra(adic.id); }}
+                                    title="Clic para seleccionar • Doble clic para abrir"
+                                    style={{ backgroundColor: adicSel ? '#cfe2ff' : '#eff6ff', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)', cursor: 'pointer' }}
+                                  >
+                                    <td className="small ps-4">
+                                      {adicSel
+                                        ? <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>
+                                        : <i className="fas fa-wrench text-warning me-1" style={{fontSize:'0.75em'}}></i>
+                                      }
+                                      {adic.numeroPresupuesto || '-'}
+                                    </td>
+                                    <td className="small text-center">{adic.numeroVersion || '-'}</td>
+                                    <td className="small">{adic.fechaEmision || '—'}</td>
+                                    <td className="small">{adic.nombreSolicitante || '—'}</td>
+                                    <td className="small">{adic.nombreObra || '—'}</td>
+                                    <td className="small">{adicDir || '—'}</td>
+                                    <td className="small">{adic.fechaProbableInicio || '—'}</td>
+                                    <td>
+                                      <span className={`badge ${getEstadoBadgeClass(adic.estado)}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                        {adic.estado || '—'}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      <span className="badge bg-warning text-dark" style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                        🔧 Adicional
+                                      </span>
+                                    </td>
+                                    <td></td>
+                                    <td className="text-end fw-bold text-primary small">
+                                      {adicTotal > 0
+                                        ? `$${Number(adicTotal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                                        : <span className="text-muted">—</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
+
                     </React.Fragment>
                     );
                   })}
@@ -2517,6 +2681,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           }}
         />
       )}
+
       </div>
     </>
   );

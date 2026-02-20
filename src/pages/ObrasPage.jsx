@@ -188,6 +188,7 @@ const ObrasPage = ({ showNotification }) => {
   const [obraParaTrabajosAdicionales, setObraParaTrabajosAdicionales] = React.useState(null);
   const [trabajoAdicionalEditar, setTrabajoAdicionalEditar] = React.useState(null);
   const [trabajosAdicionales, setTrabajosAdicionales] = React.useState([]);
+  const [gruposColapsadosObras, setGruposColapsadosObras] = React.useState({});
 
   // Estados para profesionales en trabajos adicionales
   const [profesionalesDisponiblesTA, setProfesionalesDisponiblesTA] = React.useState([]);
@@ -4039,6 +4040,39 @@ const ObrasPage = ({ showNotification }) => {
     return trabajosAdicionales.filter(ta => ta.trabajoExtraId === trabajoExtraId);
   };
 
+  // Devuelve TODAS las tareas de una obra para mostrar en el subgrupo
+  // - Solo se muestra en la obra PADRE (sub-obras retornan vacío)
+  // - Incluye tareas propias del padre + tareas de todas sus sub-obras agrupadas
+  const obtenerTareasParaSubgrupo = (obra) => {
+    if (!Array.isArray(trabajosAdicionales)) return [];
+    const esSubobra = obra.esTrabajoExtra || obra._grupoTipo === 'trabajoExtra';
+
+    // Sub-obras: no muestran subgrupo propio — sus tareas van en el padre
+    if (esSubobra) return [];
+
+    // Tareas directas de la obra padre
+    const tareasDirectas = trabajosAdicionales.filter(ta => ta.obraId === obra.id && !ta.trabajoExtraId);
+
+    // IDs de sub-obras de este padre (por campo o por detección de nombre)
+    const nombrePadre = (obra.nombre || '').trim();
+    const subObraIds = obras
+      .filter(o => {
+        if (o.id === obra.id) return false;
+        const padreId = o.obraPadreId || o.obra_padre_id || o.idObraPadre;
+        if (padreId === obra.id) return true;
+        const nombreO = (o.nombre || '').trim();
+        return nombrePadre && nombreO.startsWith(nombrePadre + ' ');
+      })
+      .map(o => o.id);
+
+    // Tareas de sub-obras (vía trabajoExtraId)
+    const tareasDeSubObras = subObraIds.length > 0
+      ? trabajosAdicionales.filter(ta => subObraIds.includes(ta.trabajoExtraId))
+      : [];
+
+    return [...tareasDirectas, ...tareasDeSubObras];
+  };
+
   const handleEliminarTrabajoAdicional = async (trabajoAdicionalId, nombre) => {
     if (!window.confirm(`¿Está seguro de eliminar el trabajo adicional "${nombre}"?`)) {
       return;
@@ -5331,6 +5365,9 @@ const ObrasPage = ({ showNotification }) => {
                                   borderLeft: esSubobra
                                     ? '5px solid #ffc107'
                                     : (perteneceAGrupo ? '4px solid #6c757d' : 'none'),
+                                  borderBottom: obtenerTareasParaSubgrupo(obra).length > 0
+                                    ? '1px solid rgba(253, 126, 20, 0.45)'
+                                    : undefined,
                                   transition: 'all 0.2s ease'
                                 }}
                                 className={`${perteneceAGrupo ? '' : 'hover-row'} ${isSelected ? 'table-primary' : ''}`}
@@ -6017,6 +6054,74 @@ const ObrasPage = ({ showNotification }) => {
                                 </td>
                               </tr>
                             )}
+
+                            {/* ══════════════════════════════════════════════════
+                                SUBGRUPO: TAREAS LEVES / MANTENIMIENTO
+                                ══════════════════════════════════════════════════ */}
+                            {(() => {
+                              const tareasObra = obtenerTareasParaSubgrupo(obra);
+                              if (tareasObra.length === 0) return null;
+                              const colTareas = !!gruposColapsadosObras[`tareas_${obra.id}`];
+                              return (
+                                <>
+                                  {/* Header subgrupo */}
+                                  <tr
+                                    onClick={(e) => { e.stopPropagation(); setGruposColapsadosObras(p => ({ ...p, [`tareas_${obra.id}`]: !p[`tareas_${obra.id}`] })); }}
+                                    style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                                  >
+                                    <td colSpan="13" className="py-1 px-3 small">
+                                      <span className="fw-bold text-primary">
+                                        <i className={`fas fa-chevron-${colTareas ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
+                                        🔧 Tareas Leves / Mantenimiento
+                                        <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{tareasObra.length}</span>
+                                      </span>
+                                      <span className="text-muted ms-3 small">Clic para {colTareas ? 'mostrar' : 'ocultar'}</span>
+                                    </td>
+                                  </tr>
+                                  {/* Filas de cada tarea */}
+                                  {!colTareas && tareasObra.map(ta => {
+                                    // Si la tarea viene de una sub-obra, mostrar de cuál
+                                    const obraOrigen = ta.trabajoExtraId
+                                      ? obras.find(o => o.id === ta.trabajoExtraId)
+                                      : null;
+                                    return (
+                                    <tr
+                                      key={`ta_${ta.id}`}
+                                      style={{ backgroundColor: '#eff6ff', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)', cursor: 'default' }}
+                                    >
+                                      <td></td>
+                                      <td className="small text-muted ps-2">
+                                        <i className="fas fa-tools text-warning me-1" style={{fontSize:'0.75em'}}></i>
+                                        #{ta.id}
+                                      </td>
+                                      <td className="small" colSpan="2">
+                                        <span className="fw-semibold">{ta.nombre || '—'}</span>
+                                        {obraOrigen && <span className="badge bg-secondary ms-2" style={{fontSize:'0.65em'}}>{obraOrigen.nombre}</span>}
+                                        {ta.descripcion && <div className="text-muted" style={{fontSize:'0.75em'}}>{ta.descripcion}</div>}
+                                      </td>
+                                      <td className="small text-muted" colSpan="2">—</td>
+                                      <td className="text-center">
+                                        <span className="badge bg-warning text-dark" style={{fontSize:'0.65em', padding:'3px 5px'}}>🔧 Tarea</span>
+                                      </td>
+                                      <td className="text-center">
+                                        <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO?.[ta.estado] || 'secondary'}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                          {ta.estado || '—'}
+                                        </span>
+                                      </td>
+                                      <td></td>
+                                      <td className="small text-muted">{ta.fechaInicio || '—'}</td>
+                                      <td className="small text-muted">{ta.fechaFin || '—'}</td>
+                                      <td className="small text-end text-primary fw-bold">
+                                        {ta.importe > 0 ? `$${Number(ta.importe).toLocaleString('es-AR', {minimumFractionDigits:2})}` : <span className="text-muted">—</span>}
+                                      </td>
+                                      <td></td>
+                                    </tr>
+                                    );
+                                  })}
+                                </>
+                              );
+                            })()}
+
                           </React.Fragment>
                         );
                       })}
