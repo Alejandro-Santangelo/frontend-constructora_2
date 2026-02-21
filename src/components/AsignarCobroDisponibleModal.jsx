@@ -1103,7 +1103,8 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
                                     <React.Fragment key={idUnico}>
                                       <tr className={`${isSelected ? 'table-success' : ''} ${d.obra.esNieto ? 'bg-light bg-opacity-75' : d.obra.esHijo ? 'bg-light bg-opacity-50' : ''}`}
                                           style={{
-                                            borderLeft: d.obra.esNieto ? '3px solid #adb5bd' : d.obra.esHijo ? '3px solid #dee2e6' : 'none'
+                                            borderLeft: d.obra.esNieto ? '7px solid #fd7e14' : d.obra.esHijo ? '5px solid #ffc107' : 'none',
+                                            borderBottom: (d.obra.esNieto || d.obra.esHijo) ? '1px solid rgba(253, 126, 20, 0.45)' : undefined
                                           }}>
                                         <td>
                                           <input
@@ -1156,11 +1157,11 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
                                               </div>
                                               <div className="mt-1">
                                                 {d.obra.tipo === 'TRABAJO_ADICIONAL' && (
-                                                  <span className="badge bg-primary" style={{fontSize: '0.65rem'}}>🔧 Trabajo Adicional</span>
+                                                  <span className="badge bg-primary" style={{fontSize: '0.65rem'}}>🔧 Tarea Leve / Mantenimiento</span>
                                                 )}
                                                 {d.obra.tipo === 'TRABAJO_EXTRA' && (
                                                   <>
-                                                    <span className="badge bg-info" style={{fontSize: '0.65rem'}}>⚡ Trabajo Extra</span>
+                                                    <span className="badge bg-info" style={{fontSize: '0.65rem'}}>📋 Adicional Obra</span>
                                                     {(() => {
                                                       const cantidadAdicionales = distribucion.filter(dist =>
                                                         dist.obra.esNieto && dist.obra.trabajoExtraPadreObraId === d.obra.trabajoExtraObraId

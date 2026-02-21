@@ -303,7 +303,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                         <div className="fw-bold fs-4 text-success">
                           {formatearMoneda(totalAsignadoPrincipalTE)}
                         </div>
-                        <small className="text-muted">Obras principales y trabajos extra</small>
+                        <small className="text-muted">Obras principales y Adicionales Obra</small>
                       </div>
                       <div className="col-md-3">
                         <strong className="fs-6">Distribuido en Items:</strong>
@@ -322,7 +322,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                         <div className={`fw-bold fs-4 ${totalAsignadoTAOI > 0 ? 'text-info' : 'text-muted'}`}>
                           {formatearMoneda(totalAsignadoTAOI)}
                         </div>
-                        <small className="text-muted">Obras independientes y trabajos adicionales</small>
+                        <small className="text-muted">Obras independientes y Tareas Leves</small>
                       </div>
                     </div>
                   </div>
@@ -339,7 +339,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                         <th className="text-end">Profesionales</th>
                         <th className="text-end">Materiales</th>
                         <th className="text-end">Gastos Generales</th>
-                        <th className="text-end">Trabajos Extra</th>
+                        <th className="text-end">Adicionales Obra</th>
                         <th className="text-end">Total Distribuido</th>
                         <th className="text-end">Retirado</th>
                         <th className="text-end">Disponible</th>
@@ -361,8 +361,8 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                         const tipoBadge = {
                           OBRA_PRINCIPAL:     { label: 'Principal',    color: 'primary'           },
                           OBRA_INDEPENDIENTE: { label: 'Independiente', color: 'info'              },
-                          TRABAJO_EXTRA:      { label: 'Trabajo Extra', color: 'warning text-dark' },
-                          TRABAJO_ADICIONAL:  { label: 'T. Adicional',  color: 'secondary'         },
+                          TRABAJO_EXTRA:      { label: '📋 Adicional Obra', color: 'warning text-dark' },
+                          TRABAJO_ADICIONAL:  { label: '🔧 Tarea Leve',    color: 'secondary'         },
                           OTRO:               { label: 'Otro',          color: 'dark'              },
                         }[obra.tipo] || { label: obra.tipo || '-', color: 'secondary' };
 
@@ -475,7 +475,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                       <div className="card-body text-center">
                         <h6 className="text-muted">Cobro asignado</h6>
                         <h4 className="text-success mb-0">{formatearMoneda(totalAsignadoPrincipalTE)}</h4>
-                        <small className="text-muted">Obras principales y trabajos extra</small>
+                        <small className="text-muted">Obras principales y Adicionales Obra</small>
                       </div>
                     </div>
                   </div>
@@ -484,7 +484,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                       <div className="card-body text-center">
                         <h6 className="text-muted">Distribuido en Items</h6>
                         <h4 className="text-primary mb-0">{formatearMoneda(totalDistribuidoItems)}</h4>
-                        <small className="text-muted">Profesionales, materiales, gastos, trabajos extra</small>
+                        <small className="text-muted">Profesionales, materiales, gastos, Adicionales Obra</small>
                       </div>
                     </div>
                   </div>
@@ -504,7 +504,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
                         <h4 className={`mb-0 ${totalAsignadoTAOI > 0 ? 'text-info' : 'text-muted'}`}>
                           {formatearMoneda(totalAsignadoTAOI)}
                         </h4>
-                        <small className="text-muted">Obras independientes y trabajos adicionales</small>
+                        <small className="text-muted">Obras independientes y Tareas Leves</small>
                       </div>
                     </div>
                   </div>
@@ -591,7 +591,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
 
                   <div className="col-md-6">
                     <label className="form-label fw-bold">
-                      🔧 Trabajos Extra
+                      � Adicionales Obra
                     </label>
                     <input
                       type="number"

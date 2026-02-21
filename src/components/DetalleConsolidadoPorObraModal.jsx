@@ -13,6 +13,7 @@ import { listarCobrosEmpresa } from '../services/cobrosEmpresaService';
 const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, estadisticas, empresaSeleccionada }) => {
   const [mostrandoDetallePagos, setMostrandoDetallePagos] = useState(false);
   const [pagosDetallados, setPagosDetallados] = useState([]);
+  const [gruposColapsados, setGruposColapsados] = useState({});
   const [cargandoPagos, setCargandoPagos] = useState(false);
   const [trabajosAdicionales, setTrabajosAdicionales] = useState([]);
   const [cargandoTrabajosAdicionales, setCargandoTrabajosAdicionales] = useState(false);
@@ -27,7 +28,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
 
   // 🆕 Cargar trabajos adicionales y extra cuando se abre el modal
   useEffect(() => {
-    if (show && empresaSeleccionada?.id && (tipo === 'presupuestos' || tipo === 'saldoPorCobrar')) {
+    if (show && empresaSeleccionada?.id && (tipo === 'presupuestos' || tipo === 'saldoPorCobrar' || tipo === 'pagos' || tipo === 'saldoDisponible')) {
       cargarTrabajosAdicionales();
       cargarTrabajosExtra();
     }
@@ -195,14 +196,46 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
         empresaSeleccionada.id,
         efSinDist.map(ef => ef.id)
       );
-      // Mapear al mismo formato que los datos de obras (nombreObra + totalCobrado)
-      const filas = (estadisticasEF || []).map(e => ({
+      // Emparejar por índice: el backend devuelve en el mismo orden que el request
+      // efSinDist[i].entidadId es el ID real de la obra (fuente más confiable)
+      const filas = (estadisticasEF || []).map((e, i) => ({
         nombreObra:   e.nombreDisplay,
         totalCobrado: parseFloat(e.totalCobrado || 0),
         tipoEntidad:  e.tipoEntidad,
+        entidadId:    efSinDist[i]?.entidadId ?? e.entidadId ?? e.obraId ?? null,
       }));
-      console.log('✅ [DetalleConsolidado] TA/OI cobros:', filas);
-      setEntidadesSinDistribucion(filas);
+
+      // Deduplicar EF huérfanos con nombre casi idéntico (ej: typo en nombre anterior)
+      // Cuando dos entradas tienen nombres con distancia Levenshtein ≤ 2, se queda
+      // la que tiene mayor entidadId (registro más reciente/correcto).
+      const lev = (a, b) => {
+        const m = a.length, n = b.length;
+        const dp = Array.from({ length: m + 1 }, (_, i2) =>
+          Array.from({ length: n + 1 }, (_, j) => i2 === 0 ? j : j === 0 ? i2 : 0)
+        );
+        for (let i2 = 1; i2 <= m; i2++)
+          for (let j = 1; j <= n; j++)
+            dp[i2][j] = a[i2 - 1] === b[j - 1]
+              ? dp[i2 - 1][j - 1]
+              : 1 + Math.min(dp[i2 - 1][j], dp[i2][j - 1], dp[i2 - 1][j - 1]);
+        return dp[m][n];
+      };
+      const filasDedup = [];
+      filas.forEach(f => {
+        const nomF = (f.nombreObra || '').toLowerCase().trim();
+        const idxExistente = filasDedup.findIndex(d =>
+          lev(nomF, (d.nombreObra || '').toLowerCase().trim()) <= 2
+        );
+        if (idxExistente === -1) {
+          filasDedup.push(f);
+        } else {
+          // Conservar la entrada con el mayor entidadId (más reciente)
+          if ((f.entidadId || 0) > (filasDedup[idxExistente].entidadId || 0)) {
+            filasDedup[idxExistente] = f;
+          }
+        }
+      });
+      setEntidadesSinDistribucion(filasDedup);
     } catch (err) {
       console.warn('⚠️ [DetalleConsolidado] Error cargando TA/OI:', err.message);
       setEntidadesSinDistribucion([]);
@@ -683,87 +716,89 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                     </td>
                   </tr>
 
-                  {/* Trabajos extra de esta obra */}
-                  {trabajosExtraObra.length > 0 && trabajosExtraObra.map((trabajo, tIdx) => {
-                    // Buscar trabajos adicionales de este trabajo extra específico
-                    // Usar trabajo.obraId (ID de la obra trabajo extra) para comparar con trabajoExtraId
-                    const trabajosAdicionalesDelTE = trabajosAdicionalesObra.filter(ta => {
-                      const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
-                      // ✅ Comparar con ambos: trabajo.obraId Y trabajo.id (mismo fix que obras)
-                      return teId === trabajo.obraId || teId === trabajo.id;
-                    });
-
-                    console.log(`🔍 Buscando TA para trabajo extra "${trabajo.nombre}" (obraId: ${trabajo.obraId}):`, {
-                      trabajoObraId: trabajo.obraId,
-                      trabajoPresupuestoId: trabajo.id,
-                      trabajosAdicionalesEncontrados: trabajosAdicionalesDelTE.length,
-                      trabajosAdicionales: trabajosAdicionalesDelTE.map(ta => ({
-                        nombre: ta.nombre,
-                        trabajoExtraId: ta.trabajoExtraId
-                      }))
-                    });
-
+                  {/* ═══ SUBGRUPO: ADICIONALES OBRA (Trabajos Extra) ═══ */}
+                  {trabajosExtraObra.length > 0 && (() => {
+                    const claveExtra = `extra_${idx}`;
+                    const colapsadoExtra = !!gruposColapsados[claveExtra];
                     return (
-                      <React.Fragment key={`${idx}-trabajo-${tIdx}`}>
-                        <tr className="table-active">
-                          <td className="ps-4">
-                            <i className="bi bi-arrow-return-right me-2 text-success"></i>
-                            <span className="text-success">TE: {trabajo.nombre}</span>
-                          </td>
-                          <td>
-                            <span className="badge bg-success text-white">EXTRA</span>
-                          </td>
-                          <td className="text-end">
-                            <span className="text-success fw-bold">
-                              {formatearMoneda(trabajo.totalCalculado || 0)}
+                      <>
+                        <tr
+                          onClick={() => setGruposColapsados(p => ({ ...p, [claveExtra]: !p[claveExtra] }))}
+                          style={{ backgroundColor: '#fff3cd', cursor: 'pointer', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                        >
+                          <td colSpan="3" className="py-1 px-3 small">
+                            <span className="fw-bold" style={{ color: '#856404' }}>
+                              <i className={`fas fa-chevron-${colapsadoExtra ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                              📋 Adicionales Obra
+                              <span className="badge ms-2" style={{ fontSize: '0.7em', backgroundColor: '#ffc107', color: '#000' }}>{trabajosExtraObra.length}</span>
                             </span>
+                            <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
                           </td>
                         </tr>
-
-                        {/* Trabajos adicionales de este trabajo extra */}
-                        {trabajosAdicionalesDelTE.length > 0 && trabajosAdicionalesDelTE.map((trabajoAd, taIdx) => (
-                          <tr key={`${idx}-trabajo-${tIdx}-ta-${taIdx}`} className="table-secondary">
-                            <td className="ps-5">
-                              <i className="bi bi-arrow-return-right me-2 text-primary"></i>
-                              <span className="text-primary">TA: {trabajoAd.nombre || trabajoAd.descripcion}</span>
+                        {!colapsadoExtra && trabajosExtraObra.map((trabajo, tIdx) => (
+                          <tr key={`${idx}-trabajo-${tIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                            <td className="ps-3">
+                              <small><strong>{trabajo.nombre}</strong></small>
                             </td>
                             <td>
-                              <span className="badge bg-primary text-white">ADICIONAL</span>
+                              <span className="badge bg-warning text-dark" style={{ fontSize: '0.7em' }}>📋 Adicional Obra</span>
                             </td>
                             <td className="text-end">
-                              <span className="text-primary fw-bold">
+                              <span className="fw-bold" style={{ color: '#856404' }}>
+                                {formatearMoneda(trabajo.totalCalculado || 0)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </>
+                    );
+                  })()}
+
+                  {/* ═══ SUBGRUPO: TAREAS LEVES / MANTENIMIENTO (Trabajos Adicionales) ═══ */}
+                  {trabajosAdicionalesObra.length > 0 && (() => {
+                    const claveAdic = `adic_${idx}`;
+                    const colapsadoAdic = !!gruposColapsados[claveAdic];
+                    return (
+                      <>
+                        <tr
+                          onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
+                          style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                        >
+                          <td colSpan="3" className="py-1 px-3 small">
+                            <span className="fw-bold text-primary">
+                              <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                              🔧 Tareas Leves / Mantenimiento
+                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{trabajosAdicionalesObra.length}</span>
+                            </span>
+                            <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
+                          </td>
+                        </tr>
+                        {!colapsadoAdic && trabajosAdicionalesObra.map((trabajoAd, taIdx) => (
+                          <tr key={`${idx}-ta-${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                            <td className="ps-3">
+                              <small className="text-info"><strong>{trabajoAd.nombre || trabajoAd.descripcion}</strong></small>
+                              {trabajoAd.trabajoExtraId && trabajosExtraObra.find(te => te.obraId === trabajoAd.trabajoExtraId || te.id === trabajoAd.trabajoExtraId) && (
+                                <small className="text-muted ms-2">
+                                  (de {trabajosExtraObra.find(te => te.obraId === trabajoAd.trabajoExtraId || te.id === trabajoAd.trabajoExtraId)?.nombre})
+                                </small>
+                              )}
+                              {trabajoAd.nombreProfesional && (
+                                <div className="text-muted small">Prof: {trabajoAd.nombreProfesional}</div>
+                              )}
+                            </td>
+                            <td>
+                              <span className="badge bg-info text-dark" style={{ fontSize: '0.7em' }}>🔧 Tarea Leve</span>
+                            </td>
+                            <td className="text-end">
+                              <span className="fw-bold text-info">
                                 {formatearMoneda(trabajoAd.importe || trabajoAd.montoEstimado || 0)}
                               </span>
                             </td>
                           </tr>
                         ))}
-                      </React.Fragment>
+                      </>
                     );
-                  })}
-
-                  {/* Trabajos adicionales directamente asociados a la obra (sin trabajoExtraId) */}
-                  {trabajosAdicionalesObra.filter(ta => !(ta.trabajoExtraId || ta.trabajo_extra_id)).length > 0 &&
-                    trabajosAdicionalesObra.filter(ta => !(ta.trabajoExtraId || ta.trabajo_extra_id)).map((trabajoAd, taIdx) => (
-                    <tr key={`${idx}-trabajo-adicional-directo-${taIdx}`} className="table-active">
-                      <td className="ps-4">
-                        <i className="bi bi-arrow-return-right me-2 text-primary"></i>
-                        <span className="text-primary">TA: {trabajoAd.descripcion || trabajoAd.nombre}</span>
-                        {trabajoAd.nombreProfesional && (
-                          <div className="text-muted small ps-4">
-                            Prof: {trabajoAd.nombreProfesional}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <span className="badge bg-primary text-white">ADICIONAL</span>
-                      </td>
-                      <td className="text-end">
-                        <span className="text-primary fw-bold">
-                          {formatearMoneda(trabajoAd.importe || trabajoAd.montoEstimado || 0)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  })()}
 
                   {/* Línea separadora entre obras (excepto la última) */}
                   {idx < obrasDeduplicated.length - 1 && (
@@ -804,16 +839,16 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                     <tr key={`trabajo-extra-huerfano-${teIdx}`} className="table-secondary">
                       <td>
                         <i className="bi bi-question-circle me-2 text-muted"></i>
-                        <span className="text-success">TE: {trabajoExtra.nombre}</span>
+                        <span className="fw-bold" style={{ color: '#856404' }}>📋 Adicional Obra: {trabajoExtra.nombre}</span>
                         <div className="text-muted small">
                           Obra no identificada
                         </div>
                       </td>
                       <td>
-                        <span className="badge bg-success text-white">EXTRA</span>
+                        <span className="badge bg-warning text-dark">Adicional Obra</span>
                       </td>
                       <td className="text-end">
-                        <span className="text-success fw-bold">
+                        <span className="fw-bold" style={{ color: '#856404' }}>
                           {formatearMoneda(trabajoExtra.totalFinal || trabajoExtra.montoTotal || trabajoExtra.totalCalculado || 0)}
                         </span>
                       </td>
@@ -865,13 +900,13 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                     <tr key={`trabajo-adicional-huerfano-${taIdx}`} className="table-secondary">
                       <td>
                         <i className="bi bi-question-circle me-2 text-muted"></i>
-                        <span className="text-primary">TA: {trabajoAd.descripcion}</span>
+                        <span className="text-info"><strong>{trabajoAd.descripcion}</strong></span>
                         <div className="text-muted small">
                           Prof: {trabajoAd.nombreProfesional} | Obra no identificada
                         </div>
                       </td>
                       <td>
-                        <span className="badge bg-primary text-white">ADICIONAL</span>
+                        <span className="badge bg-info text-dark">🔧 Tarea Leve</span>
                       </td>
                       <td className="text-end">
                         <span className="text-primary fw-bold">
@@ -998,79 +1033,173 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     );
   };
 
-  const renderPagos = () => (
-    <>
-      <div className="table-responsive">
-        <table className="table table-hover table-striped">
-          <thead className="table-primary">
-            <tr>
-              <th>Obra</th>
-              <th className="text-center">Cantidad de Pagos</th>
-              <th className="text-end">Total Pagado</th>
-              <th className="text-end">Pendiente</th>
-              <th className="text-center">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {datos.map((obra, idx) => (
-              <tr key={idx}>
-                <td>
-                  <strong>{obra.nombreObra}</strong>
-                </td>
-                <td className="text-center">
-                  <span className="badge bg-info">{obra.cantidadPagos || 0}</span>
-                </td>
-                <td className="text-end">
-                  <strong className="text-primary">{formatearMoneda(obra.totalPagado || 0)}</strong>
-                </td>
-                <td className="text-end">
-                  <span className="text-warning">{formatearMoneda(obra.pagosPendientes || 0)}</span>
-                </td>
-                <td className="text-center">
-                  <button
-                    className="btn btn-sm btn-outline-primary"
-                    onClick={cargarDetallePagos}
-                    disabled={cargandoPagos}
-                  >
-                    {cargandoPagos ? (
+  const renderPagos = () => {
+    // Filtrar TE del listado principal (igual que en presupuestos)
+    const obrasFiltradas = datos.filter(obra => {
+      return !Array.from(trabajosExtra.values()).flat().some(
+        te => te.id === obra.presupuestoId || te.id === obra.id
+      );
+    });
+
+    // Deduplicar Obras Independientes por nombre+dirección
+    const oiMap = new Map();
+    const obrasNormales = [];
+    obrasFiltradas.forEach(obra => {
+      if (obra.esObraIndependiente) {
+        const clave = (obra.nombreObra || obra.direccion) ? `${obra.nombreObra}_${obra.direccion}`.trim() : `id_${obra.id}`;
+        if (!oiMap.has(clave)) oiMap.set(clave, obra);
+      } else {
+        obrasNormales.push(obra);
+      }
+    });
+    const obrasPrincipales = [...obrasNormales, ...Array.from(oiMap.values())];
+
+    // Totales para el footer
+    const totalPagosCount = obrasPrincipales.reduce((s, o) => s + (o.cantidadPagos || 0), 0);
+    const totalPagado = obrasPrincipales.reduce((s, o) => s + (o.totalPagado || 0), 0);
+    const totalPendiente = obrasPrincipales.reduce((s, o) => s + (o.pagosPendientes || 0), 0);
+
+    return (
+      <>
+        <div className="table-responsive">
+          <table className="table table-hover">
+            <thead className="table-primary">
+              <tr>
+                <th>Obra</th>
+                <th className="text-center">Cantidad de Pagos</th>
+                <th className="text-end">Total Pagado</th>
+                <th className="text-end">Pendiente</th>
+                <th className="text-center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {obrasPrincipales.map((obra, idx) => {
+                const obraIdReal = obra.obraId || obra.id;
+                const trabajosExtraObra = trabajosExtra.get(obraIdReal) || [];
+                const trabajosExtraObraIds = trabajosExtraObra.flatMap(te => [te.obraId, te.id]).filter(Boolean);
+                const trabajosAdicionalesObra = trabajosAdicionales.filter(ta => {
+                  const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                  const obraIdTA = ta.obraId || ta.obra_id;
+                  if (teId && trabajosExtraObraIds.includes(teId)) return true;
+                  if (!teId && obraIdTA === obraIdReal) return true;
+                  return false;
+                });
+                const claveExtra = `pagos_extra_${idx}`;
+                const claveAdic = `pagos_adic_${idx}`;
+                const colapsadoExtra = !!gruposColapsados[claveExtra];
+                const colapsadoAdic = !!gruposColapsados[claveAdic];
+
+                return (
+                  <React.Fragment key={idx}>
+                    {/* Fila obra principal */}
+                    <tr style={{ borderBottom: (trabajosExtraObra.length > 0 || trabajosAdicionalesObra.length > 0) ? '1px solid rgba(253, 126, 20, 0.45)' : undefined }}>
+                      <td>
+                        <strong>{obra.nombreObra}</strong>
+                        {obra.esObraIndependiente && (
+                          <span className="badge bg-warning text-dark ms-2" style={{ fontSize: '0.7em' }}>
+                            <i className="bi bi-diagram-3 me-1"></i>Obra Independiente
+                          </span>
+                        )}
+                      </td>
+                      <td className="text-center">
+                        <span className="badge bg-info">{obra.cantidadPagos || 0}</span>
+                      </td>
+                      <td className="text-end">
+                        <strong className="text-primary">{formatearMoneda(obra.totalPagado || 0)}</strong>
+                      </td>
+                      <td className="text-end">
+                        <span className="text-warning">{formatearMoneda(obra.pagosPendientes || 0)}</span>
+                      </td>
+                      <td className="text-center">
+                        <button className="btn btn-sm btn-outline-primary" onClick={cargarDetallePagos} disabled={cargandoPagos}>
+                          {cargandoPagos ? <><span className="spinner-border spinner-border-sm me-1"></span>Cargando...</> : <><i className="bi bi-eye me-1"></i>Ver Detalle</>}
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* Subgrupo: Adicionales Obra */}
+                    {trabajosExtraObra.length > 0 && (
                       <>
-                        <span className="spinner-border spinner-border-sm me-1"></span>
-                        Cargando...
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-eye me-1"></i>
-                        Ver Detalle
+                        <tr
+                          onClick={() => setGruposColapsados(p => ({ ...p, [claveExtra]: !p[claveExtra] }))}
+                          style={{ backgroundColor: '#fff3cd', cursor: 'pointer', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                        >
+                          <td colSpan="5" className="py-1 px-3 small">
+                            <span className="fw-bold" style={{ color: '#856404' }}>
+                              <i className={`fas fa-chevron-${colapsadoExtra ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                              📋 Adicionales Obra
+                              <span className="badge ms-2" style={{ fontSize: '0.7em', backgroundColor: '#ffc107', color: '#000' }}>{trabajosExtraObra.length}</span>
+                            </span>
+                            <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
+                          </td>
+                        </tr>
+                        {!colapsadoExtra && trabajosExtraObra.map((te, tIdx) => (
+                          <tr key={`te_${idx}_${tIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                            <td className="ps-3">
+                              <small><strong>{te.nombre}</strong></small>
+                            </td>
+                            <td className="text-center"><span className="badge bg-secondary">—</span></td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                            <td></td>
+                          </tr>
+                        ))}
                       </>
                     )}
-                  </button>
+
+                    {/* Subgrupo: Tareas Leves / Mantenimiento */}
+                    {trabajosAdicionalesObra.length > 0 && (
+                      <>
+                        <tr
+                          onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
+                          style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                        >
+                          <td colSpan="5" className="py-1 px-3 small">
+                            <span className="fw-bold text-primary">
+                              <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                              🔧 Tareas Leves / Mantenimiento
+                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{trabajosAdicionalesObra.length}</span>
+                            </span>
+                            <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
+                          </td>
+                        </tr>
+                        {!colapsadoAdic && trabajosAdicionalesObra.map((ta, taIdx) => (
+                          <tr key={`ta_${idx}_${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                            <td className="ps-3">
+                              <small className="text-info"><strong>{ta.nombre || ta.descripcion}</strong></small>
+                              {ta.trabajoExtraId && trabajosExtraObra.find(te => te.obraId === ta.trabajoExtraId || te.id === ta.trabajoExtraId) && (
+                                <small className="text-muted ms-2">(de {trabajosExtraObra.find(te => te.obraId === ta.trabajoExtraId || te.id === ta.trabajoExtraId)?.nombre})</small>
+                              )}
+                            </td>
+                            <td className="text-center"><span className="badge bg-secondary">—</span></td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                            <td></td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot className="table-light">
+              <tr>
+                <td className="text-end"><strong>TOTAL:</strong></td>
+                <td className="text-center">
+                  <span className="badge bg-info fs-6">{totalPagosCount}</span>
                 </td>
+                <td className="text-end">
+                  <strong className="text-primary fs-5">{formatearMoneda(totalPagado)}</strong>
+                </td>
+                <td className="text-end">
+                  <strong className="text-warning fs-5">{formatearMoneda(totalPendiente)}</strong>
+                </td>
+                <td></td>
               </tr>
-            ))}
-          </tbody>
-          <tfoot className="table-light">
-            <tr>
-              <td className="text-end"><strong>TOTAL:</strong></td>
-              <td className="text-center">
-                <span className="badge bg-info fs-6">
-                  {datos.reduce((sum, o) => sum + (o.cantidadPagos || 0), 0)}
-                </span>
-              </td>
-              <td className="text-end">
-                <strong className="text-primary fs-5">
-                  {formatearMoneda(datos.reduce((sum, o) => sum + (o.totalPagado || 0), 0))}
-                </strong>
-              </td>
-              <td className="text-end">
-                <strong className="text-warning fs-5">
-                  {formatearMoneda(datos.reduce((sum, o) => sum + (o.pagosPendientes || 0), 0))}
-                </strong>
-              </td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </tfoot>
+          </table>
+        </div>
 
       {/* Modal anidado para mostrar detalle de pagos */}
       {mostrandoDetallePagos && (
@@ -1254,6 +1383,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
       )}
     </>
   );
+  };
 
   const renderSaldoPorCobrar = () => {
     const cargando = cargandoTrabajosAdicionales || cargandoTrabajosExtra;
@@ -1378,10 +1508,15 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                   })
                 : [];
 
+              const claveExtra = `saldo_extra_${idx}`;
+              const claveAdic = `saldo_adic_${idx}`;
+              const colapsadoExtra = !!gruposColapsados[claveExtra];
+              const colapsadoAdic = !!gruposColapsados[claveAdic];
+
               return (
                 <React.Fragment key={`obra-${idx}`}>
                   {/* Obra principal u OI */}
-                  <tr>
+                  <tr style={{ borderBottom: (tesObra.length > 0 || tasObra.length > 0) ? '1px solid rgba(253, 126, 20, 0.45)' : undefined }}>
                     <td>
                       <span className={`badge ${obra.esObraIndependiente ? 'bg-info' : 'bg-primary'}`}>
                         {obra.esObraIndependiente ? 'Independiente' : 'Principal'}
@@ -1399,17 +1534,26 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                     </td>
                   </tr>
 
-                  {/* Trabajos Extra de esta obra */}
-                  {tesObra.map((te, teIdx) => {
-                    const tasTE = trabajosAdicionales.filter(ta => {
-                      const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
-                      return teId === te.obraId;
-                    });
-                    return (
-                      <React.Fragment key={`te-${teIdx}`}>
-                        <tr className="table-secondary">
+                  {/* Subgrupo: Adicionales Obra (Trabajos Extra) */}
+                  {tesObra.length > 0 && (
+                    <>
+                      <tr
+                        onClick={() => setGruposColapsados(p => ({ ...p, [claveExtra]: !p[claveExtra] }))}
+                        style={{ backgroundColor: '#fff3cd', cursor: 'pointer', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                      >
+                        <td colSpan="5" className="py-1 px-3 small">
+                          <span className="fw-bold" style={{ color: '#856404' }}>
+                            <i className={`fas fa-chevron-${colapsadoExtra ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                            📋 Adicionales Obra
+                            <span className="badge ms-2" style={{ fontSize: '0.7em', backgroundColor: '#ffc107', color: '#000' }}>{tesObra.length}</span>
+                          </span>
+                          <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
+                        </td>
+                      </tr>
+                      {!colapsadoExtra && tesObra.map((te, teIdx) => (
+                        <tr key={`te-${teIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
                           <td>
-                            <span className="badge bg-warning text-dark">Trabajo Extra</span>
+                            <span className="badge" style={{ backgroundColor: '#ffc107', color: '#000' }}>📋 Adicional</span>
                           </td>
                           <td className="ps-3">
                             <i className="bi bi-arrow-return-right me-1 text-muted"></i>
@@ -1419,43 +1563,50 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                           <td className="text-end"><span className="text-muted small">—</span></td>
                           <td className="text-end"><small className="text-danger">{formatearMoneda(te.totalCalculado || 0)}</small></td>
                         </tr>
+                      ))}
+                    </>
+                  )}
 
-                        {/* TAs anidados bajo este TE */}
-                        {tasTE.map((ta, taIdx) => (
-                          <tr key={`ta-te-${taIdx}`} className="table-light">
+                  {/* Subgrupo: Tareas Leves / Mantenimiento (Trabajos Adicionales) */}
+                  {tasObra.length > 0 && (
+                    <>
+                      <tr
+                        onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
+                        style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                      >
+                        <td colSpan="5" className="py-1 px-3 small">
+                          <span className="fw-bold text-primary">
+                            <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                            🔧 Tareas Leves / Mantenimiento
+                            <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tasObra.length}</span>
+                          </span>
+                          <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
+                        </td>
+                      </tr>
+                      {!colapsadoAdic && tasObra.map((ta, taIdx) => {
+                        const teAsociado = (ta.trabajoExtraId || ta.trabajo_extra_id)
+                          ? tesObra.find(te => te.obraId === (ta.trabajoExtraId || ta.trabajo_extra_id) || te.id === (ta.trabajoExtraId || ta.trabajo_extra_id))
+                          : null;
+                        return (
+                          <tr key={`ta-${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
                             <td>
-                              <span className="badge bg-secondary">T. Adicional</span>
+                              <span className="badge" style={{ backgroundColor: '#fd7e14', color: '#fff' }}>🔧 Tarea Leve</span>
                             </td>
-                            <td className="ps-5">
+                            <td className="ps-3">
                               <i className="bi bi-arrow-return-right me-1 text-muted"></i>
-                              <small>{ta.descripcion || ta.nombre || `Adicional #${ta.id}`}</small>
+                              <small>{ta.descripcion || ta.nombre || `Tarea #${ta.id}`}</small>
+                              {teAsociado && (
+                                <small className="text-muted ms-2">(de {teAsociado.nombre})</small>
+                              )}
                             </td>
                             <td className="text-end"><small>{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
                             <td className="text-end"><span className="text-muted small">—</span></td>
                             <td className="text-end"><small className="text-danger">{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
                           </tr>
-                        ))}
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* TAs directos de esta obra (no bajo TE) */}
-                  {tasObra
-                    .filter(ta => !(ta.trabajoExtraId || ta.trabajo_extra_id))
-                    .map((ta, taIdx) => (
-                      <tr key={`ta-obra-${taIdx}`} className="table-light">
-                        <td>
-                          <span className="badge bg-secondary">T. Adicional</span>
-                        </td>
-                        <td className="ps-3">
-                          <i className="bi bi-arrow-return-right me-1 text-muted"></i>
-                          <small>{ta.descripcion || ta.nombre || `Adicional #${ta.id}`}</small>
-                        </td>
-                        <td className="text-end"><small>{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
-                        <td className="text-end"><span className="text-muted small">—</span></td>
-                        <td className="text-end"><small className="text-danger">{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
-                      </tr>
-                    ))}
+                        );
+                      })}
+                    </>
+                  )}
                 </React.Fragment>
               );
             })}
@@ -1468,11 +1619,11 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                 return !tieneObra && !tieneTE;
               })
               .map((ta, idx) => (
-                <tr key={`ta-huerfano-${idx}`} className="table-light">
+                <tr key={`ta-huerfano-${idx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
                   <td>
-                    <span className="badge bg-secondary">T. Adicional</span>
+                    <span className="badge" style={{ backgroundColor: '#fd7e14', color: '#fff' }}>🔧 Tarea Leve</span>
                   </td>
-                  <td><small>{ta.descripcion || ta.nombre || `Adicional #${ta.id}`}</small></td>
+                  <td><small>{ta.descripcion || ta.nombre || `Tarea #${ta.id}`}</small></td>
                   <td className="text-end"><small>{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
                   <td className="text-end"><span className="text-muted small">—</span></td>
                   <td className="text-end"><small className="text-danger">{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
@@ -1584,24 +1735,49 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
 
   const renderSaldoDisponible = () => {
     const totalCobrado = estadisticas?.totalCobradoEmpresa || estadisticas?.totalCobrado || 0;
-    // Cobros de obras principales y trabajos extra (sistema antiguo: asignaciones_cobro_obra)
+
+    // ── Paso 1: Filtrar TEs y deduplicar OIs en datos ─────────────────────────
+    const oiMapDatos = new Map();
+    const obrasNormalesSD = [];
+    datos.forEach(obra => {
+      const esTE = Array.from(trabajosExtra.values()).flat().some(
+        te => te.id === obra.presupuestoId || te.id === obra.id
+      );
+      if (esTE) return;
+      if (obra.esObraIndependiente) {
+        const clave = (obra.nombreObra || obra.direccion)
+          ? `${obra.nombreObra}_${obra.direccion}`.trim()
+          : `id_${obra.id}`;
+        if (!oiMapDatos.has(clave)) oiMapDatos.set(clave, obra);
+      } else {
+        obrasNormalesSD.push(obra);
+      }
+    });
+    const obrasPrincipalesSD = [...obrasNormalesSD, ...Array.from(oiMapDatos.values())];
+
+    // ── Paso 2: Separar entidades sin distribución ─────────────────────────────
+    // OIs: excluir las que ya están en datos por ID (el state ya viene deduplicado por nombre)
+    const obraIdsEnDatos = new Set(
+      Array.from(oiMapDatos.values()).map(o => o.obraId || o.id).filter(Boolean)
+    );
+    const oisSD = entidadesSinDistribucion.filter(e =>
+      e.tipoEntidad === 'OBRA_INDEPENDIENTE' &&
+      !obraIdsEnDatos.has(e.entidadId)
+    );
+
+    // TAs ya se muestran en los subgrupos por obra — no se reutiliza tasSD
+    // (evita duplicados entre entidadesSinDistribucion y trabajosAdicionales)
+    const tasSD = [];
+
+    // ── Paso 3: Totales ────────────────────────────────────────────────────────
     const totalAsignadoPrincipal = datos.reduce((sum, o) => sum + (o.totalCobrado || 0), 0);
-    // Cobros de TA y OI (sistema nuevo: cobros_entidad)
     const totalAsignadoSinDist = entidadesSinDistribucion.reduce((sum, e) => sum + (e.totalCobrado || 0), 0);
     const totalAsignado = totalAsignadoPrincipal + totalAsignadoSinDist;
     const saldoDisponible = totalCobrado - totalAsignado;
 
-    // Filas unificadas: obras/TE primero, luego TA y OI
-    const todasLasFilas = [
-      ...datos.map(o => ({ nombreObra: o.nombreObra, totalCobrado: o.totalCobrado || 0, tipoEntidad: 'OBRA' })),
-      ...entidadesSinDistribucion,
-    ];
-
-    const tipoBadge = (tipo) => {
-      if (tipo === 'TRABAJO_ADICIONAL') return <span className="badge bg-secondary ms-1">T. Adicional</span>;
-      if (tipo === 'OBRA_INDEPENDIENTE') return <span className="badge bg-info ms-1">Independiente</span>;
-      return null;
-    };
+    // Clave para colapsar el bloque global de TAs
+    const claveTA = 'sd_global_tareas';
+    const colapsadoTA = !!gruposColapsados[claveTA];
 
     return (
       <>
@@ -1640,24 +1816,156 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
               </tr>
             </thead>
             <tbody>
-              {todasLasFilas.map((fila, idx) => {
-                const porcentaje = totalCobrado > 0 ? ((fila.totalCobrado || 0) / totalCobrado * 100) : 0;
+              {/* Obras principales con subgrupo de Adicionales Obra */}
+              {obrasPrincipalesSD.map((obra, idx) => {
+                const obraIdReal = obra.obraId || obra.id;
+                // Las OIs no tienen Adicionales Obra ni Tareas Leves en este sistema
+                const tesObra = obra.esObraIndependiente ? [] : (trabajosExtra.get(obraIdReal) || []);
+                const tasObra = obra.esObraIndependiente ? [] : trabajosAdicionales.filter(ta => {
+                  const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                  const obraIdTA = ta.obraId || ta.obra_id;
+                  if (teId && tesObra.flatMap(te => [te.obraId, te.id]).filter(Boolean).includes(teId)) return true;
+                  if (!teId && obraIdTA === obraIdReal) return true;
+                  return false;
+                });
+                const claveExtra = `sd_extra_${idx}`;
+                const claveAdic = `sd_adic_${idx}`;
+                const colapsadoExtra = !!gruposColapsados[claveExtra];
+                const colapsadoAdic = !!gruposColapsados[claveAdic];
+                const porcentaje = totalCobrado > 0 ? ((obra.totalCobrado || 0) / totalCobrado * 100) : 0;
+
                 return (
-                  <tr key={idx}>
-                    <td>
-                      <strong>{fila.nombreObra}</strong>
-                      {tipoBadge(fila.tipoEntidad)}
+                  <React.Fragment key={`sdo_${idx}`}>
+                    <tr style={{ borderBottom: (tesObra.length > 0 || tasObra.length > 0) ? '1px solid rgba(253, 126, 20, 0.45)' : undefined }}>
+                      <td>
+                        <strong>{obra.nombreObra}</strong>
+                        {obra.esObraIndependiente && (
+                          <span className="badge bg-info ms-1">Independiente</span>
+                        )}
+                      </td>
+                      <td className="text-end text-primary">{formatearMoneda(obra.totalCobrado || 0)}</td>
+                      <td className="text-end">{porcentaje.toFixed(2)}%</td>
+                    </tr>
+
+                    {/* Subgrupo: Adicionales Obra */}
+                    {tesObra.length > 0 && (
+                      <>
+                        <tr
+                          onClick={() => setGruposColapsados(p => ({ ...p, [claveExtra]: !p[claveExtra] }))}
+                          style={{ backgroundColor: '#fff3cd', cursor: 'pointer', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                        >
+                          <td colSpan="3" className="py-1 px-3 small">
+                            <span className="fw-bold" style={{ color: '#856404' }}>
+                              <i className={`fas fa-chevron-${colapsadoExtra ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                              📋 Adicionales Obra
+                              <span className="badge ms-2" style={{ fontSize: '0.7em', backgroundColor: '#ffc107', color: '#000' }}>{tesObra.length}</span>
+                            </span>
+                            <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
+                          </td>
+                        </tr>
+                        {!colapsadoExtra && tesObra.map((te, teIdx) => (
+                          <tr key={`te_sd_${idx}_${teIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                            <td className="ps-3">
+                              <small><strong>{te.nombre}</strong></small>
+                            </td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Subgrupo: Tareas Leves */}
+                    {tasObra.length > 0 && (
+                      <>
+                        <tr
+                          onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
+                          style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                        >
+                          <td colSpan="3" className="py-1 px-3 small">
+                            <span className="fw-bold text-primary">
+                              <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                              🔧 Tareas Leves / Mantenimiento
+                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tasObra.length}</span>
+                            </span>
+                            <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
+                          </td>
+                        </tr>
+                        {!colapsadoAdic && tasObra.map((ta, taIdx) => (
+                          <tr key={`ta_sd_${idx}_${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                            <td className="ps-3">
+                              <small>{ta.nombre || ta.descripcion || `Tarea #${ta.id}`}</small>
+                            </td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                            <td className="text-end"><small className="text-muted">—</small></td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Bloque global colapsable: Tareas Leves (de entidadesSinDistribucion) */}
+              {tasSD.length > 0 && (
+                <>
+                  {/* Separador visual para que no confunda con la obra anterior */}
+                  <tr style={{ backgroundColor: '#f8f9fa', borderTop: '3px solid #dee2e6' }}>
+                    <td colSpan="3" className="py-1 px-3">
+                      <small className="text-muted fw-bold text-uppercase" style={{ fontSize: '0.7em', letterSpacing: '0.05em' }}>
+                        Tareas Leves sin distribución de cobro por obra
+                      </small>
                     </td>
-                    <td className="text-end text-primary">{formatearMoneda(fila.totalCobrado || 0)}</td>
+                  </tr>
+                  <tr
+                    onClick={() => setGruposColapsados(p => ({ ...p, [claveTA]: !p[claveTA] }))}
+                    style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                  >
+                    <td colSpan="3" className="py-1 px-3 small">
+                      <span className="fw-bold text-primary">
+                        <i className={`fas fa-chevron-${colapsadoTA ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                        🔧 Tareas Leves / Mantenimiento
+                        <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tasSD.length}</span>
+                      </span>
+                      <span className="text-muted ms-3 small">Clic para {colapsadoTA ? 'mostrar' : 'ocultar'}</span>
+                    </td>
+                  </tr>
+                  {!colapsadoTA && tasSD.map((ta, idx) => {
+                    const porcentaje = totalCobrado > 0 ? ((ta.totalCobrado || 0) / totalCobrado * 100) : 0;
+                    return (
+                      <tr key={`ta_glob_${idx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                        <td className="ps-3">
+                          <small>{ta.nombreObra}</small>
+                          <span className="badge ms-1" style={{ backgroundColor: '#fd7e14', color: '#fff', fontSize: '0.7em' }}>🔧 Tarea Leve</span>
+                        </td>
+                        <td className="text-end text-primary">{formatearMoneda(ta.totalCobrado || 0)}</td>
+                        <td className="text-end">{porcentaje.toFixed(2)}%</td>
+                      </tr>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* OIs de entidadesSinDistribucion no presentes en datos */}
+              {oisSD.length > 0 && oisSD.map((oi, idx) => {
+                const porcentaje = totalCobrado > 0 ? ((oi.totalCobrado || 0) / totalCobrado * 100) : 0;
+                return (
+                  <tr key={`oi_sd_${idx}`}>
+                    <td>
+                      <strong>{oi.nombreObra}</strong>
+                      <span className="badge bg-info ms-1">Independiente</span>
+                    </td>
+                    <td className="text-end text-primary">{formatearMoneda(oi.totalCobrado || 0)}</td>
                     <td className="text-end">{porcentaje.toFixed(2)}%</td>
                   </tr>
                 );
               })}
+
               {cargandoEntidadesSinDist && (
                 <tr>
                   <td colSpan="3" className="text-center text-muted">
                     <span className="spinner-border spinner-border-sm me-2" />
-                    Cargando trabajos adicionales y obras independientes...
+                    Cargando Tareas Leves y obras independientes...
                   </td>
                 </tr>
               )}

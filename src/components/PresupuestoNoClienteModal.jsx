@@ -8984,14 +8984,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               <div className="d-flex align-items-center gap-3 flex-grow-1">
                 <h5 className="modal-title mb-0">
                   {modoTrabajoExtra ? (
-                    'Trabajos Extra'
+                    'Adicional Obra'
                   ) : soloLectura ? (
                     <>
                       <i className="fas fa-lock me-2 text-warning"></i>
                       Ver Presupuesto - Solo Lectura
                       {form.esPresupuestoTrabajoExtra && (
                         <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.9rem'}}>
-                          🔧 TRABAJO EXTRA
+                          � ADICIONAL OBRA
                         </span>
                       )}
                     </>
@@ -9002,7 +9002,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                         : (form.tipoPresupuesto === 'TRABAJOS_SEMANALES' ? 'Nuevo Trabajos Semanales' : 'Nuevo Presupuesto')}
                       {form.esPresupuestoTrabajoExtra && (
                         <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.9rem'}}>
-                          🔧 TRABAJO EXTRA
+                          � ADICIONAL OBRA
                         </span>
                       )}
                     </>
@@ -9015,10 +9015,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     <span
                       className="badge bg-warning text-dark"
                       style={{ fontSize: '0.85rem', padding: '6px 10px' }}
-                      title="Este es un Trabajo Extra vinculado a una obra"
+                      title="Este es un Adicional Obra vinculado a una obra"
                     >
                       <i className="fas fa-tools me-1"></i>
-                      TRABAJO EXTRA
+                      ADICIONAL OBRA
                     </span>
 
                     {/* 🎯 Badge de Modo de Presupuesto (GLOBAL/DETALLE/MIXTO) */}
@@ -9149,7 +9149,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             id="checkboxTrabajoExtra"
                             checked={form.esPresupuestoTrabajoExtra || false}
                             onChange={(e) => {
-                              console.log('🔧 Checkbox Trabajo Extra cambiado a:', e.target.checked);
+                              console.log('� Checkbox Adicional Obra cambiado a:', e.target.checked);
                               setForm(f => ({
                                 ...f,
                                 esPresupuestoTrabajoExtra: e.target.checked
@@ -9171,7 +9171,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               cursor: soloLectura ? 'not-allowed' : 'pointer'
                             }}
                           >
-                            🔧 Trabajo Extra
+                            � Adicional Obra
                           </label>
                         </div>
                         {form.esPresupuestoTrabajoExtra && (
@@ -9185,7 +9185,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             }}
                           >
                             <i className="fas fa-tools me-1"></i>
-                            TRABAJO EXTRA
+                            ADICIONAL OBRA
                           </span>
                         )}
                       </div>

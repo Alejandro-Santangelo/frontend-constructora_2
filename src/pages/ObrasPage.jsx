@@ -5720,11 +5720,11 @@ const ObrasPage = ({ showNotification }) => {
                                         })()}
                                       </div>
 
-                                      {/* Trabajos Extra */}
+                                      {/* Adicionales Obra */}
                                       <div className="col-md-6">
                                         <h6 className="text-muted mb-2">
                                           <i className="fas fa-tools me-2"></i>
-                                          Trabajos Extra
+                                          Adicionales Obra
                                         </h6>
                                         <button
                                           className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
@@ -5744,7 +5744,7 @@ const ObrasPage = ({ showNotification }) => {
                                         >
                                           <span>
                                             <i className="fas fa-wrench me-2"></i>
-                                            Gestionar Trabajos Extra
+                                            Gestionar Adicionales Obra
                                           </span>
                                           <span className="badge bg-secondary">{contarTrabajosExtraObra(obra.id)}</span>
                                         </button>
@@ -5907,11 +5907,11 @@ const ObrasPage = ({ showNotification }) => {
                                         </button>
                                       </div>
 
-                                      {/* Trabajos Adicionales */}
+                                      {/* Tareas Leves */}
                                       <div className="col-md-6">
                                         <h6 className="text-muted mb-2">
                                           <i className="fas fa-clipboard-list me-2"></i>
-                                          Trabajos Adicionales
+                                          Tareas Leves
                                         </h6>
                                         <button
                                           className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
@@ -5943,7 +5943,7 @@ const ObrasPage = ({ showNotification }) => {
                                         >
                                           <span>
                                             <i className="fas fa-plus-square me-2"></i>
-                                            Gestionar Trabajos Adicionales
+                                            Gestionar Tareas Leves
                                           </span>
                                           <span className="badge bg-primary">
                                             {(() => {
@@ -8248,11 +8248,11 @@ const ObrasPage = ({ showNotification }) => {
               </button>
               <h3 className="mb-0">
                 <i className="fas fa-tools me-2"></i>
-                Trabajos Extra - {obraParaTrabajosExtra?.nombre}
+                Adicionales Obra - {obraParaTrabajosExtra?.nombre}
               </h3>
               <span className="badge bg-secondary" style={{ fontSize: '14px', padding: '8px 12px' }}>
                 <i className="fas fa-list me-2"></i>
-                {trabajosExtra.length} trabajo{trabajosExtra.length !== 1 ? 's' : ''}
+                {trabajosExtra.length} adicional{trabajosExtra.length !== 1 ? 'es' : ''}
               </span>
             </div>
           </div>
@@ -8790,7 +8790,7 @@ const ObrasPage = ({ showNotification }) => {
                                       <div className="col-md-6">
                                         <h6 className="text-muted mb-2">
                                           <i className="fas fa-tools me-2"></i>
-                                          Trabajos Extra
+                                          Adicionales Obra
                                         </h6>
                                         <button
                                           className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
@@ -8832,7 +8832,7 @@ const ObrasPage = ({ showNotification }) => {
                                         >
                                           <span>
                                             <i className="fas fa-wrench me-2"></i>
-                                            Gestionar Trabajos Extra
+                                            Gestionar Adicionales Obra
                                           </span>
                                           <span className="badge bg-secondary">{contarTrabajosExtraObra(`te_${row.id}`)}</span>
                                         </button>
@@ -9153,7 +9153,7 @@ const ObrasPage = ({ showNotification }) => {
                                       <div className="col-md-6">
                                         <h6 className="text-muted mb-2">
                                           <i className="fas fa-clipboard-list me-2"></i>
-                                          Trabajos Adicionales
+                                          Tareas Leves
                                         </h6>
                                         <button
                                           className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
@@ -9173,7 +9173,7 @@ const ObrasPage = ({ showNotification }) => {
                                         >
                                           <span>
                                             <i className="fas fa-plus-square me-2"></i>
-Gestionar Trabajos Adicionales
+Gestionar Tareas Leves
                                           </span>
                                           <span className="badge bg-primary">
                                             {trabajosAdicionales.filter(ta => ta.trabajoExtraId === row.id).length}
@@ -11183,7 +11183,7 @@ Gestionar Trabajos Adicionales
                 <div>
                   <h5 className="modal-title mb-1">
                     <i className="fas fa-tasks me-2"></i>
-                    Trabajos Adicionales
+                    Tareas Leves
                   </h5>
                   <p className="mb-0 small opacity-90">
                     {obraParaTrabajosAdicionales._esTrabajoExtra
@@ -11206,7 +11206,7 @@ Gestionar Trabajos Adicionales
                   <button
                     className="btn btn-primary"
                     onClick={() => {
-                      console.log('🟢 Click en Nuevo Trabajo Adicional desde modal de lista:', {
+                      console.log('🟢 Click en Nueva Tarea Leve desde modal de lista:', {
                         obraParaTrabajosAdicionales,
                         _esTrabajoExtra: obraParaTrabajosAdicionales._esTrabajoExtra,
                         _trabajoExtraId: obraParaTrabajosAdicionales._trabajoExtraId
@@ -11216,7 +11216,7 @@ Gestionar Trabajos Adicionales
                     }}
                   >
                     <i className="fas fa-plus me-2"></i>
-                    Nuevo Trabajo Adicional
+                    Nueva Tarea Leve
                   </button>
                 </div>
 
@@ -11239,8 +11239,8 @@ Gestionar Trabajos Adicionales
                     return (
                       <div className="text-center py-5">
                         <i className="fas fa-inbox fa-3x text-muted mb-3"></i>
-                        <p className="text-muted">No hay trabajos adicionales registrados</p>
-                        <p className="small text-muted">Haga clic en "Nuevo Trabajo Adicional" para crear uno</p>
+                        <p className="text-muted">No hay tareas leves registradas</p>
+                        <p className="small text-muted">Haga clic en "Nueva Tarea Leve" para crear una</p>
                       </div>
                     );
                   }
@@ -11333,7 +11333,7 @@ Gestionar Trabajos Adicionales
                                       onClick={() => handleCambiarEstadoTrabajoAdicional(ta.id, 'EN_PROGRESO')}
                                     >
                                       <i className="fas fa-play me-1"></i>
-                                      Iniciar Trabajo
+                                      Iniciar Tarea
                                     </button>
                                   )}
                                   {ta.estado === 'EN_PROGRESO' && (
@@ -11443,9 +11443,9 @@ Gestionar Trabajos Adicionales
                 <div>
                   <h4 className="modal-title mb-0" style={{ fontWeight: '600' }}>
                     <i className="fas fa-clipboard-list me-3" style={{ fontSize: '1.5rem' }}></i>
-                    {trabajoAdicionalEditar ? 'Editar Trabajo Adicional' : 'Nuevo Trabajo Adicional'}
+                    {trabajoAdicionalEditar ? 'Editar Tarea Leve' : 'Nueva Tarea Leve'}
                   </h4>
-                  <small className="text-white-50 ms-5">Complete la información del trabajo adicional</small>
+                  <small className="text-white-50 ms-5">Complete la información de la tarea leve</small>
                 </div>
                 <button
                   type="button"
@@ -11542,7 +11542,7 @@ Gestionar Trabajos Adicionales
                       <div className="mb-4">
                         <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
                           <i className="fas fa-tasks me-2 text-primary"></i>
-                          Nombre de la Tarea Adicional
+                          Nombre de la Tarea Leve
                           <span className="text-danger ms-1">*</span>
                         </label>
                         <input

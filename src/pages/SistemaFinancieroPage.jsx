@@ -101,6 +101,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const [obrasDisponibles, setObrasDisponibles] = useState([]);
   const [obrasSeleccionadas, setObrasSeleccionadas] = useState(new Set());
   const [trabajosExtraSeleccionados, setTrabajosExtraSeleccionados] = useState(new Set());
+  const [gruposColapsadosSF, setGruposColapsadosSF] = useState({});
   const [trabajosAdicionalesDisponibles, setTrabajosAdicionalesDisponibles] = useState([]);
   const [trabajosAdicionalesSeleccionados, setTrabajosAdicionalesSeleccionados] = useState(new Set());
   const [loadingObras, setLoadingObras] = useState(false);
@@ -1357,12 +1358,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             Seleccionar Obras ({obrasSeleccionadas.size} de {obrasDisponibles.length})
             {trabajosExtraSeleccionados.size > 0 && (
               <span className="ms-2 badge bg-light text-dark">
-                + {trabajosExtraSeleccionados.size} Trabajo{trabajosExtraSeleccionados.size !== 1 ? 's' : ''} Extra
+                + {trabajosExtraSeleccionados.size} Adicional{trabajosExtraSeleccionados.size !== 1 ? 'es' : ''} Obra
               </span>
             )}
             {trabajosAdicionalesSeleccionados.size > 0 && (
               <span className="ms-2 badge bg-info text-white">
-                + {trabajosAdicionalesSeleccionados.size} Trabajo{trabajosAdicionalesSeleccionados.size !== 1 ? 's' : ''} Adicional{trabajosAdicionalesSeleccionados.size !== 1 ? 'es' : ''}
+                + {trabajosAdicionalesSeleccionados.size} Tarea{trabajosAdicionalesSeleccionados.size !== 1 ? 's' : ''} Leve{trabajosAdicionalesSeleccionados.size !== 1 ? 's' : ''}
               </span>
             )}
           </h5>
@@ -1709,15 +1710,6 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     ? `te-${item.id}-${index}`
                     : `ta-${item.id}-${index}`;
 
-                  if (esTrabajoAdicional) {
-                    console.log('🔍 RENDERIZANDO TA:', item.nombre, {
-                      esTrabajoAdicional,
-                      perteneceTrabajoExtra: item._perteneceTrabajoExtra,
-                      id: item.id,
-                      importe: item.importe
-                    });
-                  }
-
                   return (
                     <React.Fragment key={key}>
                       {/* 🎨 Separador visual entre grupos */}
@@ -1739,7 +1731,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                           className={isSelected ? 'table-active' : ''}
                           style={{
                             cursor: 'pointer',
-                            backgroundColor: isSelected ? undefined : colorGrupo
+                            backgroundColor: isSelected ? undefined : colorGrupo,
+                            borderBottom: perteneceAGrupo ? '1px solid rgba(253, 126, 20, 0.45)' : undefined
                           }}
                           onClick={() => toggleObraSeleccion(item.id)}
                         >
@@ -1799,73 +1792,109 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         </tr>
                       )}
 
-                      {/* Renderizar TRABAJO EXTRA */}
-                      {esTrabajoExtra && (
-                        <tr
-                          className={isSelected ? 'table-active' : ''}
-                          style={{
-                            backgroundColor: isSelected ? undefined : colorGrupo,
-                            cursor: 'pointer'
-                          }}
-                          onClick={() => toggleTrabajoExtraSeleccion(item.id)}
-                        >
-                          <td className="text-center" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              className="form-check-input"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                toggleTrabajoExtraSeleccion(item.id);
-                              }}
-                            />
-                          </td>
-                          <td colSpan="4" className="ps-4">
-                            <i className="bi bi-arrow-return-right me-2 text-muted"></i>
-                            <small><strong>Trabajo Extra: {item.nombre}</strong></small>
-                          </td>
-                          <td className="text-end">
-                            <small><strong>{formatearMoneda(presupuestoBase)}</strong></small>
-                          </td>
-                        </tr>
-                      )}
+                      {/* ══════════════════════════════════════════════════
+                          SUBGRUPO COLAPSABLE: TRABAJOS EXTRA Y ADICIONALES
+                          (sólo se renderiza desde la fila principal)
+                          ══════════════════════════════════════════════════ */}
+                      {esObraPrincipal && (() => {
+                        const extras     = array.filter(it => it._grupoIndex === grupoIndex && it._esTrabajoExtra);
+                        const adicionales = array.filter(it => it._grupoIndex === grupoIndex && it._esTrabajoAdicional);
+                        if (extras.length === 0 && adicionales.length === 0) return null;
 
-                      {/* Renderizar TRABAJO ADICIONAL */}
-                      {esTrabajoAdicional && (
-                        <tr
-                          className={isSelected ? 'table-active' : ''}
-                          style={{
-                            backgroundColor: isSelected ? undefined : colorGrupo,
-                            cursor: 'pointer'
-                          }}
-                          onClick={() => toggleTrabajoAdicionalSeleccion(item.id)}
-                        >
-                          <td className="text-center" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              className="form-check-input"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                toggleTrabajoAdicionalSeleccion(item.id);
-                              }}
-                            />
-                          </td>
-                          <td colSpan="4" className={item._perteneceTrabajoExtra ? 'ps-5' : 'ps-4'}>
-                            <i className="bi bi-arrow-return-right me-2 text-muted"></i>
-                            {item._perteneceTrabajoExtra && (
-                              <i className="bi bi-arrow-return-right me-2 text-info"></i>
+                        const renderSubgrupo = (items, claveGrupo, titulo, headerStyle, itemBorderLeft, isExtra) => {
+                          if (items.length === 0) return null;
+                          const colapsado = !!gruposColapsadosSF[claveGrupo];
+                          return (
+                            <>
+                              {/* Header subgrupo */}
+                              <tr
+                                onClick={() => setGruposColapsadosSF(p => ({ ...p, [claveGrupo]: !p[claveGrupo] }))}
+                                style={headerStyle}
+                              >
+                                <td colSpan="6" className="py-1 px-3 small">
+                                  <span className="fw-bold" style={{ color: headerStyle.color || '#1d4ed8' }}>
+                                    <i className={`fas fa-chevron-${colapsado ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                                    {titulo}
+                                    <span className="badge ms-2" style={{ fontSize: '0.7em', backgroundColor: headerStyle.badgeColor || '#1d4ed8' }}>{items.length}</span>
+                                  </span>
+                                  <span className="text-muted ms-3 small">Clic para {colapsado ? 'mostrar' : 'ocultar'}</span>
+                                </td>
+                              </tr>
+                              {/* Filas */}
+                              {!colapsado && items.map((subItem, si) => {
+                                const subIsSelected = isExtra
+                                  ? trabajosExtraSeleccionados.has(subItem.id)
+                                  : trabajosAdicionalesSeleccionados.has(subItem.id);
+                                const subMonto = isExtra ? (subItem.totalCalculado || 0) : (subItem.importe || 0);
+                                return (
+                                  <tr
+                                    key={`sub_${isExtra ? 'te' : 'ta'}_${subItem.id}_${si}`}
+                                    className={subIsSelected ? 'table-active' : ''}
+                                    style={{
+                                      backgroundColor: subIsSelected ? undefined : adjustColorBrightness(colorBaseGrupo, isExtra ? -15 : -25),
+                                      cursor: 'pointer',
+                                      borderLeft: itemBorderLeft,
+                                      borderBottom: '1px solid rgba(253, 126, 20, 0.45)'
+                                    }}
+                                    onClick={() => isExtra ? toggleTrabajoExtraSeleccion(subItem.id) : toggleTrabajoAdicionalSeleccion(subItem.id)}
+                                  >
+                                    <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        type="checkbox"
+                                        className="form-check-input"
+                                        checked={subIsSelected}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          isExtra ? toggleTrabajoExtraSeleccion(subItem.id) : toggleTrabajoAdicionalSeleccion(subItem.id);
+                                        }}
+                                      />
+                                    </td>
+                                    <td colSpan="4" className="ps-3">
+                                      {isExtra ? (
+                                        <small><strong>{subItem.nombre}</strong></small>
+                                      ) : (
+                                        <>
+                                          <small className="text-info"><strong>{subItem.nombre}</strong></small>
+                                          {subItem._perteneceTrabajoExtra && subItem.trabajoExtraPadreNombre && (
+                                            <small className="text-muted ms-2">(de {subItem.trabajoExtraPadreNombre})</small>
+                                          )}
+                                        </>
+                                      )}
+                                    </td>
+                                    <td className="text-end">
+                                      <small><strong>{formatearMoneda(subMonto)}</strong></small>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </>
+                          );
+                        };
+
+                        return (
+                          <>
+                            {renderSubgrupo(
+                              extras,
+                              `extra_${grupoIndex}`,
+                              '📋 Adicionales Obra',
+                              { backgroundColor: '#fff3cd', cursor: 'pointer', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)', color: '#856404', badgeColor: '#ffc107' },
+                              '5px solid #ffc107',
+                              true
                             )}
-                            <small className="text-info"><strong>Trabajo Adicional: {item.nombre}</strong></small>
-                            {item._perteneceTrabajoExtra && item.trabajoExtraPadreNombre && (
-                              <small className="text-muted ms-2">(de {item.trabajoExtraPadreNombre})</small>
+                            {renderSubgrupo(
+                              adicionales,
+                              `adic_${grupoIndex}`,
+                              '🔧 Tareas Leves / Mantenimiento',
+                              { backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)', color: '#1d4ed8', badgeColor: '#1d4ed8' },
+                              '7px solid #fd7e14',
+                              false
                             )}
-                          </td>
-                          <td className="text-end">
-                            <small><strong>{formatearMoneda(item.importe || 0)}</strong></small>
-                          </td>
-                        </tr>
-                      )}
+                          </>
+                        );
+                      })()}
+
+                      {/* Skip: extras y adicionales se renderizan dentro del subgrupo de su principal */}
+                      {(esTrabajoExtra || esTrabajoAdicional) && null}
                     </React.Fragment>
                   );
                 })}
@@ -1939,8 +1968,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <div style={{fontSize: '0.8em', color: '#888', marginTop: 4}}>
                               <span>IDs sumados: </span>
                               {debugRows.join(' | ')}
-                              {totalTrabajosExtra > 0 && ` + TE: $${totalTrabajosExtra.toLocaleString()}`}
-                              {totalTrabajosAdicionales > 0 && ` + TA: $${totalTrabajosAdicionales.toLocaleString()}`}
+                              {totalTrabajosExtra > 0 && ` + Adic.Obra: $${totalTrabajosExtra.toLocaleString()}`}
+                              {totalTrabajosAdicionales > 0 && ` + TareasLeves: $${totalTrabajosAdicionales.toLocaleString()}`}
                             </div>
                           </>
                         );
@@ -2778,8 +2807,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                               <tr key={`${obra.id}-trabajo-${tIdx}`} className="table-active">
                                                 <td></td>
                                                 <td className="ps-4">
-                                                  <i className="bi bi-arrow-return-right me-2 text-muted"></i>
-                                                  <small><strong>Trabajo Extra: {trabajo.nombre}</strong></small>
+                                                  <span className="badge bg-warning text-dark me-2" style={{fontSize: '0.7em'}}>📋 Adicional Obra</span>
+                                                  <small><strong>{trabajo.nombre}</strong></small>
                                                 </td>
                                                 <td className="text-end">
                                                   <small><strong>{formatearMoneda(trabajo.totalCalculado || 0)}</strong></small>

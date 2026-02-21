@@ -346,11 +346,11 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
           </div>
         )}
 
-        {/* Sección de acciones para TRABAJOS EXTRA */}
+        {/* Sección de acciones para ADICIONALES OBRA */}
         {isObrasPage && obrasControls && obrasControls.esTrabajosExtra && (
           <div className="mt-3 px-2">
             <div className="mb-2">
-              <small className="text-white-50 fw-bold">TRABAJOS EXTRA - {obrasControls.nombreObra}</small>
+              <small className="text-white-50 fw-bold">ADICIONALES OBRA - {obrasControls.nombreObra}</small>
             </div>
             <div className="d-flex flex-column gap-2">
               <button
@@ -358,7 +358,7 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 style={{ backgroundColor: '#4CAF50', border: 'none' }}
                 onClick={obrasControls.handleNuevo}
               >
-                <i className="fas fa-plus me-2"></i>Nuevo Trabajo Extra
+                <i className="fas fa-plus me-2"></i>Nuevo Adicional Obra
               </button>
 
               <button
@@ -373,9 +373,9 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
                 style={{ backgroundColor: '#28a745', border: 'none', fontWeight: 'bold' }}
                 onClick={obrasControls.handleEnviarTrabajoExtra}
-                title="Seleccionar y enviar trabajo extra existente"
+                title="Seleccionar y enviar adicional obra existente"
               >
-                <i className="fas fa-paper-plane me-2"></i>Enviar Trabajo Extra
+                <i className="fas fa-paper-plane me-2"></i>Enviar Adicional Obra
               </button>
 
               <button
@@ -383,9 +383,9 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 style={{ backgroundColor: '#6c757d', border: 'none', fontWeight: 'bold' }}
                 disabled={!obrasControls.selectedId}
                 onClick={obrasControls.handleVerPresupuestoSeleccionado}
-                title="Ver trabajo extra seleccionado en modo lectura"
+                title="Ver adicional seleccionado en modo lectura"
               >
-                <i className="fas fa-eye me-2"></i>Ver Trabajo Seleccionado
+                <i className="fas fa-eye me-2"></i>Ver Adicional Seleccionado
               </button>
 
               {/* Botón para editar solo fechas (disponible para cualquier estado) */}
@@ -433,15 +433,15 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 <i className="fas fa-trash me-2"></i>Eliminar
               </button>
 
-              {/* Botón aprobar trabajo extra */}
+              {/* Botón aprobar adicional obra */}
               <button
                 className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
                 style={{ backgroundColor: '#00BCD4', border: 'none' }}
                 disabled={!obrasControls.selectedId}
                 onClick={obrasControls.handleAprobar}
-                title="Aprobar trabajo extra"
+                title="Aprobar adicional obra"
               >
-                <i className="fas fa-check-double me-2"></i>✅ Aprobar Trabajo Extra
+                <i className="fas fa-check-double me-2"></i>✅ Aprobar Adicional Obra
               </button>
             </div>
           </div>
