@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useContext } from 'react';
+import { useLocation } from 'react-router-dom';
 import { SidebarContext } from '../App';
 import apiService from '../services/api';
 import api from '../services/api';
@@ -15,6 +16,7 @@ import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescue
 
 
 const PresupuestosNoClientePage = ({ showNotification }) => {
+  const location = useLocation();
   const { setPresupuestoControls } = useContext(SidebarContext) || {};
   const { empresaSeleccionada } = useEmpresa();
   const empresaId = empresaSeleccionada ? empresaSeleccionada.id : null;
@@ -158,6 +160,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const [abrirWhatsAppDespuesDePDF, setAbrirWhatsAppDespuesDePDF] = useState(false);
   const [abrirEmailDespuesDePDF, setAbrirEmailDespuesDePDF] = useState(false);
   const [forzarModoLectura, setForzarModoLectura] = useState(false);
+  const [showDownloadPdfButton, setShowDownloadPdfButton] = useState(false); // 🔥 Nuevo: para mostrar botón descarga PDF
   const [mostrarModalSeleccionEnvio, setMostrarModalSeleccionEnvio] = useState(false);
   // Estado para almacenar nombres de obras vinculadas a trabajos extra
   const [nombresObras, setNombresObras] = useState({});
@@ -809,6 +812,50 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const contarFiltrosActivos = () => {
     return Object.values(filtros).filter(v => v && v.toString().trim() !== '').length;
   };
+
+  // ==================== AUTO-ABRIR PRESUPUESTO DESDE OBRAS ====================
+  useEffect(() => {
+    // Detectar si se navegó desde página de obras con un presupuesto para abrir
+    if (location.state?.presupuestoId && location.state?.autoOpen && empresaId) {
+      const presupuestoId = location.state.presupuestoId;
+      const showDownloadPdf = location.state?.showDownloadPdf || false; // 🔥 Capturar flag
+      console.log('🔗 Auto-abriendo presupuesto desde obras, ID:', presupuestoId, 'showDownloadPdf:', showDownloadPdf);
+
+      // Guardar flag para mostrar botón descarga
+      setShowDownloadPdfButton(showDownloadPdf);
+
+      // Cargar y abrir el presupuesto automáticamente
+      const cargarYAbrirPresupuesto = async () => {
+        try {
+          const presupuesto = await api.presupuestosNoCliente.getById(presupuestoId, empresaId);
+
+          // Normalizar campos
+          const presupuestoNormalizado = {
+            ...presupuesto,
+            obraId: presupuesto.obraId || presupuesto.idObra || null,
+            clienteId: presupuesto.esPresupuestoTrabajoExtra ? null : (presupuesto.clienteId || presupuesto.idCliente || null)
+          };
+
+          // Seleccionar y abrir el modal de edición
+          setSelectedId(presupuestoId);
+          setPresupuestoData(presupuestoNormalizado);
+          setShowEditarModal(true);
+          console.log('✅ Presupuesto cargado y abierto automáticamente');
+        } catch (error) {
+          console.error('❌ Error al cargar presupuesto:', error);
+          showNotification && showNotification(
+            'Error al cargar el presupuesto: ' + (error.response?.data?.message || error.message),
+            'error'
+          );
+        }
+      };
+
+      cargarYAbrirPresupuesto();
+
+      // Limpiar el state para evitar re-aperturas al recargar
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, empresaId]);
 
   // ==================== HANDLERS DE BOTONES ====================
 
@@ -2531,6 +2578,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             setAbrirWhatsAppDespuesDePDF(false);
             setAbrirEmailDespuesDePDF(false);
             setForzarModoLectura(false);
+            setShowDownloadPdfButton(false); // 🔥 Resetear flag
           }}
           onSave={async (presupuesto) => {
             await handleSavePresupuesto(presupuesto);
@@ -2543,6 +2591,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           readOnly={forzarModoLectura || (presupuestoData && !esPresupuestoEditable(presupuestoData))}
           abrirWhatsAppDespuesDePDF={abrirWhatsAppDespuesDePDF}
           abrirEmailDespuesDePDF={abrirEmailDespuesDePDF}
+          showDownloadPdfButton={showDownloadPdfButton} // 🔥 Nuevo prop
           onPDFGenerado={() => {
             console.log('✅ PDF generado, cerrando modal de edición...');
             setAutoGenerarPDF(false);

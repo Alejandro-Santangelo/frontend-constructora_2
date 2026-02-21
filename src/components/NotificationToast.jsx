@@ -3,7 +3,7 @@ import React, { useEffect } from 'react';
 const NotificationToast = ({ show, message, variant, type, onHide, onClose }) => {
   const finalType = type || variant || 'info';
   const finalOnHide = onHide || onClose;
-  
+
   useEffect(() => {
     if (show && finalOnHide) {
       const timer = setTimeout(() => {
@@ -14,7 +14,6 @@ const NotificationToast = ({ show, message, variant, type, onHide, onClose }) =>
     }
   }, [show, finalOnHide]);
 
-  if (!show) return null;
   if (!show) return null;
 
   const getTypeClass = () => {
@@ -43,9 +42,9 @@ const NotificationToast = ({ show, message, variant, type, onHide, onClose }) =>
         <div className="toast-header">
           <i className={`${getIcon()} me-2`}></i>
           <strong className="me-auto">Notificación</strong>
-          <button 
-            type="button" 
-            className="btn-close" 
+          <button
+            type="button"
+            className="btn-close"
             onClick={finalOnHide}
             aria-label="Close"
           ></button>

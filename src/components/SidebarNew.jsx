@@ -261,16 +261,11 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
               <button
                 className="btn w-100 text-start py-3 fs-5 fw-semibold"
                 style={{ backgroundColor: '#FFD700', border: 'none', color: '#000' }}
-                disabled={!obrasControls.selectedId || !obrasControls.esObraManual}
+                disabled={!obrasControls.selectedId}
                 onClick={obrasControls.handleEditar}
-                title={!obrasControls.esObraManual ? 'Solo se pueden editar obras independientes' : 'Editar obra seleccionada'}
+                title="Editar presupuesto de obra seleccionada"
               >
-                <i className="fas fa-edit me-2"></i>Editar
-                {obrasControls.selectedId && !obrasControls.esObraManual && (
-                  <span className="ms-2 badge bg-danger" style={{ fontSize: '0.7rem' }}>
-                    Solo obras independientes
-                  </span>
-                )}
+                <i className="fas fa-edit me-2"></i>Editar Presupuesto de Obra Seleccionada
               </button>
 
               <button
@@ -311,20 +306,15 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
               {/* Separador visual */}
               <hr className="my-2" style={{ borderColor: 'rgba(255,255,255,0.2)' }} />
 
-              {/* Botón Enviar - Solo activo para obras manuales */}
+              {/* Botón Enviar */}
               <button
                 className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
                 style={{ backgroundColor: '#28a745', border: 'none' }}
-                disabled={!obrasControls.selectedId || !obrasControls.esObraManual}
+                disabled={!obrasControls.selectedId}
                 onClick={obrasControls.handleEnviarObra}
-                title={!obrasControls.esObraManual ? 'Solo se pueden enviar obras independientes' : 'Enviar información de la obra independiente'}
+                title="Enviar presupuesto de la obra seleccionada"
               >
-                <i className="fas fa-paper-plane me-2"></i>Enviar Obra
-                {obrasControls.selectedId && !obrasControls.esObraManual && (
-                  <span className="ms-2 badge bg-danger" style={{ fontSize: '0.7rem' }}>
-                    Solo obras independientes
-                  </span>
-                )}
+                <i className="fas fa-paper-plane me-2"></i>Enviar Presupuesto de la Obra Seleccionada
               </button>
 
               {/* Separador visual */}
@@ -337,7 +327,7 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 onClick={obrasControls.handleVerObrasManuales}
                 title="Ver todas las obras independientes (sin presupuesto previo)"
               >
-                <i className="fas fa-folder-open me-2"></i>Obras Independientes
+                <i className="fas fa-folder-open me-2"></i>Trabajos Diarios / Nuevos Clientes
                 <span className="ms-2 badge bg-light text-dark" style={{ fontSize: '0.7rem' }}>
                   {obrasControls.conteoObrasManuales || 0}
                 </span>
@@ -421,7 +411,7 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 disabled={!obrasControls.selectedId}
                 onClick={obrasControls.handleEditar}
               >
-                <i className="fas fa-edit me-2"></i>Editar
+                <i className="fas fa-edit me-2"></i>Editar Presupuesto de Obra Seleccionada
               </button>
 
               <button
@@ -462,7 +452,7 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 style={{ backgroundColor: '#4CAF50', border: 'none' }}
                 onClick={obrasControls.handleNuevo}
               >
-                <i className="fas fa-plus me-2"></i>Nueva Obra Independiente
+                <i className="fas fa-plus me-2"></i>nuevo Trabajo Diario
               </button>
 
               <button

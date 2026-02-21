@@ -148,17 +148,35 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
   useEffect(() => {
     if (show && empresaSeleccionada) {
       console.log('🚀 Modal abierto, empresa seleccionada:', empresaSeleccionada);
+      console.log('🚀 presupuestoPreseleccionado al abrir:', presupuestoPreseleccionado);
+
+      // 🔥 LIMPIAR ESTADO PREVIO ANTES DE CARGAR NUEVO PRESUPUESTO
+      console.log('🧹 Limpiando estado previo del modal...');
+      setPresupuestoSeleccionado(null);
+      setMostrarPrevisualizacion(false);
+      setArchivosPDF([]);
 
       // Si hay un presupuesto preseleccionado, cargarlo directamente
       if (presupuestoPreseleccionado) {
         console.log('✅ Presupuesto preseleccionado detectado:', presupuestoPreseleccionado);
+        console.log('   - ID:', presupuestoPreseleccionado.id);
+        console.log('   - Nombre Obra:', presupuestoPreseleccionado.nombreObra);
+        console.log('   - Total Final:', presupuestoPreseleccionado.totalFinal);
+        console.log('   - Total Con Descuentos:', presupuestoPreseleccionado.totalConDescuentos);
         seleccionarPresupuesto(presupuestoPreseleccionado);
       } else {
         // Si no hay preselección, cargar lista completa
         cargarPresupuestos();
       }
+    } else if (!show) {
+      // 🔥 LIMPIAR TODO AL CERRAR EL MODAL
+      console.log('🧹 Modal cerrado - limpiando todo el estado...');
+      setPresupuestoSeleccionado(null);
+      setMostrarPrevisualizacion(false);
+      setArchivosPDF([]);
+      setPresupuestos([]);
     }
-  }, [show, empresaSeleccionada, presupuestoPreseleccionado]);
+  }, [show, empresaSeleccionada]); // REMOVIDO presupuestoPreseleccionado de dependencias
 
   const cargarPresupuestos = async () => {
     setLoading(true);
@@ -351,29 +369,38 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
       console.log('  - ID:', presupuesto.id);
       console.log('  - Número Presupuesto:', presupuesto.numeroPresupuesto);
       console.log('  - Versión:', presupuesto.numeroVersion || presupuesto.version);
+      console.log('  - Nombre Obra:', presupuesto.nombreObra);
+      console.log('  - _esTareaLeve:', presupuesto._esTareaLeve);
+      console.log('  - itemsCalculadora:', presupuesto.itemsCalculadora);
+      console.log('  - itemsCalculadora length:', presupuesto.itemsCalculadora?.length);
 
-      let datosCompletos;
-
-      // Si el presupuesto ya tiene todos los datos (viene preseleccionado desde la tabla),
-      // no necesitamos volver a consultar el backend
-      const tieneDetallesCompletos = presupuesto.profesionales || presupuesto.materialesList || presupuesto.materiales;
-
-      if (tieneDetallesCompletos) {
-        console.log('✅ Presupuesto ya tiene detalles completos, usando directamente');
-        datosCompletos = presupuesto;
-      } else {
-        console.log('📡 Cargando detalles completos del presupuesto desde backend...');
-        datosCompletos = await apiService.presupuestosNoCliente.getById(presupuesto.id, empresaSeleccionada.id);
-      }
+      // 🔥 SIEMPRE RECARGAR DESDE BACKEND PARA GARANTIZAR DATOS FRESCOS
+      // No confiar en datos cached que pueden estar obsoletos
+      console.log('📡 Cargando datos SIEMPRE desde backend para garantizar datos actualizados...');
+      console.log('   - Llamando api.presupuestosNoCliente.getById(' + presupuesto.id + ', ' + empresaSeleccionada.id + ')');
+      const response = await apiService.presupuestosNoCliente.getById(presupuesto.id, empresaSeleccionada.id);
+      const datosCompletos = response.data || response;
+      console.log('✅ Datos completos del backend recibidos:', datosCompletos);
+      console.log('   - ID:', datosCompletos.id);
+      console.log('   - Nombre Obra:', datosCompletos.nombreObra);
+      console.log('   - Total Final:', datosCompletos.totalFinal);
+      console.log('   - itemsCalculadora length:', datosCompletos.itemsCalculadora?.length);
 
       // 🔍 DEBUG CRÍTICO: Ver si itemsCalculadora viene del backend
-      console.log('🔥 DEBUG MODAL ENVÍO - DATOS DEL BACKEND:');
+      console.log('🔥 DEBUG MODAL ENVÍO - DATOS COMPLETOS:');
+      console.log('  - ID:', datosCompletos.id);
+      console.log('  - Nombre Obra:', datosCompletos.nombreObra);
+      console.log('  - Total Final:', datosCompletos.totalFinal);
+      console.log('  - Total Con Descuentos:', datosCompletos.totalConDescuentos);
       console.log('  - itemsCalculadora:', datosCompletos.itemsCalculadora);
       console.log('  - itemsCalculadora existe?:', !!datosCompletos.itemsCalculadora);
       console.log('  - itemsCalculadora es array?:', Array.isArray(datosCompletos.itemsCalculadora));
       console.log('  - itemsCalculadora length:', datosCompletos.itemsCalculadora?.length);
-      console.log('  - itemsCalculadora[0]:', datosCompletos.itemsCalculadora?.[0]);
-      console.log('  - TODAS LAS KEYS:', Object.keys(datosCompletos));
+      if (datosCompletos.itemsCalculadora && datosCompletos.itemsCalculadora.length > 0) {
+        console.log('  - itemsCalculadora[0]:', datosCompletos.itemsCalculadora[0]);
+        console.log('  - itemsCalculadora[0].tipoProfesional:', datosCompletos.itemsCalculadora[0].tipoProfesional);
+        console.log('  - itemsCalculadora[0].total:', datosCompletos.itemsCalculadora[0].total);
+      }
 
       console.log('📋 Presupuesto a procesar:');
       console.log('  - ID:', datosCompletos.id);
@@ -386,18 +413,50 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
       console.log('📧 Campo mail del presupuesto:', datosCompletos.mail);
       console.log('📧 ¿Tiene mail?', !!datosCompletos.mail);
 
+      console.log('🎯 ACTUALIZANDO ESTADO presupuestoSeleccionado con:', datosCompletos.nombreObra);
       setPresupuestoSeleccionado(datosCompletos);
       setMostrarPrevisualizacion(true);
       setMostrarFormularioFiltros(false);
 
-      // Cargar PDFs asociados al presupuesto
-      await cargarPDFs(presupuesto.id);
-      console.log('�📋 Profesionales RAW:', JSON.stringify(datosCompletos.profesionales, null, 2));
+      // Cargar PDFs asociados al presupuesto (solo si NO es una tarea leve)
+      if (!datosCompletos._esTareaLeve) {
+        await cargarPDFs(presupuesto.id);
+      } else {
+        console.log('⚠️ Tarea leve detectada, saltando carga de PDFs');
+        setArchivosPDF([]);
+      }
+      console.log('📋 Profesionales RAW:', JSON.stringify(datosCompletos.profesionales, null, 2));
       console.log('📋 Configuraciones:', {
         profesionales: datosCompletos.configuracionesProfesionales,
         materiales: datosCompletos.configuracionesMateriales,
         otros: datosCompletos.configuracionesOtros
       });
+
+      // 🔥 SI EL PRESUPUESTO YA TIENE itemsCalculadora Y TOTALES CALCULADOS, USARLO DIRECTAMENTE
+      // No recalcular nada, los datos del backend son la fuente de verdad
+      const tieneItemsCalculadoraCompleto = datosCompletos.itemsCalculadora &&
+                                           Array.isArray(datosCompletos.itemsCalculadora) &&
+                                           datosCompletos.itemsCalculadora.length > 0;
+
+      const tieneTotalesCalculados = datosCompletos.totalFinal || datosCompletos.totalConDescuentos || datosCompletos.totalPresupuesto;
+
+      if (tieneItemsCalculadoraCompleto && tieneTotalesCalculados) {
+        console.log('✅✅✅ USANDO DATOS DEL BACKEND DIRECTAMENTE SIN RECALCULAR');
+        console.log('   - nombreObra:', datosCompletos.nombreObra);
+        console.log('   - totalFinal:', datosCompletos.totalFinal);
+        console.log('   - totalConDescuentos:', datosCompletos.totalConDescuentos);
+        console.log('   - itemsCalculadora:', datosCompletos.itemsCalculadora.length, 'items');
+
+        // Agregar empresa nombre si no viene del backend
+        const presupuestoConEmpresa = {
+          ...datosCompletos,
+          empresaNombre: datosCompletos.nombreEmpresa || empresaSeleccionada?.nombreEmpresa || 'Sin empresa'
+        };
+
+        setPresupuestoSeleccionado(presupuestoConEmpresa);
+        setMostrarPrevisualizacion(true);
+        return; // Salir sin recalcular
+      }
 
       // Calcular totales para la previsualización
       // 🆕 SOPORTE PARA NUEVA ESTRUCTURA: itemsCalculadora (grupos de tareas)
@@ -888,8 +947,10 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
       console.log('✅ PDF subido exitosamente:', response.data);
       alert(`✅ PDF "${file.name}" subido exitosamente al presupuesto #${presupuestoSeleccionado.numeroPresupuesto}`);
 
-      // Recargar lista de PDFs
-      await cargarPDFs(presupuestoSeleccionado.id);
+      // Recargar lista de PDFs (solo si NO es tarea leve)
+      if (!presupuestoSeleccionado._esTareaLeve) {
+        await cargarPDFs(presupuestoSeleccionado.id);
+      }
     } catch (error) {
       console.error('❌ Error al subir PDF:', error);
       console.error('Detalles del error:', {
@@ -942,7 +1003,10 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
         params: { empresaId: empresaSeleccionada.id }
       });
       alert('✅ PDF eliminado exitosamente');
-      await cargarPDFs(presupuestoSeleccionado.id);
+      // Recargar lista de PDFs (solo si NO es tarea leve)
+      if (!presupuestoSeleccionado._esTareaLeve) {
+        await cargarPDFs(presupuestoSeleccionado.id);
+      }
     } catch (error) {
       console.error('Error al eliminar PDF:', error);
       alert('Error al eliminar el PDF');
@@ -966,11 +1030,11 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
 
   // Cargar PDFs automáticamente cuando se selecciona un presupuesto
   useEffect(() => {
-    if (presupuestoSeleccionado?.id) {
+    if (presupuestoSeleccionado?.id && !presupuestoSeleccionado._esTareaLeve) {
       console.log('📂 Cargando PDFs para presupuesto ID:', presupuestoSeleccionado.id);
       cargarPDFs(presupuestoSeleccionado.id);
     } else {
-      // Limpiar lista si no hay presupuesto seleccionado
+      // Limpiar lista si no hay presupuesto seleccionado o es tarea leve
       setArchivosPDF([]);
     }
   }, [presupuestoSeleccionado?.id]);
@@ -1544,6 +1608,11 @@ Saludos.`;
 
   if (!show) return null;
   console.log('🔴 Renderizando EnviarPresupuestoModal.jsx (cartel depuración debería verse)');
+  console.log('🔥🔥🔥 RENDER - presupuestoSeleccionado:', presupuestoSeleccionado);
+  console.log('🔥🔥🔥 RENDER - nombreObra:', presupuestoSeleccionado?.nombreObra);
+  console.log('🔥🔥🔥 RENDER - totalFinal:', presupuestoSeleccionado?.totalFinal);
+  console.log('🔥🔥🔥 RENDER - itemsCalculadora:', presupuestoSeleccionado?.itemsCalculadora);
+  console.log('🔥🔥🔥 RENDER - itemsCalculadoraConsolidados:', itemsCalculadoraConsolidados);
   return (
     <>
       {/* Cartel de alerta forzado para depuración, SIEMPRE visible al inicio del modal */}
@@ -3233,7 +3302,7 @@ Saludos.`;
                                     </h5>
                                   </div>
                                   <h3 className="mb-0 fw-bold text-success">
-                                    ${itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    ${(presupuestoSeleccionado.totalFinal || presupuestoSeleccionado.totalConDescuentos || itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                   </h3>
                                 </div>
                                 <div className="mt-2">

@@ -11,7 +11,7 @@ import usePromedioHonorarios from '../hooks/usePromedioHonorarios';
 import { useDetectarModoPresupuesto, BadgeModoPresupuesto } from '../hooks/useDetectarModoPresupuesto.jsx';
 import { ROLES_PROFESIONALES, ROLES_ENUM, generarOpcionesRoles, getRolPorDefecto } from '../constants/rolesProfesionales';
 
-const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false }) => {
+const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false, showDownloadPdfButton = false }) => {
 
   // 🔍 DEBUG: Ver qué props recibe el modal
   console.log('🎯 PresupuestoNoClienteModal - Props recibidos:', {
@@ -19,6 +19,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     autoGenerarPDF,
     abrirWhatsAppDespuesDePDF,
     abrirEmailDespuesDePDF,
+    showDownloadPdfButton, // 🔥 Nuevo
     initialDataId: initialData?.id
   });
 
@@ -622,10 +623,30 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const [gastoEditando, setGastoEditando] = useState(null);
   const [itemIdGastoEditando, setItemIdGastoEditando] = useState(null);
 
-  // 🔽 Estados para colapsar visualmente las secciones dentro del rubro (Jornales, Materiales, Gastos)
+  // � NUEVO: Modal de selección de envío (WhatsApp/Email)
+  const [mostrarModalSeleccionEnvio, setMostrarModalSeleccionEnvio] = useState(false);
+
+  // �🔽 Estados para colapsar visualmente las secciones dentro del rubro (Jornales, Materiales, Gastos)
   const [jornalesSectionOpen, setJornalesSectionOpen] = useState(false);
   const [materialesSectionOpen, setMaterialesSectionOpen] = useState(false);
   const [gastosSectionOpen, setGastosSectionOpen] = useState(false);
+
+  // 🔥 Scroll automático al botón "Guardar PDF" cuando se abre desde "Enviar" en Obras
+  useEffect(() => {
+    if (show && showDownloadPdfButton) {
+      console.log('📜 Haciendo scroll automático al botón Guardar PDF...');
+      // Esperar a que el DOM se renderice completamente
+      setTimeout(() => {
+        const botonPdf = document.getElementById('guardar-pdf-button');
+        if (botonPdf) {
+          botonPdf.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          console.log('✅ Scroll completado al botón PDF');
+        } else {
+          console.warn('⚠️ No se encontró el botón PDF con id "guardar-pdf-button"');
+        }
+      }, 500); // Delay para asegurar renderizado
+    }
+  }, [show, showDownloadPdfButton]);
 
   // ✨ Actualizar descripciones globales cuando cambia el nombre del rubro
   useEffect(() => {
@@ -14096,15 +14117,23 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 <div className="row g-2">
                   <div className="col-12">
                     <h6 className="mb-2 text-dark fw-bold">Acciones de Exportación y Compartir</h6>
-                    <p className="small mb-3 fw-bold" style={{ color: '#0AAD0A' }}>
+                    <div className="mb-3 p-3 fw-bold" style={{
+                      backgroundColor: '#fff3cd',
+                      border: '2px solid #ffc107',
+                      borderLeft: '5px solid #ff9800',
+                      borderRadius: '8px',
+                      color: '#856404',
+                      fontSize: '1.1rem',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}>
+                      <i className="fas fa-info-circle me-2" style={{ color: '#ff9800' }}></i>
                       📤 Para enviar este presupuesto, guárdalo en alguno de los formatos disponibles
-                    </p>
+                    </div>
                   </div>
 
                   {/* Botón Imprimir */}
                   <div className="col-md-3">
                     <button
-                      ref={guardarPDFButtonRef}
                       type="button"
                       className="btn btn-outline-primary w-100 btn-sm"
                       onClick={async () => {
@@ -14280,6 +14309,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             }, 500);
                           }
 
+                          // 🔥 NUEVO: Si viene desde botón "Enviar" en Obras, abrir modal de selección
+                          if (showDownloadPdfButton && !abrirWhatsAppDespuesDePDF && !abrirEmailDespuesDePDF) {
+                            console.log('✅ Abriendo modal de selección de envío...');
+                            setTimeout(() => {
+                              setMostrarModalSeleccionEnvio(true);
+                            }, 500);
+                          }
+
                         } catch (error) {
                           if (error.response) {
                             alert(`❌ Error del servidor: ${error.response.data?.message || error.message}`);
@@ -14289,6 +14326,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                         }
                       }}
                       title="Guardar como PDF con texto seleccionable y almacenar en BD"
+                      ref={guardarPDFButtonRef} // 🔥 Ref para poder hacer clic desde botón externo
+                      id="guardar-pdf-button" // 🔥 ID para poder hacer clic desde botón externo
                     >
                       <i className="fas fa-file-pdf me-1"></i>
                       Guardar PDF
@@ -14977,6 +15016,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>
                   {soloLectura ? 'Cerrar' : 'Cancelar'}
                 </button>
+                {/* 🔥 NUEVO: Botón Descargar PDF cuando viene desde Enviar en Obras */}
+                {showDownloadPdfButton && (
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    onClick={() => document.getElementById('guardar-pdf-button')?.click()}
+                    title="Descargar presupuesto en PDF"
+                  >
+                    <i className="fas fa-file-pdf me-2"></i>
+                    Descargar PDF
+                  </button>
+                )}
                 {!soloLectura && (
                   <button
                     type="button"
@@ -15959,6 +16010,87 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             <button className="btn btn-warning" onClick={guardarEdicionGasto}>
               <i className="fas fa-save me-2"></i>Guardar Cambios
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* 🔥 NUEVO: Modal de selección de envío */}
+  {mostrarModalSeleccionEnvio && (
+    <div className="modal show d-block" style={{zIndex: 10050, backgroundColor: 'rgba(0,0,0,0.7)'}}>
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content">
+          <div className="modal-header bg-primary text-white">
+            <h5 className="modal-title">
+              <i className="fas fa-paper-plane me-2"></i>¿Cómo desea enviar el presupuesto?
+            </h5>
+            <button
+              type="button"
+              className="btn-close btn-close-white"
+              onClick={() => setMostrarModalSeleccionEnvio(false)}
+            ></button>
+          </div>
+          <div className="modal-body text-center py-4">
+            <p className="mb-4">Seleccione el método de envío:</p>
+            <div className="d-grid gap-3">
+              <button
+                className="btn btn-success btn-lg"
+                onClick={() => {
+                  // Enviar por WhatsApp
+                  const numeroLimpio = form.telefono?.replace(/\D/g, '') || '';
+                  const mensaje = `📋 *PRESUPUESTO*\n\nEmpresa: ${form.empresaNombre || 'Sin empresa'}\nN°: ${form.numeroPresupuesto || 'Nuevo'}\nObra: ${form.nombreObra || 'Sin especificar'}\n\n_PDF descargado - Adjúntalo al mensaje_`;
+
+                  if (numeroLimpio) {
+                    const url = `https://wa.me/${numeroLimpio}?text=${encodeURIComponent(mensaje)}`;
+                    window.open(url, '_blank');
+                  } else {
+                    // Si no hay teléfono, abrir WhatsApp Web y copiar mensaje
+                    navigator.clipboard.writeText(mensaje);
+                    window.open('https://web.whatsapp.com/', '_blank');
+                    alert('💬 WhatsApp Web abierto.\n📋 Mensaje copiado al portapapeles.\n\n📄 Adjunta el PDF descargado y envía el mensaje.');
+                  }
+
+                  setMostrarModalSeleccionEnvio(false);
+                }}
+              >
+                <i className="fab fa-whatsapp me-2"></i>Enviar por WhatsApp
+              </button>
+
+              <button
+                className="btn btn-primary btn-lg"
+                onClick={() => {
+                  // Enviar por Email
+                  const emailDestino = form.mail || '';
+                  const asunto = `Presupuesto ${form.empresaNombre || 'Sin empresa'} - N° ${form.numeroPresupuesto || 'Nuevo'}`;
+                  const cuerpo =
+                    `Estimado/a,\n\n` +
+                    `Adjunto encontrará el presupuesto solicitado.\n\n` +
+                    `Empresa: ${form.empresaNombre || 'Sin empresa'}\n` +
+                    `Presupuesto N°: ${form.numeroPresupuesto || 'Nuevo'}\n` +
+                    `Versión: ${form.version || 1}\n` +
+                    `Obra: ${form.nombreObra || 'Sin especificar'}\n\n` +
+                    `Saludos cordiales.`;
+
+                  // Abrir Gmail Web con formulario prellenado
+                  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(emailDestino)}&su=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+                  window.open(gmailUrl, '_blank');
+
+                  alert('📧 Gmail Web abierto.\n\n📎 Haz clic en el icono de ADJUNTAR (clip)\n📄 Selecciona el PDF descargado\n📧 Envía el email\n\n' + (emailDestino ? `Destinatario: ${emailDestino}` : '⚠️ No se encontró email configurado'));
+
+                  setMostrarModalSeleccionEnvio(false);
+                }}
+              >
+                <i className="fas fa-envelope me-2"></i>Enviar por Email
+              </button>
+
+              <button
+                className="btn btn-secondary btn-lg"
+                onClick={() => setMostrarModalSeleccionEnvio(false)}
+              >
+                <i className="fas fa-times me-2"></i>Cancelar
+              </button>
+            </div>
           </div>
         </div>
       </div>

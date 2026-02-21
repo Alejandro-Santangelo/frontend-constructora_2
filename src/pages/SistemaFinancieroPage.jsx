@@ -1754,7 +1754,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               {item.esObraIndependiente ? (
                                 <span className="badge bg-warning text-dark">
                                   <i className="bi bi-hand-thumbs-up me-1"></i>
-                                  Obra Independiente
+                                  Trabajo Diario
                                 </span>
                               ) : (
                                 `#${item.numeroPresupuesto}`
@@ -3239,7 +3239,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                 <div className="d-flex flex-column gap-1">
                                   <span className="badge bg-warning text-dark">
                                     <i className="bi bi-hand-thumbs-up me-1"></i>
-                                    Obra Independiente
+                                    Trabajo Diario
                                   </span>
                                   <small className="text-success fw-bold">
                                     <i className="bi bi-cash me-1"></i>

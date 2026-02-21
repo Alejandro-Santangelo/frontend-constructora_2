@@ -173,6 +173,10 @@ const ObrasPage = ({ showNotification }) => {
   const [presupuestoParaEditar, setPresupuestoParaEditar] = React.useState(null);
   const [cargandoPresupuesto, setCargandoPresupuesto] = React.useState(false);
 
+  // Estado para modal de envío de presupuesto (sin navegar)
+  const [mostrarModalEnviarPresupuesto, setMostrarModalEnviarPresupuesto] = React.useState(false);
+  const [presupuestoParaEnviar, setPresupuestoParaEnviar] = React.useState(null);
+
   // Estados para Trabajos Extra
   const [trabajosExtra, setTrabajosExtra] = React.useState([]);
   const [loadingTrabajosExtra, setLoadingTrabajosExtra] = React.useState(false);
@@ -1256,6 +1260,11 @@ const ObrasPage = ({ showNotification }) => {
         // Obtener todos los presupuestos de la empresa CON CACHE BUST
         const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId, { _t: Date.now() });
 
+        console.log('🔍 DEBUG: Todos los presupuestos cargados:', todosPresupuestos.length);
+        todosPresupuestos.forEach(p => {
+          console.log(`   - Presupuesto ID: ${p.id}, Nombre: "${p.nombreObra}", obraId: ${p.obraId}, Versión: ${p.numeroVersion}`);
+        });
+
         // Crear objeto con presupuestos indexados por obraId
         const presupuestosPorObra = {};
         // Para cada obra, guardar el presupuesto con la versión más alta
@@ -1263,15 +1272,26 @@ const ObrasPage = ({ showNotification }) => {
           const obraId = presupuesto.obraId || presupuesto.idObra;
           if (obraId) {
             if (!presupuestosPorObra[obraId] || (presupuesto.numeroVersion > (presupuestosPorObra[obraId].numeroVersion || 0))) {
+              console.log(`📦 Guardando presupuesto ID ${presupuesto.id} ("${presupuesto.nombreObra}") para obra ${obraId}`);
               presupuestosPorObra[obraId] = presupuesto;
-              console.log(`📦 Presupuesto obra ${obraId}: versión ${presupuesto.numeroVersion}, ${presupuesto.tiempoEstimadoTerminacion} días`);
+            } else {
+              console.log(`   ⏭️ Saltando presupuesto ID ${presupuesto.id} (versión menor o igual)`);
             }
           }
         });
 
+        console.log('🗂️ Diccionario presupuestosObras construido:');
+        console.table(Object.entries(presupuestosPorObra).map(([obraId, p]) => ({
+          ObraID: obraId,
+          PresupuestoID: p.id,
+          NombreObra: p.nombreObra,
+          Version: p.numeroVersion
+        })));
+
         // Guardar en estado para que el badge pueda acceder
         setPresupuestosObras(presupuestosPorObra);
         console.log('✅ Presupuestos cargados:', Object.keys(presupuestosPorObra).length);
+        console.log('📋 Claves del diccionario:', Object.keys(presupuestosPorObra).join(', '));
 
       } catch (error) {
         console.warn('⚠️ No se pudieron cargar presupuestos para badges:', error);
@@ -1284,6 +1304,12 @@ const ObrasPage = ({ showNotification }) => {
   // Cargar configuración desde BD cuando cambia la obra seleccionada
   useEffect(() => {
     if (selectedObraId && empresaId) {
+      // No cargar configuración para tareas leves
+      if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+        console.log('⏭️ [ObrasPage] Saltando carga de configuración para tarea leve:', selectedObraId);
+        return;
+      }
+
       cargarYSincronizarConfiguracion(selectedObraId)
         .then(config => {
           if (config) {
@@ -1366,18 +1392,61 @@ const ObrasPage = ({ showNotification }) => {
         esObraManual: !tienePresupuesto, // Nuevo: indica si es obra independiente (sin presupuesto)
         handleEditar: () => {
           if (selectedObraId) {
+            // Verificar si es una tarea (ID comienza con "ta_")
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              // Extraer ID numérico de la tarea
+              const tareaId = parseInt(selectedObraId.replace('ta_', ''));
+
+              // Buscar la tarea en trabajosAdicionales
+              const tarea = trabajosAdicionales.find(ta => ta.id === tareaId);
+
+              if (tarea) {
+                // Buscar la obra padre (puede estar en obraId o trabajoExtraId)
+                const obraPadreId = tarea.obraId || tarea.trabajoExtraId;
+                const obraPadre = obras.find(o => o.id === obraPadreId);
+
+                if (obraPadre) {
+                  console.log('📝 Editando tarea leve:', tarea.nombre, 'de obra:', obraPadre.nombre);
+
+                  // Configurar contexto para el modal
+                  setObraParaTrabajosAdicionales(obraPadre);
+                  setTrabajoAdicionalEditar(tarea);
+                  setMostrarModalTrabajoAdicional(true);
+                } else {
+                  showNotification('⚠️ No se encontró la obra padre de esta tarea', 'warning');
+                }
+              } else {
+                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+              }
+              return;
+            }
+
             const obra = obras.find(o => o.id === selectedObraId);
             if (obra) {
               // Verificar si tiene presupuesto
-              const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
-                                      (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+              const presupuesto = presupuestosObras[obra.id];
+              const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
+
+              console.log('✏️ ========== EDITAR OBRA ==========');
+              console.log('✏️ Obra seleccionada:', obra.nombre, ' (ID:', obra.id, ')');
+              console.log('✏️ presupuestosObras[' + obra.id + ']:', presupuesto);
+              if (presupuesto) {
+                console.log('     ├─ Presupuesto ID:', presupuesto.id);
+                console.log('     ├─ Nombre Obra:', presupuesto.nombreObra);
+                console.log('     ├─ Versión:', presupuesto.numeroVersion);
+                console.log('     └─ obraId del presupuesto:', presupuesto.obraId);
+              }
+              console.log('✏️ =====================================');
 
               if (tienePresupuesto) {
-                showNotification('⚠️ No se puede editar una obra creada desde presupuesto', 'warning');
+                // 🔥 OBRA CON PRESUPUESTO: Abrir modal de edición en la misma página (sin navegar)
+                console.log('📄 Abriendo modal de edición para presupuesto ID:', presupuesto.id, 'de obra:', obra.nombre);
+                setPresupuestoParaEditar(presupuesto);
+                setMostrarModalEditarPresupuesto(true);
                 return;
               }
 
-              // Cargar datos de la obra en el formulario
+              // Cargar datos de la obra en el formulario (para obras sin presupuesto / trabajos diarios)
               // Normalizar estado: mapear estados con tildes a estados válidos del backend
               const mapeoEstados = {
                 'EN_PLANIFICACIÓN': 'BORRADOR',
@@ -1504,6 +1573,25 @@ const ObrasPage = ({ showNotification }) => {
         },
         handleEliminar: () => {
           if (selectedObraId) {
+            // Verificar si es una tarea (ID comienza con "ta_")
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              // Es una tarea leve - extraer ID numérico
+              const tareaIdNumerico = parseInt(selectedObraId.replace('ta_', ''));
+              const tarea = trabajosAdicionales.find(ta => ta.id === tareaIdNumerico);
+
+              if (tarea) {
+                // Confirmar eliminación de tarea
+                const confirmar = window.confirm(`¿Está seguro de eliminar la tarea leve "${tarea.nombre}"?\n\nEsta acción NO se puede deshacer.`);
+                if (confirmar) {
+                  handleEliminarTrabajoAdicional(tareaIdNumerico, tarea.nombre);
+                }
+              } else {
+                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+              }
+              return;
+            }
+
+            // Es una obra normal
             handleEliminarObra(selectedObraId);
           } else {
             showNotification('Seleccione una obra para eliminar', 'warning');
@@ -1512,10 +1600,33 @@ const ObrasPage = ({ showNotification }) => {
         handleVerProfesionales: () => {
           // Si hay una obra seleccionada, mostrar solo esa obra
           if (selectedObraId) {
-            const obra = obras.find(o => o.id === selectedObraId);
-            if (obra) {
-              setObraParaVerAsignaciones(obra);
-              setMostrarModalVerAsignaciones(true);
+            // Verificar si es una tarea (ID comienza con "ta_")
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              // Es una tarea leve - extraer ID numérico y buscar en trabajosAdicionales
+              const tareaIdNumerico = parseInt(selectedObraId.replace('ta_', ''));
+              const tarea = trabajosAdicionales.find(ta => ta.id === tareaIdNumerico);
+
+              if (tarea) {
+                // Crear objeto compatible con el modal usando el ID numérico
+                const tareaComoObra = {
+                  ...tarea,
+                  id: tareaIdNumerico, // ID numérico para las peticiones al API
+                  nombre: tarea.nombre,
+                  direccion: tarea.nombre, // Usar nombre como dirección para el modal
+                  esTareaLeve: true
+                };
+                setObraParaVerAsignaciones(tareaComoObra);
+                setMostrarModalVerAsignaciones(true);
+              } else {
+                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+              }
+            } else {
+              // Es una obra normal
+              const obra = obras.find(o => o.id === selectedObraId);
+              if (obra) {
+                setObraParaVerAsignaciones(obra);
+                setMostrarModalVerAsignaciones(true);
+              }
             }
           } else {
             // Si no hay obra seleccionada, mostrar todas las obras
@@ -1526,6 +1637,12 @@ const ObrasPage = ({ showNotification }) => {
         },
         handleCambiarEstado: () => {
           if (selectedObraId) {
+            // Verificar si es una tarea (no se puede cambiar estado de tareas leves)
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              showNotification('⚠️ No se puede cambiar el estado de tareas leves. Las tareas se gestionan desde su obra principal.', 'warning');
+              return;
+            }
+
             const obra = obras.find(o => o.id === selectedObraId);
             if (obra) {
               setNuevoEstadoSeleccionado(obra.estado || 'APROBADO');
@@ -1537,6 +1654,12 @@ const ObrasPage = ({ showNotification }) => {
         },
         handleTrabajosExtra: () => {
           if (selectedObraId) {
+            // Verificar si es una tarea (las tareas no tienen sub-trabajos)
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              showNotification('⚠️ Las tareas leves no pueden tener trabajos adicionales. Son ellas mismas trabajos adicionales.', 'warning');
+              return;
+            }
+
             const obra = obras.find(o => o.id === selectedObraId);
             if (obra) {
               setObraParaTrabajosExtra(obra);
@@ -1549,6 +1672,12 @@ const ObrasPage = ({ showNotification }) => {
         },
         handleEtapasDiarias: () => {
           if (selectedObraId) {
+            // Verificar si es una tarea (las tareas no tienen etapas diarias complejas)
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              showNotification('⚠️ Las tareas leves no tienen cronograma de etapas diarias. Son trabajos puntuales.', 'warning');
+              return;
+            }
+
             const obra = obras.find(o => o.id === selectedObraId);
             if (obra) {
               cargarEtapasDiarias(obra);
@@ -1558,24 +1687,829 @@ const ObrasPage = ({ showNotification }) => {
             showNotification('Seleccione una obra para ver el cronograma', 'warning');
           }
         },
-        handleEnviarObra: () => {
+        handleEnviarObra: async () => {
           if (selectedObraId) {
-            const obra = obras.find(o => o.id === selectedObraId);
-            if (obra) {
-              // Verificar que sea obra independiente (sin presupuesto)
-              const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
-                                      (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+            // Verificar si es una tarea (ID comienza con "ta_")
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              // Extraer ID numérico de la tarea
+              const tareaId = parseInt(selectedObraId.replace('ta_', ''));
 
-              if (tienePresupuesto) {
-                showNotification('⚠️ Solo se pueden enviar obras independientes (sin presupuesto asociado)', 'warning');
+              // Buscar la tarea en trabajosAdicionales
+              const tarea = trabajosAdicionales.find(ta => ta.id === tareaId);
+
+              if (tarea) {
+                // Generar PDF directamente de la tarea
+                console.log('📤 Generando PDF de tarea leve:', tarea.nombre);
+
+                // Importar dinámicamente las librerías
+                const html2canvas = (await import('html2canvas')).default;
+                const jsPDF = (await import('jspdf')).default;
+
+                try {
+                  // Buscar la obra padre para obtener datos del cliente
+                  const obraPadre = obras.find(o => o.id === tarea.obraId);
+
+                  // Obtener profesionales asignados
+                  const profesionalesTexto = tarea.profesionales && tarea.profesionales.length > 0
+                    ? tarea.profesionales.map(p => `${p.nombre} (${p.tipoProfesional || 'N/A'})`).join('<br>')
+                    : 'Sin profesionales asignados';
+
+                  // Crear contenedor temporal para el PDF
+                  const tempContainer = document.createElement('div');
+                  tempContainer.style.position = 'absolute';
+                  tempContainer.style.left = '-9999px';
+                  tempContainer.style.width = '800px';
+                  tempContainer.style.padding = '40px';
+                  tempContainer.style.backgroundColor = 'white';
+                  tempContainer.style.fontFamily = 'Arial, sans-serif';
+
+                  tempContainer.innerHTML = `
+                    <div style="max-width: 800px; margin: 0 auto;">
+                      <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #8B5CF6; padding-bottom: 20px;">
+                        <h1 style="color: #8B5CF6; margin: 0; font-size: 28px;">Presupuesto - Tarea Leve</h1>
+                        <p style="color: #666; margin: 10px 0 0 0; font-size: 14px;">${tarea.nombre}</p>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                          📍 Información General
+                        </h3>
+                        <table style="width: 100%; border-collapse: collapse;">
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555; width: 200px;">Obra Vinculada:</td>
+                            <td style="padding: 8px; color: #333;">${obraPadre?.nombre || 'Sin especificar'}</td>
+                          </tr>
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Cliente:</td>
+                            <td style="padding: 8px; color: #333;">${obraPadre?.clienteNombre || 'N/A'}</td>
+                          </tr>
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Fecha Inicio:</td>
+                            <td style="padding: 8px; color: #333;">${tarea.fechaInicio || 'N/A'}</td>
+                          </tr>
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Días Necesarios:</td>
+                            <td style="padding: 8px; color: #333;">${tarea.diasNecesarios || 'N/A'} días</td>
+                          </tr>
+                        </table>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <div style="background-color: #8B5CF6; padding: 30px; border-radius: 8px; text-align: center; color: white;">
+                          <p style="margin: 0; font-size: 18px; opacity: 0.9;">PRESUPUESTO TOTAL</p>
+                          <p style="margin: 15px 0 0 0; font-size: 42px; font-weight: bold;">
+                            $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                          👷 Profesionales Asignados
+                        </h3>
+                        <div style="padding: 12px; background-color: #fce7f3; border-radius: 4px; border-left: 4px solid #ec4899;">
+                          <p style="color: #555; line-height: 1.8; margin: 0;">${profesionalesTexto}</p>
+                        </div>
+                      </div>
+
+                      ${tarea.descripcion ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📋 Descripción
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
+                            ${tarea.descripcion}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      ${tarea.observaciones ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📝 Observaciones
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
+                            ${tarea.observaciones}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; text-align: center; color: #999; font-size: 12px;">
+                        <p style="margin: 0;">Documento generado el ${new Date().toLocaleDateString('es-AR')}</p>
+                        <p style="margin: 5px 0 0 0;">Este presupuesto es válido por 30 días</p>
+                      </div>
+                    </div>
+                  `;
+
+                  document.body.appendChild(tempContainer);
+
+                  // Generar PDF
+                  const canvas = await html2canvas(tempContainer, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff'
+                  });
+
+                  document.body.removeChild(tempContainer);
+
+                  const imgData = canvas.toDataURL('image/png');
+                  const pdf = new jsPDF('p', 'mm', 'a4');
+                  const pdfWidth = pdf.internal.pageSize.getWidth();
+                  const pdfHeight = pdf.internal.pageSize.getHeight();
+                  const imgWidth = pdfWidth - 20;
+                  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+                  let heightLeft = imgHeight;
+                  let position = 10;
+
+                  pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                  heightLeft -= pdfHeight;
+
+                  while (heightLeft >= 0) {
+                    position = heightLeft - imgHeight + 10;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                    heightLeft -= pdfHeight;
+                  }
+
+                  const nombreArchivo = `Presupuesto_${tarea.nombre?.replace(/\s/g, '_') || `Tarea_${tarea.id}`}_${new Date().getTime()}.pdf`;
+                  pdf.save(nombreArchivo);
+
+                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+
+                  // Preguntar si desea enviar por WhatsApp
+                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                    const mensaje = `
+*PRESUPUESTO - TAREA LEVE*
+
+📋 *${tarea.nombre}*
+${obraPadre ? `🏗️ Obra: ${obraPadre.nombre}` : ''}
+
+📅 Inicio: ${tarea.fechaInicio || 'A definir'}
+⏱️ Duración: ${tarea.diasNecesarios || 'N/A'} días
+
+💰 *TOTAL: $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+
+_PDF descargado - Adjúntalo al mensaje_
+_Válido por 30 días_
+                    `.trim();
+
+                    const telefono = obraPadre?.clienteTelefono?.replace(/\D/g, '') || '';
+                    const url = telefono
+                      ? `https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`
+                      : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
+
+                    window.open(url, '_blank');
+                  }
+
+                } catch (error) {
+                  console.error('❌ Error generando PDF:', error);
+                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                }
+
+                return;
+              } else {
+                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
                 return;
               }
+            }
 
-              setObraParaEnviar(obra);
-              setMostrarModalEnviarObra(true);
+            const obra = obras.find(o => o.id === selectedObraId);
+            if (obra) {
+              // Verificar si tiene presupuesto
+              const presupuesto = presupuestosObras[obra.id];
+              const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
+
+              if (tienePresupuesto) {
+                // 🔥 OBRA CON PRESUPUESTO: Abrir modal en la misma página (sin navegar)
+                console.log('📤 Abriendo modal de envío para presupuesto ID:', presupuesto.id, 'de obra:', obra.nombre);
+                setPresupuestoParaEnviar(presupuesto);
+                setMostrarModalEnviarPresupuesto(true);
+              } else {
+                // 🔥 OBRA SIN PRESUPUESTO: Generar PDF directamente (Trabajo Diario)
+                console.log('📤 Generando PDF de Trabajo Diario:', obra.nombre);
+
+                // Importar dinámicamente las librerías
+                const html2canvas = (await import('html2canvas')).default;
+                const jsPDF = (await import('jspdf')).default;
+
+                try {
+                  // Formatear dirección completa
+                  const direccionCompleta = [
+                    obra.direccionObraCalle || obra.direccionObra || obra.direccion,
+                    obra.direccionObraAltura ? `N° ${obra.direccionObraAltura}` : '',
+                    obra.direccionObraTorre ? `Torre ${obra.direccionObraTorre}` : '',
+                    obra.direccionObraPiso ? `Piso ${obra.direccionObraPiso}` : '',
+                    obra.direccionObraDepartamento ? `Depto ${obra.direccionObraDepartamento}` : ''
+                  ].filter(Boolean).join(', ') + (obra.direccionObraBarrio ? `<br><small>${obra.direccionObraBarrio}</small>` : '');
+
+                  // Crear contenedor temporal para el PDF
+                  const tempContainer = document.createElement('div');
+                  tempContainer.style.position = 'absolute';
+                  tempContainer.style.left = '-9999px';
+                  tempContainer.style.width = '800px';
+                  tempContainer.style.padding = '40px';
+                  tempContainer.style.backgroundColor = 'white';
+                  tempContainer.style.fontFamily = 'Arial, sans-serif';
+
+                  tempContainer.innerHTML = `
+                    <div style="max-width: 800px; margin: 0 auto;">
+                      <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #ffc107; padding-bottom: 20px;">
+                        <h1 style="color: #ffc107; margin: 0; font-size: 28px;">Presupuesto - Trabajo Diario</h1>
+                        <p style="color: #666; margin: 10px 0 0 0; font-size: 14px;">${obra.nombre}</p>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                          📍 Información General
+                        </h3>
+                        <table style="width: 100%; border-collapse: collapse;">
+                          ${obra.nombreSolicitante || obra.clienteNombre ? `
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555; width: 200px;">Cliente:</td>
+                            <td style="padding: 8px; color: #333;">${obra.nombreSolicitante || obra.clienteNombre || 'N/A'}</td>
+                          </tr>
+                          ` : ''}
+                          ${direccionCompleta && direccionCompleta !== 'undefined' ? `
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Dirección:</td>
+                            <td style="padding: 8px; color: #333;">${direccionCompleta}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.telefono || obra.clienteTelefono ? `
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Teléfono:</td>
+                            <td style="padding: 8px; color: #333;">${obra.telefono || obra.clienteTelefono}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.mail || obra.clienteMail ? `
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Email:</td>
+                            <td style="padding: 8px; color: #333;">${obra.mail || obra.clienteMail}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.fechaInicio ? `
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Fecha Inicio:</td>
+                            <td style="padding: 8px; color: #333;">${obra.fechaInicio}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.dias || obra.duracionDias ? `
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Duración:</td>
+                            <td style="padding: 8px; color: #333;">${obra.dias || obra.duracionDias} días</td>
+                          </tr>
+                          ` : ''}
+                        </table>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <div style="background-color: #ffc107; padding: 30px; border-radius: 8px; text-align: center; color: #333;">
+                          <p style="margin: 0; font-size: 18px; opacity: 0.9; font-weight: 600;">PRESUPUESTO TOTAL</p>
+                          <p style="margin: 15px 0 0 0; font-size: 42px; font-weight: bold;">
+                            $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+
+                      ${obra.descripcion ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📋 Descripción
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
+                            ${obra.descripcion}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      ${obra.observaciones ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📝 Observaciones
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
+                            ${obra.observaciones}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; text-align: center; color: #999; font-size: 12px;">
+                        <p style="margin: 0;">Documento generado el ${new Date().toLocaleDateString('es-AR')}</p>
+                        <p style="margin: 5px 0 0 0;">Este presupuesto es válido por 30 días</p>
+                      </div>
+                    </div>
+                  `;
+
+                  document.body.appendChild(tempContainer);
+
+                  // Generar PDF
+                  const canvas = await html2canvas(tempContainer, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff'
+                  });
+
+                  document.body.removeChild(tempContainer);
+
+                  const imgData = canvas.toDataURL('image/png');
+                  const pdf = new jsPDF('p', 'mm', 'a4');
+                  const pdfWidth = pdf.internal.pageSize.getWidth();
+                  const pdfHeight = pdf.internal.pageSize.getHeight();
+                  const imgWidth = pdfWidth - 20;
+                  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+                  let heightLeft = imgHeight;
+                  let position = 10;
+
+                  pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                  heightLeft -= pdfHeight;
+
+                  while (heightLeft >= 0) {
+                    position = heightLeft - imgHeight + 10;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                    heightLeft -= pdfHeight;
+                  }
+
+                  const nombreArchivo = `Presupuesto_${obra.nombre?.replace(/\s/g, '_') || `Obra_${obra.id}`}_${new Date().getTime()}.pdf`;
+                  pdf.save(nombreArchivo);
+
+                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+
+                  // Preguntar si desea enviar por WhatsApp
+                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                    const mensaje = `
+*PRESUPUESTO - TRABAJO DIARIO*
+
+📋 *${obra.nombre}*
+${obra.direccionObra || obra.direccion ? `📍 ${obra.direccionObra || obra.direccion}` : ''}
+
+${obra.fechaInicio ? `📅 Inicio: ${obra.fechaInicio}` : ''}
+${obra.dias || obra.duracionDias ? `⏱️ Duración: ${obra.dias || obra.duracionDias} días` : ''}
+
+💰 *TOTAL: $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+
+_PDF descargado - Adjúntalo al mensaje_
+_Válido por 30 días_
+                    `.trim();
+
+                    const telefono = (obra.telefono || obra.clienteTelefono || '')?.toString().replace(/\D/g, '');
+                    const url = telefono
+                      ? `https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`
+                      : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
+
+                    window.open(url, '_blank');
+                  }
+
+                } catch (error) {
+                  console.error('❌ Error generando PDF:', error);
+                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                }
+              }
+            } else {
+              console.error('❌ No se encontró la obra con ID:', selectedObraId);
+              showNotification('⚠️ No se encontró la obra seleccionada', 'warning');
             }
           } else {
-            showNotification('Seleccione una obra independiente para enviar', 'warning');
+            showNotification('Seleccione una obra para enviar', 'warning');
+          }
+        },
+        // CÓDIGO ANTIGUO COMENTADO - ELIMINADO TODO EL CÓDIGO DE GENERACIÓN DE PDF
+        handleEnviarObraOLD_BACKUP: async () => {
+          if (selectedObraId) {
+            // Verificar si es una tarea (ID comienza con "ta_")
+            if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
+              // Extraer ID numérico de la tarea
+              const tareaId = parseInt(selectedObraId.replace('ta_', ''));
+
+              // Buscar la tarea en trabajosAdicionales
+              const tarea = trabajosAdicionales.find(ta => ta.id === tareaId);
+
+              if (tarea) {
+                // Generar PDF directamente de la tarea
+                console.log('📤 Generando PDF de tarea leve:', tarea.nombre);
+
+                // Importar dinámicamente las librerías
+                const html2canvas = (await import('html2canvas')).default;
+                const jsPDF = (await import('jspdf')).default;
+
+                try {
+                  // Buscar la obra padre para obtener datos del cliente
+                  const obraPadre = obras.find(o => o.id === tarea.obraId);
+
+                  // Obtener profesionales asignados
+                  const profesionalesTexto = tarea.profesionales && tarea.profesionales.length > 0
+                    ? tarea.profesionales.map(p => `${p.nombre} (${p.tipoProfesional || 'N/A'})`).join('<br>')
+                    : 'Sin profesionales asignados';
+
+                  // Crear contenedor temporal para el PDF
+                  const tempContainer = document.createElement('div');
+                  tempContainer.style.position = 'absolute';
+                  tempContainer.style.left = '-9999px';
+                  tempContainer.style.width = '800px';
+                  tempContainer.style.padding = '40px';
+                  tempContainer.style.backgroundColor = 'white';
+                  tempContainer.style.fontFamily = 'Arial, sans-serif';
+
+                  tempContainer.innerHTML = `
+                    <div style="max-width: 800px; margin: 0 auto;">
+                      <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #8B5CF6; padding-bottom: 20px;">
+                        <h1 style="color: #8B5CF6; margin: 0; font-size: 28px;">Presupuesto - Tarea Leve</h1>
+                        <p style="color: #666; margin: 10px 0 0 0; font-size: 14px;">${tarea.nombre}</p>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                          📍 Información General
+                        </h3>
+                        <table style="width: 100%; border-collapse: collapse;">
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555; width: 200px;">Obra Vinculada:</td>
+                            <td style="padding: 8px; color: #333;">${obraPadre?.nombre || 'Sin especificar'}</td>
+                          </tr>
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Cliente:</td>
+                            <td style="padding: 8px; color: #333;">${obraPadre?.clienteNombre || 'N/A'}</td>
+                          </tr>
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Fecha Inicio:</td>
+                            <td style="padding: 8px; color: #333;">${tarea.fechaInicio || 'N/A'}</td>
+                          </tr>
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Días Necesarios:</td>
+                            <td style="padding: 8px; color: #333;">${tarea.diasNecesarios || 'N/A'} días</td>
+                          </tr>
+                        </table>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <div style="background-color: #8B5CF6; padding: 30px; border-radius: 8px; text-align: center; color: white;">
+                          <p style="margin: 0; font-size: 18px; opacity: 0.9;">PRESUPUESTO TOTAL</p>
+                          <p style="margin: 15px 0 0 0; font-size: 42px; font-weight: bold;">
+                            $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                          👷 Profesionales Asignados
+                        </h3>
+                        <div style="padding: 12px; background-color: #fce7f3; border-radius: 4px; border-left: 4px solid #ec4899;">
+                          <p style="color: #555; line-height: 1.8; margin: 0;">${profesionalesTexto}</p>
+                        </div>
+                      </div>
+
+                      ${tarea.descripcion ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📋 Descripción
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
+                            ${tarea.descripcion}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      ${tarea.observaciones ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📝 Observaciones
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
+                            ${tarea.observaciones}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; text-align: center; color: #999; font-size: 12px;">
+                        <p style="margin: 0;">Documento generado el ${new Date().toLocaleDateString('es-AR')}</p>
+                        <p style="margin: 5px 0 0 0;">Este presupuesto es válido por 30 días</p>
+                      </div>
+                    </div>
+                  `;
+
+                  document.body.appendChild(tempContainer);
+
+                  // Generar PDF
+                  const canvas = await html2canvas(tempContainer, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff'
+                  });
+
+                  document.body.removeChild(tempContainer);
+
+                  const imgData = canvas.toDataURL('image/png');
+                  const pdf = new jsPDF('p', 'mm', 'a4');
+                  const pdfWidth = pdf.internal.pageSize.getWidth();
+                  const pdfHeight = pdf.internal.pageSize.getHeight();
+                  const imgWidth = pdfWidth - 20;
+                  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+                  let heightLeft = imgHeight;
+                  let position = 10;
+
+                  pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                  heightLeft -= pdfHeight;
+
+                  while (heightLeft >= 0) {
+                    position = heightLeft - imgHeight + 10;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                    heightLeft -= pdfHeight;
+                  }
+
+                  const nombreArchivo = `Presupuesto_${tarea.nombre?.replace(/\s/g, '_') || `Tarea_${tarea.id}`}_${new Date().getTime()}.pdf`;
+                  pdf.save(nombreArchivo);
+
+                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+
+                  // Preguntar si desea enviar por WhatsApp
+                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                    const mensaje = `
+*PRESUPUESTO - TAREA LEVE*
+
+📋 *${tarea.nombre}*
+${obraPadre ? `🏗️ Obra: ${obraPadre.nombre}` : ''}
+
+📅 Inicio: ${tarea.fechaInicio || 'A definir'}
+⏱️ Duración: ${tarea.diasNecesarios || 'N/A'} días
+
+💰 *TOTAL: $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+
+_PDF descargado - Adjúntalo al mensaje_
+_Válido por 30 días_
+                    `.trim();
+
+                    const telefono = obraPadre?.clienteTelefono?.replace(/\D/g, '') || '';
+                    const url = telefono
+                      ? `https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`
+                      : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
+
+                    window.open(url, '_blank');
+                  }
+
+                } catch (error) {
+                  console.error('❌ Error generando PDF:', error);
+                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                }
+
+                return;
+              } else {
+                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+                return;
+              }
+            }
+
+            const obra = obras.find(o => o.id === selectedObraId);
+            console.log('🔍 Buscando obra con ID:', selectedObraId, '| Encontrada:', !!obra);
+
+            if (obra) {
+              // Verificar si tiene presupuesto (en presupuestosObras o presupuestoNoCliente)
+              const presupuesto = presupuestosObras[obra.id];
+              const presupuestoNoCliente = obra.presupuestoNoCliente;
+
+              console.log('📤 ========== ENVIAR OBRA ==========');
+              console.log('📤 Obra:', obra.nombre, 'ID:', obra.id);
+              console.log('📤 Presupuesto en diccionario:', presupuesto ? 'SI (ID: ' + presupuesto.id + ')' : 'NO');
+              console.log('📤 presupuestoNoCliente en obra:', presupuestoNoCliente ? 'SI (ID: ' + presupuestoNoCliente.id + ')' : 'NO');
+              console.log('📤 =====================================');
+
+              // Si tiene presupuesto en presupuestosObras
+              if (presupuesto && typeof presupuesto === 'object') {
+                console.log('✅ RUTA 1: Usando presupuesto del diccionario - ID:', presupuesto.id, 'Nombre:', presupuesto.nombreObra);
+                setPresupuestoParaEnviar(presupuesto);
+                setMostrarModalEnviarPresupuesto(true);
+              }
+              // Si tiene presupuestoNoCliente vinculado (Obras Principales / Adicionales)
+              else if (presupuestoNoCliente && typeof presupuestoNoCliente === 'object') {
+                console.log('✅ RUTA 2: Usando presupuestoNoCliente de la obra - ID:', presupuestoNoCliente.id);
+                console.log('   - itemsCalculadora:', presupuestoNoCliente.itemsCalculadora?.length || 0, 'items');
+
+                // Verificar si ya tiene todos los datos necesarios
+                if (presupuestoNoCliente.itemsCalculadora && Array.isArray(presupuestoNoCliente.itemsCalculadora) && presupuestoNoCliente.itemsCalculadora.length > 0) {
+                  console.log('✅ presupuestoNoCliente ya tiene itemsCalculadora completo, usando directamente');
+                  setPresupuestoParaEnviar(presupuestoNoCliente);
+                  setMostrarModalEnviarPresupuesto(true);
+                } else if (presupuestoNoCliente.id) {
+                  // Cargar el presupuesto completo desde el backend
+                  console.log('🔄 itemsCalculadora vacío o inexistente, cargando desde backend...');
+                  try {
+                    const response = await api.presupuestosNoCliente.getById(presupuestoNoCliente.id, empresaId);
+                    const presupuestoCompleto = response.data;
+                    console.log('✅ presupuestoNoCliente completo cargado del backend:');
+                    console.log('   - Presupuesto ID:', presupuestoCompleto.id);
+                    console.log('   - Versión:', presupuestoCompleto.numeroVersion);
+                    console.log('   - Nombre Obra:', presupuestoCompleto.nombreObraManual);
+                    console.log('   - Total General:', presupuestoCompleto.totalGeneral);
+                    console.log('   - itemsCalculadora:', presupuestoCompleto.itemsCalculadora?.length || 0, 'items');
+                    console.log('   - Datos completos:', presupuestoCompleto);
+                    setPresupuestoParaEnviar(presupuestoCompleto);
+                    setMostrarModalEnviarPresupuesto(true);
+                  } catch (error) {
+                    console.error('❌ Error cargando presupuestoNoCliente completo:', error);
+                    showNotification('❌ Error al cargar el presupuesto: ' + (error.response?.data?.message || error.message), 'error');
+                  }
+                } else {
+                  console.log('⚠️ presupuestoNoCliente sin ID, usando datos disponibles');
+                  setPresupuestoParaEnviar(presupuestoNoCliente);
+                  setMostrarModalEnviarPresupuesto(true);
+                }
+              } else {
+                // Trabajo Diario (obra sin presupuesto) - generar PDF directamente
+                console.log('📤 Generando PDF de Trabajo Diario:', obra.nombre);
+
+                // Importar dinámicamente las librerías
+                const html2canvas = (await import('html2canvas')).default;
+                const jsPDF = (await import('jspdf')).default;
+
+                try {
+                  // Formatear dirección completa
+                  const direccionCompleta = [
+                    obra.direccionObraCalle || obra.direccionObra || obra.direccion,
+                    obra.direccionObraAltura ? `N° ${obra.direccionObraAltura}` : '',
+                    obra.direccionObraTorre ? `Torre ${obra.direccionObraTorre}` : '',
+                    obra.direccionObraPiso ? `Piso ${obra.direccionObraPiso}` : '',
+                    obra.direccionObraDepartamento ? `Depto ${obra.direccionObraDepartamento}` : ''
+                  ].filter(Boolean).join(', ') + (obra.direccionObraBarrio ? `<br><small>${obra.direccionObraBarrio}</small>` : '');
+
+                  // Crear contenedor temporal para el PDF
+                  const tempContainer = document.createElement('div');
+                  tempContainer.style.position = 'absolute';
+                  tempContainer.style.left = '-9999px';
+                  tempContainer.style.width = '800px';
+                  tempContainer.style.padding = '40px';
+                  tempContainer.style.backgroundColor = 'white';
+                  tempContainer.style.fontFamily = 'Arial, sans-serif';
+
+                  tempContainer.innerHTML = `
+                    <div style="max-width: 800px; margin: 0 auto;">
+                      <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #ffc107; padding-bottom: 20px;">
+                        <h1 style="color: #ffc107; margin: 0; font-size: 28px;">Presupuesto - Trabajo Diario</h1>
+                        <p style="color: #666; margin: 10px 0 0 0; font-size: 14px;">${obra.nombre}</p>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                          📍 Información General
+                        </h3>
+                        <table style="width: 100%; border-collapse: collapse;">
+                          ${obra.nombreSolicitante || obra.clienteNombre ? `
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555; width: 200px;">Cliente:</td>
+                            <td style="padding: 8px; color: #333;">${obra.nombreSolicitante || obra.clienteNombre || 'N/A'}</td>
+                          </tr>
+                          ` : ''}
+                          ${direccionCompleta && direccionCompleta !== 'undefined' ? `
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Dirección:</td>
+                            <td style="padding: 8px; color: #333;">${direccionCompleta}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.telefono || obra.clienteTelefono ? `
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Teléfono:</td>
+                            <td style="padding: 8px; color: #333;">${obra.telefono || obra.clienteTelefono}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.mail || obra.clienteMail ? `
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Email:</td>
+                            <td style="padding: 8px; color: #333;">${obra.mail || obra.clienteMail}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.fechaInicio ? `
+                          <tr>
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Fecha Inicio:</td>
+                            <td style="padding: 8px; color: #333;">${obra.fechaInicio}</td>
+                          </tr>
+                          ` : ''}
+                          ${obra.dias || obra.duracionDias ? `
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="padding: 8px; font-weight: bold; color: #555;">Duración:</td>
+                            <td style="padding: 8px; color: #333;">${obra.dias || obra.duracionDias} días</td>
+                          </tr>
+                          ` : ''}
+                        </table>
+                      </div>
+
+                      <div style="margin-bottom: 25px;">
+                        <div style="background-color: #ffc107; padding: 30px; border-radius: 8px; text-align: center; color: #333;">
+                          <p style="margin: 0; font-size: 18px; opacity: 0.9; font-weight: 600;">PRESUPUESTO TOTAL</p>
+                          <p style="margin: 15px 0 0 0; font-size: 42px; font-weight: bold;">
+                            $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+
+                      ${obra.descripcion ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📋 Descripción
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
+                            ${obra.descripcion}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      ${obra.observaciones ? `
+                        <div style="margin-bottom: 25px;">
+                          <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
+                            📝 Observaciones
+                          </h3>
+                          <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
+                            ${obra.observaciones}
+                          </p>
+                        </div>
+                      ` : ''}
+
+                      <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; text-align: center; color: #999; font-size: 12px;">
+                        <p style="margin: 0;">Documento generado el ${new Date().toLocaleDateString('es-AR')}</p>
+                        <p style="margin: 5px 0 0 0;">Este presupuesto es válido por 30 días</p>
+                      </div>
+                    </div>
+                  `;
+
+                  document.body.appendChild(tempContainer);
+
+                  // Generar PDF
+                  const canvas = await html2canvas(tempContainer, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff'
+                  });
+
+                  document.body.removeChild(tempContainer);
+
+                  const imgData = canvas.toDataURL('image/png');
+                  const pdf = new jsPDF('p', 'mm', 'a4');
+                  const pdfWidth = pdf.internal.pageSize.getWidth();
+                  const pdfHeight = pdf.internal.pageSize.getHeight();
+                  const imgWidth = pdfWidth - 20;
+                  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+                  let heightLeft = imgHeight;
+                  let position = 10;
+
+                  pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                  heightLeft -= pdfHeight;
+
+                  while (heightLeft >= 0) {
+                    position = heightLeft - imgHeight + 10;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+                    heightLeft -= pdfHeight;
+                  }
+
+                  const nombreArchivo = `Presupuesto_${obra.nombre?.replace(/\s/g, '_') || `Obra_${obra.id}`}_${new Date().getTime()}.pdf`;
+                  pdf.save(nombreArchivo);
+
+                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+
+                  // Preguntar si desea enviar por WhatsApp
+                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                    const mensaje = `
+*PRESUPUESTO - TRABAJO DIARIO*
+
+📋 *${obra.nombre}*
+${obra.direccionObra || obra.direccion ? `📍 ${obra.direccionObra || obra.direccion}` : ''}
+
+${obra.fechaInicio ? `📅 Inicio: ${obra.fechaInicio}` : ''}
+${obra.dias || obra.duracionDias ? `⏱️ Duración: ${obra.dias || obra.duracionDias} días` : ''}
+
+💰 *TOTAL: $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+
+_PDF descargado - Adjúntalo al mensaje_
+_Válido por 30 días_
+                    `.trim();
+
+                    const telefono = (obra.telefono || obra.clienteTelefono || '')?.toString().replace(/\D/g, '');
+                    const url = telefono
+                      ? `https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`
+                      : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
+
+                    window.open(url, '_blank');
+                  }
+
+                } catch (error) {
+                  console.error('❌ Error generando PDF:', error);
+                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                }
+              }
+            } else {
+              console.error('❌ No se encontró la obra con ID:', selectedObraId);
+              showNotification('⚠️ No se encontró la obra seleccionada', 'warning');
+            }
+          } else {
+            console.log('⚠️ No hay obra seleccionada');
+            showNotification('Seleccione una obra para enviar', 'warning');
           }
         },
         handleVerObrasManuales: () => {
@@ -1795,7 +2729,7 @@ const ObrasPage = ({ showNotification }) => {
         },
         esObrasIndependientes: true,
         conteoObras: obrasManuales.length,
-        titulo: 'Obras Independientes'
+        titulo: 'Trabajos Diarios / Nuevos Clientes'
       });
     }
 
@@ -3185,6 +4119,12 @@ const ObrasPage = ({ showNotification }) => {
   // Helper ASYNC para cargar configuración desde BD y sincronizar con localStorage
   const cargarYSincronizarConfiguracion = async (obraId) => {
     try {
+      // No cargar configuración para tareas leves
+      if (typeof obraId === 'string' && obraId.startsWith('ta_')) {
+        console.log('⏭️ [cargarYSincronizarConfiguracion] Saltando tarea leve:', obraId);
+        return null;
+      }
+
       // Intentar obtener presupuesto de la obra primero (fuente de verdad)
       let diasHabilesReales = null;
       let semanasRealesCalculadas = null;
@@ -5412,31 +6352,76 @@ const ObrasPage = ({ showNotification }) => {
                               </td>
                               <td>
                                 {obra.nombre}
-                                {perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
-                                  <div className="mt-1">
-                                    <span className="badge" style={{
-                                      fontSize: '0.7em',
-                                      padding: '4px 8px',
-                                      backgroundColor: '#17a2b8',
-                                      color: '#fff',
-                                      fontWeight: 'bold',
-                                      border: '1px solid #138496'
-                                    }}>
-                                      <i className="fas fa-building me-1"></i>
-                                      OBRA PADRE: {totalEnGrupo - 1} sub-obra{totalEnGrupo - 1 > 1 ? 's' : ''}
-                                    </span>
-                                  </div>
-                                )}
+                                {(() => {
+                                  // Solo mostrar badge OBRA PADRE si NO tiene presupuesto que defina el tipo
+                                  const presupuesto = presupuestosObras[obra.id];
+                                  const tienePresupuestoConTipo = presupuesto &&
+                                    typeof presupuesto === 'object' &&
+                                    (presupuesto.es_presupuesto_trabajo_extra !== undefined ||
+                                     presupuesto.esPresupuestoTrabajoExtra !== undefined);
+
+                                  return !tienePresupuestoConTipo && perteneceAGrupo && esPrimerEnGrupo && totalEnGrupo > 1 && (
+                                    <div className="mt-1">
+                                      <span className="badge" style={{
+                                        fontSize: '0.7em',
+                                        padding: '4px 8px',
+                                        backgroundColor: '#17a2b8',
+                                        color: '#fff',
+                                        fontWeight: 'bold',
+                                        border: '1px solid #138496'
+                                      }}>
+                                        <i className="fas fa-building me-1"></i>
+                                        OBRA PADRE: {totalEnGrupo - 1} sub-obra{totalEnGrupo - 1 > 1 ? 's' : ''}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                                 {esSubobra && (
                                   <div className="mt-1">
                                     <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
-                                      🔧 TRABAJO EXTRA{(() => {
+                                      🔧 Adicional Obra{(() => {
                                         const obraPadreId = obra.obraPadreId || obra.obra_padre_id || obra.idObraPadre || obra._obraPadreDetectada;
                                         return obraPadreId ? ` de #${obraPadreId}` : '';
                                       })()}
                                     </span>
                                   </div>
                                 )}
+                                {/* Badge basado en es_presupuesto_trabajo_extra */}
+                                {(() => {
+                                  const presupuesto = presupuestosObras[obra.id];
+                                  if (presupuesto && typeof presupuesto === 'object') {
+                                    const esTrabajoExtra = presupuesto.es_presupuesto_trabajo_extra === true ||
+                                                          presupuesto.esPresupuestoTrabajoExtra === true ||
+                                                          presupuesto.esPresupuestoTrabajoExtra === 'V';
+
+                                    if (esTrabajoExtra) {
+                                      return (
+                                        <div className="mt-1">
+                                          <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
+                                            <i className="fas fa-wrench me-1"></i>Adicional Obra
+                                          </span>
+                                        </div>
+                                      );
+                                    } else {
+                                      return (
+                                        <div className="mt-1">
+                                          <span className="badge bg-primary text-white" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
+                                            <i className="fas fa-building me-1"></i>Obra Principal
+                                          </span>
+                                        </div>
+                                      );
+                                    }
+                                  } else {
+                                    // Sin presupuesto = Trabajo Diario (obra independiente/manual)
+                                    return (
+                                      <div className="mt-1">
+                                        <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
+                                          <i className="fas fa-hand-paper me-1"></i>Trabajo Diario
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+                                })()}
                               </td>
                               <td>
                                 <small className="text-muted">
@@ -6084,25 +7069,41 @@ const ObrasPage = ({ showNotification }) => {
                                     const obraOrigen = ta.trabajoExtraId
                                       ? obras.find(o => o.id === ta.trabajoExtraId)
                                       : null;
+                                    const tareaId = `ta_${ta.id}`;
+                                    const isSelected = selectedObraId === tareaId;
                                     return (
                                     <tr
-                                      key={`ta_${ta.id}`}
-                                      style={{ backgroundColor: '#eff6ff', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)', cursor: 'default' }}
+                                      key={tareaId}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedObraId(isSelected ? null : tareaId);
+                                      }}
+                                      style={{
+                                        backgroundColor: isSelected ? '#cfe2ff' : '#eff6ff',
+                                        borderLeft: '5px solid #ffc107',
+                                        borderBottom: '1px solid rgba(253, 126, 20, 0.45)',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease'
+                                      }}
+                                      className="hover-row"
                                     >
-                                      <td></td>
                                       <td className="small text-muted ps-2">
+                                        {isSelected && <i className="fas fa-check-circle text-success me-1"></i>}
                                         <i className="fas fa-tools text-warning me-1" style={{fontSize:'0.75em'}}></i>
                                         #{ta.id}
                                       </td>
                                       <td className="small" colSpan="2">
                                         <span className="fw-semibold">{ta.nombre || '—'}</span>
                                         {obraOrigen && <span className="badge bg-secondary ms-2" style={{fontSize:'0.65em'}}>{obraOrigen.nombre}</span>}
+                                        <div className="mt-1">
+                                          <span className="badge bg-info text-white" style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                            <i className="fas fa-tasks me-1"></i>Tareas Leves
+                                          </span>
+                                        </div>
                                         {ta.descripcion && <div className="text-muted" style={{fontSize:'0.75em'}}>{ta.descripcion}</div>}
                                       </td>
                                       <td className="small text-muted" colSpan="2">—</td>
-                                      <td className="text-center">
-                                        <span className="badge bg-warning text-dark" style={{fontSize:'0.65em', padding:'3px 5px'}}>🔧 Tarea</span>
-                                      </td>
+                                      <td className="text-center">—</td>
                                       <td className="text-center">
                                         <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO?.[ta.estado] || 'secondary'}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
                                           {ta.estado || '—'}
@@ -6149,7 +7150,7 @@ const ObrasPage = ({ showNotification }) => {
                         Editando Obra
                       </>
                     ) : (
-                      'Crear Nueva Obra'
+                      'Crear Nuevo Trabajo Diario'
                     )}
                   </h5>
                   {modoEdicion && obraEditando && (
@@ -7977,7 +8978,7 @@ const ObrasPage = ({ showNotification }) => {
                 <div className="d-flex align-items-center gap-3">
                   <h5 className="mb-0">
                     <i className="fas fa-folder-open me-2"></i>
-                    Obras Independientes
+                    Trabajos Diarios / Nuevos Clientes
                   </h5>
                   <span className="badge bg-info text-dark">
                     {obras.filter(obra => {
@@ -8049,11 +9050,41 @@ const ObrasPage = ({ showNotification }) => {
                                 </td>
                                 <td>
                                   {obra.nombre || '(Sin nombre)'}
-                                  <div className="mt-1">
-                                    <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem'}}>
-                                      <i className="fas fa-hand-paper me-1"></i>Obra Independiente
-                                    </span>
-                                  </div>
+                                  {(() => {
+                                    const presupuesto = presupuestosObras[obra.id];
+                                    if (presupuesto && typeof presupuesto === 'object') {
+                                      const esTrabajoExtra = presupuesto.es_presupuesto_trabajo_extra === true ||
+                                                            presupuesto.esPresupuestoTrabajoExtra === true ||
+                                                            presupuesto.esPresupuestoTrabajoExtra === 'V';
+
+                                      if (esTrabajoExtra) {
+                                        return (
+                                          <div className="mt-1">
+                                            <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem'}}>
+                                              <i className="fas fa-wrench me-1"></i>Adicional Obra
+                                            </span>
+                                          </div>
+                                        );
+                                      } else {
+                                        return (
+                                          <div className="mt-1">
+                                            <span className="badge bg-primary text-white" style={{fontSize: '0.7rem'}}>
+                                              <i className="fas fa-building me-1"></i>Obra Principal
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                    } else {
+                                      // Sin presupuesto - es un Trabajo Diario
+                                      return (
+                                        <div className="mt-1">
+                                          <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem'}}>
+                                            <i className="fas fa-hand-paper me-1"></i>Trabajo Diario
+                                          </span>
+                                        </div>
+                                      );
+                                    }
+                                  })()}
                                 </td>
                                 <td>
                                   <small className="text-muted">
@@ -10573,6 +11604,28 @@ Gestionar Tareas Leves
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Enviar Presupuesto (sin navegar de página) */}
+      {mostrarModalEnviarPresupuesto && presupuestoParaEnviar && (
+        <PresupuestoNoClienteModal
+          show={mostrarModalEnviarPresupuesto}
+          onClose={() => {
+            setMostrarModalEnviarPresupuesto(false);
+            setPresupuestoParaEnviar(null);
+          }}
+          onSave={async (presupuesto) => {
+            console.log('💾 Presupuesto enviado:', presupuesto);
+            setMostrarModalEnviarPresupuesto(false);
+            setPresupuestoParaEnviar(null);
+            showNotification('✅ Presupuesto enviado exitosamente', 'success');
+
+            // Recargar obras para actualizar estados
+            cargarObrasSegunFiltro();
+          }}
+          initialData={presupuestoParaEnviar}
+          showDownloadPdfButton={true}  // 🔥 Mostrar botón "Descargar PDF" y auto-scroll
+        />
       )}
 
       {/* Modal Trabajo Extra */}

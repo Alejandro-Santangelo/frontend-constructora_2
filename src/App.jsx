@@ -128,6 +128,7 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
       {/* Toast de notificaciones */}
       {notification && (
         <NotificationToast
+          show={true}
           message={notification.message}
           type={notification.type}
           onHide={hideNotification}

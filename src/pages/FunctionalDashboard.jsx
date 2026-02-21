@@ -396,7 +396,7 @@ const FunctionalDashboard = ({ showNotification }) => {
       customColor: '#fd7e14'
     },
     {
-      title: 'Trabajos - Obras Independientes',
+      title: 'Trabajos Diarios|Nuevos Clientes',
       value: stats.trabajosObrasIndependientes,
       icon: 'fas fa-wrench',
       color: 'success',
@@ -484,7 +484,16 @@ const FunctionalDashboard = ({ showNotification }) => {
                         className={`text-xs font-weight-bold ${!card.customColor ? `text-${card.color}` : ''} text-uppercase mb-1`}
                         style={card.customColor ? { color: card.customColor + ' !important' } : {}}
                       >
-                        {card.title}
+                        {card.title.includes('|') ? (
+                          card.title.split('|').map((line, idx) => (
+                            <React.Fragment key={idx}>
+                              {line}
+                              {idx < card.title.split('|').length - 1 && <br />}
+                            </React.Fragment>
+                          ))
+                        ) : (
+                          card.title
+                        )}
                       </div>
                       <div className="h5 mb-0 font-weight-bold text-gray-800">
                         {loading ? (
