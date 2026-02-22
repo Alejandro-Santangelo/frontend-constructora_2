@@ -403,6 +403,15 @@ const FunctionalDashboard = ({ showNotification }) => {
       link: '/obras?tab=obras-manuales',
       description: 'Obras creadas sin presupuesto previo',
       customColor: '#4CAF50'
+    },
+    {
+      title: 'Reportes del Sistema',
+      value: '📊',
+      icon: 'fas fa-shield-alt',
+      color: 'info',
+      link: '/reportes-sistema',
+      description: 'Auditorías y backups automáticos',
+      customColor: '#667eea'
     }
   ], [stats]);
 

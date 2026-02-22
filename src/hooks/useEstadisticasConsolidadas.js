@@ -737,6 +737,120 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         });
       }
 
+      // ✅ AGREGAR TRABAJOS ADICIONALES CON ASIGNACIONES DE COBRO
+      console.log('🔍 Buscando asignaciones a Trabajos Adicionales...');
+      const asignacionesTA = todasLasAsignaciones.filter(a =>
+        a.trabajoAdicionalId &&
+        (a.estado === 'ACTIVA' || a.estado === 'activa')
+      );
+      console.log(`📦 Asignaciones a TAs encontradas: ${asignacionesTA.length}`, asignacionesTA);
+
+      // Agrupar por trabajoAdicionalId
+      const taConAsignaciones = new Map();
+      asignacionesTA.forEach(asig => {
+        const taId = asig.trabajoAdicionalId;
+        if (!taConAsignaciones.has(taId)) {
+          taConAsignaciones.set(taId, {
+            asignaciones: [],
+            totalAsignado: 0
+          });
+        }
+        const ta = taConAsignaciones.get(taId);
+        ta.asignaciones.push(asig);
+        ta.totalAsignado += parseFloat(asig.montoAsignado || 0);
+      });
+
+      // Cargar datos completos de cada TA y agregar a desglosePorObra
+      console.log(`🔄 Cargando datos de ${taConAsignaciones.size} TAs con asignaciones...`);
+      for (const [taId, data] of taConAsignaciones.entries()) {
+        try {
+          const ta = await trabajosAdicionalesService.obtenerTrabajoPorId(taId, empresaId);
+          console.log(`✅ TA "${ta.nombre}" (ID:${ta.id}): $${data.totalAsignado.toLocaleString()}`);
+
+          desglosePorObra.push({
+            id: ta.id,
+            obraId: ta.obraId || ta.obra_id || null,
+            nombreObra: ta.nombre || ta.descripcion || `Tarea Adicional #${ta.id}`,
+            numeroPresupuesto: null,
+            estado: 'APROBADO',
+            totalPresupuesto: ta.importe || 0,
+            totalHonorarios: 0,
+            totalCobrado: data.totalAsignado,
+            cantidadCobros: data.asignaciones.length,
+            cobrosPendientes: 0,
+            totalPagado: 0,
+            cantidadPagos: 0,
+            pagosPendientes: 0,
+            trabajosExtra: [],
+            montoProfesionales: 0,
+            montoMateriales: 0,
+            montoGastosGenerales: 0,
+            montoTrabajosExtra: 0,
+            esTrabajoAdicional: true, // ✅ Flag identificador
+            tipoEntidad: 'TRABAJO_ADICIONAL'
+          });
+        } catch (err) {
+          console.warn(`⚠️ Error cargando TA ${taId}:`, err);
+        }
+      }
+
+      // ✅ AGREGAR OBRAS INDEPENDIENTES CON ASIGNACIONES DE COBRO
+      console.log('🔍 Buscando asignaciones a Obras Independientes...');
+      const asignacionesOI = todasLasAsignaciones.filter(a =>
+        a.obraIndependienteId &&
+        (a.estado === 'ACTIVA' || a.estado === 'activa')
+      );
+      console.log(`📦 Asignaciones a OIs encontradas: ${asignacionesOI.length}`, asignacionesOI);
+
+      // Agrupar por obraIndependienteId
+      const oiConAsignaciones = new Map();
+      asignacionesOI.forEach(asig => {
+        const oiId = asig.obraIndependienteId;
+        if (!oiConAsignaciones.has(oiId)) {
+          oiConAsignaciones.set(oiId, {
+            asignaciones: [],
+            totalAsignado: 0
+          });
+        }
+        const oi = oiConAsignaciones.get(oiId);
+        oi.asignaciones.push(asig);
+        oi.totalAsignado += parseFloat(asig.montoAsignado || 0);
+      });
+
+      // Cargar datos completos de cada OI y agregar a desglosePorObra
+      console.log(`🔄 Cargando datos de ${oiConAsignaciones.size} OIs con asignaciones...`);
+      for (const [oiId, data] of oiConAsignaciones.entries()) {
+        try {
+          const oi = await api.obras.getById(oiId, empresaId);
+          console.log(`✅ OI "${oi.nombre}" (ID:${oi.id}): $${data.totalAsignado.toLocaleString()}`);
+
+          desglosePorObra.push({
+            id: oi.id,
+            obraId: oi.id,
+            nombreObra: oi.nombre || `${oi.direccionObraCalle || ''} ${oi.direccionObraAltura || ''}`.trim() || `Obra #${oi.id}`,
+            numeroPresupuesto: null,
+            estado: oi.estado || 'APROBADO',
+            totalPresupuesto: oi.presupuestoEstimado || 0,
+            totalHonorarios: 0,
+            totalCobrado: data.totalAsignado,
+            cantidadCobros: data.asignaciones.length,
+            cobrosPendientes: 0,
+            totalPagado: 0,
+            cantidadPagos: 0,
+            pagosPendientes: 0,
+            trabajosExtra: [],
+            montoProfesionales: 0,
+            montoMateriales: 0,
+            montoGastosGenerales: 0,
+            montoTrabajosExtra: 0,
+            esObraIndependiente: true, // ✅ Flag identificador
+            tipoEntidad: 'OBRA_INDEPENDIENTE'
+          });
+        } catch (err) {
+          console.warn(`⚠️ Error cargando OI ${oiId}:`, err);
+        }
+      }
+
       // 🔍 IDENTIFICAR COBROS HUÉRFANOS (no asignados a ninguna obra)
       const totalCobradoPorObras = desglosePorObra.reduce((sum, o) => sum + o.totalCobrado, 0);
       const diferenciaCobros = totalCobrado - totalCobradoPorObras;

@@ -51,6 +51,9 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
         idsEfSinDistribucion
       );
 
+      // 🔍 DIAGNÓSTICO: Ver qué devuelve el backend para detectar datos fantasma
+      console.log('🔍 [DetalleDistribucion] estadisticas-multiples response:', estadisticasSinDistribucion);
+
       // Indexar estadísticas por entidadFinancieraId para lookup O(1)
       const estadPorEfId = {};
       (estadisticasSinDistribucion || []).forEach(e => {
@@ -94,7 +97,10 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
           const ef = efPorTipoYEntidadId[`OBRA_INDEPENDIENTE_${idObra}`];
           const est = ef ? (estadPorEfId[ef.id] || {}) : {};
           const claveUnica = idObra ?? nombre;
-          if (!idsAgregados.has(claveUnica)) {
+          const totalCobrado = parseFloat(est.totalCobrado || 0);
+
+          // 🛡️ FILTRO: Excluir OIs sin cobros reales
+          if (!idsAgregados.has(claveUnica) && totalCobrado > 0) {
             idsAgregados.add(claveUnica);
             nombresAgregados.add(nombre);
             entidades.push({
@@ -102,7 +108,7 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
               entidadFinancieraId: ef?.id,
               nombreObra:          ef?.nombreDisplay || nombre,
               tipo:                'OBRA_INDEPENDIENTE',
-              totalCobradoAsignado: parseFloat(est.totalCobrado || 0),
+              totalCobradoAsignado: totalCobrado,
               montoProfesionales:   null,
               montoMateriales:      null,
               montoGastosGenerales: null,
@@ -173,19 +179,30 @@ const DetalleDistribucionCobrosModal = ({ show, onHide, datos, estadisticas, obr
           idsAgregados.add(claveUnica);
           nombresAgregados.add(nombre);
           const est = estadPorEfId[ef.id] || {};
-          entidades.push({
-            obraId:              `ta_${ef.entidadId}`,
-            entidadFinancieraId: ef.id,
-            nombreObra:          nombre,
-            tipo:                'TRABAJO_ADICIONAL',
-            totalCobradoAsignado: parseFloat(est.totalCobrado || 0),
-            montoProfesionales:   null,
-            montoMateriales:      null,
-            montoGastosGenerales: null,
-            montoTrabajosExtra:   null,
-            asignacionId:         null,
-            enBackend:            true,
-          });
+          const totalCobrado = parseFloat(est.totalCobrado || 0);
+
+          // � DIAGNÓSTICO DETALLADO
+          console.log(`🔍 [TA] ${nombre} (EF ID:${ef.id}, Entity ID:${ef.entidadId}) → totalCobrado=${totalCobrado}`);
+
+          // 🛡️ FILTRO: Excluir TAs sin cobros reales para evitar mostrar datos fantasma
+          if (totalCobrado > 0) {
+            console.log(`   ✅ INCLUIDO en tabla (totalCobrado > 0)`);
+            entidades.push({
+              obraId:              `ta_${ef.entidadId}`,
+              entidadFinancieraId: ef.id,
+              nombreObra:          nombre,
+              tipo:                'TRABAJO_ADICIONAL',
+              totalCobradoAsignado: totalCobrado,
+              montoProfesionales:   null,
+              montoMateriales:      null,
+              montoGastosGenerales: null,
+              montoTrabajosExtra:   null,
+              asignacionId:         null,
+              enBackend:            true,
+            });
+          } else {
+            console.log(`   ❌ EXCLUIDO de tabla (totalCobrado = 0)`);
+          }
         }
       });
 

@@ -128,6 +128,18 @@ apiClient.interceptors.request.use(
       console.log('🟦 Config inicial - headers:', config.headers);
     }
 
+    // ⚠️ ENDPOINT ESPECIAL: /reportes-sistema NO requiere empresaId ni modificaciones
+    const esEndpointReportesSistema = config.url.includes('/reportes-sistema');
+
+    if (esEndpointReportesSistema) {
+      // ✅ RETORNAR INMEDIATAMENTE sin agregar NADA (ni headers ni params)
+      // Limpiar todo lo que se haya agregado antes
+      if (config.params && config.params._t) {
+        delete config.params._t; // Eliminar timestamp solo si existe
+      }
+      return config;
+    }
+
     // ⚠️ CRÍTICO: INYECTAR empresaId en TODAS las peticiones (excepto /empresas)
     const esEndpointEmpresas = config.url.includes('/empresas');
 
@@ -247,7 +259,8 @@ const verificarEmpresaId = (config) => {
     '/auth/',
     '/login',
     '/config',
-    '/version'
+    '/version',
+    '/reportes-sistema' // ✅ Reportes del sistema (endpoint global, no requiere empresaId)
   ];
 
   const esEndpointExento = endpointsSinEmpresaId.some(endpoint => config.url.includes(endpoint));
@@ -277,6 +290,11 @@ const verificarEmpresaId = (config) => {
 // Interceptor para responses - manejo de errores global
 apiClient.interceptors.response.use(
   (response) => {
+    // ⚠️ ENDPOINT ESPECIAL: /reportes-sistema devuelve texto plano, no procesar
+    if (response.config.url?.includes('/reportes-sistema')) {
+      return response; // Retornar sin procesar
+    }
+
     // 🔧 NORMALIZAR ESTADOS: Convertir estados con espacios a guiones bajos (compatibilidad con enums Java)
     const normalizarEstado = (estado) => {
       if (!estado || typeof estado !== 'string') return estado;
@@ -516,15 +534,15 @@ export const apiService = {
     }
   },
 
-  async post(endpoint, data = {}, config = {}) {
+  async post(endpoint, data = null, config = {}) {
     try {
-      // Si config tiene params o headers directamente, convertirlo a formato axios
-      // Si config.params existe, usar config tal cual
-      // Si no, asumir que config ES el objeto de params
-      const axiosConfig = config.params || config.headers
+      // Si config tiene params, headers, o timeout directamente, usar config tal cual
+      // Si no, asumir que config ES el objeto de params (para backward compatibility)
+      const axiosConfig = config.params || config.headers || config.timeout
         ? config
         : { params: config };
 
+      // IMPORTANTE: Si data es null, axios no enviará body (requerido por algunos endpoints)
       const response = await apiClient.post(endpoint, data, axiosConfig);
       return response.data;
     } catch (error) {

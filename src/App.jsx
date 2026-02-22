@@ -20,6 +20,7 @@ const SistemaFinancieroPage = lazy(() => import('./pages/SistemaFinancieroPage')
 const GastosGeneralesPage = lazy(() => import('./pages/GastosGeneralesPage'));
 const MaterialesPage = lazy(() => import('./pages/MaterialesPage'));
 const DiagnosticoBackend = lazy(() => import('./components/DiagnosticoBackend'));
+const ReportesSistemaPage = lazy(() => import('./pages/ReportesSistemaPage'));
 
 // Componente de carga
 const PageLoader = () => (
@@ -115,6 +116,7 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
                   <Route path="/materiales" element={<MaterialesPage showNotification={showNotification} />} />
                   <Route path="/usuarios" element={<UsuariosPage showNotification={showNotification} />} />
                   <Route path="/sistema-financiero" element={<SistemaFinancieroPage showNotification={showNotification} setSidebarCollapsed={setSidebarCollapsed} sidebarCollapsed={sidebarCollapsed} />} />
+                  <Route path="/reportes-sistema" element={<ReportesSistemaPage showNotification={showNotification} />} />
                   <Route path="/diagnostico" element={<DiagnosticoBackend />} />
                   {/* Ruta /presupuestos redirige a /presupuestos-no-cliente */}
                   <Route path="/presupuestos" element={<Navigate to="/presupuestos-no-cliente" replace />} />

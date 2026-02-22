@@ -91,11 +91,23 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     const taIdsContados = new Set(); // Para deduplica TAs
     const oiMap = new Map(); // Para deduplicar OIs
 
+    // Crear Set con todos los IDs de trabajos extra para detección rápida
+    const idsTrabajosExtra = new Set();
+    trabajosExtra.forEach(tesObra => {
+      tesObra.forEach(te => {
+        if (te.obraId) idsTrabajosExtra.add(te.obraId);
+        if (te.id) idsTrabajosExtra.add(te.id);
+      });
+    });
+
     // ✅ FILTRAR TEs que ya están en el Map (para no contarlos dos veces)
     const obrasFiltradas = datos.filter(obra => {
-      const estaEnMapTrabajos = Array.from(trabajosExtra.values()).flat().some(te => te.id === obra.presupuestoId || te.id === obra.id);
+      const obraIdActual = obra.obraId || obra.id;
+      const presupuestoIdActual = obra.presupuestoId || obra.id;
+      const estaEnMapTrabajos = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+
       if (estaEnMapTrabajos) {
-        console.log(`🚫 [useMemo] Filtrando "${obra.nombreObra}" (es TE duplicado)`);
+        console.log(`🚫 [useMemo] Filtrando "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - es TE duplicado`);
       }
       return !estaEnMapTrabajos;
     });
@@ -447,10 +459,27 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     let totalCalculado = 0;
     const taIdsContados = new Set(); // Para evitar contar el mismo TA múltiples veces
 
-    // 1. Filtrar TE y deduplicar OI (igual que en el render)
+    // Crear Set con todos los IDs de trabajos extra para detección rápida
+    const idsTrabajosExtra = new Set();
+    trabajosExtra.forEach(tesObra => {
+      tesObra.forEach(te => {
+        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
+        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+      });
+    });
+
+    // 1. Filtrar TE (ahora usando el Set de IDs) y deduplicar OI
     const obrasFiltradas = datos.filter(obra => {
-      const estaEnMapTrabajos = Array.from(trabajosExtra.values()).flat().some(te => te.id === obra.presupuestoId || te.id === obra.id);
-      return !estaEnMapTrabajos;
+      // Verificar si esta obra está en el Map de trabajosExtra
+      const obraIdActual = obra.obraId || obra.id;
+      const presupuestoIdActual = obra.presupuestoId || obra.id;
+      const estaEnTrabajosExtra = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+
+      if (estaEnTrabajosExtra) {
+        console.log(`🚫 [Presupuestos] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+      }
+
+      return !estaEnTrabajosExtra;
     });
 
     // Deduplicar OI por nombreObra
@@ -1034,11 +1063,26 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   };
 
   const renderPagos = () => {
-    // Filtrar TE del listado principal (igual que en presupuestos)
+    // Crear Set con todos los IDs de trabajos extra para detección rápida
+    const idsTrabajosExtra = new Set();
+    trabajosExtra.forEach(tesObra => {
+      tesObra.forEach(te => {
+        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
+        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+      });
+    });
+
+    // Filtrar TE del listado principal (usando el Set de IDs)
     const obrasFiltradas = datos.filter(obra => {
-      return !Array.from(trabajosExtra.values()).flat().some(
-        te => te.id === obra.presupuestoId || te.id === obra.id
-      );
+      const obraIdActual = obra.obraId || obra.id;
+      const presupuestoIdActual = obra.presupuestoId || obra.id;
+      const estaEnTrabajosExtra = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+
+      if (estaEnTrabajosExtra) {
+        console.log(`🚫 [Pagos] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+      }
+
+      return !estaEnTrabajosExtra;
     });
 
     // Deduplicar Obras Independientes por nombre+dirección
@@ -1402,11 +1446,28 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     const oiMap = new Map();
     const obrasNormales = [];
 
+    // Crear Set con todos los IDs de trabajos extra para detección rápida
+    const idsTrabajosExtra = new Set();
+    trabajosExtra.forEach(tesObra => {
+      tesObra.forEach(te => {
+        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
+        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+      });
+    });
+
     datos.forEach(obra => {
       // Excluir filas que son trabajos extra (ya los agregamos desde el Map)
       const esTE = obra.esObraTrabajoExtra || obra.esPresupuestoTrabajoExtra ||
                    obra.obra?.esObraTrabajoExtra || obra.es_presupuesto_trabajo_extra;
       if (esTE) return;
+
+      // ✅ También excluir si esta obra está en el Map de trabajosExtra
+      const obraIdActual = obra.obraId || obra.id;
+      const presupuestoIdActual = obra.presupuestoId || obra.id;
+      if (idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual)) {
+        console.log(`🚫 [SaldoPorCobrar] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+        return;
+      }
 
       if (obra.esObraIndependiente) {
         const clave = `${obra.nombreObra || ''}_${obra.obraId || obra.id || ''}`.trim();
@@ -1656,8 +1717,25 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   };
 
   const renderDeficit = () => {
-    // Filtrar solo obras con déficit (balance negativo)
+    // Crear Set con todos los IDs de trabajos extra para detección rápida
+    const idsTrabajosExtra = new Set();
+    trabajosExtra.forEach(tesObra => {
+      tesObra.forEach(te => {
+        if (te.obraId) idsTrabajosExtra.add(te.obraId);
+        if (te.id) idsTrabajosExtra.add(te.id);
+      });
+    });
+
+    // Filtrar solo obras con déficit (balance negativo) y excluir TEs
     const obrasConDeficit = datos.filter(obra => {
+      // Verificar si es un TE
+      const obraIdActual = obra.obraId || obra.id;
+      const presupuestoIdActual = obra.presupuestoId || obra.id;
+      const esTE = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+
+      if (esTE) return false;
+
+      // Verificar si tiene déficit
       const balance = (obra.totalCobrado || 0) - (obra.totalPagado || 0) - (obra.totalRetirado || 0);
       return balance < 0;
     });
@@ -1736,14 +1814,28 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   const renderSaldoDisponible = () => {
     const totalCobrado = estadisticas?.totalCobradoEmpresa || estadisticas?.totalCobrado || 0;
 
+    // Crear Set con todos los IDs de trabajos extra para detección rápida
+    const idsTrabajosExtra = new Set();
+    trabajosExtra.forEach(tesObra => {
+      tesObra.forEach(te => {
+        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
+        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+      });
+    });
+
     // ── Paso 1: Filtrar TEs y deduplicar OIs en datos ─────────────────────────
     const oiMapDatos = new Map();
     const obrasNormalesSD = [];
     datos.forEach(obra => {
-      const esTE = Array.from(trabajosExtra.values()).flat().some(
-        te => te.id === obra.presupuestoId || te.id === obra.id
-      );
-      if (esTE) return;
+      const obraIdActual = obra.obraId || obra.id;
+      const presupuestoIdActual = obra.presupuestoId || obra.id;
+      const esTE = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+
+      if (esTE) {
+        console.log(`🚫 [SaldoDisponible] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+        return;
+      }
+
       if (obra.esObraIndependiente) {
         const clave = (obra.nombreObra || obra.direccion)
           ? `${obra.nombreObra}_${obra.direccion}`.trim()
@@ -1839,6 +1931,11 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                     <tr style={{ borderBottom: (tesObra.length > 0 || tasObra.length > 0) ? '1px solid rgba(253, 126, 20, 0.45)' : undefined }}>
                       <td>
                         <strong>{obra.nombreObra}</strong>
+                        {obra.esTrabajoAdicional && (
+                          <span className="badge ms-1" style={{backgroundColor: '#fd7e14', color: '#fff', fontSize: '0.75em'}}>
+                            🔧 Tarea Leve
+                          </span>
+                        )}
                         {obra.esObraIndependiente && (
                           <span className="badge bg-info ms-1">Independiente</span>
                         )}

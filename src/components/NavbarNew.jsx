@@ -26,6 +26,7 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
     { path: '/materiales', icon: 'fas fa-boxes', label: 'Materiales' },
     { path: '/gastos-generales', icon: 'fas fa-receipt', label: 'Gastos Generales' },
     { path: '/sistema-financiero', icon: 'fas fa-money-bill-wave', label: 'Pagos - Cobros - Retiros' },
+    { path: '/reportes-sistema', icon: 'fas fa-shield-alt', label: 'Reportes del Sistema' },
     { path: '/proveedores', icon: 'fas fa-truck', label: 'Proveedores' },
     { path: '/stock', icon: 'fas fa-warehouse', label: 'Stock' },
     { path: '/presupuestos-no-cliente', icon: 'fas fa-file-signature', label: 'Presupuestos' },
