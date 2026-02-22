@@ -187,6 +187,35 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
           </div>
         )}
 
+        {/* Sección de acciones para OBRAS INDEPENDIENTES */}
+        {isObrasPage && obrasControls && obrasControls.esObrasIndependientes && (
+          <div className="mt-3 px-2">
+            <div className="mb-2">
+              <small className="text-white-50 fw-bold">{obrasControls.titulo || 'OBRAS INDEPENDIENTES'}</small>
+              {obrasControls.conteoObras !== undefined && (
+                <small className="text-white-50 d-block">{obrasControls.conteoObras} obras</small>
+              )}
+            </div>
+            <div className="d-flex flex-column gap-2">
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#4CAF50', border: 'none' }}
+                onClick={obrasControls.handleNuevo}
+              >
+                <i className="fas fa-plus me-2"></i>nuevo Trabajo Diario
+              </button>
+
+              <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#9C27B0', border: 'none' }}
+                onClick={obrasControls.handleVolver}
+              >
+                <i className="fas fa-arrow-left me-2"></i>Volver a Obras
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Sección de acciones para OBRAS */}
         {isObrasPage && obrasControls && !obrasControls.esTrabajosExtra && (
           <div className="mt-3 px-2">
@@ -432,35 +461,6 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 title="Aprobar adicional obra"
               >
                 <i className="fas fa-check-double me-2"></i>✅ Aprobar Adicional Obra
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Sección de acciones para OBRAS INDEPENDIENTES */}
-        {isObrasPage && obrasControls && obrasControls.esObrasIndependientes && (
-          <div className="mt-3 px-2">
-            <div className="mb-2">
-              <small className="text-white-50 fw-bold">{obrasControls.titulo || 'OBRAS INDEPENDIENTES'}</small>
-              {obrasControls.conteoObras !== undefined && (
-                <small className="text-white-50 d-block">{obrasControls.conteoObras} obras</small>
-              )}
-            </div>
-            <div className="d-flex flex-column gap-2">
-              <button
-                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
-                style={{ backgroundColor: '#4CAF50', border: 'none' }}
-                onClick={obrasControls.handleNuevo}
-              >
-                <i className="fas fa-plus me-2"></i>nuevo Trabajo Diario
-              </button>
-
-              <button
-                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
-                style={{ backgroundColor: '#9C27B0', border: 'none' }}
-                onClick={obrasControls.handleVolver}
-              >
-                <i className="fas fa-arrow-left me-2"></i>Volver a Obras
               </button>
             </div>
           </div>

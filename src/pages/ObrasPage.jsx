@@ -220,33 +220,33 @@ const ObrasPage = ({ showNotification }) => {
 
   // Honorarios individuales para cada categoría (Trabajos Adicionales)
   const [honorarioJornales, setHonorarioJornales] = React.useState('');
-  const [tipoHonorarioJornales, setTipoHonorarioJornales] = React.useState('fijo');
+  const [tipoHonorarioJornales, setTipoHonorarioJornales] = React.useState('porcentaje');
   const [honorarioMateriales, setHonorarioMateriales] = React.useState('');
-  const [tipoHonorarioMateriales, setTipoHonorarioMateriales] = React.useState('fijo');
+  const [tipoHonorarioMateriales, setTipoHonorarioMateriales] = React.useState('porcentaje');
   const [honorarioGastosGenerales, setHonorarioGastosGenerales] = React.useState('');
-  const [tipoHonorarioGastosGenerales, setTipoHonorarioGastosGenerales] = React.useState('fijo');
+  const [tipoHonorarioGastosGenerales, setTipoHonorarioGastosGenerales] = React.useState('porcentaje');
   const [honorarioMayoresCostos, setHonorarioMayoresCostos] = React.useState('');
-  const [tipoHonorarioMayoresCostos, setTipoHonorarioMayoresCostos] = React.useState('fijo');
+  const [tipoHonorarioMayoresCostos, setTipoHonorarioMayoresCostos] = React.useState('porcentaje');
 
   // Descuentos individuales para cada categoría (Trabajos Adicionales)
   const [descuentoJornales, setDescuentoJornales] = React.useState('');
-  const [tipoDescuentoJornales, setTipoDescuentoJornales] = React.useState('fijo');
+  const [tipoDescuentoJornales, setTipoDescuentoJornales] = React.useState('porcentaje');
   const [descuentoMateriales, setDescuentoMateriales] = React.useState('');
-  const [tipoDescuentoMateriales, setTipoDescuentoMateriales] = React.useState('fijo');
+  const [tipoDescuentoMateriales, setTipoDescuentoMateriales] = React.useState('porcentaje');
   const [descuentoGastosGenerales, setDescuentoGastosGenerales] = React.useState('');
-  const [tipoDescuentoGastosGenerales, setTipoDescuentoGastosGenerales] = React.useState('fijo');
+  const [tipoDescuentoGastosGenerales, setTipoDescuentoGastosGenerales] = React.useState('porcentaje');
   const [descuentoMayoresCostos, setDescuentoMayoresCostos] = React.useState('');
-  const [tipoDescuentoMayoresCostos, setTipoDescuentoMayoresCostos] = React.useState('fijo');
+  const [tipoDescuentoMayoresCostos, setTipoDescuentoMayoresCostos] = React.useState('porcentaje');
 
   // Descuentos específicos para honorarios (Trabajos Adicionales)
   const [descuentoHonorarioJornales, setDescuentoHonorarioJornales] = React.useState('');
-  const [tipoDescuentoHonorarioJornales, setTipoDescuentoHonorarioJornales] = React.useState('fijo');
+  const [tipoDescuentoHonorarioJornales, setTipoDescuentoHonorarioJornales] = React.useState('porcentaje');
   const [descuentoHonorarioMateriales, setDescuentoHonorarioMateriales] = React.useState('');
-  const [tipoDescuentoHonorarioMateriales, setTipoDescuentoHonorarioMateriales] = React.useState('fijo');
+  const [tipoDescuentoHonorarioMateriales, setTipoDescuentoHonorarioMateriales] = React.useState('porcentaje');
   const [descuentoHonorarioGastosGenerales, setDescuentoHonorarioGastosGenerales] = React.useState('');
-  const [tipoDescuentoHonorarioGastosGenerales, setTipoDescuentoHonorarioGastosGenerales] = React.useState('fijo');
+  const [tipoDescuentoHonorarioGastosGenerales, setTipoDescuentoHonorarioGastosGenerales] = React.useState('porcentaje');
   const [descuentoHonorarioMayoresCostos, setDescuentoHonorarioMayoresCostos] = React.useState('');
-  const [tipoDescuentoHonorarioMayoresCostos, setTipoDescuentoHonorarioMayoresCostos] = React.useState('fijo');
+  const [tipoDescuentoHonorarioMayoresCostos, setTipoDescuentoHonorarioMayoresCostos] = React.useState('porcentaje');
 
   // Calcular importe total cuando cambian los desgloses
   React.useEffect(() => {
@@ -388,38 +388,38 @@ const ObrasPage = ({ showNotification }) => {
 
   // Estados legacy para compatibilidad (solo para reseteo)
   const [importeHonorariosObra, setImporteHonorariosObra] = React.useState('');
-  const [tipoHonorariosObra, setTipoHonorariosObra] = React.useState('fijo');
-  const [tipoMayoresCostosObra, setTipoMayoresCostosObra] = React.useState('fijo');
+  const [tipoHonorariosObra, setTipoHonorariosObra] = React.useState('porcentaje');
+  const [tipoMayoresCostosObra, setTipoMayoresCostosObra] = React.useState('porcentaje');
 
   // Honorarios individuales para cada categoría (Obras)
   const [honorarioJornalesObra, setHonorarioJornalesObra] = React.useState('');
-  const [tipoHonorarioJornalesObra, setTipoHonorarioJornalesObra] = React.useState('fijo');
+  const [tipoHonorarioJornalesObra, setTipoHonorarioJornalesObra] = React.useState('porcentaje');
   const [honorarioMaterialesObra, setHonorarioMaterialesObra] = React.useState('');
-  const [tipoHonorarioMaterialesObra, setTipoHonorarioMaterialesObra] = React.useState('fijo');
+  const [tipoHonorarioMaterialesObra, setTipoHonorarioMaterialesObra] = React.useState('porcentaje');
   const [honorarioGastosGeneralesObra, setHonorarioGastosGeneralesObra] = React.useState('');
-  const [tipoHonorarioGastosGeneralesObra, setTipoHonorarioGastosGeneralesObra] = React.useState('fijo');
+  const [tipoHonorarioGastosGeneralesObra, setTipoHonorarioGastosGeneralesObra] = React.useState('porcentaje');
   const [honorarioMayoresCostosObra, setHonorarioMayoresCostosObra] = React.useState('');
-  const [tipoHonorarioMayoresCostosObra, setTipoHonorarioMayoresCostosObra] = React.useState('fijo');
+  const [tipoHonorarioMayoresCostosObra, setTipoHonorarioMayoresCostosObra] = React.useState('porcentaje');
 
   // Descuentos individuales para cada categoría (Obras)
   const [descuentoJornalesObra, setDescuentoJornalesObra] = React.useState('');
-  const [tipoDescuentoJornalesObra, setTipoDescuentoJornalesObra] = React.useState('fijo');
+  const [tipoDescuentoJornalesObra, setTipoDescuentoJornalesObra] = React.useState('porcentaje');
   const [descuentoMaterialesObra, setDescuentoMaterialesObra] = React.useState('');
-  const [tipoDescuentoMaterialesObra, setTipoDescuentoMaterialesObra] = React.useState('fijo');
+  const [tipoDescuentoMaterialesObra, setTipoDescuentoMaterialesObra] = React.useState('porcentaje');
   const [descuentoGastosGeneralesObra, setDescuentoGastosGeneralesObra] = React.useState('');
-  const [tipoDescuentoGastosGeneralesObra, setTipoDescuentoGastosGeneralesObra] = React.useState('fijo');
+  const [tipoDescuentoGastosGeneralesObra, setTipoDescuentoGastosGeneralesObra] = React.useState('porcentaje');
   const [descuentoMayoresCostosObra, setDescuentoMayoresCostosObra] = React.useState('');
-  const [tipoDescuentoMayoresCostosObra, setTipoDescuentoMayoresCostosObra] = React.useState('fijo');
+  const [tipoDescuentoMayoresCostosObra, setTipoDescuentoMayoresCostosObra] = React.useState('porcentaje');
 
   // Descuentos específicos para honorarios (Obras)
   const [descuentoHonorarioJornalesObra, setDescuentoHonorarioJornalesObra] = React.useState('');
-  const [tipoDescuentoHonorarioJornalesObra, setTipoDescuentoHonorarioJornalesObra] = React.useState('fijo');
+  const [tipoDescuentoHonorarioJornalesObra, setTipoDescuentoHonorarioJornalesObra] = React.useState('porcentaje');
   const [descuentoHonorarioMaterialesObra, setDescuentoHonorarioMaterialesObra] = React.useState('');
-  const [tipoDescuentoHonorarioMaterialesObra, setTipoDescuentoHonorarioMaterialesObra] = React.useState('fijo');
+  const [tipoDescuentoHonorarioMaterialesObra, setTipoDescuentoHonorarioMaterialesObra] = React.useState('porcentaje');
   const [descuentoHonorarioGastosGeneralesObra, setDescuentoHonorarioGastosGeneralesObra] = React.useState('');
-  const [tipoDescuentoHonorarioGastosGeneralesObra, setTipoDescuentoHonorarioGastosGeneralesObra] = React.useState('fijo');
+  const [tipoDescuentoHonorarioGastosGeneralesObra, setTipoDescuentoHonorarioGastosGeneralesObra] = React.useState('porcentaje');
   const [descuentoHonorarioMayoresCostosObra, setDescuentoHonorarioMayoresCostosObra] = React.useState('');
-  const [tipoDescuentoHonorarioMayoresCostosObra, setTipoDescuentoHonorarioMayoresCostosObra] = React.useState('fijo');
+  const [tipoDescuentoHonorarioMayoresCostosObra, setTipoDescuentoHonorarioMayoresCostosObra] = React.useState('porcentaje');
 
   // Calcular importe total para obras cuando cambian los desgloses
   React.useEffect(() => {
@@ -597,48 +597,48 @@ const ObrasPage = ({ showNotification }) => {
 
               // Restaurar honorarios de Jornales
               setHonorarioJornales(ta.honorarioJornales != null ? String(ta.honorarioJornales) : '');
-              setTipoHonorarioJornales(ta.tipoHonorarioJornales || 'fijo');
+              setTipoHonorarioJornales(ta.tipoHonorarioJornales || 'porcentaje');
 
               // Restaurar honorarios de Materiales
               setHonorarioMateriales(ta.honorarioMateriales != null ? String(ta.honorarioMateriales) : '');
-              setTipoHonorarioMateriales(ta.tipoHonorarioMateriales || 'fijo');
+              setTipoHonorarioMateriales(ta.tipoHonorarioMateriales || 'porcentaje');
 
               // Restaurar honorarios de Gastos Generales
               setHonorarioGastosGenerales(ta.honorarioGastosGenerales != null ? String(ta.honorarioGastosGenerales) : '');
-              setTipoHonorarioGastosGenerales(ta.tipoHonorarioGastosGenerales || 'fijo');
+              setTipoHonorarioGastosGenerales(ta.tipoHonorarioGastosGenerales || 'porcentaje');
 
               // Restaurar honorarios de Mayores Costos
               setHonorarioMayoresCostos(ta.honorarioMayoresCostos != null ? String(ta.honorarioMayoresCostos) : '');
-              setTipoHonorarioMayoresCostos(ta.tipoHonorarioMayoresCostos || 'fijo');
+              setTipoHonorarioMayoresCostos(ta.tipoHonorarioMayoresCostos || 'porcentaje');
 
               // Restaurar descuentos de Jornales
               setDescuentoJornales(ta.descuentoJornales != null ? String(ta.descuentoJornales) : '');
-              setTipoDescuentoJornales(ta.tipoDescuentoJornales || 'fijo');
+              setTipoDescuentoJornales(ta.tipoDescuentoJornales || 'porcentaje');
 
               // Restaurar descuentos de Materiales
               setDescuentoMateriales(ta.descuentoMateriales != null ? String(ta.descuentoMateriales) : '');
-              setTipoDescuentoMateriales(ta.tipoDescuentoMateriales || 'fijo');
+              setTipoDescuentoMateriales(ta.tipoDescuentoMateriales || 'porcentaje');
 
               // Restaurar descuentos de Gastos Generales
               setDescuentoGastosGenerales(ta.descuentoGastosGenerales != null ? String(ta.descuentoGastosGenerales) : '');
-              setTipoDescuentoGastosGenerales(ta.tipoDescuentoGastosGenerales || 'fijo');
+              setTipoDescuentoGastosGenerales(ta.tipoDescuentoGastosGenerales || 'porcentaje');
 
               // Restaurar descuentos de Mayores Costos
               setDescuentoMayoresCostos(ta.descuentoMayoresCostos != null ? String(ta.descuentoMayoresCostos) : '');
-              setTipoDescuentoMayoresCostos(ta.tipoDescuentoMayoresCostos || 'fijo');
+              setTipoDescuentoMayoresCostos(ta.tipoDescuentoMayoresCostos || 'porcentaje');
 
               // Restaurar descuentos específicos para honorarios
               setDescuentoHonorarioJornales(ta.descuentoHonorarioJornales != null ? String(ta.descuentoHonorarioJornales) : '');
-              setTipoDescuentoHonorarioJornales(ta.tipoDescuentoHonorarioJornales || 'fijo');
+              setTipoDescuentoHonorarioJornales(ta.tipoDescuentoHonorarioJornales || 'porcentaje');
 
               setDescuentoHonorarioMateriales(ta.descuentoHonorarioMateriales != null ? String(ta.descuentoHonorarioMateriales) : '');
-              setTipoDescuentoHonorarioMateriales(ta.tipoDescuentoHonorarioMateriales || 'fijo');
+              setTipoDescuentoHonorarioMateriales(ta.tipoDescuentoHonorarioMateriales || 'porcentaje');
 
               setDescuentoHonorarioGastosGenerales(ta.descuentoHonorarioGastosGenerales != null ? String(ta.descuentoHonorarioGastosGenerales) : '');
-              setTipoDescuentoHonorarioGastosGenerales(ta.tipoDescuentoHonorarioGastosGenerales || 'fijo');
+              setTipoDescuentoHonorarioGastosGenerales(ta.tipoDescuentoHonorarioGastosGenerales || 'porcentaje');
 
               setDescuentoHonorarioMayoresCostos(ta.descuentoHonorarioMayoresCostos != null ? String(ta.descuentoHonorarioMayoresCostos) : '');
-              setTipoDescuentoHonorarioMayoresCostos(ta.tipoDescuentoHonorarioMayoresCostos || 'fijo');
+              setTipoDescuentoHonorarioMayoresCostos(ta.tipoDescuentoHonorarioMayoresCostos || 'porcentaje');
 
               console.log('📂 Desglose TA restaurado desde DTO:', ta);
             } else {
@@ -648,29 +648,29 @@ const ObrasPage = ({ showNotification }) => {
               setImporteGastosGenerales('');
               setImporteMayoresCostos('');
               setHonorarioJornales('');
-              setTipoHonorarioJornales('fijo');
+              setTipoHonorarioJornales('porcentaje');
               setHonorarioMateriales('');
-              setTipoHonorarioMateriales('fijo');
+              setTipoHonorarioMateriales('porcentaje');
               setHonorarioGastosGenerales('');
-              setTipoHonorarioGastosGenerales('fijo');
+              setTipoHonorarioGastosGenerales('porcentaje');
               setHonorarioMayoresCostos('');
-              setTipoHonorarioMayoresCostos('fijo');
+              setTipoHonorarioMayoresCostos('porcentaje');
               setDescuentoJornales('');
-              setTipoDescuentoJornales('fijo');
+              setTipoDescuentoJornales('porcentaje');
               setDescuentoMateriales('');
-              setTipoDescuentoMateriales('fijo');
+              setTipoDescuentoMateriales('porcentaje');
               setDescuentoGastosGenerales('');
-              setTipoDescuentoGastosGenerales('fijo');
+              setTipoDescuentoGastosGenerales('porcentaje');
               setDescuentoMayoresCostos('');
-              setTipoDescuentoMayoresCostos('fijo');
+              setTipoDescuentoMayoresCostos('porcentaje');
       setDescuentoHonorarioJornales('');
-      setTipoDescuentoHonorarioJornales('fijo');
+      setTipoDescuentoHonorarioJornales('porcentaje');
       setDescuentoHonorarioMateriales('');
-      setTipoDescuentoHonorarioMateriales('fijo');
+      setTipoDescuentoHonorarioMateriales('porcentaje');
       setDescuentoHonorarioGastosGenerales('');
-      setTipoDescuentoHonorarioGastosGenerales('fijo');
+      setTipoDescuentoHonorarioGastosGenerales('porcentaje');
       setDescuentoHonorarioMayoresCostos('');
-      setTipoDescuentoHonorarioMayoresCostos('fijo');
+      setTipoDescuentoHonorarioMayoresCostos('porcentaje');
           }
 
           // Si estamos editando, cargar los profesionales asignados
@@ -1367,6 +1367,38 @@ const ObrasPage = ({ showNotification }) => {
   // }, [obras.length, empresaId]); // Solo cuando cambia la cantidad de obras o empresa
 
 
+  // Cargar datos de obra en modo edición
+  useEffect(() => {
+    if (modoEdicion && obraEditando) {
+      console.log('📝 Cargando datos de obra en modo edición:', obraEditando);
+      setFormData({
+        nombre: obraEditando.nombre || '',
+        direccion: obraEditando.direccion || '',
+        estado: obraEditando.estado || 'APROBADO',
+        fechaInicio: obraEditando.fechaInicio || '',
+        fechaFin: obraEditando.fechaFin || '',
+        presupuestoEstimado: obraEditando.presupuestoEstimado || '',
+        idCliente: obraEditando.clienteId || obraEditando.idCliente || '',
+        empresaId: obraEditando.empresaId || empresaId,
+        // Campos para dirección detallada de la obra
+        direccionObraCalle: obraEditando.direccionObraCalle || '',
+        direccionObraAltura: obraEditando.direccionObraAltura || '',
+        direccionObraBarrio: obraEditando.direccionObraBarrio || '',
+        direccionObraTorre: obraEditando.direccionObraTorre || '',
+        direccionObraPiso: obraEditando.direccionObraPiso || '',
+        direccionObraDepartamento: obraEditando.direccionObraDepartamento || '',
+        // Campos adicionales
+        descripcion: obraEditando.descripcion || '',
+        observaciones: obraEditando.observaciones || '',
+        // Campos para nuevo cliente (vacíos en modo edición)
+        nombreSolicitante: '',
+        telefono: '',
+        direccionParticular: '',
+        mail: ''
+      });
+    }
+  }, [modoEdicion, obraEditando, empresaId]);
+
   // Enviar controles al Sidebar
   useEffect(() => {
     // No ejecutar este efecto si estamos en modo edición o en el tab de crear
@@ -1497,55 +1529,55 @@ const ObrasPage = ({ showNotification }) => {
                 // Restaurar honorarios si existen
                 if (obra.honorarioJornalesObra != null) {
                   setHonorarioJornalesObra(String(obra.honorarioJornalesObra));
-                  setTipoHonorarioJornalesObra(obra.tipoHonorarioJornalesObra || 'fijo');
+                  setTipoHonorarioJornalesObra(obra.tipoHonorarioJornalesObra || 'porcentaje');
                 }
                 if (obra.honorarioMaterialesObra != null) {
                   setHonorarioMaterialesObra(String(obra.honorarioMaterialesObra));
-                  setTipoHonorarioMaterialesObra(obra.tipoHonorarioMaterialesObra || 'fijo');
+                  setTipoHonorarioMaterialesObra(obra.tipoHonorarioMaterialesObra || 'porcentaje');
                 }
                 if (obra.honorarioGastosGeneralesObra != null) {
                   setHonorarioGastosGeneralesObra(String(obra.honorarioGastosGeneralesObra));
-                  setTipoHonorarioGastosGeneralesObra(obra.tipoHonorarioGastosGeneralesObra || 'fijo');
+                  setTipoHonorarioGastosGeneralesObra(obra.tipoHonorarioGastosGeneralesObra || 'porcentaje');
                 }
                 if (obra.honorarioMayoresCostosObra != null) {
                   setHonorarioMayoresCostosObra(String(obra.honorarioMayoresCostosObra));
-                  setTipoHonorarioMayoresCostosObra(obra.tipoHonorarioMayoresCostosObra || 'fijo');
+                  setTipoHonorarioMayoresCostosObra(obra.tipoHonorarioMayoresCostosObra || 'porcentaje');
                 }
 
                 // Restaurar descuentos base si existen
                 if (obra.descuentoJornalesObra != null) {
                   setDescuentoJornalesObra(String(obra.descuentoJornalesObra));
-                  setTipoDescuentoJornalesObra(obra.tipoDescuentoJornalesObra || 'fijo');
+                  setTipoDescuentoJornalesObra(obra.tipoDescuentoJornalesObra || 'porcentaje');
                 }
                 if (obra.descuentoMaterialesObra != null) {
                   setDescuentoMaterialesObra(String(obra.descuentoMaterialesObra));
-                  setTipoDescuentoMaterialesObra(obra.tipoDescuentoMaterialesObra || 'fijo');
+                  setTipoDescuentoMaterialesObra(obra.tipoDescuentoMaterialesObra || 'porcentaje');
                 }
                 if (obra.descuentoGastosGeneralesObra != null) {
                   setDescuentoGastosGeneralesObra(String(obra.descuentoGastosGeneralesObra));
-                  setTipoDescuentoGastosGeneralesObra(obra.tipoDescuentoGastosGeneralesObra || 'fijo');
+                  setTipoDescuentoGastosGeneralesObra(obra.tipoDescuentoGastosGeneralesObra || 'porcentaje');
                 }
                 if (obra.descuentoMayoresCostosObra != null) {
                   setDescuentoMayoresCostosObra(String(obra.descuentoMayoresCostosObra));
-                  setTipoDescuentoMayoresCostosObra(obra.tipoDescuentoMayoresCostosObra || 'fijo');
+                  setTipoDescuentoMayoresCostosObra(obra.tipoDescuentoMayoresCostosObra || 'porcentaje');
                 }
 
                 // Restaurar descuentos sobre honorarios si existen
                 if (obra.descuentoHonorarioJornalesObra != null) {
                   setDescuentoHonorarioJornalesObra(String(obra.descuentoHonorarioJornalesObra));
-                  setTipoDescuentoHonorarioJornalesObra(obra.tipoDescuentoHonorarioJornalesObra || 'fijo');
+                  setTipoDescuentoHonorarioJornalesObra(obra.tipoDescuentoHonorarioJornalesObra || 'porcentaje');
                 }
                 if (obra.descuentoHonorarioMaterialesObra != null) {
                   setDescuentoHonorarioMaterialesObra(String(obra.descuentoHonorarioMaterialesObra));
-                  setTipoDescuentoHonorarioMaterialesObra(obra.tipoDescuentoHonorarioMaterialesObra || 'fijo');
+                  setTipoDescuentoHonorarioMaterialesObra(obra.tipoDescuentoHonorarioMaterialesObra || 'porcentaje');
                 }
                 if (obra.descuentoHonorarioGastosGeneralesObra != null) {
                   setDescuentoHonorarioGastosGeneralesObra(String(obra.descuentoHonorarioGastosGeneralesObra));
-                  setTipoDescuentoHonorarioGastosGeneralesObra(obra.tipoDescuentoHonorarioGastosGeneralesObra || 'fijo');
+                  setTipoDescuentoHonorarioGastosGeneralesObra(obra.tipoDescuentoHonorarioGastosGeneralesObra || 'porcentaje');
                 }
                 if (obra.descuentoHonorarioMayoresCostosObra != null) {
                   setDescuentoHonorarioMayoresCostosObra(String(obra.descuentoHonorarioMayoresCostosObra));
-                  setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'fijo');
+                  setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'porcentaje');
                 }
 
                 console.log('📂 Desglose obra restaurado desde DTO:', obra);
@@ -1554,9 +1586,9 @@ const ObrasPage = ({ showNotification }) => {
                 setImporteMaterialesObra('');
                 setImporteJornalesObra('');
                 setImporteHonorariosObra('');
-                setTipoHonorariosObra('fijo');
+                setTipoHonorariosObra('porcentaje');
                 setImporteMayoresCostosObra('');
-                setTipoMayoresCostosObra('fijo');
+                setTipoMayoresCostosObra('porcentaje');
                 setImporteTotalObra('');
               }
 
@@ -3105,29 +3137,29 @@ _Válido por 30 días_
       setImporteGastosGeneralesObra('');
       setImporteMayoresCostosObra('');
       setHonorarioJornalesObra('');
-      setTipoHonorarioJornalesObra('fijo');
+      setTipoHonorarioJornalesObra('porcentaje');
       setHonorarioMaterialesObra('');
-      setTipoHonorarioMaterialesObra('fijo');
+      setTipoHonorarioMaterialesObra('porcentaje');
       setHonorarioGastosGeneralesObra('');
-      setTipoHonorarioGastosGeneralesObra('fijo');
+      setTipoHonorarioGastosGeneralesObra('porcentaje');
       setHonorarioMayoresCostosObra('');
-      setTipoHonorarioMayoresCostosObra('fijo');
+      setTipoHonorarioMayoresCostosObra('porcentaje');
       setDescuentoJornalesObra('');
-      setTipoDescuentoJornalesObra('fijo');
+      setTipoDescuentoJornalesObra('porcentaje');
       setDescuentoMaterialesObra('');
-      setTipoDescuentoMaterialesObra('fijo');
+      setTipoDescuentoMaterialesObra('porcentaje');
       setDescuentoGastosGeneralesObra('');
-      setTipoDescuentoGastosGeneralesObra('fijo');
+      setTipoDescuentoGastosGeneralesObra('porcentaje');
       setDescuentoMayoresCostosObra('');
-      setTipoDescuentoMayoresCostosObra('fijo');
+      setTipoDescuentoMayoresCostosObra('porcentaje');
       setDescuentoHonorarioJornalesObra('');
-      setTipoDescuentoHonorarioJornalesObra('fijo');
+      setTipoDescuentoHonorarioJornalesObra('porcentaje');
       setDescuentoHonorarioMaterialesObra('');
-      setTipoDescuentoHonorarioMaterialesObra('fijo');
+      setTipoDescuentoHonorarioMaterialesObra('porcentaje');
       setDescuentoHonorarioGastosGeneralesObra('');
-      setTipoDescuentoHonorarioGastosGeneralesObra('fijo');
+      setTipoDescuentoHonorarioGastosGeneralesObra('porcentaje');
       setDescuentoHonorarioMayoresCostosObra('');
-      setTipoDescuentoHonorarioMayoresCostosObra('fijo');
+      setTipoDescuentoHonorarioMayoresCostosObra('porcentaje');
       setImporteTotalObra('');
 
       // Cambiar a la pestaña de lista y recargar obras
@@ -3334,29 +3366,29 @@ _Válido por 30 días_
       setImporteGastosGeneralesObra('');
       setImporteMayoresCostosObra('');
       setHonorarioJornalesObra('');
-      setTipoHonorarioJornalesObra('fijo');
+      setTipoHonorarioJornalesObra('porcentaje');
       setHonorarioMaterialesObra('');
-      setTipoHonorarioMaterialesObra('fijo');
+      setTipoHonorarioMaterialesObra('porcentaje');
       setHonorarioGastosGeneralesObra('');
-      setTipoHonorarioGastosGeneralesObra('fijo');
+      setTipoHonorarioGastosGeneralesObra('porcentaje');
       setHonorarioMayoresCostosObra('');
-      setTipoHonorarioMayoresCostosObra('fijo');
+      setTipoHonorarioMayoresCostosObra('porcentaje');
       setDescuentoJornalesObra('');
-      setTipoDescuentoJornalesObra('fijo');
+      setTipoDescuentoJornalesObra('porcentaje');
       setDescuentoMaterialesObra('');
-      setTipoDescuentoMaterialesObra('fijo');
+      setTipoDescuentoMaterialesObra('porcentaje');
       setDescuentoGastosGeneralesObra('');
-      setTipoDescuentoGastosGeneralesObra('fijo');
+      setTipoDescuentoGastosGeneralesObra('porcentaje');
       setDescuentoMayoresCostosObra('');
-      setTipoDescuentoMayoresCostosObra('fijo');
+      setTipoDescuentoMayoresCostosObra('porcentaje');
       setDescuentoHonorarioJornalesObra('');
-      setTipoDescuentoHonorarioJornalesObra('fijo');
+      setTipoDescuentoHonorarioJornalesObra('porcentaje');
       setDescuentoHonorarioMaterialesObra('');
-      setTipoDescuentoHonorarioMaterialesObra('fijo');
+      setTipoDescuentoHonorarioMaterialesObra('porcentaje');
       setDescuentoHonorarioGastosGeneralesObra('');
-      setTipoDescuentoHonorarioGastosGeneralesObra('fijo');
+      setTipoDescuentoHonorarioGastosGeneralesObra('porcentaje');
       setDescuentoHonorarioMayoresCostosObra('');
-      setTipoDescuentoHonorarioMayoresCostosObra('fijo');
+      setTipoDescuentoHonorarioMayoresCostosObra('porcentaje');
       setImporteTotalObra('');
 
       // Cambiar a la pestaña de lista y recargar obras
@@ -6266,12 +6298,12 @@ _Válido por 30 días_
                             <React.Fragment key={obraId}>
                               {/* 🎨 Separador visual entre grupos - se muestra ANTES del primer elemento del nuevo grupo */}
                               {esCambioDeGrupo && index > 0 && (
-                                <tr style={{ height: '8px', backgroundColor: '#343a40' }}><td colSpan="11" style={{
+                                <tr style={{ height: '10px', backgroundColor: '#000000' }}><td colSpan="13" style={{
                                     padding: 0,
-                                    height: '8px',
-                                    borderTop: '3px solid #212529',
-                                    borderBottom: '3px solid #212529',
-                                    backgroundColor: '#495057'
+                                    height: '10px',
+                                    borderTop: '4px solid #000000',
+                                    borderBottom: '4px solid #000000',
+                                    backgroundColor: '#212529'
                                   }}></td></tr>
                               )}
 
@@ -6280,11 +6312,11 @@ _Válido por 30 días_
                                array[index - 1] &&
                                array[index - 1]._grupoIndex === obra._grupoIndex &&
                                !esCambioDeGrupo && (
-                                <tr style={{ height: '6px', backgroundColor: '#ffcc99' }}>{/* Naranja suave */}<td colSpan="11" style={{
+                                <tr style={{ height: '5px', backgroundColor: '#fed7aa' }}>{/* Naranja más claro */}<td colSpan="13" style={{
                                     padding: 0,
-                                    height: '6px',
-                                    borderTop: '2px solid #dc3545',
-                                    backgroundColor: '#ffcc99'  /* Naranja suave */
+                                    height: '5px',
+                                    borderTop: '2px solid #f97316',
+                                    backgroundColor: '#fed7aa'  /* Naranja más claro */
                                   }}></td></tr>
                               )}
 
@@ -6376,16 +6408,6 @@ _Válido por 30 días_
                                     </div>
                                   );
                                 })()}
-                                {esSubobra && (
-                                  <div className="mt-1">
-                                    <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
-                                      🔧 Adicional Obra{(() => {
-                                        const obraPadreId = obra.obraPadreId || obra.obra_padre_id || obra.idObraPadre || obra._obraPadreDetectada;
-                                        return obraPadreId ? ` de #${obraPadreId}` : '';
-                                      })()}
-                                    </span>
-                                  </div>
-                                )}
                                 {/* Badge basado en es_presupuesto_trabajo_extra */}
                                 {(() => {
                                   const presupuesto = presupuestosObras[obra.id];
@@ -6662,20 +6684,23 @@ _Válido por 30 días_
                                                   <i className="fas fa-file-invoice-dollar me-2"></i>
                                                   Presupuesto Estimado
                                                 </h6>
-                                                <div className="card bg-light border-0">
-                                                  <div className="card-body text-center py-3">
-                                                    <div className="mb-1">
-                                                      <i className="fas fa-dollar-sign text-success me-2"></i>
-                                                      <span className="h5 mb-0 text-success fw-bold">
-                                                        ${presupuestoEstimado.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                      </span>
-                                                    </div>
-                                                    <small className="text-muted">
-                                                      <i className="fas fa-info-circle me-1"></i>
-                                                      Presupuesto Abreviado
-                                                    </small>
-                                                  </div>
-                                                </div>
+                                                <button
+                                                  className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setModoEdicion(true);
+                                                    setObraEditando(obra);
+                                                    dispatch(setActiveTab('crear'));
+                                                  }}
+                                                >
+                                                  <span>
+                                                    <i className="fas fa-edit me-2"></i>
+                                                    Ver Presupuesto
+                                                  </span>
+                                                  <span className="badge bg-primary">
+                                                    ${presupuestoEstimado.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                                  </span>
+                                                </button>
                                               </>
                                             );
                                           } else {
@@ -7049,6 +7074,16 @@ _Válido por 30 días_
                               const colTareas = !!gruposColapsadosObras[`tareas_${obra.id}`];
                               return (
                                 <>
+                                  {/* Separador antes del subgrupo de Tareas Leves */}
+                                  <tr style={{ height: '6px', backgroundColor: '#d1fae5' }}>
+                                    <td colSpan="13" style={{
+                                      padding: 0,
+                                      height: '6px',
+                                      borderTop: '2px solid #10b981',
+                                      borderBottom: '2px solid #10b981',
+                                      backgroundColor: '#a7f3d0'
+                                    }}></td>
+                                  </tr>
                                   {/* Header subgrupo */}
                                   <tr
                                     onClick={(e) => { e.stopPropagation(); setGruposColapsadosObras(p => ({ ...p, [`tareas_${obra.id}`]: !p[`tareas_${obra.id}`] })); }}
@@ -7064,7 +7099,7 @@ _Válido por 30 días_
                                     </td>
                                   </tr>
                                   {/* Filas de cada tarea */}
-                                  {!colTareas && tareasObra.map(ta => {
+                                  {!colTareas && tareasObra.map((ta, tareaIndex) => {
                                     // Si la tarea viene de una sub-obra, mostrar de cuál
                                     const obraOrigen = ta.trabajoExtraId
                                       ? obras.find(o => o.id === ta.trabajoExtraId)
@@ -7072,8 +7107,17 @@ _Válido por 30 días_
                                     const tareaId = `ta_${ta.id}`;
                                     const isSelected = selectedObraId === tareaId;
                                     return (
+                                    <React.Fragment key={tareaId}>
+                                    {/* Separador entre tareas leves del mismo subgrupo */}
+                                    {tareaIndex > 0 && (
+                                      <tr style={{ height: '3px', backgroundColor: '#fef3c7' }}><td colSpan="13" style={{
+                                          padding: 0,
+                                          height: '3px',
+                                          borderTop: '1px solid #fbbf24',
+                                          backgroundColor: '#fef3c7'
+                                        }}></td></tr>
+                                    )}
                                     <tr
-                                      key={tareaId}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         setSelectedObraId(isSelected ? null : tareaId);
@@ -7087,6 +7131,25 @@ _Válido por 30 días_
                                       }}
                                       className="hover-row"
                                     >
+                                      <td
+                                        onClick={(e) => toggleObraExpandida(tareaId, e)}
+                                        style={{ cursor: 'pointer' }}
+                                        className="text-center"
+                                      >
+                                        <button
+                                          className="btn btn-sm btn-primary rounded-circle p-0"
+                                          style={{
+                                            width: '30px',
+                                            height: '30px',
+                                            transition: 'all 0.3s ease'
+                                          }}
+                                          title={obrasExpandidas.has(tareaId) ? 'Ocultar detalles' : 'Ver detalles'}
+                                          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                                          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                        >
+                                          <i className={`fas fa-${obrasExpandidas.has(tareaId) ? 'minus' : 'plus'} text-white`}></i>
+                                        </button>
+                                      </td>
                                       <td className="small text-muted ps-2">
                                         {isSelected && <i className="fas fa-check-circle text-success me-1"></i>}
                                         <i className="fas fa-tools text-warning me-1" style={{fontSize:'0.75em'}}></i>
@@ -7117,8 +7180,138 @@ _Válido por 30 días_
                                       </td>
                                       <td></td>
                                     </tr>
+                                    {/* Fila expandible con detalles de configuración de planificación */}
+                                    {obrasExpandidas.has(tareaId) && (
+                                      <tr>
+                                        <td colSpan="13" className="p-0">
+                                          <div className="bg-light p-3 border-top">
+                                            {/* CONFIGURACIÓN GLOBAL DE TAREA LEVE */}
+                                            <div className="mb-4 p-3 border rounded bg-white">
+                                              <div className="row align-items-center">
+                                                <div className="col-md-8">
+                                                  <h6 className="text-primary mb-1">
+                                                    <i className="fas fa-cog me-2"></i>
+                                                    Configuración de Planificación
+                                                  </h6>
+                                                  <small className="text-muted">
+                                                    Tarea Leve: {ta.nombre || '—'} | Estado: <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO?.[ta.estado] || 'secondary'}`} style={{fontSize:'0.7em'}}>{ta.estado || '—'}</span> | Importe: ${ta.importe > 0 ? Number(ta.importe).toLocaleString('es-AR', {minimumFractionDigits:2}) : '0,00'}
+                                                  </small>
+                                                </div>
+                                                <div className="col-md-4">
+                                                  <small className="text-muted d-block text-end">
+                                                    {ta.fechaInicio ? `Inicio: ${ta.fechaInicio}` : 'Sin fecha inicio'} | {ta.diasNecesarios ? `${ta.diasNecesarios} días` : 'Sin días'}
+                                                  </small>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            <div className="row g-3">
+                                              {/* Presupuesto */}
+                                              <div className="col-md-6">
+                                                <h6 className="text-muted mb-2">
+                                                  <i className="fas fa-file-invoice-dollar me-2"></i>
+                                                  Presupuesto
+                                                </h6>
+                                                <button
+                                                  className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setTrabajoAdicionalEditar(ta);
+                                                    setObraParaTrabajosAdicionales(obra);
+                                                    setMostrarModalTrabajoAdicional(true);
+                                                  }}
+                                                >
+                                                  <span>
+                                                    <i className="fas fa-edit me-2"></i>
+                                                    Ver Presupuesto
+                                                  </span>
+                                                  <span className="badge bg-primary">
+                                                    ${ta.importe > 0 ? Number(ta.importe).toLocaleString('es-AR', {minimumFractionDigits:0}) : '0'}
+                                                  </span>
+                                                </button>
+                                              </div>
+
+                                              {/* Materiales */}
+                                              <div className="col-md-6">
+                                                <h6 className="text-muted mb-2">
+                                                  <i className="fas fa-box me-2"></i>
+                                                  Materiales
+                                                </h6>
+                                                <button
+                                                  className="btn btn-sm btn-outline-warning w-100 d-flex justify-content-between align-items-center"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    showNotification('ℹ️ Funcionalidad de asignación de materiales para tareas leves próximamente', 'info');
+                                                  }}
+                                                >
+                                                  <span>
+                                                    <i className="fas fa-boxes me-2"></i>
+                                                    Asignar Materiales
+                                                  </span>
+                                                  <span className="badge bg-warning text-dark">{ta.materiales?.length || 0}</span>
+                                                </button>
+                                              </div>
+
+                                              {/* Gastos Generales */}
+                                              <div className="col-md-6">
+                                                <h6 className="text-muted mb-2">
+                                                  <i className="fas fa-receipt me-2"></i>
+                                                  Gastos Generales
+                                                </h6>
+                                                <button
+                                                  className="btn btn-sm btn-outline-danger w-100 d-flex justify-content-between align-items-center"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    showNotification('ℹ️ Funcionalidad de asignación de gastos para tareas leves próximamente', 'info');
+                                                  }}
+                                                >
+                                                  <span>
+                                                    <i className="fas fa-dollar-sign me-2"></i>
+                                                    Asignar Gastos
+                                                  </span>
+                                                  <span className="badge bg-danger">{ta.gastosGenerales?.length || 0}</span>
+                                                </button>
+                                              </div>
+
+                                              {/* Etapas Diarias */}
+                                              <div className="col-md-6">
+                                                <h6 className="text-muted mb-2">
+                                                  <i className="fas fa-calendar-alt me-2"></i>
+                                                  Etapas Diarias
+                                                </h6>
+                                                <button
+                                                  className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    showNotification('ℹ️ Las tareas leves son trabajos puntuales sin cronograma de etapas diarias', 'info');
+                                                  }}
+                                                  disabled
+                                                >
+                                                  <span>
+                                                    <i className="fas fa-calendar-plus me-2"></i>
+                                                    Gestionar Etapas
+                                                  </span>
+                                                  <span className="badge bg-secondary">N/A</span>
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                    </React.Fragment>
                                     );
                                   })}
+                                  {/* Separador después del grupo de Tareas Leves */}
+                                  <tr style={{ height: '7px', backgroundColor: '#c7d2fe' }}>
+                                    <td colSpan="13" style={{
+                                      padding: 0,
+                                      height: '7px',
+                                      borderTop: '3px solid #6366f1',
+                                      borderBottom: '3px solid #6366f1',
+                                      backgroundColor: '#a5b4fc'
+                                    }}></td>
+                                  </tr>
                                 </>
                               );
                             })()}
@@ -8819,21 +9012,21 @@ _Válido por 30 días_
                             setImporteGastosGeneralesObra('');
                             setImporteMayoresCostosObra('');
                             setHonorarioJornalesObra('');
-                            setTipoHonorarioJornalesObra('fijo');
+                            setTipoHonorarioJornalesObra('porcentaje');
                             setHonorarioMaterialesObra('');
-                            setTipoHonorarioMaterialesObra('fijo');
+                            setTipoHonorarioMaterialesObra('porcentaje');
                             setHonorarioGastosGeneralesObra('');
-                            setTipoHonorarioGastosGeneralesObra('fijo');
+                            setTipoHonorarioGastosGeneralesObra('porcentaje');
                             setHonorarioMayoresCostosObra('');
-                            setTipoHonorarioMayoresCostosObra('fijo');
+                            setTipoHonorarioMayoresCostosObra('porcentaje');
                             setDescuentoJornalesObra('');
-                            setTipoDescuentoJornalesObra('fijo');
+                            setTipoDescuentoJornalesObra('porcentaje');
                             setDescuentoMaterialesObra('');
-                            setTipoDescuentoMaterialesObra('fijo');
+                            setTipoDescuentoMaterialesObra('porcentaje');
                             setDescuentoGastosGeneralesObra('');
-                            setTipoDescuentoGastosGeneralesObra('fijo');
+                            setTipoDescuentoGastosGeneralesObra('porcentaje');
                             setDescuentoMayoresCostosObra('');
-                            setTipoDescuentoMayoresCostosObra('fijo');
+                            setTipoDescuentoMayoresCostosObra('porcentaje');
                             setImporteTotalObra('');
                           }
                           dispatch(setActiveTab('lista'));
@@ -9008,7 +9201,7 @@ _Válido por 30 días_
                           onClick={() => dispatch(setActiveTab('crear'))}
                         >
                           <i className="fas fa-plus me-2"></i>
-                          Crear Primera Obra Independiente
+                          Crear Primer Trabajo Diario
                         </button>
                       </div>
                     );
@@ -9167,55 +9360,55 @@ _Válido por 30 días_
                                           // Restaurar honorarios si existen
                                           if (obra.honorarioJornalesObra != null) {
                                             setHonorarioJornalesObra(String(obra.honorarioJornalesObra));
-                                            setTipoHonorarioJornalesObra(obra.tipoHonorarioJornalesObra || 'fijo');
+                                            setTipoHonorarioJornalesObra(obra.tipoHonorarioJornalesObra || 'porcentaje');
                                           }
                                           if (obra.honorarioMaterialesObra != null) {
                                             setHonorarioMaterialesObra(String(obra.honorarioMaterialesObra));
-                                            setTipoHonorarioMaterialesObra(obra.tipoHonorarioMaterialesObra || 'fijo');
+                                            setTipoHonorarioMaterialesObra(obra.tipoHonorarioMaterialesObra || 'porcentaje');
                                           }
                                           if (obra.honorarioGastosGeneralesObra != null) {
                                             setHonorarioGastosGeneralesObra(String(obra.honorarioGastosGeneralesObra));
-                                            setTipoHonorarioGastosGeneralesObra(obra.tipoHonorarioGastosGeneralesObra || 'fijo');
+                                            setTipoHonorarioGastosGeneralesObra(obra.tipoHonorarioGastosGeneralesObra || 'porcentaje');
                                           }
                                           if (obra.honorarioMayoresCostosObra != null) {
                                             setHonorarioMayoresCostosObra(String(obra.honorarioMayoresCostosObra));
-                                            setTipoHonorarioMayoresCostosObra(obra.tipoHonorarioMayoresCostosObra || 'fijo');
+                                            setTipoHonorarioMayoresCostosObra(obra.tipoHonorarioMayoresCostosObra || 'porcentaje');
                                           }
 
                                           // Restaurar descuentos base si existen
                                           if (obra.descuentoJornalesObra != null) {
                                             setDescuentoJornalesObra(String(obra.descuentoJornalesObra));
-                                            setTipoDescuentoJornalesObra(obra.tipoDescuentoJornalesObra || 'fijo');
+                                            setTipoDescuentoJornalesObra(obra.tipoDescuentoJornalesObra || 'porcentaje');
                                           }
                                           if (obra.descuentoMaterialesObra != null) {
                                             setDescuentoMaterialesObra(String(obra.descuentoMaterialesObra));
-                                            setTipoDescuentoMaterialesObra(obra.tipoDescuentoMaterialesObra || 'fijo');
+                                            setTipoDescuentoMaterialesObra(obra.tipoDescuentoMaterialesObra || 'porcentaje');
                                           }
                                           if (obra.descuentoGastosGeneralesObra != null) {
                                             setDescuentoGastosGeneralesObra(String(obra.descuentoGastosGeneralesObra));
-                                            setTipoDescuentoGastosGeneralesObra(obra.tipoDescuentoGastosGeneralesObra || 'fijo');
+                                            setTipoDescuentoGastosGeneralesObra(obra.tipoDescuentoGastosGeneralesObra || 'porcentaje');
                                           }
                                           if (obra.descuentoMayoresCostosObra != null) {
                                             setDescuentoMayoresCostosObra(String(obra.descuentoMayoresCostosObra));
-                                            setTipoDescuentoMayoresCostosObra(obra.tipoDescuentoMayoresCostosObra || 'fijo');
+                                            setTipoDescuentoMayoresCostosObra(obra.tipoDescuentoMayoresCostosObra || 'porcentaje');
                                           }
 
                                           // Restaurar descuentos sobre honorarios si existen
                                           if (obra.descuentoHonorarioJornalesObra != null) {
                                             setDescuentoHonorarioJornalesObra(String(obra.descuentoHonorarioJornalesObra));
-                                            setTipoDescuentoHonorarioJornalesObra(obra.tipoDescuentoHonorarioJornalesObra || 'fijo');
+                                            setTipoDescuentoHonorarioJornalesObra(obra.tipoDescuentoHonorarioJornalesObra || 'porcentaje');
                                           }
                                           if (obra.descuentoHonorarioMaterialesObra != null) {
                                             setDescuentoHonorarioMaterialesObra(String(obra.descuentoHonorarioMaterialesObra));
-                                            setTipoDescuentoHonorarioMaterialesObra(obra.tipoDescuentoHonorarioMaterialesObra || 'fijo');
+                                            setTipoDescuentoHonorarioMaterialesObra(obra.tipoDescuentoHonorarioMaterialesObra || 'porcentaje');
                                           }
                                           if (obra.descuentoHonorarioGastosGeneralesObra != null) {
                                             setDescuentoHonorarioGastosGeneralesObra(String(obra.descuentoHonorarioGastosGeneralesObra));
-                                            setTipoDescuentoHonorarioGastosGeneralesObra(obra.tipoDescuentoHonorarioGastosGeneralesObra || 'fijo');
+                                            setTipoDescuentoHonorarioGastosGeneralesObra(obra.tipoDescuentoHonorarioGastosGeneralesObra || 'porcentaje');
                                           }
                                           if (obra.descuentoHonorarioMayoresCostosObra != null) {
                                             setDescuentoHonorarioMayoresCostosObra(String(obra.descuentoHonorarioMayoresCostosObra));
-                                            setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'fijo');
+                                            setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'porcentaje');
                                           }
 
                                           console.log('📂 Desglose obra restaurado desde DTO (tabla):', obra);
@@ -9224,9 +9417,9 @@ _Válido por 30 días_
                                           setImporteMaterialesObra('');
                                           setImporteJornalesObra('');
                                           setImporteHonorariosObra('');
-                                          setTipoHonorariosObra('fijo');
+                                          setTipoHonorariosObra('porcentaje');
                                           setImporteMayoresCostosObra('');
-                                          setTipoMayoresCostosObra('fijo');
+                                          setTipoMayoresCostosObra('porcentaje');
                                           setImporteTotalObra('');
                                         }
 
@@ -12471,9 +12664,9 @@ Gestionar Tareas Leves
             setImporteMateriales('');
             setImporteJornales('');
             setImporteHonorarios('');
-            setTipoHonorarios('fijo');
+            setTipoHonorarios('porcentaje');
             setImporteMayoresCostos('');
-            setTipoMayoresCostos('fijo');
+            setTipoMayoresCostos('porcentaje');
             setImporteTotal('');
             setProfesionalAdhocForm({
               nombre: '',
@@ -12513,9 +12706,9 @@ Gestionar Tareas Leves
                     setImporteMateriales('');
                     setImporteJornales('');
                     setImporteHonorarios('');
-                    setTipoHonorarios('fijo');
+                    setTipoHonorarios('porcentaje');
                     setImporteMayoresCostos('');
-                    setTipoMayoresCostos('fijo');
+                    setTipoMayoresCostos('porcentaje');
                     setImporteTotal('');
                     setProfesionalAdhocForm({
                       nombre: '',
@@ -12571,6 +12764,7 @@ Gestionar Tareas Leves
 
                 {/* Formulario */}
                 <form
+                  key={trabajoAdicionalEditar?.id || 'nuevo'}
                   id="formTrabajoAdicional"
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -12666,21 +12860,21 @@ Gestionar Tareas Leves
                                 setImporteGastosGenerales('');
                                 setImporteMayoresCostos('');
                                 setHonorarioJornales('');
-                                setTipoHonorarioJornales('fijo');
+                                setTipoHonorarioJornales('porcentaje');
                                 setHonorarioMateriales('');
-                                setTipoHonorarioMateriales('fijo');
+                                setTipoHonorarioMateriales('porcentaje');
                                 setHonorarioGastosGenerales('');
-                                setTipoHonorarioGastosGenerales('fijo');
+                                setTipoHonorarioGastosGenerales('porcentaje');
                                 setHonorarioMayoresCostos('');
-                                setTipoHonorarioMayoresCostos('fijo');
+                                setTipoHonorarioMayoresCostos('porcentaje');
                                 setDescuentoJornales('');
-                                setTipoDescuentoJornales('fijo');
+                                setTipoDescuentoJornales('porcentaje');
                                 setDescuentoMateriales('');
-                                setTipoDescuentoMateriales('fijo');
+                                setTipoDescuentoMateriales('porcentaje');
                                 setDescuentoGastosGenerales('');
-                                setTipoDescuentoGastosGenerales('fijo');
+                                setTipoDescuentoGastosGenerales('porcentaje');
                                 setDescuentoMayoresCostos('');
-                                setTipoDescuentoMayoresCostos('fijo');
+                                setTipoDescuentoMayoresCostos('porcentaje');
                                 setImporteTotal('');
                               }}
                               style={{ borderRadius: '8px', fontSize: '0.85rem' }}
