@@ -1407,6 +1407,22 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
   const handleSavePresupuesto = async (presupuesto) => {
     setSaving(true);
+
+    // 🔍 DEBUG CRÍTICO: Verificar datos que llegan
+    console.log('🔴🔴🔴 [handleSavePresupuesto] DIAGNÓSTICO CRÍTICO 🔴🔴🔴');
+    console.log('🔍 presupuesto.id:', presupuesto.id);
+    console.log('🔍 presupuestoData?.id:', presupuestoData?.id);
+    console.log('🔍 esEdicion será:', presupuestoData?.id != null);
+    console.log('🔍 Campos críticos del presupuesto:', {
+      id: presupuesto.id,
+      version: presupuesto.version,
+      numeroVersion: presupuesto.numeroVersion,
+      estado: presupuesto.estado,
+      totalPresupuesto: presupuesto.totalPresupuesto,
+      cantidadItems: presupuesto.itemsCalculadora?.length
+    });
+    console.log('🔴🔴🔴 [FIN DIAGNÓSTICO] 🔴🔴🔴');
+
     try {
       // ✅ CASO ESPECIAL: Edición solo de fechas (cualquier estado)
       if (presupuesto._editarSoloFechas === true) {
@@ -1475,221 +1491,77 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       const esEdicion = presupuestoData?.id != null;
 
       if (esEdicion) {
-        // ✅ EDICIÓN: Decidir si crear nueva versión o simplemente actualizar
+        // ✅ EDICIÓN: Simplemente actualizar la versión existente sin crear nuevas versiones
+        // NUEVO COMPORTAMIENTO: Todos los estados se actualizan sin crear versiones nuevas
+        // Esto evita problemas de datos vacíos y mantiene la consistencia
 
-        // IMPORTANTE: Usar el estado ORIGINAL del presupuesto cuando se abrió
         const estadoOriginal = presupuestoData.estado;
-        const esTradicional = presupuestoData.tipoPresupuesto === 'TRADICIONAL';
-
-        // BORRADOR y A_ENVIAR de presupuestos TRADICIONALES permite edición sin crear nueva versión
-        // Presupuestos SEMANALES siempre actualizan la misma versión
-        const esBorradorOListoParaEnviar = estadoOriginal === 'BORRADOR' || estadoOriginal === 'A_ENVIAR';
         const esSemanal = presupuestoData.tipoPresupuesto === 'TRABAJOS_SEMANALES';
 
-        // Determinar si debe crear nueva versión
-        // SEMANAL: nunca crea versión nueva (siempre actualiza)
-        // TRADICIONAL BORRADOR o A_ENVIAR: nunca crea versión nueva (siempre actualiza)
-        // TRADICIONAL otros estados (ENVIADO, APROBADO, etc.): SÍ crea versión nueva
-        const debeCrearNuevaVersion = !esSemanal && !esBorradorOListoParaEnviar;
+        // 🔥 CAMBIO CRÍTICO: Ya NO creamos nuevas versiones automáticamente
+        // Simplemente actualizamos la versión existente para evitar problemas de datos vacíos
+        console.log(`📝 Actualizando presupuesto ID ${presupuestoData.id} (v${presupuestoData.version || 1}) - Estado: ${estadoOriginal}`);
 
-        // IMPORTANTE: Ignorar el flag _shouldCreateNewVersion del modal si estamos en BORRADOR o A_ENVIAR
-        if (esBorradorOListoParaEnviar) {
-          delete presupuesto._shouldCreateNewVersion;
-          delete presupuesto._preservarEstado;
+        // === ACTUALIZAR SIN CREAR NUEVA VERSIÓN ===
+        // TODOS los estados ahora actualizan la misma versión (sin crear nuevas)
+
+        // Mantener el ID y estado original
+        presupuesto.id = presupuestoData.id;
+        presupuesto.estado = estadoOriginal; // Mantener estado original
+        presupuesto.numeroVersion = presupuestoData.numeroVersion || presupuestoData.version || 1;
+        presupuesto.numeroPresupuesto = presupuestoData.numeroPresupuesto;
+
+        // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra e idObra del presupuesto original
+        if (presupuestoData.esPresupuestoTrabajoExtra) {
+          presupuesto.esPresupuestoTrabajoExtra = true;
+        }
+        if (presupuestoData.idObra || presupuestoData.obraId) {
+          presupuesto.idObra = presupuestoData.idObra || presupuestoData.obraId;
+          presupuesto.obraId = presupuestoData.idObra || presupuestoData.obraId;
         }
 
-        if (debeCrearNuevaVersion) {
-          // === FLUJO ANTERIOR: Crear nueva versión ===
-          const nuevaVersion = (presupuestoData.version || presupuestoData.numeroVersion || 1) + 1;
+        delete presupuesto._shouldCreateNewVersion; // Limpiar flag interno
+        delete presupuesto._preservarEstado; // Limpiar flag interno
 
-          // ✅ NUEVO: Verificar si se debe preservar el estado (solo cambios en fechas/días)
-          const preservarEstado = presupuesto._preservarEstado === true;
-          const estadoOriginal = presupuestoData.estado;
-
-          // 1. PRIMERO: Cambiar el estado de la versión anterior a "MODIFICADO"
-
-          try {
-            await api.presupuestosNoCliente.actualizarEstado(presupuestoData.id, 'MODIFICADO', empresaId);
-
-            // 2. Si la versión anterior tenía una obra asociada, eliminarla
-            if (presupuestoData.obraId) {
-              try {
-                await api.obras.delete(presupuestoData.obraId);
-
-                // Limpiar el obraId del presupuesto
-                await api.presupuestosNoCliente.actualizarEstado(presupuestoData.id, 'MODIFICADO', empresaId);
-              } catch (errorObra) {
-                // Continuamos aunque falle el borrado de la obra
-              }
-            }
-          } catch (error) {
-            console.error('❌ ERROR al cambiar estado de versión anterior:', error);
-            showNotification && showNotification(
-              `⚠️ Advertencia: No se pudo cambiar el estado de la versión anterior a MODIFICADO.\n\n${error.message}`,
-              'warning'
-            );
-            // Continuamos con la creación de nueva versión
+        // ✅ UX MEJORADA: Si tiene nombreObra pero falta calle/altura, usar valores genéricos
+        if (presupuesto.nombreObra && presupuesto.nombreObra.trim() !== '') {
+          if (!presupuesto.direccionObraCalle || presupuesto.direccionObraCalle.trim() === '') {
+            presupuesto.direccionObraCalle = 'Calle genérica';
           }
-
-          // 3. SEGUNDO: Crear la nueva versión con estado "A Enviar"
-          presupuesto.version = nuevaVersion;
-          presupuesto.numeroVersion = nuevaVersion;
-          presupuesto.numeroPresupuesto = presupuestoData.numeroPresupuesto;
-
-          // ✅ NUEVO: Preservar estado original si solo cambiaron fechas/días hábiles
-          // O si se está editando un presupuesto APROBADO/EN_EJECUCION (heredar profesionales)
-          if (preservarEstado) {
-            presupuesto.estado = estadoOriginal;
-          } else if (estadoOriginal === 'APROBADO' || estadoOriginal === 'EN_EJECUCION') {
-            // Si se editó un presupuesto APROBADO/EN_EJECUCION, mantener ese estado
-            // La versión anterior pasa a MODIFICADO, esta versión hereda el estado activo
-            presupuesto.estado = estadoOriginal;
-          } else {
-            presupuesto.estado = 'A Enviar'; // Estado por defecto para cambios críticos
+          if (!presupuesto.direccionObraAltura || presupuesto.direccionObraAltura.trim() === '') {
+            presupuesto.direccionObraAltura = 'S/N';
           }
-
-          // ✅ PRESERVAR obraId y clienteId de la versión anterior (si existen)
-          if (presupuestoData.obraId) {
-            presupuesto.obraId = presupuestoData.obraId;
-            presupuesto.idObra = presupuestoData.obraId;
-          }
-          if (presupuestoData.clienteId) {
-            presupuesto.clienteId = presupuestoData.clienteId;
-            presupuesto.idCliente = presupuestoData.clienteId;
-          }
-
-          // ✅ HEREDAR profesionalObraId de versión anterior para profesionales coincidentes
-          // Esto permite que los pagos se mantengan vinculados entre versiones
-          if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
-            const itemsAnteriores = presupuestoData.itemsCalculadora || [];
-
-            presupuesto.itemsCalculadora.forEach((itemNuevo, itemIdx) => {
-              if (itemNuevo.profesionales && Array.isArray(itemNuevo.profesionales)) {
-                itemNuevo.profesionales.forEach((profNuevo, profIdx) => {
-                  // Buscar profesional coincidente en versión anterior por tipo y posición relativa
-                  const itemAnterior = itemsAnteriores[itemIdx];
-                  if (itemAnterior?.profesionales && Array.isArray(itemAnterior.profesionales)) {
-                    const profAnterior = itemAnterior.profesionales[profIdx];
-
-                    // Si tipo y características coinciden, heredar profesionalObraId
-                    if (profAnterior &&
-                        profAnterior.tipo === profNuevo.tipo &&
-                        profAnterior.importeJornal === profNuevo.importeJornal &&
-                        profAnterior.cantidadJornales === profNuevo.cantidadJornales) {
-
-                      // Heredar el ID para mantener vínculo con pagos
-                      if (profAnterior.profesionalObraId) {
-                        profNuevo.profesionalObraId = profAnterior.profesionalObraId;
-                      }
-                    }
-                  }
-                });
-              }
-            });
-          }
-
-          // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra e idObra ANTES de eliminar ID
-          const esTrabajoExtra = presupuestoData.esPresupuestoTrabajoExtra;
-          const obraIdOriginal = presupuestoData.idObra || presupuestoData.obraId;
-
-          // Eliminar ID para que el backend lo cree como nuevo registro (nueva versión)
-          delete presupuesto.id;
-          delete presupuesto._shouldCreateNewVersion; // Limpiar flag interno
-          delete presupuesto._preservarEstado; // Limpiar flag interno
-
-          // 🔧 RESTAURAR campos de trabajo extra después de eliminar ID
-          if (esTrabajoExtra) {
-            presupuesto.esPresupuestoTrabajoExtra = true;
-          }
-          if (obraIdOriginal) {
-            presupuesto.idObra = obraIdOriginal;
-            presupuesto.obraId = obraIdOriginal;
-          }
-
-          // ✅ UX MEJORADA: Si tiene nombreObra pero falta calle/altura, usar valores genéricos
-          if (presupuesto.nombreObra && presupuesto.nombreObra.trim() !== '') {
-            if (!presupuesto.direccionObraCalle || presupuesto.direccionObraCalle.trim() === '') {
-              presupuesto.direccionObraCalle = 'Calle genérica';
-            }
-            if (!presupuesto.direccionObraAltura || presupuesto.direccionObraAltura.trim() === '') {
-              presupuesto.direccionObraAltura = 'S/N';
-            }
-          }
-
-          const respuesta = await api.presupuestosNoCliente.create(presupuesto, empresaId);
-
-          // Reintentar marcar la version anterior como MODIFICADO (refuerzo post-creacion)
-          if (presupuestoData?.id && empresaId) {
-            try {
-              await api.presupuestosNoCliente.actualizarEstado(presupuestoData.id, 'MODIFICADO', empresaId);
-              setList(prev => prev.map(p => (
-                p.id === presupuestoData.id ? { ...p, estado: 'MODIFICADO' } : p
-              )));
-            } catch (error) {
-              // Ignorar si falla reforzar estado
-            }
-          }
-
-          // Verificar si se copiaron items calculadora
-          const itemsHeredados = respuesta?.itemsCalculadora?.length || presupuesto.itemsCalculadora?.length || 0;
-
-          const mensajeObra = presupuestoData.obraId
-            ? ' La obra asociada a la versión anterior fue eliminada.'
-            : '';
-
-          const mensajeItems = itemsHeredados > 0
-            ? ` Se ${itemsHeredados === 1 ? 'heredó 1 grupo de tareas' : `heredaron ${itemsHeredados} grupos de tareas`} de la versión anterior.`
-            : '';
-
-          const mensajeEstado = preservarEstado
-            ? ` Estado preservado: "${estadoOriginal}".`
-            : ' Estado: "A Enviar".';
-
-          showNotification && showNotification(
-            `✅ Nueva versión ${nuevaVersion} creada.${mensajeEstado}${mensajeItems}${mensajeObra}`,
-            'success'
-          );
-        } else {
-          // === ACTUALIZAR SIN CREAR NUEVA VERSIÓN ===
-          // SEMANAL: Siempre actualiza la misma versión (cualquier estado)
-          // TRADICIONAL: Solo BORRADOR actualiza la misma versión
-
-          // Mantener el ID y estado original
-          presupuesto.id = presupuestoData.id;
-          presupuesto.estado = estadoOriginal; // Mantener estado original
-          presupuesto.numeroVersion = presupuestoData.numeroVersion || presupuestoData.version || 1;
-          presupuesto.numeroPresupuesto = presupuestoData.numeroPresupuesto;
-
-          // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra e idObra del presupuesto original
-          if (presupuestoData.esPresupuestoTrabajoExtra) {
-            presupuesto.esPresupuestoTrabajoExtra = true;
-          }
-          if (presupuestoData.idObra || presupuestoData.obraId) {
-            presupuesto.idObra = presupuestoData.idObra || presupuestoData.obraId;
-            presupuesto.obraId = presupuestoData.idObra || presupuestoData.obraId;
-          }
-
-          delete presupuesto._shouldCreateNewVersion; // Limpiar flag interno
-          delete presupuesto._preservarEstado; // Limpiar flag interno
-
-          // ✅ UX MEJORADA: Si tiene nombreObra pero falta calle/altura, usar valores genéricos
-          if (presupuesto.nombreObra && presupuesto.nombreObra.trim() !== '') {
-            if (!presupuesto.direccionObraCalle || presupuesto.direccionObraCalle.trim() === '') {
-              presupuesto.direccionObraCalle = 'Calle genérica';
-            }
-            if (!presupuesto.direccionObraAltura || presupuesto.direccionObraAltura.trim() === '') {
-              presupuesto.direccionObraAltura = 'S/N';
-            }
-          }
-
-          // Actualizar el presupuesto existente usando el endpoint PUT por ID
-          await api.presupuestosNoCliente.update(presupuestoData.id, presupuesto, empresaId);
-
-          showNotification && showNotification(
-            `✅ Presupuesto ${esSemanal ? 'semanal' : 'tradicional'} actualizado (v${presupuesto.numeroVersion}, estado: ${estadoOriginal})`,
-            'success'
-          );
         }
+
+        // 🔥 SOLUCIÓN CRÍTICA: El backend requiere el objeto COMPLETO
+        // Obtener primero el presupuesto completo del backend y hacer merge
+        console.log(`📥 Obteniendo presupuesto completo del backend antes de actualizar...`);
+        const presupuestoCompleto = await api.presupuestosNoCliente.getById(presupuestoData.id, empresaId);
+        console.log(`✅ Presupuesto completo obtenido:`, presupuestoCompleto);
+
+        // Hacer merge: presupuestoCompleto (todos los campos) + presupuesto (cambios del usuario)
+        const presupuestoFinal = {
+          ...presupuestoCompleto,  // ← Todos los campos existentes del backend
+          ...presupuesto,          // ← Cambios del usuario (sobrescribe solo lo que cambió)
+          id: presupuestoData.id,  // ← Asegurar que el ID se mantiene
+          numeroVersion: presupuestoCompleto.numeroVersion || presupuestoCompleto.version || 1,
+          estado: presupuestoCompleto.estado // ← Preservar el estado a menos que se haya cambiado explícitamente
+        };
+
+        console.log(`📤 Enviando presupuesto COMPLETO con merge al backend:`, {
+          id: presupuestoFinal.id,
+          cantidadCampos: Object.keys(presupuestoFinal).length,
+          totalPresupuesto: presupuestoFinal.totalPresupuesto,
+          cantidadItems: presupuestoFinal.itemsCalculadora?.length
+        });
+
+        // Actualizar el presupuesto existente usando el endpoint PUT por ID
+        await api.presupuestosNoCliente.update(presupuestoData.id, presupuestoFinal, empresaId);
+
+        showNotification && showNotification(
+          `✅ Presupuesto actualizado correctamente (v${presupuesto.numeroVersion}) - Todos los datos se mantuvieron`,
+          'success'
+        );
 
         // Cerrar el modal después de editar
         setShowEditarModal(false);

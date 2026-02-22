@@ -7190,9 +7190,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   /**
    * Sincroniza el estado de la obra de trabajo extra con el estado del presupuesto
-   * Se ejecuta automáticamente después de guardar el presupuesto
+   * ⚠️ TEMPORALMENTE DESHABILITADO - Backend endpoint deshabilitado por arreglo MapStruct
    */
   const sincronizarEstadoConObra = async (presupuestoEstado, presupuestoObraId) => {
+    // ⚠️ ENDPOINT TEMPORALMENTE DESHABILITADO EN BACKEND
+    console.warn('⚠️ Sincronización de estado con obra deshabilitada temporalmente');
+    console.log('ℹ️ Backend reporta:', 'Método temporalmente deshabilitado - pendiente arreglo MapStruct');
+    return; // Salir sin hacer nada
+
+    /* CÓDIGO ORIGINAL COMENTADO HASTA QUE SE ARREGLE EL BACKEND
     // Validar que sea un trabajo extra con obra vinculada
     if (!presupuestoObraId) {
       console.log('ℹ️ No se sincroniza estado con obra: presupuesto sin obraId');
@@ -7222,9 +7228,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('✅ Estado de la obra actualizado exitosamente a:', presupuestoEstado);
     } catch (error) {
       console.error('❌ Error al sincronizar estado con obra:', error);
-      console.error('❌ Detalles:', error.response?.data);
-      // No mostramos alert para no interrumpir el flujo, solo loggeamos el error
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+      console.error('❌ Error details:', error.response?.data?.mensaje || error.message);
+
+      // ⚠️ La sincronización de estado es opcional - no debe bloquear el guardado del presupuesto
+      console.warn('⚠️ Continuando sin sincronizar estado de obra (error no crítico)');
     }
+    */
   };
 
   const handleSubmit = async (e) => {
@@ -8779,6 +8790,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // 💸 DESCUENTOS - Enviar como campos relacionales (igual que honorarios y mayores_costos)
     if (form.descuentos) {
+      console.log('💸 [DEBUG] form.descuentos COMPLETO:', JSON.stringify(form.descuentos, null, 2));
+      console.log('💸 [DEBUG] jornales.valor:', form.descuentos.jornales?.valor, 'tipo:', typeof form.descuentos.jornales?.valor);
+      console.log('💸 [DEBUG] materiales.valor:', form.descuentos.materiales?.valor, 'tipo:', typeof form.descuentos.materiales?.valor);
+      console.log('💸 [DEBUG] mayoresCostos.valor:', form.descuentos.mayoresCostos?.valor, 'tipo:', typeof form.descuentos.mayoresCostos?.valor);
+
       // Explicación general de los descuentos
       payload.descuentosExplicacion = form.descuentos.explicacion || '';
 
@@ -14856,7 +14872,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   // Calcular total sin descuento
                                   const totalSinDescuento = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
 
-                                  // Calcular descuentos aplicados con detalle por ítem
+                                  // Calcular descuentos aplicados con detalle por categoría
                                   let totalDescuentos = 0;
                                   const detalleDescuentos = []; // { label, importe }
 
@@ -14894,7 +14910,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       }
                                     }
 
-                                    // Calcular descuento de Honorarios (desglosado por sub-tipo si está configurado)
+                                    // Calcular descuento de Honorarios (desglosado por sub-tipo usando bases correctas)
                                     const honorariosDesglosados = calcularHonorarios();
                                     const tieneDescuentosHonDesglosados = [
                                       'honorariosJornales', 'honorariosProfesionales', 'honorariosMateriales',

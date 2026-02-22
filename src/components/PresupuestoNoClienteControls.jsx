@@ -16,7 +16,7 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
   const [confirmState, setConfirmState] = useState({ show: false, action: null, payload: null });
 
   const empresaId = empresaSeleccionada ? empresaSeleccionada.id : null;
-  
+
   // ✅ Detectar si el presupuesto seleccionado tiene obra asociada
   const tieneObraAsociada = selectedPresupuesto?.obraId !== null && selectedPresupuesto?.obraId !== undefined;
 
@@ -39,51 +39,51 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
     try {
       setDireccionBusqueda(dataBusqueda);
       setShowBuscarModal(false);
-      
+
       // Backend filtra automáticamente con Hibernate Filter
       const allPresupuestos = await apiService.presupuestosNoCliente.getAll();
       const lista = Array.isArray(allPresupuestos) ? allPresupuestos : (allPresupuestos.datos || allPresupuestos.content || []);
-      
+
       // Filtrar por dirección (calle y altura)
       const candidatos = lista.filter(p => {
         const calleMatch = String(p.direccionObraCalle || '').trim().toLowerCase() === String(dataBusqueda.direccionObraCalle || '').trim().toLowerCase();
         const alturaMatch = String(p.direccionObraAltura || '').trim() === String(dataBusqueda.direccionObraAltura || '').trim();
         return calleMatch && alturaMatch;
       });
-      
+
       let encontrado;
-      
+
       if (dataBusqueda.numeroVersion) {
         // Si se especificó versión, buscar exactamente esa versión
         encontrado = candidatos.find(p => Number(p.numeroVersion) === Number(dataBusqueda.numeroVersion));
       } else {
         // Si NO se especificó versión, tomar la versión más reciente (mayor número)
         if (candidatos.length > 0) {
-          encontrado = candidatos.reduce((max, p) => 
+          encontrado = candidatos.reduce((max, p) =>
             Number(p.numeroVersion) > Number(max.numeroVersion) ? p : max
           );
         }
       }
-      
+
       if (!encontrado) {
         showNotification('No se encontró ningún presupuesto con esos datos', 'warning');
         setLoadingAction(null);
         return;
       }
-      
+
       // Determinar si es la última versión (para permitir edición)
-      const versionMasReciente = candidatos.reduce((max, p) => 
+      const versionMasReciente = candidatos.reduce((max, p) =>
         Number(p.numeroVersion) > Number(max.numeroVersion) ? p : max
       , candidatos[0]);
-      
+
       const esUltimaVersion = Number(encontrado.numeroVersion) === Number(versionMasReciente.numeroVersion);
-      
+
       // Agregar flag de solo lectura al objeto encontrado
       encontrado._soloLectura = !esUltimaVersion;
-      
+
       setEditingData(encontrado);
       setShowModal(true);
-      
+
       if (esUltimaVersion) {
         showNotification(`Presupuesto encontrado: Nro ${encontrado.numeroPresupuesto} - Versión ${encontrado.numeroVersion} (editable)`, 'info');
       } else {
@@ -126,7 +126,7 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
         if (!confirmar) {
           return; // Cancelar eliminación
         }
-        
+
         // Ejecutar eliminación en cascada directamente
         await execDelete(selectedId);
       } else {
@@ -144,11 +144,11 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
     setLoadingAction('delete');
     try {
       console.log('🗑️ Iniciando eliminación en cascada del presupuesto:', id);
-      
+
       // 1. Obtener el presupuesto para saber qué profesionalObraId eliminar
       const presupuesto = await apiService.presupuestosNoCliente.getById(id, empresaId);
       console.log('📋 Presupuesto a eliminar:', presupuesto);
-      
+
       // 2. Obtener profesionalObraId únicos de los items de calculadora
       const profesionalObraIds = new Set();
       if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
@@ -162,37 +162,37 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
           }
         });
       }
-      
+
       console.log('👷 ProfesionalObraIds a eliminar:', Array.from(profesionalObraIds));
-      
+
       let totalPagosEliminados = 0;
       let totalAsistenciasEliminadas = 0;
-      
+
       // 3. Eliminar pagos de cada profesionalObraId
       for (const profesionalObraId of profesionalObraIds) {
         try {
           console.log(`💸 Eliminando pagos del profesionalObraId: ${profesionalObraId}`);
-          
+
           // Usar el servicio importado directamente
           const { listarPagosPorProfesional, eliminarPago } = await import('../services/pagosProfesionalObraService.js');
-          
+
           const empresaId = JSON.parse(sessionStorage.getItem('empresaSeleccionada'))?.id;
           const pagos = await listarPagosPorProfesional(profesionalObraId, empresaId);
           const pagosArray = Array.isArray(pagos) ? pagos : [];
-          
+
           for (const pago of pagosArray) {
             console.log(`  🗑️ Eliminando pago ID: ${pago.id}`);
             await eliminarPago(pago.id, empresaId);
             totalPagosEliminados++;
           }
-          
+
           console.log(`✅ ${pagosArray.length} pago(s) eliminado(s) del profesionalObraId ${profesionalObraId}`);
         } catch (err) {
           console.warn(`⚠️ Error al eliminar pagos del profesionalObraId ${profesionalObraId}:`, err);
           // Continuar con la eliminación aunque falle algún pago
         }
       }
-      
+
       // 4. Eliminar asistencias (si el servicio existe)
       if (apiService.asistencias) {
         for (const profesionalObraId of profesionalObraIds) {
@@ -200,13 +200,13 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
             console.log(`📅 Eliminando asistencias del profesionalObraId: ${profesionalObraId}`);
             const asistencias = await apiService.asistencias.listarAsistenciasPorProfesional(profesionalObraId);
             const asistenciasArray = Array.isArray(asistencias) ? asistencias : [];
-            
+
             for (const asistencia of asistenciasArray) {
               console.log(`  🗑️ Eliminando asistencia ID: ${asistencia.id}`);
               await apiService.asistencias.eliminarAsistencia(asistencia.id);
               totalAsistenciasEliminadas++;
             }
-            
+
             console.log(`✅ ${asistenciasArray.length} asistencia(s) eliminada(s) del profesionalObraId ${profesionalObraId}`);
           } catch (err) {
             console.warn(`⚠️ Error al eliminar asistencias del profesionalObraId ${profesionalObraId}:`, err);
@@ -214,15 +214,15 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
           }
         }
       }
-      
+
       // 5. Eliminar asignaciones profesional-obra (profesionales_obras)
       console.log('👷 Eliminando asignaciones profesional-obra...');
       let totalAsignacionesEliminadas = 0;
-      
+
       for (const profesionalObraId of profesionalObraIds) {
         try {
           console.log(`  🗑️ Eliminando profesional-obra ID: ${profesionalObraId}`);
-          
+
           // Llamar al endpoint DELETE del backend para profesionales-obra
           if (apiService.profesionalesObra && apiService.profesionalesObra.delete) {
             await apiService.profesionalesObra.delete(profesionalObraId, empresaId);
@@ -236,37 +236,37 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
           // Continuar aunque falle
         }
       }
-      
+
       console.log(`✅ ${totalAsignacionesEliminadas} asignación(es) profesional-obra eliminada(s)`);
-      
+
       // 6. Finalmente, eliminar el presupuesto (la obra NO se elimina)
       console.log('🗑️ Eliminando presupuesto (la obra permanece)...');
       await apiService.presupuestosNoCliente.delete(id);
-      
+
       console.log('✅ Eliminación en cascada completada exitosamente');
-      
+
       const mensaje = `Presupuesto eliminado exitosamente\n` +
         `${totalPagosEliminados > 0 ? `💸 ${totalPagosEliminados} pago(s) eliminado(s)\n` : ''}` +
         `${totalAsistenciasEliminadas > 0 ? `📅 ${totalAsistenciasEliminadas} asistencia(s) eliminada(s)\n` : ''}` +
         `${totalAsignacionesEliminadas > 0 ? `👷 ${totalAsignacionesEliminadas} asignación(es) profesional-obra eliminada(s)\n` : ''}` +
         `\n⚠️ Nota: La obra asociada NO fue eliminada`;
-      
+
       showNotification(mensaje, 'success');
       onRefresh && onRefresh();
     } catch (err) {
       console.error('❌ Error en eliminación en cascada:', err);
       showNotification(err.message || 'Error al eliminar', 'danger');
-    } finally { 
-      setLoadingAction(null); 
+    } finally {
+      setLoadingAction(null);
     }
   };
 
   const handleApprove = async () => {
     console.log('🔵 handleApprove iniciado');
     console.log('🔵 selectedId:', selectedId);
-    
+
     if (!selectedId) return showNotification('Seleccione un presupuesto para aprobar', 'warning');
-    
+
     // Obtener el presupuesto seleccionado para extraer clienteId y obraId
     let presupuestoActual = null;
     try {
@@ -276,7 +276,7 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
     } catch (error) {
       console.warn('⚠️ No se pudo obtener datos del presupuesto:', error);
     }
-    
+
     // Confirmar acción
     const confirmar = window.confirm(
       '🏗️ APROBAR Y CREAR OBRA\n\n' +
@@ -287,38 +287,38 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
       '📍 Nombre de obra: ' + (presupuestoActual?.nombreObra || 'Dirección del presupuesto') + '\n\n' +
       '¿Desea continuar?'
     );
-    
+
     console.log('🔵 Usuario confirmó:', confirmar);
     if (!confirmar) return;
-    
+
     setLoadingAction('approve');
     try {
       // Usar el nuevo endpoint con parámetros opcionales
       // Buscar clienteId en todas las variantes posibles
-      const clienteId = presupuestoActual?.clienteId || 
-                       presupuestoActual?.idCliente || 
+      const clienteId = presupuestoActual?.clienteId ||
+                       presupuestoActual?.idCliente ||
                        presupuestoActual?.cliente_id ||
                        presupuestoActual?.client_id ||
                        null;
-      const obraId = presupuestoActual?.obraId || 
-                    presupuestoActual?.idObra || 
+      const obraId = presupuestoActual?.obraId ||
+                    presupuestoActual?.idObra ||
                     presupuestoActual?.obra_id ||
                     null;
-      
+
       console.log('📤 Llamando a aprobarYCrearObra con:');
       console.log('   - selectedId:', selectedId);
       console.log('   - clienteId:', clienteId);
       console.log('   - obraId:', obraId);
       console.log('   - presupuestoActual completo:', presupuestoActual);
-      
+
       const resultado = await apiService.presupuestosNoCliente.aprobarYCrearObra(
         selectedId,
         clienteId,    // clienteReferenciaId
         obraId        // obraReferenciaId
       );
-      
+
       console.log('✅ Respuesta del backend:', resultado);
-      
+
       // Mensaje de éxito detallado
       const mensaje = `
 ✅ ¡Presupuesto aprobado exitosamente!
@@ -328,23 +328,23 @@ ${resultado.clienteReutilizado ? '♻️ Cliente reutilizado' : '🆕 Cliente nu
 📋 Presupuestos actualizados: ${resultado.presupuestosActualizados}
 ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
       `.trim();
-      
+
       showNotification(mensaje, 'success');
-      
+
       onRefresh && onRefresh();
     } catch (err) {
       console.error('❌ Error al aprobar y crear obra:', err);
       console.error('❌ Error completo:', JSON.stringify(err, null, 2));
       console.error('❌ Error response:', err.response);
       console.error('❌ Error response data:', err.response?.data);
-      
+
       let mensajeError = err.response?.data?.message || err.response?.data?.mensaje || err.message || 'Error desconocido';
-      
+
       // Detectar error específico de obra ya asociada
       if (mensajeError.includes('ya tiene una obra asociada')) {
         const obraIdMatch = mensajeError.match(/ID:\s*(\d+)/);
         const obraId = obraIdMatch ? obraIdMatch[1] : 'desconocido';
-        
+
         mensajeError = `⚠️ Este presupuesto ya fue aprobado anteriormente y tiene una obra asociada (ID: ${obraId}).\n\n` +
                       `No se puede aprobar nuevamente.\n\n` +
                       `Opciones:\n` +
@@ -352,14 +352,14 @@ ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
                       `• Duplicar este presupuesto (creará una nueva versión sin obra)\n` +
                       `• Editar el presupuesto existente en la obra asociada`;
       }
-      
+
       showNotification(
         `❌ Error al aprobar y crear obra:\n\n${mensajeError}\n\n` +
         (mensajeError.includes('ya fue aprobado') ? '' : 'Verifique:\n• Dirección de obra completa (calle y altura obligatorios)\n• Datos del presupuesto\n• Conexión al backend'),
         'danger'
       );
-    } finally { 
-      setLoadingAction(null); 
+    } finally {
+      setLoadingAction(null);
     }
   };
 
@@ -384,21 +384,38 @@ ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
     setLoadingAction('save');
     try {
       if (editingData && editingData.id) {
-        // Modo edición: crear nueva versión automáticamente
-        const response = await apiService.presupuestosNoCliente.updateByDireccion(
-          editingData.direccionObraCalle,
-          editingData.direccionObraAltura,
-          editingData.direccionObraPiso,
-          editingData.direccionObraDepartamento,
-          editingData.numeroVersion,
-          payload
+        // 🔥 CAMBIO CRÍTICO: Actualizar versión existente sin crear nueva
+        console.log(`📝 Actualizando presupuesto ID ${editingData.id} sin crear nueva versión`);
+
+        // 🔥 SOLUCIÓN CRÍTICA: Obtener presupuesto completo del backend primero
+        console.log('📥 Obteniendo presupuesto completo del backend...');
+        const presupuestoCompleto = await apiService.presupuestosNoCliente.getById(
+          editingData.id,
+          empresaId
         );
-        
-        showNotification(`Presupuesto actualizado - Versión ${response?.numeroVersion || 'nueva'} creada`, 'success');
+        console.log('✅ Presupuesto completo obtenido');
+
+        // Hacer merge: todos los campos + cambios del usuario
+        const presupuestoFinal = {
+          ...presupuestoCompleto,  // ← Todos los campos del backend
+          ...payload,              // ← Cambios del usuario
+          id: editingData.id       // ← Asegurar ID
+        };
+
+        console.log('📤 Enviando PUT con presupuesto completo');
+
+        // PUT para actualizar el presupuesto existente
+        const response = await apiService.presupuestosNoCliente.update(
+          editingData.id,
+          presupuestoFinal,
+          empresaId
+        );
+
+        showNotification(`Presupuesto actualizado correctamente (Versión ${response?.numeroVersion || presupuestoFinal.version})`, 'success');
         setDireccionBusqueda(null); // Limpiar datos de búsqueda
       } else {
         // Modo creación: usar POST (empresaId se inyecta automáticamente)
-        await apiService.presupuestosNoCliente.create(payload);
+        await apiService.presupuestosNoCliente.create(payload, empresaId);
         showNotification('Presupuesto creado', 'success');
       }
       setShowModal(false);
@@ -415,7 +432,7 @@ ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
       // Verificar si existe el endpoint de health check
       if (apiService.healthCheck && apiService.healthCheck.verificarCamposDescripcionObservaciones) {
         const response = await apiService.healthCheck.verificarCamposDescripcionObservaciones();
-        
+
         if (response.estadoGeneral === 'LISTO') {
           showNotification('✅ Backend y BD listos para campos descripción/observaciones', 'success');
         } else {
@@ -423,7 +440,7 @@ ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
             .filter(key => key.endsWith('_ERROR'))
             .map(key => response.verificaciones[key])
             .flat();
-          
+
           showNotification(`⚠️ Backend/BD con problemas:\n${errores.join('\n')}`, 'warning');
         }
       } else {
@@ -439,24 +456,24 @@ ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
           direccionObraCalle: 'CALLE_TEST_DELETE',
           direccionObraAltura: '99999'
         };
-        
+
         showNotification('🔍 Verificando compatibilidad con test funcional...', 'info');
-        
+
         const testResponse = await apiService.presupuestosNoCliente.create(testData);
-        
+
         if (testResponse && testResponse.id) {
           // Recuperar el presupuesto para verificar persistencia
           const recovered = await apiService.presupuestosNoCliente.getById(testResponse.id, empresaId);
-          
-          const camposOK = 
+
+          const camposOK =
             recovered.descripcionCalc === testData.descripcionCalc &&
             recovered.observacionesCalc === testData.observacionesCalc &&
             recovered.descripcionProfesionales === testData.descripcionProfesionales &&
             recovered.observacionesProfesionales === testData.observacionesProfesionales;
-          
+
           // Eliminar presupuesto de prueba
           await apiService.presupuestosNoCliente.delete(testResponse.id);
-          
+
           if (camposOK) {
             showNotification(
               '✅ VERIFICACIÓN EXITOSA\n\n' +
@@ -505,18 +522,18 @@ ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
         <i className="fas fa-list me-1"></i>Listar Todos
       </button>
       <button className="btn btn-outline-danger" onClick={handleDelete} disabled={!!loadingAction}>{loadingAction === 'delete' ? (<><i className="fas fa-spinner fa-spin me-1"></i> Eliminando</>) : (<><i className="fas fa-trash me-1"></i>Eliminar</>)}</button>
-      <button 
-        className="btn btn-success" 
-        onClick={handleApprove} 
+      <button
+        className="btn btn-success"
+        onClick={handleApprove}
         disabled={!!loadingAction}
-        title={tieneObraAsociada 
-          ? "Aprobar presupuesto (sin crear nueva obra)" 
+        title={tieneObraAsociada
+          ? "Aprobar presupuesto (sin crear nueva obra)"
           : "Aprobar presupuesto y crear obra automáticamente"
         }
       >
         {loadingAction === 'approve' ? (
           <>
-            <i className="fas fa-spinner fa-spin me-1"></i> 
+            <i className="fas fa-spinner fa-spin me-1"></i>
             {tieneObraAsociada ? 'Aprobando...' : 'Aprobando y creando obra...'}
           </>
         ) : (
@@ -527,17 +544,17 @@ ${resultado.mensaje ? '\n📝 ' + resultado.mensaje : ''}
         )}
       </button>
       <button className="btn btn-outline-warning" onClick={handleDuplicate} disabled={!!loadingAction}>{loadingAction === 'duplicate' ? (<><i className="fas fa-spinner fa-spin me-1"></i> Duplicando</>) : (<><i className="fas fa-clone me-1"></i>Duplicar</>)}</button>
-      
+
       {/* Botón de verificación de campos descripción/observaciones */}
-      <button 
-        className="btn btn-outline-info" 
-        onClick={verificarCamposDescripcionObservaciones} 
+      <button
+        className="btn btn-outline-info"
+        onClick={verificarCamposDescripcionObservaciones}
         disabled={!!loadingAction}
         title="Verificar que backend y BD estén listos para campos descripción/observaciones"
       >
         {loadingAction === 'verify' ? (
           <>
-            <i className="fas fa-spinner fa-spin me-1"></i> 
+            <i className="fas fa-spinner fa-spin me-1"></i>
             Verificando...
           </>
         ) : (

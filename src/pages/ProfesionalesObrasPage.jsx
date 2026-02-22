@@ -1471,23 +1471,37 @@ const ProfesionalesObrasPage = () => {
       }}
       onSave={async (presupuesto) => {
         try {
-          // Determinar si estamos creando una nueva versión basada en una existente
+          // 🔥 CAMBIO CRÍTICO: Ya NO creamos nuevas versiones automáticamente
+          // Siempre actualizamos la existente o creamos la primera
           const hasExistingVersion = presupuestoData?.id;
 
           if (hasExistingVersion) {
-            // Si hay un presupuesto existente, crear NUEVA versión (no reemplazar)
-            // Incrementar la versión automáticamente
-            presupuesto.version = (presupuestoData.version || 1) + 1;
-            console.log(`📝 Creando nueva versión ${presupuesto.version} del presupuesto para ${presupuesto.direccionObraCalle}`);
+            // 🔄 ACTUALIZAR: Editar la versión existente sin crear una nueva
+            console.log(`📝 Actualizando presupuesto ID ${presupuestoData.id} (versión ${presupuesto.version}) para ${presupuesto.direccionObraCalle}`);
 
-            // Eliminar el ID para que el backend cree un nuevo registro
-            delete presupuesto.id;
+            // 🔥 SOLUCIÓN CRÍTICA: Obtener presupuesto completo del backend primero
+            console.log('📥 Obteniendo presupuesto completo del backend...');
+            const presupuestoCompleto = await api.presupuestosNoCliente.getById(
+              presupuestoData.id,
+              empresaSeleccionada?.id
+            );
+            console.log('✅ Presupuesto completo obtenido');
 
-            // POST para crear nueva versión (historial de versiones)
-            await api.post('/api/v1/presupuestos-no-cliente', presupuesto);
-            setAsignarSuccess(`Nueva versión creada correctamente (Versión ${presupuesto.version})`);
+            // Hacer merge: todos los campos + cambios del usuario
+            const presupuestoFinal = {
+              ...presupuestoCompleto,  // ← Todos los campos del backend
+              ...presupuesto,          // ← Cambios del usuario
+              id: presupuestoData.id,  // ← Asegurar ID
+              version: presupuestoData.version || 1 // ← Mantener versión actual
+            };
+
+            console.log('📤 Enviando PUT con presupuesto completo');
+
+            // PUT para actualizar el presupuesto existente
+            await api.presupuestosNoCliente.update(presupuestoData.id, presupuestoFinal, empresaSeleccionada?.id);
+            setAsignarSuccess(`Presupuesto actualizado correctamente (Versión ${presupuestoFinal.version})`);
           } else {
-            // Si es completamente nuevo (primera vez para esta obra)
+            // ✨ CREAR: Si es completamente nuevo (primera vez para esta obra)
             presupuesto.version = presupuesto.version || 1;
             console.log('✨ Creando primer presupuesto, versión: 1');
 
@@ -1501,7 +1515,7 @@ const ProfesionalesObrasPage = () => {
           setPresupuestoData(null);
           setObraSeleccionada(null);
 
-          console.log('✅ Presupuesto guardado exitosamente con historial de versiones');
+          console.log('✅ Presupuesto guardado exitosamente');
         } catch (error) {
           console.error('❌ Error guardando presupuesto:', error);
 

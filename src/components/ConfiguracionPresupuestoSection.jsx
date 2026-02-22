@@ -430,6 +430,10 @@ const ConfiguracionPresupuestoSection = ({
   const setDescuentos = (updater) => {
     if (onDescuentosChange) {
       const nuevoValor = typeof updater === 'function' ? updater(descuentosActual) : updater;
+      console.log('💸 [DEBUG setDescuentos] Nuevo valor completo:', JSON.stringify(nuevoValor, null, 2));
+      console.log('💸 [DEBUG setDescuentos] jornales.valor:', nuevoValor.jornales?.valor);
+      console.log('💸 [DEBUG setDescuentos] materiales.valor:', nuevoValor.materiales?.valor);
+      console.log('💸 [DEBUG setDescuentos] mayoresCostos.valor:', nuevoValor.mayoresCostos?.valor);
       onDescuentosChange(nuevoValor);
     }
     setConfiguracionDescuentosAceptada(false);

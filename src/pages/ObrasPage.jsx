@@ -3862,11 +3862,26 @@ _Válido por 30 días_
         // EDITAR presupuesto existente (trabajo extra)
         console.log('✏️ Editando presupuesto trabajo extra ID:', trabajoExtraEditar.id);
         console.log('🔑 Empresa seleccionada ID:', empresaSeleccionada.id);
-        console.log('📤 Enviando PUT a /api/v1/presupuestos-no-cliente/' + trabajoExtraEditar.id);
 
+        // 🔥 SOLUCIÓN CRÍTICA: Obtener presupuesto completo del backend primero
+        console.log('📥 Obteniendo presupuesto completo del backend...');
+        const presupuestoCompleto = await api.presupuestosNoCliente.getById(
+          trabajoExtraEditar.id,
+          empresaSeleccionada.id
+        );
+        console.log('✅ Presupuesto completo obtenido');
+
+        // Hacer merge: todos los campos + cambios del usuario
+        const presupuestoFinal = {
+          ...presupuestoCompleto,  // ← Todos los campos del backend
+          ...presupuestoData,      // ← Cambios del usuario
+          id: trabajoExtraEditar.id // ← Asegurar ID
+        };
+
+        console.log('📤 Enviando PUT a /api/v1/presupuestos-no-cliente/' + trabajoExtraEditar.id);
         response = await api.presupuestosNoCliente.update(
           trabajoExtraEditar.id,
-          presupuestoData,
+          presupuestoFinal,
           empresaSeleccionada.id
         );
         console.log('✅ Presupuesto trabajo extra actualizado:', response);
@@ -5484,7 +5499,7 @@ _Válido por 30 días_
       // Cargar el presupuesto completo desde el backend
       const presupuestoCompleto = await api.presupuestosNoCliente.getById(presupuesto.id, empresaId);
 
-      //  Asegurar que incluye obraId y clienteId del contexto actual
+      // Asegurar que incluye obraId y clienteId del contexto actual
       // Usar valores de la obra actual si el presupuesto tiene NULL en BD
       const presupuestoConContexto = {
         ...presupuestoCompleto,
@@ -5492,30 +5507,12 @@ _Válido por 30 días_
         clienteId: presupuestoCompleto.clienteId || presupuestoCompleto.idCliente || obraParaPresupuestos?.idCliente || null
       };
 
-      console.log('📋 Presupuesto cargado con contexto:', {
-        id: presupuestoConContexto.id,
-        obraId: presupuestoConContexto.obraId,
-        clienteId: presupuestoConContexto.clienteId,
-        nombreObra: presupuestoConContexto.nombreObra,
-        DEBUG_presupuestoCompletoBD: {
-          obraId: presupuestoCompleto.obraId,
-          idObra: presupuestoCompleto.idObra,
-          clienteId: presupuestoCompleto.clienteId,
-          idCliente: presupuestoCompleto.idCliente
-        },
-        DEBUG_obraContexto: {
-          id: obraParaPresupuestos?.id,
-          idCliente: obraParaPresupuestos?.idCliente
-        }
-      });
+
 
       setPresupuestoParaEditar(presupuestoConContexto);
       setMostrarModalEditarPresupuesto(true);
     } catch (error) {
-      console.error(' Error completo al cargar presupuesto:', error);
-      console.error(' Error.message:', error.message);
-      console.error(' Error.response:', error.response);
-      console.error(' Error.status:', error.status);
+      console.error('❌ Error al cargar presupuesto:', error);
 
       let mensajeError = 'Error al cargar el presupuesto';
       if (error.response?.data?.mensaje) {
@@ -11586,8 +11583,40 @@ Gestionar Tareas Leves
                   return; // Salir sin cerrar el modal si hay error
                 }
               } else {
-                // Guardado normal (sin flag de editar solo fechas)
-                showNotification('✅ Presupuesto guardado exitosamente', 'success');
+                // Guardado normal (actualizar presupuesto completo)
+                console.log('💾 FLUJO GUARDADO NORMAL - Actualizando presupuesto completo...');
+
+                try {
+                  // 🔥 ACTUALIZADO: Ya NO crear nuevas versiones, siempre actualizar la existente
+                  // Esto mantiene consistencia y evita problemas de datos vacíos
+                  console.log('🔄 Actualizando presupuesto sin crear nueva versión...');
+                  await api.presupuestosNoCliente.update(presupuesto.id, presupuesto, empresaId);
+                  console.log(`✅ Presupuesto v${presupuesto.numeroVersion || presupuesto.version || 1} actualizado exitosamente`);
+
+                  showNotification('✅ Presupuesto guardado exitosamente - Todos los datos se mantuvieron', 'success');
+
+                  // 🔄 Recargar obras - Usar fetchObrasPorEmpresa en lugar de función no definida
+                  // await dispatch(fetchPresupuestosObras(empresaId)); // ❌ No existe
+                  await dispatch(fetchObrasPorEmpresa(empresaId));
+                  console.log('✅ Obras recargadas exitosamente');
+                } catch (error) {
+                  console.error('❌ Error guardando presupuesto:', error);
+                  console.error('❌ Error response:', error.response?.data);
+                  console.error('❌ Error status:', error.response?.status);
+                  console.error('❌ Error message:', error.message);
+
+                  let mensajeError = 'Error desconocido';
+                  if (error.response?.data?.mensaje) {
+                    mensajeError = error.response.data.mensaje;
+                  } else if (error.response?.data?.error) {
+                    mensajeError = error.response.data.error;
+                  } else if (error.message) {
+                    mensajeError = error.message;
+                  }
+
+                  showNotification(`❌ Error al guardar presupuesto: ${mensajeError}`, 'error');
+                  return; // Salir sin cerrar el modal si hay error
+                }
 
                 // 🏗️ AUTO-GENERAR OBRA SI ES TRABAJO EXTRA APROBADO
                 if (presupuesto.esPresupuestoTrabajoExtra && presupuesto.estado === 'APROBADO' && presupuesto.obraId) {
