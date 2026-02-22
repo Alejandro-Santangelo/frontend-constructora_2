@@ -21,6 +21,8 @@ import { getTipoProfesionalBadgeClass, ordenarPorRubro } from '../utils/badgeCol
 import { obtenerDistribucionPorObra } from '../services/cobrosEmpresaService';
 import { listarEntidadesFinancieras, obtenerEstadisticasMultiples } from '../services/entidadesFinancierasService';
 import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
+import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 const STORAGE_KEY = 'sistemaFinanciero_obraSeleccionada';
 
@@ -33,6 +35,37 @@ const formatearMoneda = (valor) => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(valor);
+};
+
+/**
+ * Función helper para obtener el total correcto de un presupuesto
+ * Prioriza totalConDescuentos si existe, sino lo calcula, sino usa totalPresupuestoConHonorarios
+ */
+const obtenerTotalPresupuesto = (presupuesto) => {
+  // Si ya tiene totalConDescuentos calculado, usarlo
+  if (presupuesto.totalConDescuentos != null && presupuesto.totalConDescuentos > 0) {
+    return presupuesto.totalConDescuentos;
+  }
+
+  // Si tiene items y configuración de descuentos, calcular
+  if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora) && presupuesto.itemsCalculadora.length > 0) {
+    try {
+      const resultado = calcularTotalConDescuentosDesdeItems(presupuesto.itemsCalculadora, presupuesto);
+      if (resultado.totalFinal > 0) {
+        console.log(`📊 Total calculado con descuentos para ${presupuesto.nombreObra}:`, {
+          totalSinDescuento: resultado.totalSinDescuento,
+          totalDescuentos: resultado.totalDescuentos,
+          totalFinal: resultado.totalFinal
+        });
+        return resultado.totalFinal;
+      }
+    } catch (error) {
+      console.warn(`⚠️ Error calculando descuentos para ${presupuesto.nombreObra}:`, error);
+    }
+  }
+
+  // Fallback a totalFinal o totalPresupuestoConHonorarios
+  return presupuesto.totalFinal || presupuesto.totalPresupuestoConHonorarios || presupuesto.montoTotal || 0;
 };
 
 /**
@@ -690,6 +723,95 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     }
   }, [obraSeleccionada]);
 
+  // 🆕 Calcular estadísticas personalizadas para obras seleccionadas (para el modal)
+  const estadisticasPersonalizadas = useMemo(() => {
+    const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
+    const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
+    const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
+    const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
+    const stats = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
+
+    if (!obrasDisponibles || obrasDisponibles.length === 0) {
+      return { ...stats };
+    }
+
+    const presupuestosUnicos = new Map();
+    const obrasIndependientes = new Map();
+    let totalTrabajosExtra = 0;
+    let totalTrabajosAdicionales = 0;
+    let cantidadObrasConPresupuesto = 0;
+    let cantidadObrasIndependientes = 0;
+
+    obrasDisponibles
+      .filter(o => obrasSeleccionadas.has(o.id))
+      .forEach(o => {
+        if (o.esObraIndependiente) {
+          if (!obrasIndependientes.has(o.id)) {
+            const monto = o.totalPresupuesto || 0;
+            obrasIndependientes.set(o.id, monto);
+            cantidadObrasIndependientes++;
+          }
+          return;
+        }
+
+        const idPresupuesto = o.presupuestoCompleto?.id ?? o.presupuestoNoClienteId ?? o.presupuestoNoCliente?.id;
+        if (!idPresupuesto) return;
+        if (!presupuestosUnicos.has(idPresupuesto)) {
+          const monto = o.totalPresupuesto || 0;
+          presupuestosUnicos.set(idPresupuesto, monto);
+          cantidadObrasConPresupuesto++;
+        }
+
+        if (o.trabajosExtra && o.trabajosExtra.length > 0) {
+          const trabajosExtraSeleccionadosDeEstaObra = o.trabajosExtra.filter(te =>
+            trabajosExtraSeleccionados.has(te.id)
+          );
+          const totalTE = trabajosExtraSeleccionadosDeEstaObra.reduce((sum, t) =>
+            sum + (t.totalCalculado || 0), 0
+          );
+          totalTrabajosExtra += totalTE;
+        }
+      });
+
+    const trabajosAdicionalesSeleccionadosArray = trabajosAdicionalesDisponibles
+      .filter(ta => trabajosAdicionalesSeleccionados.has(ta.id));
+    totalTrabajosAdicionales = trabajosAdicionalesSeleccionadosArray.reduce((sum, ta) => sum + (ta.importe || 0), 0);
+
+    const totalPresupuestos = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
+    const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
+    const totalPresupuestosPersonalizado = totalPresupuestos + totalIndependientes + totalTrabajosExtra + totalTrabajosAdicionales;
+
+    return {
+      totalPresupuesto: totalPresupuestosPersonalizado,
+      cantidadObras: cantidadObrasConPresupuesto + cantidadObrasIndependientes,
+      cantidadTrabajosExtra: trabajosExtraSeleccionados.size,
+      cantidadTrabajosAdicionales: trabajosAdicionalesSeleccionados.size,
+      cantidadObrasConPresupuesto,
+      cantidadObrasIndependientes,
+      // Mantener otros campos de stats para cobros, pagos, etc.
+      totalCobrado: stats?.totalCobrado || 0,
+      totalCobradoEmpresa: stats?.totalCobradoEmpresa || 0,
+      totalPagado: stats?.totalPagado || 0,
+      totalRetirado: stats?.totalRetirado || 0,
+      saldoDisponible: stats?.saldoDisponible || 0,
+      saldoCobradoSinAsignar: stats?.saldoCobradoSinAsignar || 0,
+      porcentajeCobrado: stats?.porcentajeCobrado || 0,
+      porcentajePagado: stats?.porcentajePagado || 0,
+      porcentajeDisponible: stats?.porcentajeDisponible || 0,
+      alertas: stats?.alertas || [],
+      desglosePorObra: stats?.desglosePorObra || []
+    };
+  }, [
+    obrasSeleccionadas,
+    obrasDisponibles,
+    trabajosExtraSeleccionados,
+    trabajosAdicionalesSeleccionados,
+    trabajosAdicionalesDisponibles,
+    loadingSeleccionadas,
+    estadisticasSeleccionadas,
+    estadisticasConsolidadas
+  ]);
+
   const handleSuccess = useCallback((data) => {
     setNotification({
       type: 'success',
@@ -944,6 +1066,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
         const version = p.numeroVersion || p.version || 0;
         if (!obrasPorObraId[obraId] || version > (obrasPorObraId[obraId].numeroVersion || 0)) {
+          // 🔍 Calcular total correcto considerando descuentos
+          const totalPresupuesto = obtenerTotalPresupuesto(p);
+
+          console.log(`💰 [${p.nombreObra}] Total calculado: $${totalPresupuesto.toLocaleString('es-AR')}`);
+
           obrasPorObraId[obraId] = {
             id: p.id, // El id es el del presupuesto más reciente
             obraId: obraId, // ✅ ID de la obra en tabla obras (para trabajos adicionales)
@@ -957,9 +1084,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             torre: p.direccionObraTorre || null,
             piso: p.direccionObraPiso || null,
             depto: p.direccionObraDepartamento || null,
-            totalPresupuesto: p.totalPresupuestoConHonorarios || p.montoTotal || 0,
-            cantidadSemanas: p.cantidadSemanas || p.cantidad_semanas || 0,
-            presupuestoCompleto: p,
+            totalPresupuesto: totalPresupuesto,
+            presupuestoCompleto: p, // ✅ Guardar presupuesto completo para el footer
             esObraIndependiente: false // Tiene presupuesto
           };
         }
@@ -1009,6 +1135,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
         const version = p.numeroVersion || p.version || 0;
         if (!trabajosExtraPorObraId[obraId] || version > (trabajosExtraPorObraId[obraId].numeroVersion || 0)) {
+          const totalPresupuesto = obtenerTotalPresupuesto(p);
+
           trabajosExtraPorObraId[obraId] = {
             id: p.id,
             obraId: obraId, // ✅ ID de la obra en tabla obras
@@ -1019,7 +1147,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             calle: p.direccionObraCalle || '',
             altura: p.direccionObraAltura || '',
             barrio: p.direccionObraBarrio || null,
-            totalPresupuesto: p.totalPresupuestoConHonorarios || p.totalFinal || p.montoTotal || p.total || 0,
+            totalPresupuesto: totalPresupuesto,
             presupuestoCompleto: p
           };
         }
@@ -1080,12 +1208,10 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           });
 
           const trabajosConTotal = trabajosDeEstaObra.map(te => {
-            const totalCalculado = parseFloat(te.totalPresupuesto)
-              || parseFloat(te.presupuestoCompleto?.totalPresupuestoConHonorarios)
-              || parseFloat(te.presupuestoCompleto?.totalFinal)
-              || parseFloat(te.presupuestoCompleto?.montoTotal)
-              || parseFloat(te.presupuestoCompleto?.total)
-              || 0;
+            // Usar función helper para calcular total correcto
+            const totalCalculado = te.presupuestoCompleto
+              ? obtenerTotalPresupuesto(te.presupuestoCompleto)
+              : (parseFloat(te.totalPresupuesto) || 0);
 
             return {
               id: te.id,
@@ -1156,6 +1282,124 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     cargarObras();
   }, [modoConsolidado, empresaSeleccionada]);
 
+  // 🔄 Event listener para refrescar obras cuando se actualiza un presupuesto
+  useEffect(() => {
+    const handlePresupuestoActualizado = (data) => {
+      console.log('🔄 Recibido evento PRESUPUESTO_ACTUALIZADO:', data);
+      // Solo refrescar si estamos en modo consolidado y tenemos empresa seleccionada
+      if (modoConsolidado && empresaSeleccionada) {
+        console.log('🔄 Refrescando obras por actualización de presupuesto...');
+
+        // Forzar recarga completa de obras
+        setTimeout(async () => {
+          try {
+            setLoadingObras(true);
+
+            const obrasResponse = await apiService.obras.getPorEmpresa(empresaSeleccionada.id);
+            const todasLasObras = Array.isArray(obrasResponse) ? obrasResponse : (obrasResponse?.datos || obrasResponse?.content || []);
+            const obrasActivas = todasLasObras.filter(o =>
+              (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') && o.estado !== 'CANCELADO'
+            );
+
+            const response = await apiService.presupuestosNoCliente.getAll(empresaSeleccionada.id);
+            const extractData = (response) => {
+              if (Array.isArray(response)) return response;
+              if (response?.datos && Array.isArray(response.datos)) return response.datos;
+              if (response?.content && Array.isArray(response.content)) return response.content;
+              if (response?.data && Array.isArray(response.data)) return response.data;
+              return [];
+            };
+
+            const todosPresupuestos = extractData(response).filter(p => p.estado !== 'CANCELADO');
+            const presupuestosNormales = todosPresupuestos.filter(p => {
+              const esTE = p.esPresupuestoTrabajoExtra === true ||
+                           p.esPresupuestoTrabajoExtra === 'V' ||
+                           p.es_obra_trabajo_extra === true;
+              return !esTE;
+            });
+
+            const obrasPorObraId = {};
+            presupuestosNormales.forEach(p => {
+              const obraId = p.obraId || p.direccionObraId;
+              if (!obraId) return;
+
+              const version = p.numeroVersion || p.version || 0;
+              if (!obrasPorObraId[obraId] || version > (obrasPorObraId[obraId].numeroVersion || 0)) {
+                const totalPresupuesto = obtenerTotalPresupuesto(p);
+
+                obrasPorObraId[obraId] = {
+                  id: p.id,
+                  obraId: obraId,
+                  nombreObra: p.nombreObra || `${p.direccionObraCalle} ${p.direccionObraAltura}`,
+                  numeroPresupuesto: p.numeroPresupuesto,
+                  numeroVersion: version,
+                  estado: p.estado,
+                  calle: p.direccionObraCalle || '',
+                  altura: p.direccionObraAltura || '',
+                  barrio: p.direccionObraBarrio || null,
+                  torre: p.direccionObraTorre || null,
+                  piso: p.direccionObraPiso || null,
+                  depto: p.direccionObraDepartamento || null,
+                  totalPresupuesto: totalPresupuesto,
+                  cantidadSemanas: p.cantidadSemanas || p.cantidad_semanas || 0,
+                  presupuestoCompleto: p,
+                  esObraIndependiente: false
+                };
+              }
+            });
+
+            // Agregar obras independientes
+            obrasActivas.forEach(obra => {
+              if (obrasPorObraId[obra.id]) return;
+
+              const tienePresupuesto = obra.presupuestoNoClienteId ||
+                                      (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+              if (tienePresupuesto) return;
+
+              obrasPorObraId[obra.id] = {
+                id: obra.id,
+                obraId: obra.id,
+                nombreObra: obra.nombre || `${obra.direccionObraCalle} ${obra.direccionObraAltura}`,
+                numeroPresupuesto: null,
+                numeroVersion: null,
+                estado: obra.estado,
+                calle: obra.direccionObraCalle || '',
+                altura: obra.direccionObraAltura || '',
+                barrio: obra.direccionObraBarrio || null,
+                torre: obra.direccionObraTorre || null,
+                piso: obra.direccionObraPiso || null,
+                depto: obra.direccionObraDepartamento || null,
+                totalPresupuesto: obra.presupuestoEstimado || 0,
+                cantidadSemanas: 0,
+                presupuestoCompleto: null,
+                esObraIndependiente: true
+              };
+            });
+
+            const obrasNormales = Object.values(obrasPorObraId);
+            setObrasDisponibles(obrasNormales);
+
+            setNotification({
+              type: 'success',
+              message: '✅ Datos actualizados por cambio en presupuesto'
+            });
+            setTimeout(() => setNotification(null), 3000);
+          } catch (error) {
+            console.error('❌ Error refrescando obras por actualización de presupuesto:', error);
+          } finally {
+            setLoadingObras(false);
+          }
+        }, 1000); // Delay de 1 segundo para asegurar sincronización
+      }
+    };
+
+    // Suscribirse al evento
+    const unsubscribe = eventBus.on(FINANCIAL_EVENTS.PRESUPUESTO_ACTUALIZADO, handlePresupuestoActualizado);
+
+    // Cleanup
+    return unsubscribe;
+  }, [modoConsolidado, empresaSeleccionada]);
+
   // 🆕 Cargar trabajos adicionales cuando cambia la empresa
   useEffect(() => {
     const cargarTrabajosAdicionales = async () => {
@@ -1217,6 +1461,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             const version = p.numeroVersion || p.version || 0;
 
             if (!obrasPorNombre[nombreObra] || version > (obrasPorNombre[nombreObra].numeroVersion || 0)) {
+              const totalPresupuesto = obtenerTotalPresupuesto(p);
+
               obrasPorNombre[nombreObra] = {
                 id: p.id,
                 nombreObra: nombreObra,
@@ -1229,7 +1475,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                 torre: p.direccionObraTorre || null,
                 piso: p.direccionObraPiso || null,
                 depto: p.direccionObraDepartamento || null,
-                totalPresupuesto: p.totalPresupuestoConHonorarios || p.montoTotal || 0,
+                totalPresupuesto: totalPresupuesto,
                 cantidadSemanas: p.cantidadSemanas || p.cantidad_semanas || 0,
                 presupuestoCompleto: p
               };
@@ -1644,14 +1890,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     : null;
 
                   const presupuestoBase = esObraPrincipal
-                    ? (item.presupuestoCompleto?.totalPresupuestoConHonorarios
-                      ?? item.presupuestoCompleto?.totalFinal
-                      ?? item.presupuestoCompleto?.montoTotal
-                      ?? item.totalPresupuestoConHonorarios
-                      ?? item.totalFinal
-                      ?? item.montoTotal
-                      ?? item.totalPresupuesto
-                      ?? 0)
+                    ? (item.totalPresupuesto || 0) // ✅ Usar totalPresupuesto que ya tiene descuentos calculados
                     : (item.totalCalculado || 0);
 
                   // 🎨 Determinar información de grupo para estilos visuales
@@ -1910,7 +2149,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         let totalTrabajosExtra = 0;
                         let totalTrabajosAdicionales = 0;
 
+                        // 🔧 Filtrar igual que la tabla: sin trabajos extra, sin cancelados
                         obrasDisponibles
+                          .filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO')
                           .filter(o => obrasSeleccionadas.has(o.id))
                           .forEach(o => {
                             // ✅ Verificar si es obra independiente
@@ -1930,16 +2171,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               ?? o.presupuestoNoCliente?.id;
                             if (!idPresupuesto) return;
                             if (!presupuestosUnicos.has(idPresupuesto)) {
-                              const monto = (
-                                o.presupuestoCompleto?.totalPresupuestoConHonorarios
-                                ?? o.presupuestoCompleto?.totalFinal
-                                ?? o.presupuestoCompleto?.montoTotal
-                                ?? o.totalPresupuestoConHonorarios
-                                ?? o.totalFinal
-                                ?? o.montoTotal
-                                ?? o.totalPresupuesto
-                                ?? 0
-                              );
+                              // ✅ USAR totalPresupuesto que ya incluye descuentos calculados
+                              const monto = o.totalPresupuesto || 0;
                               presupuestosUnicos.set(idPresupuesto, monto);
                               debugRows.push(`${idPresupuesto}: $${monto.toLocaleString()}`);
                             }
@@ -2333,105 +2566,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   const loading = usarSeleccionadas ? loadingSeleccionadas : loadingConsolidadas;
                   const error = usarSeleccionadas ? errorSeleccionadas : errorConsolidadas;
 
-                  console.log('🔍 [Render] Estadísticas:', {
-                    obrasSeleccionadas: obrasSeleccionadas.size,
-                    obrasDisponibles: obrasDisponibles.length,
-                    usarSeleccionadas,
-                    loading,
-                    'estadisticasConsolidadas.totalPagado': estadisticasConsolidadas?.totalPagado,
-                    'estadisticasSeleccionadas.totalPagado': estadisticasSeleccionadas?.totalPagado,
-                    'stats.totalPagado (elegido)': stats?.totalPagado,
-                    'stats.totalPresupuesto': stats?.totalPresupuesto,
-                    'stats.totalCobrado': stats?.totalCobrado,
-                    'stats.totalCobradoEmpresa': stats?.totalCobradoEmpresa,
-                    'stats.saldoDisponible': stats?.saldoDisponible,
-                    'stats.saldoCobradoSinAsignar': stats?.saldoCobradoSinAsignar,
-                    'stats.desglosePorObra': stats?.desglosePorObra,
-                    'desglosePorObra.length': stats?.desglosePorObra?.length
-                  });
-
-                  // 🆕 Calcular estadísticas basadas en checkboxes individuales
-                  const statsPersonalizadas = (() => {
-                    if (!obrasDisponibles || obrasDisponibles.length === 0) {
-                      return { ...stats };
-                    }
-
-                    const presupuestosUnicos = new Map();
-                    const obrasIndependientes = new Map(); // ✅ Para obras sin presupuesto
-                    let totalTrabajosExtra = 0;
-                    let totalTrabajosAdicionales = 0;
-                    let cantidadObrasConPresupuesto = 0;
-                    let cantidadObrasIndependientes = 0;
-
-                    // Filtrar obras seleccionadas con checkbox
-                    obrasDisponibles
-                      .filter(o => obrasSeleccionadas.has(o.id))
-                      .forEach(o => {
-                        // ✅ Verificar si es obra independiente
-                        if (o.esObraIndependiente) {
-                          if (!obrasIndependientes.has(o.id)) {
-                            const monto = o.totalPresupuesto || 0;
-                            obrasIndependientes.set(o.id, monto);
-                            cantidadObrasIndependientes++;
-                          }
-                          return; // No tiene trabajos extra ni presupuesto detallado
-                        }
-
-                        // Obras con presupuesto (lógica existente)
-                        const idPresupuesto = o.presupuestoCompleto?.id
-                          ?? o.presupuestoNoClienteId
-                          ?? o.presupuestoNoCliente?.id;
-
-                        if (!idPresupuesto) return;
-
-                        if (!presupuestosUnicos.has(idPresupuesto)) {
-                          const monto = (
-                            o.presupuestoCompleto?.totalPresupuestoConHonorarios
-                            ?? o.presupuestoCompleto?.totalFinal
-                            ?? o.presupuestoCompleto?.montoTotal
-                            ?? o.totalPresupuestoConHonorarios
-                            ?? o.totalFinal
-                            ?? o.montoTotal
-                            ?? o.totalPresupuesto
-                            ?? 0
-                          );
-                          presupuestosUnicos.set(idPresupuesto, monto);
-                          cantidadObrasConPresupuesto++;
-                        }
-
-                        // Solo sumar trabajos extra que estén seleccionados con checkbox
-                        if (o.trabajosExtra && o.trabajosExtra.length > 0) {
-                          const trabajosExtraSeleccionadosDeEstaObra = o.trabajosExtra.filter(te =>
-                            trabajosExtraSeleccionados.has(te.id)
-                          );
-                          const totalTE = trabajosExtraSeleccionadosDeEstaObra.reduce((sum, t) =>
-                            sum + (t.totalCalculado || 0), 0
-                          );
-                          totalTrabajosExtra += totalTE;
-                        }
-                      });
-
-                    // Sumar trabajos adicionales seleccionados
-                    const trabajosAdicionalesSeleccionadosArray = trabajosAdicionalesDisponibles
-                      .filter(ta => trabajosAdicionalesSeleccionados.has(ta.id));
-                    totalTrabajosAdicionales = trabajosAdicionalesSeleccionadosArray.reduce((sum, ta) => sum + (ta.importe || 0), 0);
-
-                    // ✅ Calcular totales
-                    const totalPresupuestos = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
-                    const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
-                    const totalPresupuestoPersonalizado = totalPresupuestos + totalIndependientes + totalTrabajosExtra + totalTrabajosAdicionales;
-
-                    return {
-                      ...stats,
-                      totalPresupuesto: totalPresupuestoPersonalizado,
-                      cantidadObras: cantidadObrasConPresupuesto + cantidadObrasIndependientes, // Total de obras
-                      cantidadObrasConPresupuesto, // ✅ Separar por tipo
-                      cantidadObrasIndependientes // ✅ Separar por tipo
-                    };
-                  })();
-
-                  // Usar estadísticas personalizadas en lugar de stats
-                  const statsFinales = statsPersonalizadas;
+                  // Usar estadísticas personalizadas calculadas en useMemo
+                  const statsFinales = estadisticasPersonalizadas;
 
                   if (loading) {
                     return (
@@ -2470,11 +2606,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <i className="bi bi-cash-stack fs-1 text-info"></i>
                             <h6 className="text-muted mt-2 mb-1">Total Presupuestado</h6>
                             <h4 className="text-info mb-0">
-                              {(() => {
-                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor totalPresupuesto recibido:', statsFinales.totalPresupuesto);
-                                console.log('🔍 DIAGNÓSTICO TARJETA - Valor formateado:', formatearMoneda(statsFinales.totalPresupuesto));
-                                return formatearMoneda(statsFinales.totalPresupuesto);
-                              })()}
+                              {formatearMoneda(statsFinales.totalPresupuesto)}
                             </h4>
                             <small className="text-muted">
                               De {statsFinales.cantidadObras} obra(s)
@@ -2646,8 +2778,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         </div>
                       </div>
 
-                      {/* Alertas Financieras */}
-                      {statsFinales.alertas && statsFinales.alertas.length > 0 && (
+                      {/* COMENTADO: Sección de Alertas Financieras */}
+                      {/* {statsFinales.alertas && statsFinales.alertas.length > 0 && (
                         <div className="mt-4">
                           <h6 className="text-muted mb-3">
                             <i className="bi bi-bell-fill me-2"></i>
@@ -2684,7 +2816,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <strong>Todo en orden:</strong> No hay alertas financieras en este momento
                           </p>
                         </div>
-                      )}
+                      )} */}
 
                       {/* Top 10 Obras por Presupuesto */}
                       {(() => {
@@ -3087,6 +3219,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         show={showConsolidarPagosGeneral}
         onHide={() => setShowConsolidarPagosGeneral(false)}
         onSuccess={handleSuccess}
+        refreshTrigger={refreshTrigger}
+        estadisticasExternas={estadisticasPersonalizadas}
       />
 
       {/* Modal de Lista de Presupuestos APROBADOS */}

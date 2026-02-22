@@ -23,7 +23,7 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
     try {
       setLoading(true);
       setError('');
-      
+
       const [respAprobado, respEnEjecucion] = await Promise.all([
         apiService.presupuestosNoCliente.busquedaAvanzada({ estado: 'APROBADO' }, empresaSeleccionada.id),
         apiService.presupuestosNoCliente.busquedaAvanzada({ estado: 'EN_EJECUCION' }, empresaSeleccionada.id)
@@ -102,9 +102,14 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
           });
         }
 
-        // Otros costos
+        // Otros costos (filtrar presupuestos globales que no son gastos reales)
         if (presupuesto.otrosCostos?.length > 0) {
           presupuesto.otrosCostos.forEach(costo => {
+            // ✅ Excluir "Presupuesto Global Gastos Grales." - son fondos asignados, no gastos a pagar
+            if (costo.descripcion && costo.descripcion.includes('Presupuesto Global Gastos Grales.')) {
+              return; // No agregar a la lista de pagos
+            }
+
             todosOtrosCostos.push({
               ...costo,
               obra: obraInfo,
@@ -118,7 +123,7 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
       setProfesionales(todosProfesionales);
       setMateriales(todosMateriales);
       setOtrosCostos(todosOtrosCostos);
-      
+
     } catch (err) {
       console.error('Error cargando datos:', err);
       setError('Error al cargar datos de las obras');
@@ -159,7 +164,7 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
       alert('No hay items seleccionados');
       return;
     }
-    
+
     if (window.confirm(`¿Confirmar pago de $${total.toLocaleString('es-AR')} a ${seleccionados.length} items seleccionados?`)) {
       // Aquí iría la lógica de pago
       onSuccess?.({ mensaje: `Pago consolidado de $${total.toLocaleString('es-AR')} registrado exitosamente` });
@@ -185,7 +190,7 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
               Cerrar
             </button>
           </div>
-          
+
           <div className="modal-body">
             {error && (
               <div className="alert alert-danger">
@@ -204,22 +209,22 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
                 {/* Selector de tipo */}
                 <div className="mb-3">
                   <div className="btn-group w-100" role="group">
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       className={`btn ${tipoGasto === 'profesionales' ? 'btn-primary' : 'btn-outline-primary'}`}
                       onClick={() => { setTipoGasto('profesionales'); setSeleccionados([]); }}
                     >
                       👷 Profesionales ({profesionales.length})
                     </button>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       className={`btn ${tipoGasto === 'materiales' ? 'btn-success' : 'btn-outline-success'}`}
                       onClick={() => { setTipoGasto('materiales'); setSeleccionados([]); }}
                     >
                       🧱 Materiales ({materiales.length})
                     </button>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       className={`btn ${tipoGasto === 'otros' ? 'btn-warning' : 'btn-outline-warning'}`}
                       onClick={() => { setTipoGasto('otros'); setSeleccionados([]); }}
                     >
@@ -237,7 +242,7 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
                     ❌ Deseleccionar Todos
                   </button>
                   <div className="ms-auto">
-                    <strong>Seleccionados:</strong> {seleccionados.length} | 
+                    <strong>Seleccionados:</strong> {seleccionados.length} |
                     <strong className="ms-2">Total:</strong> ${calcularTotalSeleccionado().toLocaleString('es-AR')}
                   </div>
                 </div>
@@ -248,8 +253,8 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
                     <thead className="table-dark sticky-top">
                       <tr>
                         <th style={{ width: '40px' }}>
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             checked={seleccionados.length === itemsActuales.length && itemsActuales.length > 0}
                             onChange={e => e.target.checked ? handleSeleccionarTodos() : handleDeseleccionarTodos()}
                           />
@@ -265,17 +270,17 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
                       {(tipoGasto === 'profesionales' ? ordenarPorRubro(itemsActuales) : itemsActuales).map((item, idx) => {
                         const id = `${item.presupuestoId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`;
                         const isSelected = seleccionados.includes(id);
-                        
+
                         return (
-                          <tr 
-                            key={idx} 
+                          <tr
+                            key={idx}
                             className={isSelected ? 'table-primary' : ''}
                             style={{ cursor: 'pointer' }}
                             onClick={() => handleToggleSeleccion(item)}
                           >
                             <td>
-                              <input 
-                                type="checkbox" 
+                              <input
+                                type="checkbox"
                                 checked={isSelected}
                                 onChange={() => {}}
                               />
@@ -317,8 +322,8 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
             <button className="btn btn-secondary" onClick={onHide}>
               Cerrar
             </button>
-            <button 
-              className="btn btn-success" 
+            <button
+              className="btn btn-success"
               onClick={handlePagarSeleccionados}
               disabled={seleccionados.length === 0}
             >

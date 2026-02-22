@@ -146,7 +146,9 @@ const ObrasPage = ({ showNotification }) => {
       fechaInicio: '',
       fechaFinEstimada: null,
       jornalesTotales: 0,
-      presupuestoSeleccionado: null
+      presupuestoSeleccionado: null,
+      fechaProbableInicioInput: '',
+      modalVisible: false
     });
 
     // Estado para forzar re-render cuando cambia configuración desde BD
@@ -5812,29 +5814,73 @@ _Válido por 30 días_
     }
   };
 
-  const handleGuardarConfiguracionObra = () => {
-    // ✅ VALIDACIÓN: Verificar que el presupuesto tiene fechas configuradas
-    if (!configuracionObra.presupuestoSeleccionado?.fechaProbableInicio) {
-      showNotification('❌ El presupuesto debe tener una fecha probable de inicio configurada', 'error');
+  const handleGuardarConfiguracionObra = async () => {
+    // ✅ OBTENER fecha probable de inicio (desde presupuesto o input)
+    const fechaProbableInicio = configuracionObra.presupuestoSeleccionado?.fechaProbableInicio ||
+                                configuracionObra.fechaProbableInicioInput;
+
+    // ✅ VALIDACIÓN: Verificar que hay fecha probable de inicio configurada o ingresada
+    if (!fechaProbableInicio || fechaProbableInicio.trim() === '') {
+      showNotification('❌ Debes configurar una fecha probable de inicio para continuar', 'error');
       return;
     }
 
-    if (!configuracionObra.diasHabiles || configuracionObra.diasHabiles <= 0) {
-      showNotification('❌ El presupuesto debe tener días hábiles configurados (tiempoEstimadoTerminacion)', 'error');
+    // Usar días hábiles ingresados por el usuario o del presupuesto como fallback
+    const diasHabiles = configuracionObra.diasHabiles && configuracionObra.diasHabiles > 0
+      ? parseInt(configuracionObra.diasHabiles)
+      : configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion;
+
+    if (!diasHabiles || diasHabiles <= 0) {
+      showNotification('❌ Debes configurar los días hábiles para la obra', 'error');
       return;
     }
 
-    if (!configuracionObra.semanasObjetivo || configuracionObra.semanasObjetivo <= 0) {
-      showNotification('Por favor ingresa un número de semanas válido', 'warning');
-      return;
+    // 🆕 SI se ingresó una nueva fecha o nuevos días hábiles, actualizar el presupuestoNoCliente
+    if ((configuracionObra.fechaProbableInicioInput &&
+         configuracionObra.fechaProbableInicioInput !== configuracionObra.presupuestoSeleccionado?.fechaProbableInicio) ||
+        (configuracionObra.diasHabiles && parseInt(configuracionObra.diasHabiles) !== configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion)) {
+
+      console.log('🔄 Actualizando presupuesto con configuración del usuario:', {
+        presupuestoId: configuracionObra.presupuestoSeleccionado?.id,
+        fechaAnterior: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio,
+        fechaNueva: configuracionObra.fechaProbableInicioInput || configuracionObra.presupuestoSeleccionado?.fechaProbableInicio,
+        diasHabilesAnterior: configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion,
+        diasHabilesNuevo: diasHabiles
+      });
+
+      try {
+        await api.presupuestosNoCliente.actualizarSoloFechas(
+          configuracionObra.presupuestoSeleccionado.id,
+          {
+            fechaProbableInicio: configuracionObra.fechaProbableInicioInput || configuracionObra.presupuestoSeleccionado?.fechaProbableInicio,
+            tiempoEstimadoTerminacion: diasHabiles
+          },
+          empresaId
+        );
+
+        // Actualizar configuración local
+        setConfiguracionObra(prev => ({
+          ...prev,
+          presupuestoSeleccionado: {
+            ...prev.presupuestoSeleccionado,
+            fechaProbableInicio: configuracionObra.fechaProbableInicioInput || prev.presupuestoSeleccionado?.fechaProbableInicio,
+            tiempoEstimadoTerminacion: diasHabiles
+          }
+        }));
+
+        showNotification('✅ Presupuesto actualizado con la nueva planificación', 'success');
+      } catch (error) {
+        console.error('Error al actualizar presupuesto:', error);
+        showNotification('⚠️ Error al actualizar el presupuesto', 'warning');
+        // Continuar con el guardado de configuración aunque falle la actualización del presupuesto
+      }
     }
 
-    const semanas = parseInt(configuracionObra.semanasObjetivo);
-    // 🔥 USAR días hábiles del presupuesto, NO semanas×5
-    const diasHabiles = configuracionObra.diasHabiles || configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion || (semanas * 5);
+    // Usar directamente los valores calculados
+    const semanasCalculadas = Math.ceil(diasHabiles / 5); // Solo para cálculos internos
 
     // 🆕 Calcular capacidad necesaria desde el presupuesto (igual que en handleConfigurarObra)
-    let capacidadNecesaria = configuracionObra.capacidadNecesaria || 0;
+    let capacidadNecesaria = 0;
 
     // Si no está calculado, intentar calcularlo desde el presupuesto
     if (capacidadNecesaria === 0 && configuracionObra.presupuestoSeleccionado?.itemsCalculadora) {
@@ -5871,7 +5917,7 @@ _Válido por 30 días_
         fechaInicio: configuracionObra.fechaInicio,
         fechaInicioStr: fechaFinEstimada.toLocaleDateString('es-AR'),
         diasHabiles,
-        semanas
+        semanasCalculadas
       });
 
       // Sumar días hasta alcanzar los días hábiles necesarios (considerando feriados)
@@ -5892,7 +5938,7 @@ _Válido por 30 días_
 
     const nuevaConfiguracion = {
       ...configuracionObra,
-      semanasObjetivo: semanas,
+      semanasObjetivo: semanasCalculadas,
       diasHabiles,
       capacidadNecesaria,
       fechaFinEstimada
@@ -5974,7 +6020,21 @@ _Válido por 30 días_
     });
 
     setMostrarModalConfiguracionObra(false);
-    showNotification(`✅ Configuración guardada: ${semanas} semanas (${diasHabiles} días hábiles, ${capacidadNecesaria} jornales/día)`, 'success');
+
+    // Resetear configuración después de guardar exitosamente
+    setConfiguracionObra({
+      semanasObjetivo: '',
+      diasHabiles: 0,
+      capacidadNecesaria: 0,
+      fechaInicio: '',
+      fechaFinEstimada: null,
+      jornalesTotales: 0,
+      presupuestoSeleccionado: null,
+      fechaProbableInicioInput: '',
+      modalVisible: false
+    });
+
+    showNotification(`✅ Planificación confirmada: ${diasHabiles} días hábiles (${semanasCalculadas} semanas, ${capacidadNecesaria} jornales/día)`, 'success');
 
     console.log('💾 Configuración guardada:', nuevaConfiguracion);
   };
@@ -12106,6 +12166,18 @@ Gestionar Tareas Leves
                   onClick={() => {
                     setMostrarModalConfiguracionObra(false);
                     setObraParaConfigurar(null);
+                    // Resetear configuración cuando se cierre el modal
+                    setConfiguracionObra({
+                      semanasObjetivo: '',
+                      diasHabiles: 0,
+                      capacidadNecesaria: 0,
+                      fechaInicio: '',
+                      fechaFinEstimada: null,
+                      jornalesTotales: 0,
+                      presupuestoSeleccionado: null,
+                      fechaProbableInicioInput: '',
+                      modalVisible: false
+                    });
                   }}
                 ></button>
               </div>
@@ -12147,65 +12219,85 @@ Gestionar Tareas Leves
                   </ul>
                 </div>
 
+                {/* Campo para editar fecha probable de inicio */}
+                {(!configuracionObra.presupuestoSeleccionado?.fechaProbableInicio || configuracionObra.presupuestoSeleccionado?.fechaProbableInicio === '') && (
+                  <div className="alert alert-warning">
+                    <h6 className="text-warning mb-2">
+                      <i className="fas fa-exclamation-triangle me-2"></i>
+                      Configurar Fecha de Inicio
+                    </h6>
+                    <p className="mb-2">El presupuesto no tiene fecha probable de inicio. Configúrala para continuar:</p>
+                    <div className="row">
+                      <div className="col-md-6">
+                        <label className="form-label">
+                          <i className="fas fa-calendar-alt me-2"></i>
+                          Fecha probable de inicio
+                        </label>
+                        <input
+                          type="date"
+                          className="form-control"
+                          value={configuracionObra.fechaProbableInicioInput || ''}
+                          onChange={(e) => setConfiguracionObra(prev => ({
+                            ...prev,
+                            fechaProbableInicioInput: e.target.value
+                          }))}
+                        />
+                        <small className="text-muted">Esta fecha se guardará en el presupuesto</small>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Configuración de duración de la obra */}
                 <div className="row g-3">
                   <div className="col-md-6">
                     <label className="form-label">
-                      <i className="fas fa-calendar-week me-2"></i>
-                      ¿En cuántas semanas quieres terminar la obra?
-                    </label>
-                    <input
-                      type="number"
-                      className="form-control mb-2"
-                      min="1"
-                      placeholder="Ej: 8 semanas"
-                      value={configuracionObra.semanasObjetivo}
-                      onChange={(e) => setConfiguracionObra(prev => ({
-                        ...prev,
-                        semanasObjetivo: e.target.value
-                      }))}
-                    />
-                    <label className="form-label mt-2">
                       <i className="fas fa-calendar-day me-2"></i>
-                      ¿Cuántos días hábiles necesitas?
+                      Días hábiles para finalizar la obra
                     </label>
                     <input
                       type="number"
                       className="form-control"
                       min="1"
                       placeholder="Ej: 20 días hábiles"
-                      value={configuracionObra.diasHabiles}
+                      value={configuracionObra.diasHabiles > 0 ? configuracionObra.diasHabiles : ''}
                       onChange={(e) => setConfiguracionObra(prev => ({
                         ...prev,
-                        diasHabiles: e.target.value
+                        diasHabiles: e.target.value ? parseInt(e.target.value) || 0 : 0
                       }))}
                     />
-                    <small className="text-muted form-text">
-                      El presupuesto requiere {configuracionObra.diasHabiles || 0} días hábiles de trabajo
-                    </small>
-                    {configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion && configuracionObra.semanasObjetivo && (
-                      <small className="text-success form-text d-block mt-1">
+                    {configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion && (
+                      <small className="text-info form-text">
                         <i className="fas fa-info-circle me-1"></i>
-                        Calculado automáticamente desde el presupuesto ({configuracionObra.presupuestoSeleccionado.tiempoEstimadoTerminacion} días hábiles). Puedes editarlo si lo necesitas.
+                        El presupuesto estima {configuracionObra.presupuestoSeleccionado.tiempoEstimadoTerminacion} días hábiles. Puedes ajustarlo según las condiciones reales.
                       </small>
                     )}
                   </div>
 
-                  {configuracionObra.semanasObjetivo && (
+                  {configuracionObra.diasHabiles > 0 && (
                     <div className="col-md-6">
                       <label className="form-label text-success">
                         <i className="fas fa-calculator me-2"></i>
-                        Cálculos automáticos
+                        Resumen de planificación
                       </label>
                       <div className="bg-light p-3 rounded">
                         <div className="row text-center">
-                          {/* Eliminado: Jornales/día necesarios */}
-                          <div className="col-6">
-                            <div className="h6 text-info mb-0">{configuracionObra.diasHabiles || 0}</div>
+                          <div className="col-4">
+                            <div className="h6 text-primary mb-0">{configuracionObra.diasHabiles}</div>
                             <small className="text-muted">Días hábiles</small>
                           </div>
-                          <div className="col-6">
-                            <div className="h6 text-success mb-0">{configuracionObra.semanasObjetivo}</div>
-                            <small className="text-muted">Semanas</small>
+                          <div className="col-4">
+                            <div className="h6 text-info mb-0">{Math.ceil(configuracionObra.diasHabiles / 5)}</div>
+                            <small className="text-muted">Semanas aprox.</small>
+                          </div>
+                          <div className="col-4">
+                            <div className="h6 text-success mb-0">
+                              {configuracionObra.jornalesTotales > 0 ?
+                                Math.ceil(configuracionObra.jornalesTotales / configuracionObra.diasHabiles) :
+                                0
+                              }
+                            </div>
+                            <small className="text-muted">Trabajadores/día</small>
                           </div>
                         </div>
                       </div>
@@ -12213,13 +12305,16 @@ Gestionar Tareas Leves
                   )}
                 </div>
 
-                {configuracionObra.semanasObjetivo && (
+                {/* Resumen automático basado en el presupuesto */}
+                {configuracionObra.diasHabiles > 0 && (
                   <div className="alert alert-success mt-3">
-                    <strong>✅ Configuración prevista:</strong>
+                    <strong>✅ Configuración de obra:</strong>
                     <ul className="mb-0 mt-2">
-                      <li><strong>{configuracionObra.semanasObjetivo} semanas</strong> de plazo calendario</li>
-                      <li><strong>{configuracionObra.diasHabiles || 0} días hábiles</strong> de trabajo efectivo</li>
-                      <li><strong>{configuracionObra.capacidadNecesaria || 0} trabajadores/día</strong> promedio necesarios</li>
+                      <li><strong>{configuracionObra.diasHabiles} días hábiles</strong> de trabajo efectivo</li>
+                      <li><strong>{Math.ceil(configuracionObra.diasHabiles / 5)} semanas</strong> aproximadas de duración</li>
+                      {configuracionObra.jornalesTotales > 0 && (
+                        <li><strong>{Math.ceil(configuracionObra.jornalesTotales / configuracionObra.diasHabiles)} trabajadores/día</strong> promedio necesarios</li>
+                      )}
                     </ul>
                   </div>
                 )}
@@ -12231,6 +12326,18 @@ Gestionar Tareas Leves
                   onClick={() => {
                     setMostrarModalConfiguracionObra(false);
                     setObraParaConfigurar(null);
+                    // Resetear configuración cuando se cancele
+                    setConfiguracionObra({
+                      semanasObjetivo: '',
+                      diasHabiles: 0,
+                      capacidadNecesaria: 0,
+                      fechaInicio: '',
+                      fechaFinEstimada: null,
+                      jornalesTotales: 0,
+                      presupuestoSeleccionado: null,
+                      fechaProbableInicioInput: '',
+                      modalVisible: false
+                    });
                   }}
                 >
                   <i className="fas fa-times me-2"></i>
@@ -12240,10 +12347,14 @@ Gestionar Tareas Leves
                   type="button"
                   className="btn btn-primary"
                   onClick={handleGuardarConfiguracionObra}
-                  disabled={!configuracionObra.semanasObjetivo || configuracionObra.semanasObjetivo <= 0}
+                  disabled={
+                    (!configuracionObra.presupuestoSeleccionado?.fechaProbableInicio && !configuracionObra.fechaProbableInicioInput) ||
+                    !configuracionObra.diasHabiles ||
+                    configuracionObra.diasHabiles <= 0
+                  }
                 >
                   <i className="fas fa-save me-2"></i>
-                  Guardar Configuración
+                  Confirmar Planificación
                 </button>
               </div>
             </div>

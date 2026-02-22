@@ -793,7 +793,7 @@ const RegistrarPagoConsolidadoModal = ({
       const otrosCostosArray = presupuestosUnicos.flatMap((presupuesto) => {
         const gastosGenerales = [];
 
-        // Extraer gastos generales de itemsCalculadora
+        // Extraer gastos generales de itemsCalculadora (filtrar presupuestos globales)
         if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
           presupuesto.itemsCalculadora.forEach(item => {
             if (item.gastosGenerales && Array.isArray(item.gastosGenerales)) {
@@ -804,7 +804,11 @@ const RegistrarPagoConsolidadoModal = ({
                   propiedades: Object.keys(item.gastosGenerales[0])
                 });
               }
-              gastosGenerales.push(...item.gastosGenerales.map(g => ({
+              // ✅ Filtrar gastos que son presupuestos globales (no son gastos reales a pagar)
+              const gastosReales = item.gastosGenerales.filter(g =>
+                !g.descripcion || !g.descripcion.includes('Presupuesto Global Gastos Grales.')
+              );
+              gastosGenerales.push(...gastosReales.map(g => ({
                 ...g,
                 itemCalculadoraId: item.id // 🔥 Agregar itemId al gasto
               })));

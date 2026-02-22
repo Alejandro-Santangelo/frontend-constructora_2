@@ -3,6 +3,7 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Resp
 import { useEstadisticasConsolidadas } from '../hooks/useEstadisticasConsolidadas';
 import DetalleConsolidadoPorObraModal from './DetalleConsolidadoPorObraModal';
 import DetalleDistribucionCobrosModal from './DetalleDistribucionCobrosModal';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 const EstadisticasTodasObrasModal = ({
   empresaId,
@@ -132,19 +133,40 @@ const EstadisticasTodasObrasModal = ({
     if (obrasSeleccionadas.size === 0 && trabajosExtraSeleccionados.size === 0) {
       // ─── Misma lógica que SistemaFinancieroPage ───────────────────────────────
 
-      // 1. OP — desde presupuestosNoCliente (normales), campo igual que SFP
-      const getTotal = (p) => parseFloat(
-        p.totalPresupuestoConHonorarios ||
-        p.totalFinal ||
-        p.totalPresupuesto ||
-        p.montoTotal ||
-        p.valorTotal || 0
-      );
-      const totalOP = pptoNormalesInternos.reduce((s, p) => s + getTotal(p), 0);
+      // 1. OP — desde presupuestosNoCliente (normales), aplicando descuentos como useEstadisticasConsolidadas
+      const calcularTotalConDescuentos = (p) => {
+        // ✅ Prioridad 1: Si ya tiene totalConDescuentos calculado, usarlo
+        if (p.totalConDescuentos != null && p.totalConDescuentos > 0) {
+          return parseFloat(p.totalConDescuentos);
+        }
+
+        // ✅ Prioridad 2: Si tiene items y configuración de descuentos, calcular con descuentos
+        if (p.itemsCalculadora && Array.isArray(p.itemsCalculadora) && p.itemsCalculadora.length > 0) {
+          try {
+            const resultado = calcularTotalConDescuentosDesdeItems(p.itemsCalculadora, p);
+            if (resultado.totalFinal > 0) {
+              return resultado.totalFinal;
+            }
+          } catch (error) {
+            console.warn('⚠️ Error calculando con descuentos:', error);
+          }
+        }
+
+        // Fallback: usar valores sin descuentos
+        return parseFloat(
+          p.totalFinal ||
+          p.valorTotalIva ||
+          p.totalPresupuestoConHonorarios ||
+          p.totalPresupuesto ||
+          p.montoTotal ||
+          p.valorTotal || 0
+        );
+      };
+      const totalOP = pptoNormalesInternos.reduce((s, p) => s + calcularTotalConDescuentos(p), 0);
       const cantidadOP = pptoNormalesInternos.length;
 
       // 2. TE — desde presupuestosNoCliente con esPresupuestoTrabajoExtra=true
-      const totalTE = pptoTeInternos.reduce((s, p) => s + getTotal(p), 0);
+      const totalTE = pptoTeInternos.reduce((s, p) => s + calcularTotalConDescuentos(p), 0);
       const cantidadTE = pptoTeInternos.length;
 
       // 3. OI — desde obrasDisponibles (no tienen presupuesto, nunca en el hook)

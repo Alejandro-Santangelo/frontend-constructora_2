@@ -8,6 +8,7 @@ import { obtenerSaldoDisponible } from '../services/retirosPersonalesService';
 import { obtenerResumenCobrosEmpresa } from '../services/cobrosEmpresaService';
 import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 /**
  * Hook personalizado para calcular estadísticas financieras CONSOLIDADAS
@@ -1208,7 +1209,26 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 };
 
 const calcularTotalPresupuesto = (presupuesto) => {
-  // Prioridad 1: totalFinal (campo calculado y guardado correctamente)
+  // ✅ Prioridad 1: Si ya tiene totalConDescuentos calculado, usarlo
+  if (presupuesto.totalConDescuentos != null && presupuesto.totalConDescuentos > 0) {
+    console.log(`  ✅ Usando totalConDescuentos: ${presupuesto.totalConDescuentos}`);
+    return parseFloat(presupuesto.totalConDescuentos);
+  }
+
+  // ✅ Prioridad 2: Si tiene items y configuración de descuentos, calcular con descuentos
+  if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora) && presupuesto.itemsCalculadora.length > 0) {
+    try {
+      const resultado = calcularTotalConDescuentosDesdeItems(presupuesto.itemsCalculadora, presupuesto);
+      if (resultado.totalFinal > 0) {
+        console.log(`  ✅ Calculado con descuentos: base=${resultado.totalSinDescuento}, descuentos=${resultado.totalDescuentos}, final=${resultado.totalFinal}`);
+        return resultado.totalFinal;
+      }
+    } catch (error) {
+      console.warn(`  ⚠️ Error calculando con descuentos:`, error);
+    }
+  }
+
+  // Prioridad 3: totalFinal (campo calculado y guardado correctamente)
   if (presupuesto.totalFinal && presupuesto.totalFinal > 0) {
     console.log(`  ✅ Usando totalFinal: ${presupuesto.totalFinal}`);
     return parseFloat(presupuesto.totalFinal);

@@ -10,6 +10,7 @@ import { crearGastoGeneral } from '../services/gastosGeneralesService';
 import usePromedioHonorarios from '../hooks/usePromedioHonorarios';
 import { useDetectarModoPresupuesto, BadgeModoPresupuesto } from '../hooks/useDetectarModoPresupuesto.jsx';
 import { ROLES_PROFESIONALES, ROLES_ENUM, generarOpcionesRoles, getRolPorDefecto } from '../constants/rolesProfesionales';
+import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 
 const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false, showDownloadPdfButton = false }) => {
 
@@ -7245,6 +7246,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       setSaving(true);
       try {
         await onSave(datosParaActualizar);
+        // 📡 Emitir evento para actualizar otras páginas
+        eventBus.emit(FINANCIAL_EVENTS.PRESUPUESTO_ACTUALIZADO, {
+          presupuestoId: form.id,
+          tipo: 'fechas',
+          data: datosParaActualizar
+        });
+        console.log('📡 Evento PRESUPUESTO_ACTUALIZADO emitido para:', form.id);
       } catch (error) {
         alert('Error al guardar las fechas. Revise la consola para más detalles.');
       } finally {
@@ -7321,7 +7329,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         await sincronizarEstadoConObra(datosCompletos.estado, obraId);
       }
 
-      // 💾 Guardar configuración de valores por defecto en localStorage para futuros presupuestos
+      // � Emitir evento para actualizar otras páginas
+      eventBus.emit(FINANCIAL_EVENTS.PRESUPUESTO_ACTUALIZADO, {
+        presupuestoId: datosCompletos.id,
+        tipo: 'completo',
+        data: datosCompletos
+      });
+      console.log('📡 Evento PRESUPUESTO_ACTUALIZADO emitido para:', datosCompletos.id);
+
+      // �💾 Guardar configuración de valores por defecto en localStorage para futuros presupuestos
       try {
         const configAGuardar = {
           honorarios: {
@@ -8886,7 +8902,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('📥 RESULTADO COMPLETO DEL BACKEND:', resultado);
       console.log('📥 ¿Tiene itemsCalculadora?', !!resultado?.itemsCalculadora, 'Cantidad:', resultado?.itemsCalculadora?.length);
 
-      // 🔄 Actualizar estado local con datos frescos del backend
+      // � Emitir evento para actualizar otras páginas
+      eventBus.emit(FINANCIAL_EVENTS.PRESUPUESTO_ACTUALIZADO, {
+        presupuestoId: datosParaEnviar.id,
+        tipo: 'guardado',
+        data: datosParaEnviar
+      });
+      console.log('📡 Evento PRESUPUESTO_ACTUALIZADO emitido para:', datosParaEnviar.id);
+
+      // �🔄 Actualizar estado local con datos frescos del backend
       if (resultado && resultado.itemsCalculadora) {
         console.log('🔄 Actualizando items con IDs de base de datos');
         console.log('📥 ITEMS RECIBIDOS DEL BACKEND - trabajaEnParalelo:',
@@ -8915,7 +8939,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     try {
       const resultado = await onSave(datosParaEnviar);
 
-      // 🔄 Actualizar estado local con datos frescos del backend
+      // � Emitir evento para actualizar otras páginas
+      eventBus.emit(FINANCIAL_EVENTS.PRESUPUESTO_ACTUALIZADO, {
+        presupuestoId: datosParaEnviar.id,
+        tipo: 'enviado',
+        data: datosParaEnviar
+      });
+      console.log('📡 Evento PRESUPUESTO_ACTUALIZADO emitido para:', datosParaEnviar.id);
+
+      // �🔄 Actualizar estado local con datos frescos del backend
       if (resultado && resultado.itemsCalculadora) {
         console.log('🔄 Actualizando items con IDs de base de datos');
         console.log('📥 ITEMS RECIBIDOS DEL BACKEND - trabajaEnParalelo:',

@@ -15,18 +15,21 @@ import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
  * ✨ Con sincronización automática vía EventBus
  */
 
-const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTrigger }) => {
+const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTrigger, estadisticasExternas }) => {
   const { empresaSeleccionada } = useEmpresa();
 
-  // Hook de estadísticas consolidadas
+  // Hook de estadísticas consolidadas (solo si no se pasan estadísticas externas)
   const {
-    estadisticas,
+    estadisticas: estadisticasHook,
     loading: loadingEstadisticas
   } = useEstadisticasConsolidadas(
     empresaSeleccionada?.id,
     refreshTrigger,
-    show // solo activo cuando el modal está abierto
+    show && !estadisticasExternas // solo activo si no hay estadísticas externas
   );
+
+  // Usar estadísticas externas si se pasan, sino usar las del hook
+  const estadisticas = estadisticasExternas || estadisticasHook;
 
   const [tipoGasto, setTipoGasto] = useState('PROFESIONALES');
   const [profesionales, setProfesionales] = useState([]);
@@ -213,6 +216,12 @@ const SistemaFinancieroConsolidadoModal = ({ show, onHide, onSuccess, refreshTri
             // 🔍 Buscar si existe un pago para este gasto general
             const pagosPresupuesto = pagosMap[presupuesto.id] || [];
             const nombreGasto = item.descripcionGastosGenerales || `Gastos Generales - ${item.tipoProfesional}`;
+
+            // ✅ Filtrar presupuestos globales (no son gastos reales a pagar)
+            if (nombreGasto && nombreGasto.includes('Presupuesto Global Gastos Grales.')) {
+              return; // Saltar este item
+            }
+
             const pagoExistente = pagosPresupuesto.find(pago =>
               pago.tipoPago === 'GASTOS_GENERALES' &&
               pago.itemCalculadoraId === item.id &&
