@@ -32,7 +32,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // 🐛 DEBUG: Ver TODO el objeto que llega del backend
   if (safeInitial.id) {
-    console.log('📥 OBJETO COMPLETO RECIBIDO DEL BACKEND:', JSON.stringify(safeInitial, null, 2));
+    console.log('📥 MODAL - OBJETO COMPLETO RECIBIDO:', {
+      id: safeInitial.id,
+      numeroPresupuesto: safeInitial.numeroPresupuesto,
+      version: safeInitial.numeroVersion || safeInitial.version,
+      itemsCalculadoraJson_length: safeInitial.itemsCalculadoraJson?.length || 0,
+      totales: {
+        jornales: safeInitial.totalJornales,
+        materiales: safeInitial.totalMateriales,
+        honorarios: safeInitial.totalHonorarios,
+        final: safeInitial.totalFinal
+      },
+      timestamp: new Date().toISOString()
+    });
     console.log('🔑 Campos de descuentos específicos:', {
       descuentosExplicacion: safeInitial.descuentosExplicacion,
       descuentosJornalesActivo: safeInitial.descuentosJornalesActivo,
@@ -48,6 +60,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       descuentosMayoresCostosTipo: safeInitial.descuentosMayoresCostosTipo,
       descuentosMayoresCostosValor: safeInitial.descuentosMayoresCostosValor
     });
+
+    // 🔍 Mostrar los primeros items si existen
+    if (safeInitial.itemsCalculadoraJson && safeInitial.itemsCalculadoraJson.length > 0) {
+      console.log('📋 ITEMS (primeros 3):', safeInitial.itemsCalculadoraJson.slice(0, 3));
+    }
   }
 
   const normalizeModoCarga = (valor, defaultMode) => {
@@ -1539,7 +1556,29 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     if (initialData && initialData.itemsCalculadora && initialData.itemsCalculadora.length > 0) {
 
-      // 🔍 DEBUG: Ver el JSON RAW completo
+      // � DEBUG CRÍTICO BUG 2.4x: Verificar datos que llegan del backend
+      console.log('🔴🔴🔴 [BUG-2.4x] DATOS DEL BACKEND:', {
+        presupuestoId: initialData.id,
+        cantidadItems: initialData.itemsCalculadora.length,
+        totalesBackend: {
+          totalPresupuesto: initialData.totalPresupuesto,
+          totalHonorarios: initialData.totalHonorariosCalculado,
+          totalConHonorarios: initialData.totalPresupuestoConHonorarios,
+          totalFinal: initialData.totalFinal
+        },
+        sumaTotalesItems: initialData.itemsCalculadora.reduce((sum, i) => sum + (Number(i.total) || 0), 0),
+        sumaMaterialesItems: initialData.itemsCalculadora.reduce((sum, i) => sum + (Number(i.subtotalMateriales) || 0), 0),
+        detalleItems: initialData.itemsCalculadora.map(i => ({
+          tipo: i.tipoProfesional,
+          total: i.total,
+          materiales: i.subtotalMateriales,
+          jornales: i.subtotalJornales,
+          cantMateriales: i.materialesLista?.length,
+          materialesDetalle: i.materialesLista?.slice(0, 2)
+        }))
+      });
+
+      // �🔍 DEBUG: Ver el JSON RAW completo
       console.log('📦 DATOS RAW COMPLETOS initialData:', JSON.stringify(initialData.itemsCalculadora[0], null, 2));
 
       if (itemsCalculadora.length > 0 && initialData.itemsCalculadora.length === itemsCalculadora.length) {
@@ -1746,6 +1785,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         incluirEnCalculoDias: item.incluirEnCalculoDias,
         trabajaEnParalelo: item.trabajaEnParalelo // ✅ PRESERVAR checkbox de inclusión en cálculo
       }));
+
+      // 🐞 DEBUG CRÍTICO: Verificar totales ANTES de setear en estado
+      console.log('🔴🔴🔴 [BUG-2.4x] ANTES DE SETEAR EN ESTADO:', {
+        cantidadItems: itemsConCampoPreservado.length,
+        sumaTotales: itemsConCampoPreservado.reduce((sum, i) => sum + (Number(i.total) || 0), 0),
+        sumaMateriales: itemsConCampoPreservado.reduce((sum, i) => sum + (Number(i.subtotalMateriales) || 0), 0),
+        detalleItems: itemsConCampoPreservado.map(i => ({
+          tipo: i.tipoProfesional,
+          total: i.total,
+          materiales: i.subtotalMateriales
+        }))
+      });
 
       console.log('🚀 ANTES DE SETEAR - itemsConCampoPreservado[0]:', {
         tipoProfesional: itemsConCampoPreservado[0]?.tipoProfesional,
@@ -6286,6 +6337,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       return [];
     }
 
+    // 🐞 DEBUG CRÍTICO: Verificar valores ANTES de consolidar
+    console.log('🔴 [BUG-2.4x] itemsCalculadora RAW:', {
+      cantidad: itemsCalculadora.length,
+      totalSumaDirecta: itemsCalculadora.reduce((sum, item) => sum + (Number(item.total) || 0), 0),
+      primeros3: itemsCalculadora.slice(0, 3).map(i => ({
+        tipo: i.tipoProfesional,
+        total: i.total,
+        subtotalMateriales: i.subtotalMateriales,
+        subtotalJornales: i.subtotalJornales
+      }))
+    });
+
     // DEBUG: Ver qué tiene itemsCalculadora al inicio del useMemo
     if (!estaCargandoInicialRef.current) {
       console.log('🧮 INICIO CONSOLIDACIÓN - itemsCalculadora[0]:', {
@@ -6701,6 +6764,23 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     }
 
     const totalConsolidado = agrupados.reduce((sum, r) => sum + r.total, 0);
+
+    // 🐞 DEBUG CRÍTICO: Verificar valores DESPUÉS de consolidar
+    console.log('🔴 [BUG-2.4x] RESULTADO CONSOLIDADO:', {
+      cantidadGrupos: agrupados.length,
+      totalConsolidado: totalConsolidado,
+      detalleGrupos: agrupados.map(g => ({
+        tipo: g.tipoProfesional,
+        subtotalBase: (g.subtotalJornales || 0) + (g.subtotalManoObra || 0) + (g.subtotalMateriales || 0) + (g.subtotalGastosGenerales || 0),
+        honorarios: g.honorariosAplicados || 0,
+        mayoresCostos: g.mayoresCostosAplicados || 0,
+        totalFinal: g.total,
+        verificacion: {
+          materialesContados: g.materialesLista?.length || 0,
+          jornalesContados: g.jornales?.length || 0
+        }
+      }))
+    });
 
     return agrupados;
   }, [
@@ -14943,7 +15023,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                         }
                                       });
                                       if (totalDescHonorarios > 0) {
-                                        detalleDescuentos.push({ label: 'Descuento en Honorarios', importe: totalDescHonorarios });
+                                        detalleDescuentos.push({ label: 'Descuento en Honorarios de Direccion de Obra', importe: totalDescHonorarios });
                                       }
                                     } else if (descuentosConfig.honorarios?.activo !== false && totalHonorarios > 0) {
                                       const valor = Number(descuentosConfig.honorarios.valor || 0);
@@ -14952,7 +15032,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                           ? (totalHonorarios * valor) / 100
                                           : valor;
                                         totalDescuentos += imp;
-                                        detalleDescuentos.push({ label: 'Descuento en Honorarios', importe: imp });
+                                        detalleDescuentos.push({ label: 'Descuento en Honorarios de Direccion de Obra', importe: imp });
                                       }
                                     }
 

@@ -1054,7 +1054,14 @@ export const apiService = {
 
       return apiService.get('/api/v1/presupuestos-no-cliente', params);
     },
-    getById: (id, empresaId) => apiService.get(`/api/v1/presupuestos-no-cliente/${id}`, { empresaId }),
+    getById: (id, empresaId, forceNoCache = false) => {
+      const params = { empresaId };
+      // Agregar timestamp para evitar caché del navegador
+      if (forceNoCache) {
+        params._t = Date.now();
+      }
+      return apiService.get(`/api/v1/presupuestos-no-cliente/${id}`, params);
+    },
 
     // Obtener honorarios de múltiples obras
     getHonorariosPorObras: (obraIds, empresaId) => {

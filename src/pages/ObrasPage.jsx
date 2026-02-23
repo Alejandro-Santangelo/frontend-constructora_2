@@ -5507,8 +5507,6 @@ _Válido por 30 días_
         clienteId: presupuestoCompleto.clienteId || presupuestoCompleto.idCliente || obraParaPresupuestos?.idCliente || null
       };
 
-
-
       setPresupuestoParaEditar(presupuestoConContexto);
       setMostrarModalEditarPresupuesto(true);
     } catch (error) {

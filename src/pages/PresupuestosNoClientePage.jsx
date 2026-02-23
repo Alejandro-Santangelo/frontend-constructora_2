@@ -286,12 +286,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     return { gruposMap: map, extrasEnSubgrupoIds: cubiertos };
   }, [list, obraOrigenIdMap]);
 
-  const loadList = async () => {
+  const loadList = async (forceNoCache = false) => {
     if (!empresaId) return;
     setLoading(true);
     try {
       // El backend filtra automáticamente con Hibernate Filter
-      const datos = await apiService.presupuestosNoCliente.getAll(empresaId);
+      // Si forceNoCache=true, agregar timestamp para evitar caché del navegador
+      const filtrosCache = forceNoCache ? { _t: Date.now() } : null;
+      const datos = await apiService.presupuestosNoCliente.getAll(empresaId, filtrosCache);
       console.log('📊 DATOS RECIBIDOS DEL BACKEND:', {
         tipoDatos: typeof datos,
         esArray: Array.isArray(datos),
@@ -391,7 +393,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       const presupuestosCompletos = await Promise.all(
         listaFiltrada.map(async (p) => {
           try {
-            const completo = await apiService.presupuestosNoCliente.getById(p.id, empresaId);
+            const completo = await apiService.presupuestosNoCliente.getById(p.id, empresaId, forceNoCache);
 
             // Verificar si los datos vienen con flag de error del backend
             if (completo._errorBackend) {
@@ -827,7 +829,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       // Cargar y abrir el presupuesto automáticamente
       const cargarYAbrirPresupuesto = async () => {
         try {
-          const presupuesto = await api.presupuestosNoCliente.getById(presupuestoId, empresaId);
+          console.log('🔗 Auto-cargando presupuesto ID:', presupuestoId, 'sin caché...');
+          const presupuesto = await api.presupuestosNoCliente.getById(presupuestoId, empresaId, true);
+
+          console.log('📦 PRESUPUESTO AUTO-CARGADO:', {
+            id: presupuesto.id,
+            items_count: presupuesto.itemsCalculadoraJson?.length || 0,
+            totalFinal: presupuesto.totalFinal
+          });
 
           // Normalizar campos
           const presupuestoNormalizado = {
@@ -875,7 +884,21 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     if (!selectedId) return;
 
     try {
-      const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
+      console.log('🔄 Cargando presupuesto ID:', selectedId, 'sin caché...');
+      const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId, true);
+
+      console.log('📦 PRESUPUESTO RECIBIDO DEL BACKEND:', {
+        id: presupuesto.id,
+        itemsCalculadoraJson_length: presupuesto.itemsCalculadoraJson?.length || 0,
+        totales: {
+          jornales: presupuesto.totalJornales,
+          materiales: presupuesto.totalMateriales,
+          honorarios: presupuesto.totalHonorarios,
+          final: presupuesto.totalFinal
+        },
+        descuentos: presupuesto.descuentos,
+        timestamp: new Date().toISOString()
+      });
 
       // Si el presupuesto NO está en BORRADOR ni A_ENVIAR, mostrar confirmación
       if (presupuesto.estado !== 'BORRADOR' && presupuesto.estado !== 'A_ENVIAR') {
@@ -909,6 +932,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       window.DEBUG_PRESUPUESTO_NORMALIZADO = debugNormalizado;
 
       // Abrir modal en modo edición (SIN marcar _soloLectura)
+      console.log('🚀 Abriendo modal con datos normalizados:', {
+        id: presupuestoNormalizado.id,
+        obraId: presupuestoNormalizado.obraId,
+        clienteId: presupuestoNormalizado.clienteId,
+        has_itemsCalculadoraJson: !!presupuestoNormalizado.itemsCalculadoraJson,
+        items_count: presupuestoNormalizado.itemsCalculadoraJson?.length || 0
+      });
       setPresupuestoData(presupuestoNormalizado);
       setShowEditarModal(true);
 
@@ -944,6 +974,12 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     setFiltros(prev => ({...prev, ...nuevosFiltros}));
     setTieneFiltrosPorDefecto(true);
     showNotification && showNotification('✅ Filtros aplicados y guardados como configuración por defecto', 'success');
+  };
+
+  const handleRecargarSinCache = () => {
+    console.log('🔄 Recargando presupuestos SIN CACHÉ...');
+    loadList(true);
+    showNotification && showNotification('🔄 Recargando datos sin caché...', 'info');
   };
 
   const handleResultadosFiltrados = (resultados) => {
@@ -1755,7 +1791,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     }
 
     try {
-      const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
+      console.log('👁️ Cargando presupuesto (solo lectura) ID:', selectedId, 'sin caché...');
+      const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId, true);
+
+      console.log('📦 PRESUPUESTO CARGADO (vista):', {
+        id: presupuesto.id,
+        items_count: presupuesto.itemsCalculadoraJson?.length || 0,
+        totalFinal: presupuesto.totalFinal
+      });
 
       // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
       const presupuestoNormalizado = {
@@ -1783,7 +1826,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     }
 
     try {
-      const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
+      console.log('📅 Cargando presupuesto (editar fechas) ID:', selectedId, 'sin caché...');
+      const presupuesto = await api.presupuestosNoCliente.getById(selectedId, empresaId, true);
 
       // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
       const presupuestoNormalizado = {
@@ -1869,6 +1913,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           </span>
         </div>
         <div className="d-flex gap-2">
+          <button
+            className="btn btn-outline-success"
+            onClick={handleRecargarSinCache}
+            title="Recargar datos sin usar caché del navegador"
+          >
+            <i className="fas fa-sync-alt me-2"></i>
+            Recargar sin Caché
+          </button>
           <button
             className="btn btn-outline-primary"
             onClick={handleLimpiarFiltrosPorDefecto}
