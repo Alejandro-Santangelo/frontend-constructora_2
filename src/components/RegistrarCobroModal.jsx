@@ -29,12 +29,12 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
   const [error, setError] = useState(null);
   const [totalesPorObra, setTotalesPorObra] = useState({}); // {obraId: {presupuesto, cobrado, pendiente}}
   const [successMessage, setSuccessMessage] = useState(null);
-  
+
   // 🆕 Estados para distribución por ítems POR CADA OBRA
   const [distribucionPorObra, setDistribucionPorObra] = useState({}); // {obraId: {profesionales: {monto, porcentaje}, materiales: {}, gastosGenerales: {}}}
   const [tipoDistribucionPorObra, setTipoDistribucionPorObra] = useState({}); // {obraId: 'MONTO' | 'PORCENTAJE'}
   const [obrasExpandidas, setObrasExpandidas] = useState([]); // Array de obraIds expandidos
-  
+
   // 🆕 Estados para distribución por ítems (Profesionales, Materiales, Gastos Generales, Trabajos Extra)
   const [modoDistribucion, setModoDistribucion] = useState('GENERAL'); // 'GENERAL' o 'POR_ITEMS'
   const [distribucionItems, setDistribucionItems] = useState({
@@ -44,7 +44,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
     trabajosExtra: { monto: 0, porcentaje: 0 } // 🔧 NUEVO
   });
   const [tipoDistribucionItems, setTipoDistribucionItems] = useState('MONTO'); // 'MONTO' o 'PORCENTAJE'
-  
+
   // 🔧 Estados para trabajos extra
   const [trabajosExtraDisponibles, setTrabajosExtraDisponibles] = useState([]);
   const [cargandoTrabajosExtra, setCargandoTrabajosExtra] = useState(false);
@@ -74,13 +74,13 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
   useEffect(() => {
     if (show && empresaSeleccionada) {
       console.log('🔄 RegistrarCobro: Modo individual:', modoIndividual);
-      
+
       // Solo cargar obras si NO viene pre-seleccionada
       if (!modoIndividual) {
         console.log('🔄 RegistrarCobro: Cargando obras disponibles...');
         cargarObrasDisponibles();
       }
-      
+
       // Reset form
       setFormData({
         montoTotal: '',
@@ -99,7 +99,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
       setTipoDistribucion('MONTO');
       setError(null);
       setSuccessMessage(null);
-      
+
       // Reset distribución por ítems
       setModoDistribucion('GENERAL');
       setDistribucionItems({
@@ -152,24 +152,24 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
     try {
       // 🆕 1. Obtener resumen de cobros empresa
       const { listarCobrosEmpresa, obtenerSaldoDisponible: getSaldoEmpresa } = await import('../services/cobrosEmpresaService');
-      
+
       const cobrosEmpresa = await listarCobrosEmpresa(empresaSeleccionada.id);
       console.log('📦 Cobros empresa encontrados:', cobrosEmpresa.length);
       console.log('📦 Datos de cobros:', JSON.stringify(cobrosEmpresa, null, 2));
-      
+
       // 🆕 2. Obtener saldo disponible
       const saldoData = await getSaldoEmpresa(empresaSeleccionada.id);
       console.log('💰 Saldo disponible (respuesta completa):', JSON.stringify(saldoData, null, 2));
-      
+
       // 3. Filtrar cobros con saldo disponible
       const cobrosConDisponible = cobrosEmpresa.filter(c => {
         const disponible = parseFloat(c.montoDisponible || 0);
         console.log(`Cobro #${c.id}: montoDisponible=${c.montoDisponible}, parseado=${disponible}`);
         return disponible > 0.01;
       });
-      
+
       console.log('✅ Cobros con saldo disponible:', cobrosConDisponible.length);
-      
+
       // 4. Obtener total retirado
       let totalRetirado = 0;
       try {
@@ -180,13 +180,13 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         console.error('❌ Error obteniendo retiros:', error);
         totalRetirado = 0;
       }
-      
+
       // 5. Calcular totales
       const totalCobrado = parseFloat(saldoData.totalCobrado || 0);
       const totalAsignado = parseFloat(saldoData.totalAsignado || 0);
       const saldoDisponibleBackend = parseFloat(saldoData.totalDisponible || 0);
       const totalDisponibleCalculado = saldoDisponibleBackend - totalRetirado;
-      
+
       console.log('💰 Resumen financiero completo:', {
         totalCobrado,
         totalAsignado,
@@ -194,11 +194,11 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         totalRetirado,
         totalDisponibleFinal: totalDisponibleCalculado
       });
-      
+
       // 6. Guardar estados
       setCobrosNoAsignados(cobrosConDisponible);
       setTotalDisponible(totalDisponibleCalculado);
-      
+
       setTotalesGlobales({
         totalCobrado,
         totalAsignado,
@@ -206,7 +206,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         totalDisponible: totalDisponibleCalculado,
         cantidadCobros: cobrosEmpresa.length
       });
-      
+
     } catch (error) {
       console.error('❌ Error cargando resumen de cobros:', error);
       console.error('❌ Stack:', error.stack);
@@ -227,17 +227,17 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
   const cargarObrasDisponibles = async () => {
     try {
       const response = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
-      
-      let presupuestosData = Array.isArray(response) ? response : 
-                             response?.datos ? response.datos : 
-                             response?.content ? response.content : 
+
+      let presupuestosData = Array.isArray(response) ? response :
+                             response?.datos ? response.datos :
+                             response?.content ? response.content :
                              response?.data ? response.data : [];
-      
+
       // Filtrar solo APROBADO y EN_EJECUCION
       const estadosPermitidos = ['APROBADO', 'EN_EJECUCION'];
       console.log('🔍 [RegistrarCobro] Total presupuestos antes del filtro:', presupuestosData.length);
       console.log('🔍 [RegistrarCobro] Estados encontrados:', [...new Set(presupuestosData.map(p => p.estado))]);
-      
+
       presupuestosData = presupuestosData.filter(p => {
         const estadoValido = estadosPermitidos.includes(p.estado);
         if (estadoValido) {
@@ -245,32 +245,32 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         }
         return estadoValido;
       });
-      
+
       console.log('✅ [RegistrarCobro] Total obras después del filtro:', presupuestosData.length);
-      
+
       // 🆕 Agrupar por obra y quedarse solo con la última versión
       const obrasPorDireccion = {};
       presupuestosData.forEach(p => {
         const claveObra = `${p.direccionObraCalle}-${p.direccionObraAltura}-${p.direccionObraBarrio || ''}`;
-        
+
         if (!obrasPorDireccion[claveObra]) {
           obrasPorDireccion[claveObra] = p;
         } else {
           // Comparar versiones y quedarse con la más reciente
           const versionActual = p.numeroVersion || p.version || 0;
           const versionExistente = obrasPorDireccion[claveObra].numeroVersion || obrasPorDireccion[claveObra].version || 0;
-          
+
           if (versionActual > versionExistente) {
             obrasPorDireccion[claveObra] = p;
           }
         }
       });
-      
+
       // Convertir el objeto agrupado de vuelta a array
       const presupuestosUnicos = Object.values(obrasPorDireccion);
-      
+
       console.log(`🔍 [RegistrarCobro] Filtradas ${presupuestosData.length} obras a ${presupuestosUnicos.length} obras únicas (última versión)`);
-      
+
       // Convertir a formato de obras
       const obras = presupuestosUnicos.map(p => ({
         obraId: p.obraId || p.id, // ← CRÍTICO: agregar obraId
@@ -288,15 +288,15 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         // Calcular total del presupuesto
         totalPresupuesto: p.totalPresupuestoConHonorarios || p.montoTotal || p.totalFinal || p.totalGeneral || 0
       }));
-      
-      console.log('🔍 [DEBUG] Obras cargadas con obraId:', obras.map(o => ({ 
-        numeroPresupuesto: o.numeroPresupuesto, 
-        obraId: o.obraId, 
-        presupuestoNoClienteId: o.presupuestoNoClienteId 
+
+      console.log('🔍 [DEBUG] Obras cargadas con obraId:', obras.map(o => ({
+        numeroPresupuesto: o.numeroPresupuesto,
+        obraId: o.obraId,
+        presupuestoNoClienteId: o.presupuestoNoClienteId
       })));
-      
+
       setObrasDisponibles(obras);
-      
+
       // Inicializar distribución con todas las obras
       const distInicial = obras.map(obra => ({
         obra: obra,
@@ -304,7 +304,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         porcentaje: 0
       }));
       setDistribucion(distInicial);
-      
+
       // Cargar totales de cobros para cada obra
       await cargarTotalesCobros(obras);
     } catch (error) {
@@ -316,53 +316,53 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
   const cargarTotalesCobros = async (obras) => {
     try {
       const totales = {};
-      
+
       console.log('🔄 [RegistrarCobro] Cargando totales de cobros para', obras.length, 'obras');
-      
+
       // Estrategia alternativa: Obtener TODOS los cobros de la empresa y filtrar localmente
       // Esto evita el error 500 del endpoint /cobros-obra/direccion
       let todosLosCobros = [];
-      
+
       try {
         // Intentar obtener todos los cobros de la empresa
-        const response = await api.get('/api/v1/cobros-obra', { 
-          params: { empresaId: empresaSeleccionada.id } 
+        const response = await api.get('/api/v1/cobros-obra', {
+          params: { empresaId: empresaSeleccionada.id }
         });
-        
-        todosLosCobros = Array.isArray(response) ? response : 
+
+        todosLosCobros = Array.isArray(response) ? response :
                         response?.data ? response.data :
                         response?.cobros ? response.cobros : [];
-        
+
         console.log('📥 Total de cobros de la empresa:', todosLosCobros.length);
       } catch (err) {
         console.warn('⚠️ No se pudieron obtener los cobros de la empresa:', err);
       }
-      
+
       // Calcular totales para cada obra
       for (const obra of obras) {
         try {
           // Filtrar cobros de esta obra específica por presupuestoNoClienteId
-          const cobrosObra = todosLosCobros.filter(c => 
+          const cobrosObra = todosLosCobros.filter(c =>
             c.presupuestoNoClienteId === obra.presupuestoNoClienteId
           );
-          
+
           console.log(`📊 Obra #${obra.numeroPresupuesto} (ID: ${obra.presupuestoNoClienteId}): ${cobrosObra.length} cobros encontrados`);
-          
+
           // Calcular total cobrado sumando solo los cobros con estado 'COBRADO'
           let cobrado = 0;
           if (cobrosObra.length > 0) {
             cobrado = cobrosObra
               .filter(c => c.estado?.toUpperCase() === 'COBRADO')
               .reduce((sum, c) => sum + (parseFloat(c.monto) || 0), 0);
-            
+
             console.log(`💰 Obra #${obra.numeroPresupuesto}: ${cobrosObra.filter(c => c.estado?.toUpperCase() === 'COBRADO').length} cobros COBRADOS, Total: ${cobrado}`);
           }
-          
+
           const presupuesto = obra.totalPresupuesto;
           const pendiente = presupuesto - cobrado;
-          
+
           console.log(`💰 Obra #${obra.numeroPresupuesto} - Presupuesto: ${presupuesto}, Cobrado: ${cobrado}, Pendiente: ${pendiente}`);
-          
+
           totales[obra.presupuestoNoClienteId] = {
             presupuesto,
             cobrado,
@@ -378,7 +378,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
           };
         }
       }
-      
+
       console.log('✅ [RegistrarCobro] Totales finales:', totales);
       setTotalesPorObra(totales);
     } catch (error) {
@@ -393,10 +393,10 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
 
   const handleDistribucionItemChange = (item, campo, valor) => {
     const montoTotalNum = parseFloat(formData.montoTotal) || 0;
-    
+
     setDistribucionItems(prev => {
       const nuevo = { ...prev };
-      
+
       if (campo === 'monto') {
         nuevo[item].monto = parseFloat(valor) || 0;
         // Calcular porcentaje automáticamente
@@ -410,7 +410,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
           nuevo[item].monto = ((montoTotalNum * nuevo[item].porcentaje) / 100).toFixed(2);
         }
       }
-      
+
       return nuevo;
     });
   };
@@ -418,7 +418,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
   const handleMontoTotalChange = (e) => {
     const nuevoMontoTotal = e.target.value;
     setFormData(prev => ({ ...prev, montoTotal: nuevoMontoTotal }));
-    
+
     // Recalcular distribución por ítems si hay porcentajes asignados
     if (modoDistribucion === 'POR_ITEMS' && tipoDistribucionItems === 'PORCENTAJE' && nuevoMontoTotal) {
       const total = parseFloat(nuevoMontoTotal);
@@ -441,7 +441,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         }
       }));
     }
-    
+
     // Si hay porcentajes asignados, recalcular montos
     if (tipoDistribucion === 'PORCENTAJE' && nuevoMontoTotal) {
       const total = parseFloat(nuevoMontoTotal);
@@ -455,7 +455,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
   const handleDistribucionChange = (index, campo, valor) => {
     setDistribucion(prev => {
       const nueva = [...prev];
-      
+
       if (campo === 'monto') {
         nueva[index].monto = parseFloat(valor) || 0;
         // Calcular porcentaje automáticamente
@@ -471,7 +471,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
           nueva[index].monto = (total * nueva[index].porcentaje / 100).toFixed(2);
         }
       }
-      
+
       return nueva;
     });
   };
@@ -579,11 +579,11 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
     if (obra.nombreObra) partes.push(`🏗️ ${obra.nombreObra}`);
     partes.push(obra.calle, obra.altura);
     if (obra.barrio) partes.push(`(${obra.barrio})`);
-    
+
     // Manejar campos opcionales que pueden no estar presentes
     const numPresupuesto = obra.numeroPresupuesto || obra.presupuestoNoClienteId || 'S/N';
     const estado = obra.estado || 'EN_PROCESO';
-    
+
     return `${partes.join(' ')} [#${numPresupuesto} - ${estado}]`;
   };
 
@@ -598,19 +598,19 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
       setError('Debe ingresar un monto total mayor a 0');
       return;
     }
-    
+
     // Validar distribución por ítems si está activa
     if (modoDistribucion === 'POR_ITEMS') {
       const totalItems = parseFloat(distribucionItems.profesionales.monto || 0) +
                          parseFloat(distribucionItems.materiales.monto || 0) +
                          parseFloat(distribucionItems.gastosGenerales.monto || 0) +
                          parseFloat(distribucionItems.trabajosExtra.monto || 0);
-      
+
       if (Math.abs(totalItems - montoTotalNum) > 0.01) {
         setError(`La suma de los ítems (${formatearMoneda(totalItems)}) no coincide con el monto total (${formatearMoneda(montoTotalNum)})`);
         return;
       }
-      
+
       if (totalItems === 0) {
         setError('Debe asignar monto a al menos un ítem');
         return;
@@ -662,8 +662,8 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         }
 
         // Obtener obras con monto asignado
-        const obrasConMonto = distribucion.filter(d => 
-          obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) && 
+        const obrasConMonto = distribucion.filter(d =>
+          obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) &&
           parseFloat(d.monto) > 0
         );
 
@@ -687,17 +687,17 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         const asignaciones = obrasConMonto.map(d => {
           const obraId = d.obra.obraId;
           const distObra = distribucionPorObra[d.obra.presupuestoNoClienteId];
-          
+
           const asignacion = {
             obraId: obraId,
             montoAsignado: parseFloat(d.monto),
             descripcion: `${d.porcentaje.toFixed(1)}% del cobro #${cobroSeleccionado.id} - ${formatearDireccion(d.obra)}`
           };
-          
+
           // Añadir distribución por ítems si existe
           if (distObra) {
             const distribucionItems = {};
-            
+
             if (parseFloat(distObra.profesionales?.monto || 0) > 0) {
               distribucionItems.montoProfesionales = parseFloat(distObra.profesionales.monto);
               distribucionItems.porcentajeProfesionales = parseFloat(distObra.profesionales.porcentaje);
@@ -714,12 +714,12 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
               distribucionItems.montoTrabajosExtra = parseFloat(distObra.trabajosExtra.monto);
               distribucionItems.porcentajeTrabajosExtra = parseFloat(distObra.trabajosExtra.porcentaje);
             }
-            
+
             if (Object.keys(distribucionItems).length > 0) {
               asignacion.distribucionItems = distribucionItems;
             }
           }
-          
+
           return asignacion;
         });
 
@@ -768,7 +768,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
           }
           observacionesFinal = (formData.observaciones ? formData.observaciones + ' | ' : '') + detalleItems.join(' | ');
         }
-        
+
         // 🔵 Payload simplificado según prompt backend
         const cobroData = {
           empresaId: empresaSeleccionada.id,
@@ -802,12 +802,12 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         console.log('🚀 [MODO INDIVIDUAL] Registrando cobro CON asignación inline:', cobroData);
         console.log('📤 JSON enviado al backend:', JSON.stringify(cobroData, null, 2));
         console.log('🔍 Validación obraId en asignaciones[0]:', cobroData.asignaciones[0].obraId);
-        
+
         // ✨ Un solo POST: cobro + asignación en transacción
         const cobroCreado = await registrarCobro(cobroData, empresaSeleccionada.id);
         console.log('✅ Cobro + asignación registrados:', cobroCreado);
         console.log('📥 Respuesta del backend:', JSON.stringify(cobroCreado, null, 2));
-        
+
         // 📡 Notificar al contexto centralizado
         eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
           presupuestoId: obraDireccion.presupuestoNoClienteId,
@@ -825,24 +825,24 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         // 🆕 Volver al resumen y recargar
         setVistaActual('resumen-cobros');
         await cargarResumenCobros();
-        
+
         setSuccessMessage(`✅ Cobro registrado exitosamente por ${formatearMoneda(montoTotalNum)}`);
         setTimeout(() => setSuccessMessage(null), 5000);
-        
+
         return;
       }
 
       // ========== MODO CONSOLIDADO: Distribución entre obras ==========
       const { totalMonto } = calcularTotales();
-      
+
       // 🆕 PERMITIR COBRO SIN ASIGNACIÓN (queda disponible para la empresa)
-      const obrasConMonto = obrasSeleccionadas.length > 0 
-        ? distribucion.filter(d => 
-            obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) && 
+      const obrasConMonto = obrasSeleccionadas.length > 0
+        ? distribucion.filter(d =>
+            obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) &&
             parseFloat(d.monto) > 0
           )
         : [];
-      
+
       // Si hay distribución, validar que no exceda el total
       if (obrasConMonto.length > 0 && totalMonto > montoTotalNum) {
         setError(`La suma de los montos asignados (${formatearMoneda(totalMonto)}) no puede exceder el monto total recibido (${formatearMoneda(montoTotalNum)})`);
@@ -862,18 +862,18 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
           tipoComprobante: formData.tipoComprobante || null,
           observaciones: formData.observaciones || null
         };
-        
+
         console.log('🚀 [NUEVO FLUJO - SIN ASIGNACIÓN] Registrando cobro empresa:', cobroEmpresaData);
-        
+
         const cobroCreado = await registrarCobroEmpresa(cobroEmpresaData, empresaSeleccionada.id);
         console.log('✅ Cobro empresa registrado:', cobroCreado);
-        
+
         // 🆕 Continuar con limpieza y recarga
         // (el código de limpieza está después del else)
-        
+
       } else {
         // ✨ COBRO CON ASIGNACIÓN INMEDIATA - Usar nueva API en 2 pasos
-        
+
         // Paso 1: Registrar cobro empresa
         const cobroEmpresaData = {
           montoTotal: montoTotalNum,
@@ -884,26 +884,26 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
           tipoComprobante: formData.tipoComprobante || null,
           observaciones: formData.observaciones || null
         };
-        
+
         console.log('🚀 [NUEVO FLUJO - PASO 1] Registrando cobro empresa:', cobroEmpresaData);
         const cobroCreado = await registrarCobroEmpresa(cobroEmpresaData, empresaSeleccionada.id);
         console.log('✅ Cobro empresa creado:', cobroCreado);
-        
+
         // Paso 2: Asignar a obras
         const asignaciones = obrasConMonto.map(d => {
           const obraId = d.obra.presupuestoNoClienteId;
           const distObra = distribucionPorObra[obraId];
-          
+
           const asignacion = {
             obraId: d.obra.obraId,
             montoAsignado: parseFloat(d.monto),
             descripcion: `${d.porcentaje}% del cobro - ${formatearDireccion(d.obra)}`
           };
-          
+
           // Añadir distribución por ítems si existe
           if (distObra) {
             const distribucionItems = {};
-            
+
             if (parseFloat(distObra.profesionales?.monto || 0) > 0) {
               distribucionItems.montoProfesionales = parseFloat(distObra.profesionales.monto);
               distribucionItems.porcentajeProfesionales = parseFloat(distObra.profesionales.porcentaje);
@@ -920,19 +920,19 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
               distribucionItems.montoTrabajosExtra = parseFloat(distObra.trabajosExtra.monto);
               distribucionItems.porcentajeTrabajosExtra = parseFloat(distObra.trabajosExtra.porcentaje);
             }
-            
+
             if (Object.keys(distribucionItems).length > 0) {
               asignacion.distribucionItems = distribucionItems;
             }
           }
-          
+
           return asignacion;
         });
-        
+
         console.log('🚀 [NUEVO FLUJO - PASO 2] Asignando a obras:', asignaciones);
         const resultadoAsignacion = await asignarCobroAObras(cobroCreado.id, asignaciones, empresaSeleccionada.id);
         console.log('✅ Asignación exitosa:', resultadoAsignacion);
-        
+
         // 📡 Notificar por cada obra asignada
         obrasConMonto.forEach(d => {
           eventBus.emit(FINANCIAL_EVENTS.COBRO_REGISTRADO, {
@@ -952,7 +952,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
         numeroComprobante: '',
         observaciones: ''
       });
-      
+
       // Reiniciar distribución
       const distInicial = obrasDisponibles.map(obra => ({
         obra: obra,
@@ -962,16 +962,16 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
       setDistribucion(distInicial);
 
       // Mostrar mensaje de éxito
-      const mensajeExito = obrasConMonto.length === 0 
+      const mensajeExito = obrasConMonto.length === 0
         ? `✅ Cobro de ${formatearMoneda(montoTotalNum)} registrado - Disponible para asignar`
         : `✅ Cobro registrado con ${obrasConMonto.length} asignación(es) por un total de ${formatearMoneda(montoTotalNum)}`;
-      
+
       setSuccessMessage(mensajeExito);
-      
+
       // 🆕 Volver al resumen y recargar
       setVistaActual('resumen-cobros');
       await cargarResumenCobros();
-      
+
       // Notificar éxito
       if (onSuccess) {
         onSuccess({
@@ -979,7 +979,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
           datos: { total: montoTotalNum, cantidad: obrasConMonto.length }
         });
       }
-      
+
       // Auto-ocultar mensaje después de 5 segundos
       setTimeout(() => {
         setSuccessMessage(null);
@@ -987,8 +987,8 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
     } catch (err) {
       console.error('Error registrando cobros:', err);
       setError(
-        err.response?.data?.message || 
-        err.response?.data?.error || 
+        err.response?.data?.message ||
+        err.response?.data?.error ||
         'Error al registrar cobros. Por favor intente nuevamente.'
       );
     } finally {
@@ -1021,7 +1021,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                 <button type="button" className="btn-close" onClick={() => setError(null)}></button>
               </div>
             )}
-            
+
             {successMessage && (
               <div className="alert alert-success alert-dismissible fade show" role="alert">
                 {successMessage}
@@ -1142,7 +1142,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                 📊 Asignar Saldo Disponible ({formatearMoneda(totalDisponible)})
                               </button>
                             )}
-                            
+
                             <button
                               type="button"
                               className="btn btn-success"
@@ -1178,7 +1178,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                 </small>
                               )}
                             </button>
-                            
+
                             <button
                               type="button"
                               className="btn btn-outline-warning"
@@ -1227,7 +1227,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                   >
                     ← Volver al resumen
                   </button>
-                  
+
                   <div className="d-flex gap-2">
                     <div className="badge bg-success bg-opacity-10 text-success border border-success px-3 py-2">
                       <i className="bi bi-cash-stack me-1"></i>
@@ -1416,7 +1416,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                               <small className="text-muted d-block">Disponible</small>
                               <div className={`fw-bold fs-5 ${
                                 (() => {
-                                  const totalDistribuido = distribucion.reduce((sum, d) => 
+                                  const totalDistribuido = distribucion.reduce((sum, d) =>
                                     sum + (obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) ? (parseFloat(d.monto) || 0) : 0), 0
                                   );
                                   const disponible = parseFloat(formData.montoTotal) - totalDistribuido;
@@ -1424,7 +1424,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                 })()
                               }`}>
                                 {(() => {
-                                  const totalDistribuido = distribucion.reduce((sum, d) => 
+                                  const totalDistribuido = distribucion.reduce((sum, d) =>
                                     sum + (obrasSeleccionadas.includes(d.obra.presupuestoNoClienteId) ? (parseFloat(d.monto) || 0) : 0), 0
                                   );
                                   const disponible = parseFloat(formData.montoTotal) - totalDistribuido;
@@ -1476,7 +1476,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                       </button>
                     </div>
                   </div>
-                  
+
                   {modoDistribucion === 'GENERAL' && (
                     <div className="card-body">
                       <div className="alert alert-info mb-0">
@@ -1485,7 +1485,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                       </div>
                     </div>
                   )}
-                  
+
                   {modoDistribucion === 'POR_ITEMS' && (
                     <>
                       {(!formData.montoTotal || parseFloat(formData.montoTotal) <= 0) && (
@@ -1496,7 +1496,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                           </div>
                         </div>
                       )}
-                      
+
                       {formData.montoTotal && parseFloat(formData.montoTotal) > 0 && (
                         <>
                           <div className="card-header bg-light border-top d-flex justify-content-between align-items-center py-2">
@@ -1696,7 +1696,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                        parseFloat(distribucionItems.materiales.monto || 0) +
                                                        parseFloat(distribucionItems.gastosGenerales.monto || 0);
                               const diferencia = Math.abs(montoTotalNum - totalDistribuido);
-                              
+
                               if (diferencia > 0.01) {
                                 return (
                                   <tr>
@@ -1796,7 +1796,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                               cobrado: 0,
                               pendiente: 0
                             };
-                            
+
                             const estaSeleccionada = obrasSeleccionadas.includes(dist.obra.presupuestoNoClienteId);
                             const estaExpandida = obrasExpandidas.includes(dist.obra.presupuestoNoClienteId);
                             const montoObra = parseFloat(dist.monto) || 0;
@@ -1830,7 +1830,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                         title={montoObra > 0 ? "Distribuir por ítems" : "Asigne un monto primero"}
                                         disabled={montoObra === 0}
                                         style={{
-                                          fontSize: '0.75rem', 
+                                          fontSize: '0.75rem',
                                           padding: '2px 6px',
                                           fontWeight: '600',
                                           border: montoObra === 0 ? '2px solid #6c757d' : '1px solid',
@@ -1839,7 +1839,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                         }}
                                       >
                                         <i className={`bi ${estaExpandida ? 'bi-chevron-down' : 'bi-chevron-right'} me-1`}></i>
-                                        Ítems
+                                        Mostrar Secciones
                                       </button>
                                     )}
                                     <small className="text-muted">
@@ -1887,14 +1887,14 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                 </td>
                                 <td className="text-end text-muted">
                                   <small>
-                                    {tipoDistribucion === 'MONTO' 
+                                    {tipoDistribucion === 'MONTO'
                                       ? `${dist.porcentaje}%`
                                       : formatearMoneda(parseFloat(dist.monto) || 0)
                                     }
                                   </small>
                                 </td>
                               </tr>
-                              
+
                               {/* 🆕 Fila expandible con distribución por ítems */}
                               {estaExpandida && estaSeleccionada && montoObra > 0 && (
                                 <tr className={estaSeleccionada ? 'table-active' : ''}>
@@ -1922,7 +1922,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                           </button>
                                         </div>
                                       </div>
-                                      
+
                                       <div className="row g-2">
                                         {/* Profesionales / Jornales */}
                                         <div className="col-md-3">
@@ -1938,8 +1938,8 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 type="number"
                                                 className="form-control form-control-sm mb-1"
                                                 placeholder={tipoDistObra === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                value={tipoDistObra === 'MONTO' 
-                                                  ? (distObra.profesionales.monto || '') 
+                                                value={tipoDistObra === 'MONTO'
+                                                  ? (distObra.profesionales.monto || '')
                                                   : (distObra.profesionales.porcentaje || '')}
                                                 onChange={(e) => handleDistribucionItemObraChange(
                                                   dist.obra.presupuestoNoClienteId,
@@ -1959,7 +1959,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 onWheel={(e) => e.target.blur()}
                                               />
                                               <small className="text-muted">
-                                                {tipoDistObra === 'MONTO' 
+                                                {tipoDistObra === 'MONTO'
                                                   ? `${distObra.profesionales.porcentaje}%`
                                                   : formatearMoneda(parseFloat(distObra.profesionales.monto) || 0)
                                                 }
@@ -1967,7 +1967,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                             </div>
                                           </div>
                                         </div>
-                                        
+
                                         {/* Materiales */}
                                         <div className="col-md-3">
                                           <div className="card border">
@@ -1982,8 +1982,8 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 type="number"
                                                 className="form-control form-control-sm mb-1"
                                                 placeholder={tipoDistObra === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                value={tipoDistObra === 'MONTO' 
-                                                  ? (distObra.materiales.monto || '') 
+                                                value={tipoDistObra === 'MONTO'
+                                                  ? (distObra.materiales.monto || '')
                                                   : (distObra.materiales.porcentaje || '')}
                                                 onChange={(e) => handleDistribucionItemObraChange(
                                                   dist.obra.presupuestoNoClienteId,
@@ -2003,7 +2003,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 onWheel={(e) => e.target.blur()}
                                               />
                                               <small className="text-muted">
-                                                {tipoDistObra === 'MONTO' 
+                                                {tipoDistObra === 'MONTO'
                                                   ? `${distObra.materiales.porcentaje}%`
                                                   : formatearMoneda(parseFloat(distObra.materiales.monto) || 0)
                                                 }
@@ -2011,7 +2011,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                             </div>
                                           </div>
                                         </div>
-                                        
+
                                         {/* Gastos Generales / Otros Costos */}
                                         <div className="col-md-3">
                                           <div className="card border">
@@ -2026,8 +2026,8 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 type="number"
                                                 className="form-control form-control-sm mb-1"
                                                 placeholder={tipoDistObra === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                value={tipoDistObra === 'MONTO' 
-                                                  ? (distObra.gastosGenerales.monto || '') 
+                                                value={tipoDistObra === 'MONTO'
+                                                  ? (distObra.gastosGenerales.monto || '')
                                                   : (distObra.gastosGenerales.porcentaje || '')}
                                                 onChange={(e) => handleDistribucionItemObraChange(
                                                   dist.obra.presupuestoNoClienteId,
@@ -2047,7 +2047,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 onWheel={(e) => e.target.blur()}
                                               />
                                               <small className="text-muted">
-                                                {tipoDistObra === 'MONTO' 
+                                                {tipoDistObra === 'MONTO'
                                                   ? `${distObra.gastosGenerales.porcentaje}%`
                                                   : formatearMoneda(parseFloat(distObra.gastosGenerales.monto) || 0)
                                                 }
@@ -2055,7 +2055,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                             </div>
                                           </div>
                                         </div>
-                                        
+
                                         {/* Trabajos Extra */}
                                         <div className="col-md-3">
                                           <div className="card border">
@@ -2070,8 +2070,8 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 type="number"
                                                 className="form-control form-control-sm mb-1"
                                                 placeholder={tipoDistObra === 'MONTO' ? 'Monto' : 'Porcentaje'}
-                                                value={tipoDistObra === 'MONTO' 
-                                                  ? (distObra.trabajosExtra.monto || '') 
+                                                value={tipoDistObra === 'MONTO'
+                                                  ? (distObra.trabajosExtra.monto || '')
                                                   : (distObra.trabajosExtra.porcentaje || '')}
                                                 onChange={(e) => handleDistribucionItemObraChange(
                                                   dist.obra.presupuestoNoClienteId,
@@ -2091,7 +2091,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                                 onWheel={(e) => e.target.blur()}
                                               />
                                               <small className="text-muted">
-                                                {tipoDistObra === 'MONTO' 
+                                                {tipoDistObra === 'MONTO'
                                                   ? `${distObra.trabajosExtra.porcentaje}%`
                                                   : formatearMoneda(parseFloat(distObra.trabajosExtra.monto) || 0)
                                                 }
@@ -2100,7 +2100,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                                           </div>
                                         </div>
                                       </div>
-                                      
+
                                       {/* Total distribuido */}
                                       <div className="mt-2 pt-2 border-top">
                                         <small className="text-muted">
@@ -2177,7 +2177,7 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                       </table>
                     </div>
                   </div>
-                  
+
                   {/* 🆕 Alerta cuando no hay obras seleccionadas */}
                   {obrasSeleccionadas.length === 0 && (
                     <div className="card-body border-top">
@@ -2291,10 +2291,10 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                 <button type="button" className="btn btn-secondary" onClick={onHide} disabled={loading}>
                   Cancelar
                 </button>
-                <button 
+                <button
                   type="button"
-                  className="btn btn-success" 
-                  onClick={handleSubmit} 
+                  className="btn btn-success"
+                  onClick={handleSubmit}
                   disabled={loading || !formData.montoTotal || parseFloat(formData.montoTotal) <= 0}
                 >
                   {loading ? (
@@ -2307,9 +2307,9 @@ const RegistrarCobroModal = ({ show, onHide, onSuccess, obraId, obraDireccion })
                       Registrando...
                     </>
                   ) : (
-                    modoIndividual 
+                    modoIndividual
                   ? '✓ Registrar Cobro'
-                  : obrasSeleccionadas.length === 0 
+                  : obrasSeleccionadas.length === 0
                     ? '✓ Registrar Cobro (Sin Asignar)'
                     : `✓ Registrar y Asignar a ${obrasSeleccionadas.length} Obra(s)`
                   )}

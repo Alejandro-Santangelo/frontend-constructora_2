@@ -17,7 +17,8 @@ const RegistrarPagoConsolidadoModal = ({
   onHide,
   onSuccess,
   obrasSeleccionadas = [],
-  obrasOriginales = [] // ✅ Obras completas para detectar independientes
+  obrasOriginales = [], // ✅ Obras completas para detectar independientes
+  refreshTrigger
 }) => {
   const { empresaSeleccionada } = useEmpresa();
 
@@ -77,7 +78,7 @@ const RegistrarPagoConsolidadoModal = ({
       setTrabajosExtraSeleccionados([]);
       cargarPresupuestosYProfesionales();
     }
-  }, [show, empresaSeleccionada, obrasSeleccionadas]);
+  }, [show, empresaSeleccionada, obrasSeleccionadas, refreshTrigger]);
 
   // 🔄 Recargar datos adicional cuando cambian obras seleccionadas
   useEffect(() => {
@@ -2300,10 +2301,10 @@ const RegistrarPagoConsolidadoModal = ({
                     <button type="button" className={`btn btn-lg ${tabActiva === 'TRABAJOS_ADICIONALES' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setTabActiva('TRABAJOS_ADICIONALES')} style={{whiteSpace: 'normal', lineHeight: '1.2'}}>
                       <div>
                         <div style={{fontSize: '1rem', marginBottom: '2px'}}>
-                          🔧 Trabajos Adicionales ({trabajosExtraFiltradosPorSemana.filter(t => !t.esObraIndependiente).length})
+                          🔧 Tareas Leves ({trabajosExtraFiltradosPorSemana.filter(t => !t.esObraIndependiente).length})
                         </div>
                         <div style={{fontSize: '0.85rem', opacity: 0.9}}>
-                          🏗️ Obras Independientes ({trabajosExtraFiltradosPorSemana.filter(t => t.esObraIndependiente === true).length})
+                          🏗️ Trabajos Diarios ({trabajosExtraFiltradosPorSemana.filter(t => t.esObraIndependiente === true).length})
                         </div>
                       </div>
                     </button>
@@ -2432,7 +2433,7 @@ const RegistrarPagoConsolidadoModal = ({
                                                 </div>
                                               </div>
                                             </th>
-                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Tarifa por Día</th>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Honorarios Diarios</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Total a Pagar</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Total Pagado</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Saldo Pendiente</th>

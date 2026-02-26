@@ -16,7 +16,7 @@ import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
  * - Distribuye ese saldo entre una o varias obras
  * - No crea cobros nuevos, solo asigna existentes
  */
-const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
+const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess, refreshTrigger }) => {
   const { empresaSeleccionada } = useEmpresa();
 
   // Cobros disponibles
@@ -54,7 +54,7 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
 
-  // Cargar cobros disponibles y asignaciones existentes al abrir
+  // Cargar cobros disponibles y asignaciones existentes al abrir O cuando cambia refreshTrigger
   useEffect(() => {
     if (show && empresaSeleccionada) {
       cargarCobrosDisponibles();
@@ -65,7 +65,7 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
     if (show) {
       resetForm();
     }
-  }, [show, empresaSeleccionada]);
+  }, [show, empresaSeleccionada, refreshTrigger]);
 
   const resetForm = () => {
     setCobroSeleccionado(null);
@@ -543,13 +543,22 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
     const montoPorObra = montoDisponible / obrasSeleccionadas.length;
     const porcentajePorObra = 100 / obrasSeleccionadas.length;
 
+    // Verificar si ya está distribuido uniformemente
+    const obrasSeleccionadasConMonto = distribucion.filter(d => {
+      const idUnico = obtenerIdUnico(d.obra);
+      return obrasSeleccionadas.includes(idUnico) && parseFloat(d.monto || 0) > 0;
+    });
+
+    const yaDistribuido = obrasSeleccionadasConMonto.length === obrasSeleccionadas.length;
+
     const nuevaDistribucion = distribucion.map(d => {
       const idUnico = obtenerIdUnico(d.obra);
       if (obrasSeleccionadas.includes(idUnico)) {
+        // Si ya está distribuido, anular (poner en 0), si no, distribuir
         return {
           ...d,
-          monto: montoPorObra,
-          porcentaje: porcentajePorObra
+          monto: yaDistribuido ? 0 : montoPorObra,
+          porcentaje: yaDistribuido ? 0 : porcentajePorObra
         };
       }
       return { ...d, monto: 0, porcentaje: 0 };
@@ -1061,7 +1070,7 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
                               onClick={distribuirUniformemente}
                               disabled={obrasSeleccionadas.length === 0}
                             >
-                              <i className="bi bi-distribute-vertical"></i> Distribuir por Ítems
+                              <i className="bi bi-distribute-vertical"></i> Distribuir a Todas las Obras por Igual
                             </button>
                             <small className="text-muted ms-2">
                               {obrasSeleccionadas.length} obra(s) seleccionada(s)
@@ -1142,7 +1151,7 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess }) => {
                                                 }}
                                               >
                                                 <i className={`bi ${isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'} me-1`}></i>
-                                                Ítems
+                                                Mostrar Secciones
                                               </button>
                                             )}
                                             <div>

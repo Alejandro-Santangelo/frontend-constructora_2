@@ -16,7 +16,7 @@ import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
  * - Opcionalmente permite asignarlo inmediatamente a obras (total o parcial)
  * - Checkbox simple: "¿Asignar a obras ahora?"
  */
-const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDireccion }) => {
+const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDireccion, refreshTrigger }) => {
   const { empresaSeleccionada } = useEmpresa();
 
   // Estado del formulario principal
@@ -49,7 +49,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
   // Determinar si es modo INDIVIDUAL (obra pre-seleccionada)
   const modoIndividual = !!obraDireccion;
 
-  // Cargar obras disponibles al abrir
+  // Cargar obras disponibles al abrir O cuando cambia refreshTrigger
   useEffect(() => {
     if (show && empresaSeleccionada && !modoIndividual) {
       cargarObrasDisponibles();
@@ -59,7 +59,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
     if (show) {
       resetForm();
     }
-  }, [show, empresaSeleccionada, modoIndividual]);
+  }, [show, empresaSeleccionada, modoIndividual, refreshTrigger]);
 
   const resetForm = () => {
     setFormData({
@@ -1123,7 +1123,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                     }}
                                                   >
                                                     <i className={`bi ${isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'} me-1`}></i>
-                                                    Ítems
+                                                    Mostrar Secciones
                                                   </button>
                                                 )}
                                                 <div>

@@ -17,7 +17,7 @@ import DireccionObraSelector from './DireccionObraSelector';
 import api from '../services/api';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 
-const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoConsolidado, obrasSeleccionadas, obrasDisponibles, refreshTrigger }) => {
+const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoConsolidado, obrasSeleccionadas, obrasDisponibles, trabajosExtraSeleccionados, trabajosAdicionalesSeleccionados, trabajosAdicionalesDisponibles, refreshTrigger }) => {
   const { empresaSeleccionada } = useEmpresa();
   const [cobros, setCobros] = useState([]);
   const [entidades, setEntidades] = useState([]);
@@ -53,159 +53,49 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
     setLoading(true);
     setError(null);
     try {
-      console.log('🔵 DIAGNOSTICO_MODAL 🔵 Iniciando carga');
+      // Usar obrasDisponibles que ya viene con la estructura correcta
+      let obrasACargar = obrasDisponibles || [];
 
-      // 1. Cargar TODAS las obras primero
-      let obrasACargar = [];
-      try {
-        const response = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
-        let presupuestos = Array.isArray(response) ? response :
-                          response?.datos || response?.content || response?.data || [];
 
-        console.log('🔵 DIAGNOSTICO_MODAL presupuestos obtenidos:', presupuestos.length);
-
-        // Filtrar solo APROBADO y EN_EJECUCION
-        presupuestos = presupuestos.filter(p =>
-          p.estado === 'APROBADO' || p.estado === 'EN_EJECUCION'
-        );
-
-        console.log('🔵 DIAGNOSTICO_MODAL presupuestos filtrados:', presupuestos.length);
-        console.log('🔵 DIAGNOSTICO_MODAL primer presupuesto completo:', presupuestos[0]);
-
-        // Agrupar por obra y tomar última versión
-        const obrasPorNombre = {};
-        presupuestos.forEach(p => {
-          const clave = `${p.direccionObraCalle}-${p.direccionObraAltura}`;
-          if (!obrasPorNombre[clave] || p.version > obrasPorNombre[clave].version) {
-            obrasPorNombre[clave] = {
-              id: p.id,
-              nombreObra: `${p.direccionObraCalle} ${p.direccionObraAltura}${p.direccionObraBarrio ? ' - ' + p.direccionObraBarrio : ''}`,
-              direccionObraCalle: p.direccionObraCalle,
-              direccionObraAltura: p.direccionObraAltura,
-              direccionObraBarrio: p.direccionObraBarrio,
-              totalPresupuesto: p.totalFinal || p.totalPresupuestoConHonorarios || p.montoTotal || 0,
-              version: p.version,
-              estado: p.estado
-            };
-          }
-        });
-
-        obrasACargar = Object.values(obrasPorNombre);
-        console.log('🔵 DIAGNOSTICO_MODAL obras agrupadas:', obrasACargar.length);
-
-        // 🆕 Cargar trabajos extra para cada obra
-        const obrasConTrabajosExtra = await Promise.all(obrasACargar.map(async (obra) => {
-          try {
-            const obraId = obra.obraId || presupuestos.find(p => p.id === obra.id)?.obraId;
-            if (obraId) {
-              const responseTE = await api.trabajosExtra.getAll(empresaSeleccionada.id, { obraId });
-              const trabajos = Array.isArray(responseTE) ? responseTE : responseTE?.data || [];
-
-              // Obtener detalles completos de cada trabajo extra
-              const trabajosCompletos = await Promise.all(trabajos.map(async (t) => {
-                try {
-                  const fullResponse = await api.trabajosExtra.getById(t.id, empresaSeleccionada.id);
-                  const fullTrabajo = fullResponse.data || fullResponse;
-
-                  // Calcular total con la misma lógica que useEstadisticasConsolidadas
-                  let totalCalculado = 0;
-                  if (fullTrabajo.itemsCalculadora && Array.isArray(fullTrabajo.itemsCalculadora) && fullTrabajo.itemsCalculadora.length > 0) {
-                    const parseMontoLocal = (val) => {
-                      if (typeof val === 'number') return val;
-                      if (!val) return 0;
-                      let str = String(val).trim().replace(/[^0-9.,-]/g, '');
-                      if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
-                      return parseFloat(str) || 0;
-                    };
-
-                    let subtotalJornales = 0, subtotalMateriales = 0, subtotalOtros = 0;
-                    fullTrabajo.itemsCalculadora.forEach((item) => {
-                      let jorItem = parseMontoLocal(item.subtotalManoObra) || 0;
-                      if (jorItem === 0 && item.jornales && Array.isArray(item.jornales)) {
-                        jorItem = item.jornales.reduce((s, j) => s + (parseMontoLocal(j.subtotal) || parseMontoLocal(j.importe) || 0), 0);
-                      }
-                      subtotalJornales += jorItem;
-                      subtotalMateriales += parseMontoLocal(item.subtotalMateriales) || 0;
-                      subtotalOtros += parseMontoLocal(item.subtotalGastosGenerales) || 0;
-                    });
-
-                    const subtotalBase = subtotalJornales + subtotalMateriales + subtotalOtros;
-                    let totalHonorarios = 0;
-                    if (fullTrabajo.honorarios && typeof fullTrabajo.honorarios === 'object') {
-                      const conf = fullTrabajo.honorarios;
-                      if (conf.jornalesActivo && conf.jornalesValor) totalHonorarios += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
-                      if (conf.materialesActivo && conf.materialesValor) totalHonorarios += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
-                      if (conf.otrosCostosActivo && conf.otrosCostosValor) totalHonorarios += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
-                    }
-
-                    let totalMC = 0;
-                    if (fullTrabajo.mayoresCostos && typeof fullTrabajo.mayoresCostos === 'object') {
-                      const conf = fullTrabajo.mayoresCostos;
-                      if (conf.jornalesActivo && conf.jornalesValor) totalMC += subtotalJornales * (parseFloat(conf.jornalesValor) / 100);
-                      if (conf.materialesActivo && conf.materialesValor) totalMC += subtotalMateriales * (parseFloat(conf.materialesValor) / 100);
-                      if (conf.otrosCostosActivo && conf.otrosCostosValor) totalMC += subtotalOtros * (parseFloat(conf.otrosCostosValor) / 100);
-                      if (conf.honorariosActivo && conf.honorariosValor && totalHonorarios > 0) totalMC += totalHonorarios * (parseFloat(conf.honorariosValor) / 100);
-                    }
-
-                    totalCalculado = subtotalBase + totalHonorarios + totalMC;
-                  } else {
-                    totalCalculado = parseFloat(fullTrabajo.totalFinal) || parseFloat(fullTrabajo.montoTotal) || 0;
-                  }
-
-                  return {
-                    id: fullTrabajo.id,
-                    nombre: fullTrabajo.nombre,
-                    totalCalculado: totalCalculado
-                  };
-                } catch (err) {
-                  return { id: t.id, nombre: t.nombre, totalCalculado: parseFloat(t.totalFinal) || 0 };
-                }
-              }));
-
-              return { ...obra, trabajosExtra: trabajosCompletos };
-            }
-            return obra;
-          } catch (error) {
-            console.warn(`⚠️ Error cargando trabajos extra de obra ${obra.nombreObra}:`, error);
-            return obra;
-          }
-        }));
-
-        obrasACargar = obrasConTrabajosExtra;
-        obrasACargar.forEach((obra, idx) => {
-          const totalTE = obra.trabajosExtra?.reduce((sum, te) => sum + (te.totalCalculado || 0), 0) || 0;
-          console.log(`🔵 DIAGNOSTICO_MODAL obra ${idx}: ${obra.nombreObra} - base: ${obra.totalPresupuesto} + TE: ${totalTE} = ${obra.totalPresupuesto + totalTE}`);
-        });
-
-        // Si hay selección parcial, filtrar
-        if (haySeleccionParcial && obrasSeleccionadas && obrasSeleccionadas.size > 0) {
-          const idsSeleccionados = Array.from(obrasSeleccionadas);
-          obrasACargar = obrasACargar.filter(o => idsSeleccionados.includes(o.id));
-          console.log('🔵 DIAGNOSTICO_MODAL obras después de filtro selección:', obrasACargar.length);
-        }
-      } catch (error) {
-        console.error('Error cargando obras:', error);
+      // Filtrar según selección
+      if (haySeleccionParcial && obrasSeleccionadas && obrasSeleccionadas.size > 0) {
+        const idsSeleccionados = Array.from(obrasSeleccionadas);
+        obrasACargar = obrasACargar.filter(o => idsSeleccionados.includes(o.id));
       }
 
-      // 🆕 Cargar Obras Independientes (manuales), Trabajos Adicionales y estadísticas EF (circuito nuevo)
-      let obrasIndependientes = [];
-      let taList = [];
-      let taOiEFs = [];
+      // Filtrar trabajos extra SOLO si hay selección específica de trabajos extra
+      // Si no hay selección específica, mantener TODOS los trabajos extra de las obras seleccionadas
+      if (haySeleccionParcial && trabajosExtraSeleccionados && trabajosExtraSeleccionados.size > 0) {
+        const idsSeleccionados = Array.from(trabajosExtraSeleccionados);
+        obrasACargar = obrasACargar.map(obra => {
+          if (obra.trabajosExtra && obra.trabajosExtra.length > 0) {
+            const trabajosExtraFiltrados = obra.trabajosExtra.filter(te =>
+              idsSeleccionados.includes(te.id)
+            );
+            return { ...obra, trabajosExtra: trabajosExtraFiltrados };
+          }
+          return obra;
+        });
+      }
+
+      // Usar trabajosAdicionalesDisponibles que ya viene cargado
+      let taList = trabajosAdicionalesDisponibles || [];
+      if (haySeleccionParcial && trabajosAdicionalesSeleccionados && trabajosAdicionalesSeleccionados.size > 0) {
+        const idsSeleccionados = Array.from(trabajosAdicionalesSeleccionados);
+        taList = taList.filter(ta => idsSeleccionados.includes(ta.id));
+      }
+
+      // Cargar estadísticas para trabajos adicionales
       let efStatsMap = {};
+      let taOiEFs = [];
+      let getEFStats = () => null;
+      let trabajosAdicionalesPorObraId = {};
+      let trabajosAdicionalesPorTrabajoExtraObraId = {};
+      let trabajosAdicionalesHuerfanos = [];
+
       try {
         const efService = await import('../services/entidadesFinancierasService');
-        const { listarTrabajosAdicionales: _listarTA } = await import('../services/trabajosAdicionalesService');
-        const [oiRaw, taRaw, todasEFs] = await Promise.all([
-          api.obras.getObrasManuales(empresaSeleccionada.id)
-            .then(r => Array.isArray(r) ? r : r?.data || r?.datos || [])
-            .catch(() => []),
-          _listarTA(empresaSeleccionada.id).catch(() => []),
-          efService.listarEntidadesFinancieras(empresaSeleccionada.id, true)
-        ]);
-        obrasIndependientes = (Array.isArray(oiRaw) ? oiRaw : []).filter(o =>
-          !o.presupuestoNoClienteId && !o.presupuestoId
-        );
-        taList = Array.isArray(taRaw) ? taRaw : [];
+        const todasEFs = await efService.listarEntidadesFinancieras(empresaSeleccionada.id, true);
         taOiEFs = (Array.isArray(todasEFs) ? todasEFs : []).filter(ef =>
           ef.tipoEntidad === 'TRABAJO_ADICIONAL' || ef.tipoEntidad === 'OBRA_INDEPENDIENTE'
         );
@@ -214,15 +104,42 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
           const stats = await efService.obtenerEstadisticasMultiples(empresaSeleccionada.id, taOiIds);
           (Array.isArray(stats) ? stats : []).forEach(s => { efStatsMap[s.entidadFinancieraId] = s; });
         }
-        console.log(`🆕 OI: ${obrasIndependientes.length}, TA: ${taList.length}, EF stats: ${Object.keys(efStatsMap).length}`);
+
+        getEFStats = (tipo, entidadId) => {
+          const ef = taOiEFs.find(e => e.tipoEntidad === tipo && Number(e.entidadId) === Number(entidadId));
+          return ef ? (efStatsMap[ef.id] || null) : null;
+        };
+
+        // Crear mapa de trabajos adicionales por obraId y trabajoExtraId
+        // NOTA: trabajoExtraId NO apunta a trabajos extra de presupuesto, sino a otros TAs
+        // formando una jerarquía. Por ahora, agrupar todos los TAs por obraId solamente.
+        taList.forEach(ta => {
+          const stats = getEFStats('TRABAJO_ADICIONAL', ta.id);
+          const taData = {
+            id: `ta_${ta.id}`,
+            taId: ta.id,
+            tipo: 'TRABAJO_ADICIONAL',
+            nombre: ta.nombre || ta.descripcion || `Trabajo Adicional #${ta.id}`,
+            presupuesto: parseFloat(ta.importe || ta.montoTotal || ta.total || ta.monto || 0),
+            cobros: [],
+            totalCobrado: parseFloat(stats?.totalCobrado || 0),
+            obraId: ta.obraId,
+            trabajoExtraId: ta.trabajoExtraId,
+          };
+
+          // Agrupar solo por obraId (trabajoExtraId apunta a otros TAs, no a TEs)
+          if (ta.obraId) {
+            if (!trabajosAdicionalesPorObraId[ta.obraId]) {
+              trabajosAdicionalesPorObraId[ta.obraId] = [];
+            }
+            trabajosAdicionalesPorObraId[ta.obraId].push(taData);
+          } else {
+            trabajosAdicionalesHuerfanos.push(taData);
+          }
+        });
       } catch (err) {
-        console.warn('⚠️ Error cargando TA/OI/EF:', err.message);
+        console.warn('⚠️ Error cargando estadísticas de trabajos adicionales:', err.message);
       }
-      // Helper para obtener estadísticas (circuito nuevo) por tipo de entidad + entidadId
-      const getEFStats = (tipo, entidadId) => {
-        const ef = taOiEFs.find(e => e.tipoEntidad === tipo && Number(e.entidadId) === Number(entidadId));
-        return ef ? (efStatsMap[ef.id] || null) : null;
-      };
 
       // 2. Cargar cobros directos de cada obra
       const promesasCobros = obrasACargar.map(obra =>
@@ -244,8 +161,6 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
 
       const resultados = await Promise.all(promesasCobros);
 
-      console.log('🔵 DIAGNOSTICO_MODAL resultados de cobros por obra:', resultados);
-
       // Combinar todos los cobros
       let cobrosObra = [];
       resultados.forEach(({ obra, cobros }) => {
@@ -256,8 +171,6 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         }));
         cobrosObra = [...cobrosObra, ...cobrosEnriquecidos];
       });
-
-      console.log(`📦 Total cobros directos de obra: ${cobrosObra.length}`);
 
       // 3. Cargar cobros a la empresa (Gisel, etc.)
       let cobrosEmpresa = [];
@@ -277,9 +190,6 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
           tipo: 'EMPRESA',
           nombreObra: `Cobro a ${empresaSeleccionada.razonSocial || 'Empresa'}`
         }));
-
-        console.log('💰 Total cobrado empresa:', totalCobradoEmpresa);
-        console.log('💰 Cobros empresa individuales:', cobrosEmpresa.length);
       } catch (error) {
         console.warn('⚠️ Error obteniendo cobros empresa:', error.message);
         totalCobradoEmpresa = 0;
@@ -299,7 +209,6 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
             }
           });
         }
-        console.log(`💰 Total asignaciones de cobros empresa a obras seleccionadas: $${totalAsignacionesObras}`);
       } catch (error) {
         console.warn('⚠️ Error cargando distribución cobros empresa:', error.message);
       }
@@ -308,7 +217,6 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
       const todosCobros = [...cobrosObra, ...cobrosEmpresa];
 
       // Cargar asignaciones de ítems para cada cobro
-      console.log('📊 Cargando asignaciones de ítems...');
       const cobrosConAsignaciones = await Promise.all(
         todosCobros.map(async (cobro) => {
           try {
@@ -339,6 +247,21 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
 
       setCobros(cobrosConAsignaciones);
 
+      // Cargar Obras Independientes
+      let obrasIndependientes = [];
+      try {
+        const oiRaw = await api.obras.getObrasManuales(empresaSeleccionada.id);
+        obrasIndependientes = (Array.isArray(oiRaw) ? oiRaw : oiRaw?.data || oiRaw?.datos || []).filter(o =>
+          !o.presupuestoNoClienteId && !o.presupuestoId
+        );
+        if (haySeleccionParcial && obrasSeleccionadas && obrasSeleccionadas.size > 0) {
+          const idsSeleccionados = Array.from(obrasSeleccionadas);
+          obrasIndependientes = obrasIndependientes.filter(oi => idsSeleccionados.includes(oi.id));
+        }
+      } catch (err) {
+        console.warn('⚠️ Error cargando obras independientes:', err.message);
+      }
+
       // 5b. Construir lista de entidades (TODAS las categorías con cobrados reales)
       {
         const cobrosDeObraPorNombre = {};
@@ -348,11 +271,13 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
           cobrosDeObraPorNombre[key].push(c);
         });
         const cobrosEmpresaItems = cobrosConAsignaciones.filter(c => c.tipo === 'EMPRESA');
+
         // Obras principales (con presupuesto) + sus trabajos extra
         const entidadesBase = obrasACargar.flatMap(obra => {
           const cobrosObra = cobrosDeObraPorNombre[obra.nombreObra] || [];
           const obraEnt = {
-            id: obra.id,
+            id: obra.id, // ID del presupuesto
+            obraId: obra.obraId, // ID de la tabla obras
             tipo: 'OBRA_PRINCIPAL',
             nombre: obra.nombreObra,
             presupuesto: parseFloat(obra.totalPresupuesto || 0) +
@@ -360,15 +285,20 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
             cobros: cobrosObra,
             totalCobrado: cobrosObra.reduce((s, c) => s + parseFloat(c.monto || 0), 0),
           };
-          const teEnt = (obra.trabajosExtra || []).map(te => ({
-            id: `te_${te.id}`,
-            tipo: 'TRABAJO_EXTRA',
-            nombre: te.nombre || `Trabajo Extra #${te.id}`,
-            presupuesto: parseFloat(te.totalCalculado || te.totalFinal || 0),
-            cobros: [],
-            totalCobrado: 0,
-            obraPadreNombre: obra.nombreObra,
-          }));
+          const teEnt = (obra.trabajosExtra || []).map(te => {
+            return {
+              id: `te_${te.id}`, // Prefijo para evitar colisiones
+              presupuestoId: te.id, // ID del presupuesto del trabajo extra
+              obraId: te.obraId, // ID de la tabla obras del trabajo extra
+              tipo: 'TRABAJO_EXTRA',
+              nombre: te.nombre || `Trabajo Extra #${te.id}`,
+              presupuesto: parseFloat(te.totalCalculado || te.totalFinal || 0),
+              cobros: [],
+              totalCobrado: 0,
+              obraPadreNombre: obra.nombreObra,
+              obraPadreObraId: obra.obraId, // Para referencia
+            };
+          });
           return [obraEnt, ...teEnt];
         });
         // Cobros empresa
@@ -394,19 +324,23 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
             totalCobrado: parseFloat(stats?.totalCobrado || 0),
           });
         });
-        // 🆕 Trabajos Adicionales (circuito cobros_entidad) con cobrado real de EF stats
-        taList.forEach(ta => {
-          const stats = getEFStats('TRABAJO_ADICIONAL', ta.id);
-          entidadesBase.push({
-            id: `ta_${ta.id}`,
-            tipo: 'TRABAJO_ADICIONAL',
-            nombre: ta.nombre || ta.descripcion || `Trabajo Adicional #${ta.id}`,
-            presupuesto: parseFloat(ta.importe || ta.montoTotal || ta.total || ta.monto || 0),
-            cobros: [],
-            totalCobrado: parseFloat(stats?.totalCobrado || 0),
-            obraId: ta.obraId,
-          });
+
+        // Agregar trabajos adicionales a sus obras correspondientes
+        entidadesBase.forEach(entidad => {
+          const esObraPrincipal = entidad.tipo === 'OBRA_PRINCIPAL';
+          const tieneObraId = Boolean(entidad.obraId);
+
+          if (esObraPrincipal && tieneObraId) {
+            // Todos los TAs que pertenecen a esta obra (convertir obraId a string para la búsqueda)
+            const obraIdKey = String(entidad.obraId);
+            const tasAsignados = trabajosAdicionalesPorObraId[obraIdKey] || [];
+            entidad.trabajosAdicionales = tasAsignados;
+          }
         });
+
+        // Agregar trabajos adicionales huérfanos como entidades independientes
+        trabajosAdicionalesHuerfanos.forEach(ta => entidadesBase.push(ta));
+
         setEntidades(entidadesBase);
       }
 
@@ -441,29 +375,11 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         taList.reduce((sum, ta) =>
           sum + parseFloat(ta.importe || ta.montoTotal || ta.total || ta.monto || 0), 0);
 
-      console.log('🔵 DIAGNOSTICO_MODAL totalPresupuestoCalculado final:', totalPresupuestoCalculado);
-      console.log('🔵 DIAGNOSTICO_MODAL totalCobradoCalculado final:', totalCobradoCalculado);
-
       const pendienteCalculado = totalPresupuestoCalculado - totalCobradoCalculado;
-      console.log('🔵 DIAGNOSTICO_MODAL pendienteCalculado final:', pendienteCalculado);
 
       setTotalCobrado(totalCobradoCalculado);
       setTotalPendiente(pendienteCalculado > 0 ? pendienteCalculado : 0);
       setTotalPresupuesto(totalPresupuestoCalculado);
-
-      console.log('💰 Resumen:', {
-        obras: obrasACargar.length,
-        cobrosDirectos: cobrosObra.length,
-        totalCobradoEmpresa, // ← Este es el valor REAL ($30M)
-        asignacionesAObras: totalAsignacionesObras, // ← Esto es solo parte ($18M)
-        totalPresupuesto: totalPresupuestoCalculado,
-        pendiente: pendienteCalculado
-      });
-
-      console.log(`✅ Cargados ${cobrosConAsignaciones.length} cobros`);
-
-      // Log del resultado final
-      console.log('📋 Cobros finales:', cobrosConAsignaciones);
     } catch (err) {
       console.error('❌ Error cargando cobros consolidados:', err);
       console.error('❌ Stack:', err.stack);
@@ -646,11 +562,9 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
         const { eliminarCobroEmpresa } = await import('../services/cobrosEmpresaService');
         // Para cobros tipo EMPRESA, el id del cobro ES el cobroEmpresaId
         await eliminarCobroEmpresa(cobro.id, empresaSeleccionada.id);
-        console.log('✅ Cobro empresa eliminado:', cobro.id);
       } else {
         // Eliminar cobro obra (API antigua)
         await eliminarCobro(cobroId, empresaSeleccionada.id);
-        console.log('✅ Cobro obra eliminado:', cobroId);
       }
 
       // 📡 Notificar al contexto centralizado
@@ -987,13 +901,13 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                     <div style={{maxHeight: '600px', overflowY: 'auto'}}>
                       {(() => {
                         const tipoBadge = {
-                          OBRA_PRINCIPAL:     { label: 'Obra Principal',     color: 'primary'           },
-                          OBRA_INDEPENDIENTE: { label: 'Obra Independiente', color: 'info'              },
-                          TRABAJO_EXTRA:      { label: 'Trabajo Extra',      color: 'warning text-dark' },
-                          TRABAJO_ADICIONAL:  { label: 'Trabajo Adicional',  color: 'secondary'         },
+                          OBRA_PRINCIPAL:     { label: 'Obra Principal',            color: 'primary'           },
+                          OBRA_INDEPENDIENTE: { label: 'Trabajo Diario',            color: 'info'              },
+                          TRABAJO_EXTRA:      { label: 'Adicional Obra',            color: 'warning text-dark' },
+                          TRABAJO_ADICIONAL:  { label: 'Tarea Leve / Mantenimiento', color: 'secondary'         },
                         };
 
-                        const renderEntidadCard = (entidad, idx, indentada = false) => {
+                        const renderEntidadCard = (entidad, idx, indentada = false, marginLeft = '1.5rem') => {
                           const cobrosEntidad = entidad.cobros.filter(c =>
                             filtroEstado === 'TODOS' || c.estado?.toUpperCase() === filtroEstado
                           );
@@ -1002,7 +916,7 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                             <div
                               key={`ent_${entidad.id}_${idx}`}
                               className="card mb-2"
-                              style={indentada ? { marginLeft: '1.5rem', borderLeft: '3px solid #dee2e6' } : {}}
+                              style={indentada ? { marginLeft: marginLeft, borderLeft: '3px solid #dee2e6' } : {}}
                             >
                               <div className="card-header py-2 d-flex justify-content-between align-items-center">
                                 <div>
@@ -1073,17 +987,17 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                           );
                         };
 
-                        // 1. Obras Principales + sus Trabajos Extra anidados
+                        // 1. Obras Principales + sus Trabajos Extra + sus Trabajos Adicionales anidados
                         const obrasPrincipales = entidades.filter(e => e.tipo === 'OBRA_PRINCIPAL');
                         const trabajosExtra = entidades.filter(e => e.tipo === 'TRABAJO_EXTRA');
-                        // 2. Obras Independientes
-                        const obrasIndep = entidades.filter(e => e.tipo === 'OBRA_INDEPENDIENTE');
-                        // 3. Trabajos Adicionales
-                        const trabajosAdicionales = entidades.filter(e => e.tipo === 'TRABAJO_ADICIONAL');
+                        // 2. Trabajos Diarios (Obras Independientes)
+                        const trabajosDiarios = entidades.filter(e => e.tipo === 'OBRA_INDEPENDIENTE');
+                        // 3. Trabajos Adicionales huérfanos (sin obra padre)
+                        const trabajosAdicionalesHuerfanos = entidades.filter(e => e.tipo === 'TRABAJO_ADICIONAL');
 
                         return (
                           <>
-                            {/* Obras Principales con sus Trabajos Extra anidados */}
+                            {/* Obras Principales con Adicionales Obra y Tareas Leves anidados */}
                             {obrasPrincipales.length > 0 && (
                               <>
                                 <div className="d-flex align-items-center mb-2 mt-1">
@@ -1093,10 +1007,29 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                                 {obrasPrincipales.map((obra, idx) => (
                                   <div key={`op_group_${obra.id}`}>
                                     {renderEntidadCard(obra, idx, false)}
+                                    {/* Adicionales Obra (Trabajos Extra) con sus Tareas Leves */}
                                     {trabajosExtra
                                       .filter(te => te.obraPadreNombre === obra.nombre)
-                                      .map((te, teIdx) => renderEntidadCard(te, teIdx, true))
+                                      .map((te, teIdx) => (
+                                        <React.Fragment key={`te_frag_${te.id}`}>
+                                          {renderEntidadCard(te, teIdx, true)}
+                                          {/* Tareas Leves del Trabajo Extra */}
+                                          {te.trabajosAdicionales && te.trabajosAdicionales.length > 0 && (
+                                            te.trabajosAdicionales.map((ta, taIdx) =>
+                                              renderEntidadCard(ta, taIdx, true, '3rem')
+                                            )
+                                          )}
+                                        </React.Fragment>
+                                      ))
                                     }
+                                    {/* Tareas Leves (Trabajos Adicionales) de la Obra Principal */}
+                                    {obra.trabajosAdicionales && obra.trabajosAdicionales.length > 0 && (
+                                      <>
+                                        {obra.trabajosAdicionales.map((ta, taIdx) =>
+                                          renderEntidadCard(ta, taIdx, true, '1.5rem')
+                                        )}
+                                      </>
+                                    )}
                                   </div>
                                 ))}
                                 {/* Trabajos Extra huérfanos (sin obra padre en la lista) */}
@@ -1107,25 +1040,25 @@ const ListarCobrosObraModal = ({ show, onHide, onSuccess, obraDireccion, modoCon
                               </>
                             )}
 
-                            {/* Obras Independientes */}
-                            {obrasIndep.length > 0 && (
+                            {/* Trabajos Diarios (Obras Independientes) */}
+                            {trabajosDiarios.length > 0 && (
                               <>
                                 <div className="d-flex align-items-center mb-2 mt-3">
-                                  <span className="badge bg-info me-2">Obras Independientes</span>
+                                  <span className="badge bg-info me-2">Trabajos Diarios</span>
                                   <hr className="flex-grow-1 m-0" />
                                 </div>
-                                {obrasIndep.map((oi, idx) => renderEntidadCard(oi, idx, false))}
+                                {trabajosDiarios.map((td, idx) => renderEntidadCard(td, idx, false))}
                               </>
                             )}
 
-                            {/* Trabajos Adicionales */}
-                            {trabajosAdicionales.length > 0 && (
+                            {/* Tareas Leves huérfanas (sin obra padre) */}
+                            {trabajosAdicionalesHuerfanos.length > 0 && (
                               <>
                                 <div className="d-flex align-items-center mb-2 mt-3">
-                                  <span className="badge bg-secondary me-2">Trabajos Adicionales</span>
+                                  <span className="badge bg-secondary me-2">Tareas Leves</span>
                                   <hr className="flex-grow-1 m-0" />
                                 </div>
-                                {trabajosAdicionales.map((ta, idx) => renderEntidadCard(ta, idx, false))}
+                                {trabajosAdicionalesHuerfanos.map((ta, idx) => renderEntidadCard(ta, idx, false))}
                               </>
                             )}
                           </>

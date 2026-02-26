@@ -91,25 +91,25 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     const taIdsContados = new Set(); // Para deduplica TAs
     const oiMap = new Map(); // Para deduplicar OIs
 
-    // Crear Set con todos los IDs de trabajos extra para detección rápida
-    const idsTrabajosExtra = new Set();
+    // ✅ CORREGIDO: Crear Set solo con IDs de presupuestos que son trabajos extra
+    const idsPresupuestosTrabajosExtra = new Set();
     trabajosExtra.forEach(tesObra => {
       tesObra.forEach(te => {
-        if (te.obraId) idsTrabajosExtra.add(te.obraId);
-        if (te.id) idsTrabajosExtra.add(te.id);
+        // Solo agregar el ID del presupuesto del TE (no el obraId)
+        if (te.id) idsPresupuestosTrabajosExtra.add(te.id);
+        if (te.presupuestoId) idsPresupuestosTrabajosExtra.add(te.presupuestoId);
       });
     });
 
-    // ✅ FILTRAR TEs que ya están en el Map (para no contarlos dos veces)
+    // ✅ FILTRAR solo presupuestos que son TEs (para no contarlos dos veces)
     const obrasFiltradas = datos.filter(obra => {
-      const obraIdActual = obra.obraId || obra.id;
       const presupuestoIdActual = obra.presupuestoId || obra.id;
-      const estaEnMapTrabajos = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+      const esPresupuestoTrabajoExtra = idsPresupuestosTrabajosExtra.has(presupuestoIdActual);
 
-      if (estaEnMapTrabajos) {
-        console.log(`🚫 [useMemo] Filtrando "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - es TE duplicado`);
+      if (esPresupuestoTrabajoExtra) {
+        console.log(`🚫 [useMemo] Filtrando "${obra.nombreObra}" (presupuestoId: ${presupuestoIdActual}) - es TE duplicado`);
       }
-      return !estaEnMapTrabajos;
+      return !esPresupuestoTrabajoExtra;
     });
 
     console.log(`📊 [useMemo] Obras a procesar: ${obrasFiltradas.length}`, obrasFiltradas.map(o => o.nombreObra));
@@ -160,7 +160,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
 
       trabajosAdicionalesObra.forEach(ta => {
         if (!taIdsContados.has(ta.id)) {
-          const monto = parseFloat(ta.importe || ta.montoEstimado || 0);
+          const monto = parseFloat(ta.importe || 0);
           console.log(`  💵 [useMemo] Sumando TA id:${ta.id} "${ta.nombre?.substring(0,20)}...": $${monto.toLocaleString()}`);
           total += monto;
           taIdsContados.add(ta.id);
@@ -181,7 +181,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     });
     tasHuerfanos.forEach(ta => {
       if (!taIdsContados.has(ta.id)) {
-        total += parseFloat(ta.importe || ta.montoEstimado || 0);
+        total += parseFloat(ta.importe || 0);
         taIdsContados.add(ta.id);
       }
     });
@@ -459,27 +459,26 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     let totalCalculado = 0;
     const taIdsContados = new Set(); // Para evitar contar el mismo TA múltiples veces
 
-    // Crear Set con todos los IDs de trabajos extra para detección rápida
-    const idsTrabajosExtra = new Set();
+    // ✅ CORREGIDO: Crear Set solo con IDs de presupuestos que son trabajos extra
+    const idsPresupuestosTrabajosExtra = new Set();
     trabajosExtra.forEach(tesObra => {
       tesObra.forEach(te => {
-        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
-        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+        // Solo agregar el ID del presupuesto del TE (no el obraId)
+        if (te.id) idsPresupuestosTrabajosExtra.add(te.id);
+        if (te.presupuestoId) idsPresupuestosTrabajosExtra.add(te.presupuestoId);
       });
     });
 
-    // 1. Filtrar TE (ahora usando el Set de IDs) y deduplicar OI
+    // 1. Filtrar solo presupuestos que son trabajos extra, NO obras principales
     const obrasFiltradas = datos.filter(obra => {
-      // Verificar si esta obra está en el Map de trabajosExtra
-      const obraIdActual = obra.obraId || obra.id;
       const presupuestoIdActual = obra.presupuestoId || obra.id;
-      const estaEnTrabajosExtra = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+      const esPresupuestoTrabajoExtra = idsPresupuestosTrabajosExtra.has(presupuestoIdActual);
 
-      if (estaEnTrabajosExtra) {
-        console.log(`🚫 [Presupuestos] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+      if (esPresupuestoTrabajoExtra) {
+        console.log(`🚫 [Presupuestos] Excluyendo presupuesto "${obra.nombreObra}" (presupuestoId: ${presupuestoIdActual}) - es un trabajo extra`);
       }
 
-      return !estaEnTrabajosExtra;
+      return !esPresupuestoTrabajoExtra;
     });
 
     // Deduplicar OI por nombreObra
@@ -533,7 +532,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
         });
         trabajosAdicionalesObra.forEach(ta => {
           if (!taIdsContados.has(ta.id)) {
-            totalCalculado += parseFloat(ta.importe || ta.montoEstimado || 0);
+            totalCalculado += parseFloat(ta.importe || 0);
             taIdsContados.add(ta.id);
           }
         });
@@ -764,27 +763,71 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                             <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
                           </td>
                         </tr>
-                        {!colapsadoExtra && trabajosExtraObra.map((trabajo, tIdx) => (
-                          <tr key={`${idx}-trabajo-${tIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
-                            <td className="ps-3">
-                              <small><strong>{trabajo.nombre}</strong></small>
-                            </td>
-                            <td>
-                              <span className="badge bg-warning text-dark" style={{ fontSize: '0.7em' }}>📋 Adicional Obra</span>
-                            </td>
-                            <td className="text-end">
-                              <span className="fw-bold" style={{ color: '#856404' }}>
-                                {formatearMoneda(trabajo.totalCalculado || 0)}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {!colapsadoExtra && trabajosExtraObra.map((trabajo, tIdx) => {
+                          // 🔍 Buscar tareas leves asociadas a ESTE trabajo extra específico
+                          const tareasLevesDelTE = trabajosAdicionalesObra.filter(ta => {
+                            const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                            // Verificar si el trabajoExtraId coincide con el ID del trabajo extra actual
+                            // trabajoExtraId puede apuntar al ID de presupuesto (trabajo.id) O al obraId del TE
+                            return teId && (teId === trabajo.id || teId === trabajo.obraId);
+                          });
+
+                          return (
+                            <React.Fragment key={`${idx}-trabajo-${tIdx}`}>
+                              {/* Fila del Trabajo Extra */}
+                              <tr style={{ borderLeft: '5px solid #ffc107', borderBottom: tareasLevesDelTE.length > 0 ? '1px dashed rgba(253, 126, 20, 0.3)' : '1px solid rgba(253, 126, 20, 0.45)' }}>
+                                <td className="ps-3">
+                                  <small><strong>{trabajo.nombre}</strong></small>
+                                </td>
+                                <td>
+                                  <span className="badge bg-warning text-dark" style={{ fontSize: '0.7em' }}>
+                                    📋 Adicional Obra
+                                    {tareasLevesDelTE.length > 0 && <span className="ms-1">({tareasLevesDelTE.length} 🔧)</span>}
+                                  </span>
+                                </td>
+                                <td className="text-end">
+                                  <span className="fw-bold" style={{ color: '#856404' }}>
+                                    {formatearMoneda(trabajo.totalCalculado || 0)}
+                                  </span>
+                                </td>
+                              </tr>
+
+                              {/* Tareas Leves anidadas bajo este Trabajo Extra */}
+                              {tareasLevesDelTE.map((ta, taIdx) => (
+                                <tr key={`${idx}-te${tIdx}-ta${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', backgroundColor: '#f0f9ff', borderBottom: '1px solid rgba(253, 126, 20, 0.3)' }}>
+                                  <td className="ps-4">
+                                    <small className="text-info">
+                                      <i className="bi bi-arrow-return-right me-1" style={{ fontSize: '0.7em' }}></i>
+                                      <strong>{ta.nombre || ta.descripcion}</strong>
+                                    </small>
+                                  </td>
+                                  <td>
+                                    <span className="badge bg-info text-dark" style={{ fontSize: '0.65em' }}>🔧 Tarea Leve</span>
+                                  </td>
+                                  <td className="text-end">
+                                    <span className="fw-bold text-info" style={{ fontSize: '0.9em' }}>
+                                      {formatearMoneda(ta.importe || 0)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
                       </>
                     );
                   })()}
 
-                  {/* ═══ SUBGRUPO: TAREAS LEVES / MANTENIMIENTO (Trabajos Adicionales) ═══ */}
-                  {trabajosAdicionalesObra.length > 0 && (() => {
+                  {/* ═══ SUBGRUPO: TAREAS LEVES DIRECTAS (sin trabajoExtraId) ═══ */}
+                  {(() => {
+                    // 🔍 Solo mostrar tareas leves que NO tienen trabajoExtraId (directas de la obra)
+                    const tareasLevesDirectas = trabajosAdicionalesObra.filter(ta => {
+                      const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                      return !teId; // Sin trabajoExtraId = directa de la obra
+                    });
+
+                    if (tareasLevesDirectas.length === 0) return null;
+
                     const claveAdic = `adic_${idx}`;
                     const colapsadoAdic = !!gruposColapsados[claveAdic];
                     return (
@@ -796,21 +839,16 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                           <td colSpan="3" className="py-1 px-3 small">
                             <span className="fw-bold text-primary">
                               <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
-                              🔧 Tareas Leves / Mantenimiento
-                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{trabajosAdicionalesObra.length}</span>
+                              🔧 Tareas Leves Directas
+                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tareasLevesDirectas.length}</span>
                             </span>
                             <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
                           </td>
                         </tr>
-                        {!colapsadoAdic && trabajosAdicionalesObra.map((trabajoAd, taIdx) => (
-                          <tr key={`${idx}-ta-${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                        {!colapsadoAdic && tareasLevesDirectas.map((trabajoAd, taIdx) => (
+                          <tr key={`${idx}-ta-directa-${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
                             <td className="ps-3">
                               <small className="text-info"><strong>{trabajoAd.nombre || trabajoAd.descripcion}</strong></small>
-                              {trabajoAd.trabajoExtraId && trabajosExtraObra.find(te => te.obraId === trabajoAd.trabajoExtraId || te.id === trabajoAd.trabajoExtraId) && (
-                                <small className="text-muted ms-2">
-                                  (de {trabajosExtraObra.find(te => te.obraId === trabajoAd.trabajoExtraId || te.id === trabajoAd.trabajoExtraId)?.nombre})
-                                </small>
-                              )}
                               {trabajoAd.nombreProfesional && (
                                 <div className="text-muted small">Prof: {trabajoAd.nombreProfesional}</div>
                               )}
@@ -1063,26 +1101,26 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   };
 
   const renderPagos = () => {
-    // Crear Set con todos los IDs de trabajos extra para detección rápida
-    const idsTrabajosExtra = new Set();
+    // ✅ CORREGIDO: Crear Set solo con IDs de presupuestos que son trabajos extra
+    const idsPresupuestosTrabajosExtra = new Set();
     trabajosExtra.forEach(tesObra => {
       tesObra.forEach(te => {
-        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
-        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+        // Solo agregar el ID del presupuesto del TE (no el obraId)
+        if (te.id) idsPresupuestosTrabajosExtra.add(te.id);
+        if (te.presupuestoId) idsPresupuestosTrabajosExtra.add(te.presupuestoId);
       });
     });
 
-    // Filtrar TE del listado principal (usando el Set de IDs)
+    // Filtrar solo presupuestos que son trabajos extra, NO obras principales
     const obrasFiltradas = datos.filter(obra => {
-      const obraIdActual = obra.obraId || obra.id;
       const presupuestoIdActual = obra.presupuestoId || obra.id;
-      const estaEnTrabajosExtra = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+      const esPresupuestoTrabajoExtra = idsPresupuestosTrabajosExtra.has(presupuestoIdActual);
 
-      if (estaEnTrabajosExtra) {
-        console.log(`🚫 [Pagos] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+      if (esPresupuestoTrabajoExtra) {
+        console.log(`🚫 [Pagos] Excluyendo presupuesto "${obra.nombreObra}" (presupuestoId: ${presupuestoIdActual}) - es un trabajo extra`);
       }
 
-      return !estaEnTrabajosExtra;
+      return !esPresupuestoTrabajoExtra;
     });
 
     // Deduplicar Obras Independientes por nombre+dirección
@@ -1177,52 +1215,79 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                             <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
                           </td>
                         </tr>
-                        {!colapsadoExtra && trabajosExtraObra.map((te, tIdx) => (
-                          <tr key={`te_${idx}_${tIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
-                            <td className="ps-3">
-                              <small><strong>{te.nombre}</strong></small>
-                            </td>
-                            <td className="text-center"><span className="badge bg-secondary">—</span></td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
-                            <td></td>
-                          </tr>
-                        ))}
+                        {!colapsadoExtra && trabajosExtraObra.map((te, tIdx) => {
+                          const tareasLevesDelTE = trabajosAdicionalesObra.filter(ta => {
+                            const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                            return teId && (teId === te.id || teId === te.obraId);
+                          });
+                          return (
+                            <React.Fragment key={`te_${idx}_${tIdx}`}>
+                              <tr style={{ borderLeft: '5px solid #ffc107', borderBottom: tareasLevesDelTE.length > 0 ? '1px dashed rgba(253, 126, 20, 0.3)' : '1px solid rgba(253, 126, 20, 0.45)' }}>
+                                <td className="ps-3">
+                                  <small><strong>{te.nombre}</strong></small>
+                                  {tareasLevesDelTE.length > 0 && <small className="text-info ms-1">({tareasLevesDelTE.length} 🔧)</small>}
+                                </td>
+                                <td className="text-center"><span className="badge bg-secondary">—</span></td>
+                                <td className="text-end"><small className="text-muted">—</small></td>
+                                <td className="text-end"><small className="text-muted">—</small></td>
+                                <td></td>
+                              </tr>
+                              {tareasLevesDelTE.map((ta, taIdx) => (
+                                <tr key={`te${tIdx}_ta${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', backgroundColor: '#f0f9ff', borderBottom: '1px solid rgba(253, 126, 20, 0.3)' }}>
+                                  <td className="ps-4">
+                                    <small className="text-info">
+                                      <i className="bi bi-arrow-return-right me-1" style={{ fontSize: '0.7em' }}></i>
+                                      <strong>{ta.nombre || ta.descripcion}</strong>
+                                    </small>
+                                  </td>
+                                  <td className="text-center"><span className="badge bg-info" style={{ fontSize: '0.65em' }}>🔧</span></td>
+                                  <td className="text-end"><small className="text-muted">—</small></td>
+                                  <td className="text-end"><small className="text-muted">—</small></td>
+                                  <td></td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
                       </>
                     )}
 
-                    {/* Subgrupo: Tareas Leves / Mantenimiento */}
-                    {trabajosAdicionalesObra.length > 0 && (
-                      <>
-                        <tr
-                          onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
-                          style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
-                        >
-                          <td colSpan="5" className="py-1 px-3 small">
-                            <span className="fw-bold text-primary">
-                              <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
-                              🔧 Tareas Leves / Mantenimiento
-                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{trabajosAdicionalesObra.length}</span>
-                            </span>
-                            <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
-                          </td>
-                        </tr>
-                        {!colapsadoAdic && trabajosAdicionalesObra.map((ta, taIdx) => (
-                          <tr key={`ta_${idx}_${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
-                            <td className="ps-3">
-                              <small className="text-info"><strong>{ta.nombre || ta.descripcion}</strong></small>
-                              {ta.trabajoExtraId && trabajosExtraObra.find(te => te.obraId === ta.trabajoExtraId || te.id === ta.trabajoExtraId) && (
-                                <small className="text-muted ms-2">(de {trabajosExtraObra.find(te => te.obraId === ta.trabajoExtraId || te.id === ta.trabajoExtraId)?.nombre})</small>
-                              )}
+                    {/* Subgrupo: Tareas Leves Directas */}
+                    {(() => {
+                      const tareasLevesDirectas = trabajosAdicionalesObra.filter(ta => {
+                        const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                        return !teId;
+                      });
+                      if (tareasLevesDirectas.length === 0) return null;
+                      return (
+                        <>
+                          <tr
+                            onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
+                            style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                          >
+                            <td colSpan="5" className="py-1 px-3 small">
+                              <span className="fw-bold text-primary">
+                                <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                                🔧 Tareas Leves Directas
+                                <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tareasLevesDirectas.length}</span>
+                              </span>
+                              <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
                             </td>
-                            <td className="text-center"><span className="badge bg-secondary">—</span></td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
-                            <td></td>
                           </tr>
-                        ))}
-                      </>
-                    )}
+                          {!colapsadoAdic && tareasLevesDirectas.map((ta, taIdx) => (
+                            <tr key={`ta_directa_${idx}_${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                              <td className="ps-3">
+                                <small className="text-info"><strong>{ta.nombre || ta.descripcion}</strong></small>
+                              </td>
+                              <td className="text-center"><span className="badge bg-secondary">—</span></td>
+                              <td className="text-end"><small className="text-muted">—</small></td>
+                              <td className="text-end"><small className="text-muted">—</small></td>
+                              <td></td>
+                            </tr>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </React.Fragment>
                 );
               })}
@@ -1446,12 +1511,13 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     const oiMap = new Map();
     const obrasNormales = [];
 
-    // Crear Set con todos los IDs de trabajos extra para detección rápida
-    const idsTrabajosExtra = new Set();
+    // ✅ CORREGIDO: Crear Set solo con IDs de presupuestos que son trabajos extra
+    const idsPresupuestosTrabajosExtra = new Set();
     trabajosExtra.forEach(tesObra => {
       tesObra.forEach(te => {
-        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
-        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+        // Solo agregar el ID del presupuesto del TE (no el obraId)
+        if (te.id) idsPresupuestosTrabajosExtra.add(te.id);
+        if (te.presupuestoId) idsPresupuestosTrabajosExtra.add(te.presupuestoId);
       });
     });
 
@@ -1461,11 +1527,10 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                    obra.obra?.esObraTrabajoExtra || obra.es_presupuesto_trabajo_extra;
       if (esTE) return;
 
-      // ✅ También excluir si esta obra está en el Map de trabajosExtra
-      const obraIdActual = obra.obraId || obra.id;
+      // ✅ CORREGIDO: Solo excluir presupuestos que son trabajos extra, NO obras principales
       const presupuestoIdActual = obra.presupuestoId || obra.id;
-      if (idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual)) {
-        console.log(`🚫 [SaldoPorCobrar] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+      if (idsPresupuestosTrabajosExtra.has(presupuestoIdActual)) {
+        console.log(`🚫 [SaldoPorCobrar] Excluyendo presupuesto "${obra.nombreObra}" (presupuestoId: ${presupuestoIdActual}) - es un trabajo extra`);
         return;
       }
 
@@ -1510,7 +1575,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
           )
           .forEach(ta => {
             if (!taIdsContados.has(ta.id)) {
-              totalPresupuestado += parseFloat(ta.importe || ta.montoEstimado || 0);
+              totalPresupuestado += parseFloat(ta.importe || 0);
               taIdsContados.add(ta.id);
             }
           });
@@ -1527,7 +1592,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
       })
       .forEach(ta => {
         if (!taIdsContados.has(ta.id)) {
-          totalPresupuestado += parseFloat(ta.importe || ta.montoEstimado || 0);
+          totalPresupuestado += parseFloat(ta.importe || 0);
           taIdsContados.add(ta.id);
         }
       });
@@ -1611,63 +1676,83 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                           <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
                         </td>
                       </tr>
-                      {!colapsadoExtra && tesObra.map((te, teIdx) => (
-                        <tr key={`te-${teIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
-                          <td>
-                            <span className="badge" style={{ backgroundColor: '#ffc107', color: '#000' }}>📋 Adicional</span>
-                          </td>
-                          <td className="ps-3">
-                            <i className="bi bi-arrow-return-right me-1 text-muted"></i>
-                            <small><strong>{te.nombre}</strong></small>
-                          </td>
-                          <td className="text-end"><small>{formatearMoneda(te.totalCalculado || 0)}</small></td>
-                          <td className="text-end"><span className="text-muted small">—</span></td>
-                          <td className="text-end"><small className="text-danger">{formatearMoneda(te.totalCalculado || 0)}</small></td>
-                        </tr>
-                      ))}
+                      {!colapsadoExtra && tesObra.map((te, teIdx) => {
+                        const tareasLevesDelTE = tasObra.filter(ta => {
+                          const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                          return teId && (teId === te.id || teId === te.obraId);
+                        });
+                        return (
+                          <React.Fragment key={`te-${teIdx}`}>
+                            <tr style={{ borderLeft: '5px solid #ffc107', borderBottom: tareasLevesDelTE.length > 0 ? '1px dashed rgba(253, 126, 20, 0.3)' : '1px solid rgba(253, 126, 20, 0.45)' }}>
+                              <td>
+                                <span className="badge" style={{ backgroundColor: '#ffc107', color: '#000' }}>📋 Adicional</span>
+                              </td>
+                              <td className="ps-3">
+                                <i className="bi bi-arrow-return-right me-1 text-muted"></i>
+                                <small><strong>{te.nombre}</strong></small>
+                                {tareasLevesDelTE.length > 0 && <small className="text-info ms-1">({tareasLevesDelTE.length} 🔧)</small>}
+                              </td>
+                              <td className="text-end"><small>{formatearMoneda(te.totalCalculado || 0)}</small></td>
+                              <td className="text-end"><span className="text-muted small">—</span></td>
+                              <td className="text-end"><small className="text-danger">{formatearMoneda(te.totalCalculado || 0)}</small></td>
+                            </tr>
+                            {tareasLevesDelTE.map((ta, taIdx) => (
+                              <tr key={`te${teIdx}_ta${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', backgroundColor: '#f0f9ff', borderBottom: '1px solid rgba(253, 126, 20, 0.3)' }}>
+                                <td></td>
+                                <td className="ps-4">
+                                  <i className="bi bi-arrow-return-right me-1" style={{ fontSize: '0.7em', color: '#0ea5e9' }}></i>
+                                  <small className="text-info">{ta.descripcion || ta.nombre || `Tarea #${ta.id}`}</small>
+                                </td>
+                                <td className="text-end"><small className="text-info">{formatearMoneda(ta.importe || 0)}</small></td>
+                                <td className="text-end"><span className="text-muted small">—</span></td>
+                                <td className="text-end"><small className="text-info">{formatearMoneda(ta.importe || 0)}</small></td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
                     </>
                   )}
 
-                  {/* Subgrupo: Tareas Leves / Mantenimiento (Trabajos Adicionales) */}
-                  {tasObra.length > 0 && (
-                    <>
-                      <tr
-                        onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
-                        style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
-                      >
-                        <td colSpan="5" className="py-1 px-3 small">
-                          <span className="fw-bold text-primary">
-                            <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
-                            🔧 Tareas Leves / Mantenimiento
-                            <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tasObra.length}</span>
-                          </span>
-                          <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
-                        </td>
-                      </tr>
-                      {!colapsadoAdic && tasObra.map((ta, taIdx) => {
-                        const teAsociado = (ta.trabajoExtraId || ta.trabajo_extra_id)
-                          ? tesObra.find(te => te.obraId === (ta.trabajoExtraId || ta.trabajo_extra_id) || te.id === (ta.trabajoExtraId || ta.trabajo_extra_id))
-                          : null;
-                        return (
-                          <tr key={`ta-${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                  {/* Subgrupo: Tareas Leves Directas */}
+                  {(() => {
+                    const tareasLevesDirectas = tasObra.filter(ta => {
+                      const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                      return !teId;
+                    });
+                    if (tareasLevesDirectas.length === 0) return null;
+                    return (
+                      <>
+                        <tr
+                          onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
+                          style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                        >
+                          <td colSpan="5" className="py-1 px-3 small">
+                            <span className="fw-bold text-primary">
+                              <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                              🔧 Tareas Leves Directas
+                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tareasLevesDirectas.length}</span>
+                            </span>
+                            <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
+                          </td>
+                        </tr>
+                        {!colapsadoAdic && tareasLevesDirectas.map((ta, taIdx) => (
+                          <tr key={`ta-directa-${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
                             <td>
                               <span className="badge" style={{ backgroundColor: '#fd7e14', color: '#fff' }}>🔧 Tarea Leve</span>
                             </td>
                             <td className="ps-3">
                               <i className="bi bi-arrow-return-right me-1 text-muted"></i>
                               <small>{ta.descripcion || ta.nombre || `Tarea #${ta.id}`}</small>
-                              {teAsociado && (
-                                <small className="text-muted ms-2">(de {teAsociado.nombre})</small>
-                              )}
                             </td>
-                            <td className="text-end"><small>{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
+                            <td className="text-end"><small>{formatearMoneda(ta.importe || 0)}</small></td>
                             <td className="text-end"><span className="text-muted small">—</span></td>
-                            <td className="text-end"><small className="text-danger">{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
+                            <td className="text-end"><small className="text-danger">{formatearMoneda(ta.importe || 0)}</small></td>
                           </tr>
-                        );
-                      })}
-                    </>
-                  )}
+                        ))}
+                      </>
+                    );
+                  })()}
                 </React.Fragment>
               );
             })}
@@ -1685,9 +1770,9 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                     <span className="badge" style={{ backgroundColor: '#fd7e14', color: '#fff' }}>🔧 Tarea Leve</span>
                   </td>
                   <td><small>{ta.descripcion || ta.nombre || `Tarea #${ta.id}`}</small></td>
-                  <td className="text-end"><small>{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
+                  <td className="text-end"><small>{formatearMoneda(ta.importe || 0)}</small></td>
                   <td className="text-end"><span className="text-muted small">—</span></td>
-                  <td className="text-end"><small className="text-danger">{formatearMoneda(ta.importe || ta.montoEstimado || 0)}</small></td>
+                  <td className="text-end"><small className="text-danger">{formatearMoneda(ta.importe || 0)}</small></td>
                 </tr>
               ))}
           </tbody>
@@ -1814,25 +1899,25 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
   const renderSaldoDisponible = () => {
     const totalCobrado = estadisticas?.totalCobradoEmpresa || estadisticas?.totalCobrado || 0;
 
-    // Crear Set con todos los IDs de trabajos extra para detección rápida
-    const idsTrabajosExtra = new Set();
+    // ✅ CORREGIDO: Crear Set solo con IDs de presupuestos que son trabajos extra
+    const idsPresupuestosTrabajosExtra = new Set();
     trabajosExtra.forEach(tesObra => {
       tesObra.forEach(te => {
-        if (te.obraId) idsTrabajosExtra.add(te.obraId); // ID de la obra del TE
-        if (te.id) idsTrabajosExtra.add(te.id); // ID del presupuesto del TE
+        // Solo agregar el ID del presupuesto del TE (no el obraId)
+        if (te.id) idsPresupuestosTrabajosExtra.add(te.id);
+        if (te.presupuestoId) idsPresupuestosTrabajosExtra.add(te.presupuestoId);
       });
     });
 
-    // ── Paso 1: Filtrar TEs y deduplicar OIs en datos ─────────────────────────
+    // ── Paso 1: Filtrar solo presupuestos que son trabajos extra, NO obras principales ─────────────────────────
     const oiMapDatos = new Map();
     const obrasNormalesSD = [];
     datos.forEach(obra => {
-      const obraIdActual = obra.obraId || obra.id;
       const presupuestoIdActual = obra.presupuestoId || obra.id;
-      const esTE = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+      const esPresupuestoTrabajoExtra = idsPresupuestosTrabajosExtra.has(presupuestoIdActual);
 
-      if (esTE) {
-        console.log(`🚫 [SaldoDisponible] Excluyendo obra "${obra.nombreObra}" (obraId: ${obraIdActual}, presupuestoId: ${presupuestoIdActual}) - está en trabajosExtra`);
+      if (esPresupuestoTrabajoExtra) {
+        console.log(`🚫 [SaldoDisponible] Excluyendo presupuesto "${obra.nombreObra}" (presupuestoId: ${presupuestoIdActual}) - es un trabajo extra`);
         return;
       }
 
@@ -1960,45 +2045,71 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                             <span className="text-muted ms-3 small">Clic para {colapsadoExtra ? 'mostrar' : 'ocultar'}</span>
                           </td>
                         </tr>
-                        {!colapsadoExtra && tesObra.map((te, teIdx) => (
-                          <tr key={`te_sd_${idx}_${teIdx}`} style={{ borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
-                            <td className="ps-3">
-                              <small><strong>{te.nombre}</strong></small>
-                            </td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
-                          </tr>
-                        ))}
+                        {!colapsadoExtra && tesObra.map((te, teIdx) => {
+                          const tareasLevesDelTE = tasObra.filter(ta => {
+                            const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                            return teId && (teId === te.id || teId === te.obraId);
+                          });
+                          return (
+                            <React.Fragment key={`te_sd_${idx}_${teIdx}`}>
+                              <tr style={{ borderLeft: '5px solid #ffc107', borderBottom: tareasLevesDelTE.length > 0 ? '1px dashed rgba(253, 126, 20, 0.3)' : '1px solid rgba(253, 126, 20, 0.45)' }}>
+                                <td className="ps-3">
+                                  <small><strong>{te.nombre}</strong></small>
+                                  {tareasLevesDelTE.length > 0 && <small className="text-info ms-1">({tareasLevesDelTE.length} 🔧)</small>}
+                                </td>
+                                <td className="text-end"><small className="text-muted">—</small></td>
+                                <td className="text-end"><small className="text-muted">—</small></td>
+                              </tr>
+                              {tareasLevesDelTE.map((ta, taIdx) => (
+                                <tr key={`te${teIdx}_ta${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', backgroundColor: '#f0f9ff', borderBottom: '1px solid rgba(253, 126, 20, 0.3)' }}>
+                                  <td className="ps-4">
+                                    <i className="bi bi-arrow-return-right me-1" style={{ fontSize: '0.7em', color: '#0ea5e9' }}></i>
+                                    <small className="text-info">{ta.nombre || ta.descripcion || `Tarea #${ta.id}`}</small>
+                                  </td>
+                                  <td className="text-end"><small className="text-muted">—</small></td>
+                                  <td className="text-end"><small className="text-muted">—</small></td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
                       </>
                     )}
 
-                    {/* Subgrupo: Tareas Leves */}
-                    {tasObra.length > 0 && (
-                      <>
-                        <tr
-                          onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
-                          style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
-                        >
-                          <td colSpan="3" className="py-1 px-3 small">
-                            <span className="fw-bold text-primary">
-                              <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
-                              🔧 Tareas Leves / Mantenimiento
-                              <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tasObra.length}</span>
-                            </span>
-                            <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
-                          </td>
-                        </tr>
-                        {!colapsadoAdic && tasObra.map((ta, taIdx) => (
-                          <tr key={`ta_sd_${idx}_${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
-                            <td className="ps-3">
-                              <small>{ta.nombre || ta.descripcion || `Tarea #${ta.id}`}</small>
+                    {/* Subgrupo: Tareas Leves Directas */}
+                    {(() => {
+                      const tareasLevesDirectas = tasObra.filter(ta => {
+                        const teId = ta.trabajoExtraId || ta.trabajo_extra_id;
+                        return !teId;
+                      });
+                      if (tareasLevesDirectas.length === 0) return null;
+                      return (
+                        <>
+                          <tr
+                            onClick={() => setGruposColapsados(p => ({ ...p, [claveAdic]: !p[claveAdic] }))}
+                            style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                          >
+                            <td colSpan="3" className="py-1 px-3 small">
+                              <span className="fw-bold text-primary">
+                                <i className={`fas fa-chevron-${colapsadoAdic ? 'right' : 'down'} me-2`} style={{ fontSize: '0.75em' }}></i>
+                                🔧 Tareas Leves Directas
+                                <span className="badge bg-primary ms-2" style={{ fontSize: '0.7em' }}>{tareasLevesDirectas.length}</span>
+                              </span>
+                              <span className="text-muted ms-3 small">Clic para {colapsadoAdic ? 'mostrar' : 'ocultar'}</span>
                             </td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
-                            <td className="text-end"><small className="text-muted">—</small></td>
                           </tr>
-                        ))}
-                      </>
-                    )}
+                          {!colapsadoAdic && tareasLevesDirectas.map((ta, taIdx) => (
+                            <tr key={`ta_sd_directa_${idx}_${taIdx}`} style={{ borderLeft: '7px solid #fd7e14', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}>
+                              <td className="ps-3">
+                                <small>{ta.nombre || ta.descripcion || `Tarea #${ta.id}`}</small>
+                              </td>
+                              <td className="text-end"><small className="text-muted">—</small></td>
+                              <td className="text-end"><small className="text-muted">—</small></td>
+                            </tr>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </React.Fragment>
                 );
               })}

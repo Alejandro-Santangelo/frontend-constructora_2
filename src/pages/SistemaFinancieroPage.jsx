@@ -64,8 +64,8 @@ const obtenerTotalPresupuesto = (presupuesto) => {
     }
   }
 
-  // Fallback a totalFinal o totalPresupuestoConHonorarios
-  return presupuesto.totalFinal || presupuesto.totalPresupuestoConHonorarios || presupuesto.montoTotal || 0;
+  // ✅ Priorizar importeTotal (valor con descuentos desde BD), luego otros campos
+  return presupuesto.importeTotal || presupuesto.totalFinal || presupuesto.totalPresupuestoConHonorarios || presupuesto.montoTotal || 0;
 };
 
 /**
@@ -1280,7 +1280,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     };
 
     cargarObras();
-  }, [modoConsolidado, empresaSeleccionada]);
+  }, [modoConsolidado, empresaSeleccionada, refreshTrigger]);
 
   // 🔄 Event listener para refrescar obras cuando se actualiza un presupuesto
   useEffect(() => {
@@ -1400,7 +1400,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     return unsubscribe;
   }, [modoConsolidado, empresaSeleccionada]);
 
-  // 🆕 Cargar trabajos adicionales cuando cambia la empresa
+  // 🆕 Cargar trabajos adicionales cuando cambia la empresa O refreshTrigger
   useEffect(() => {
     const cargarTrabajosAdicionales = async () => {
       if (!empresaSeleccionada?.id) return;
@@ -1424,7 +1424,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     };
 
     cargarTrabajosAdicionales();
-  }, [empresaSeleccionada]);
+  }, [empresaSeleccionada, refreshTrigger]);
 
 
   // 🔄 DESHABILITADO: Este useEffect causa bucle infinito y sobrescribe la lógica correcta
@@ -3160,12 +3160,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         onHide={() => setShowRegistrarNuevoCobro(false)}
         onSuccess={handleSuccess}
         obraDireccion={null}
+        refreshTrigger={refreshTrigger}
       />
 
       <AsignarCobroDisponibleModal
         show={showAsignarCobroDisponible}
         onHide={() => setShowAsignarCobroDisponible(false)}
         onSuccess={handleSuccess}
+        refreshTrigger={refreshTrigger}
       />
 
       <ListarCobrosObraModal
@@ -3176,6 +3178,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         modoConsolidado={modoConsolidado}
         obrasSeleccionadas={obrasSeleccionadas}
         obrasDisponibles={obrasDisponibles}
+        trabajosExtraSeleccionados={trabajosExtraSeleccionados}
+        trabajosAdicionalesSeleccionados={trabajosAdicionalesSeleccionados}
+        trabajosAdicionalesDisponibles={trabajosAdicionalesDisponibles}
         refreshTrigger={refreshTrigger}
       />
 
@@ -3193,6 +3198,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         onSuccess={handleSuccess}
         obrasSeleccionadas={presupuestosSeleccionadosArray}
         obrasOriginales={obrasDisponibles.filter(obra => obrasSeleccionadas.has(obra.id))} // ✅ Obras completas para detectar independientes
+        refreshTrigger={refreshTrigger}
       />
 
       <ListarPagosProfesionalModal
