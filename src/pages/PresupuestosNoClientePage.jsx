@@ -2485,6 +2485,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             setPresupuestoData(null);
             await loadList();
           }}
+          tituloPersonalizado="Nuevo Presupuesto para Obra Principal"
           initialData={null}
           saving={saving}
         />

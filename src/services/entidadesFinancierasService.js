@@ -2,14 +2,24 @@
 // SERVICIO: Sistema Unificado de Entidades Financieras
 // Backend endpoint base: /api/v1/entidades-financieras
 //
-// Tipos de entidad:
-//   OBRA_PRINCIPAL     - Obra con presupuesto aprobado
-//   OBRA_INDEPENDIENTE - Obra sin presupuesto (creada manualmente)
-//   TRABAJO_EXTRA      - TrabajoExtra registrado en una obra
-//   TRABAJO_ADICIONAL  - TrabajoAdicional asociado a una obra
+// Tipos de entidad (ver src/constants/obraTypes.js):
+//   OBRA_PRINCIPAL     ('OBRA_PRINCIPAL')    - Obra generada desde presupuesto TRADICIONAL
+//   OBRA_TRABAJO_DIARIO('OBRA_TRABAJO_DIARIO')- Obra generada desde presupuesto TRABAJO_DIARIO
+//   OBRA_ADICIONAL     ('TRABAJO_EXTRA')     - Adicional vinculado a obra (presupuesto TRABAJO_EXTRA)
+//   OBRA_TAREA_LEVE    ('TRABAJO_ADICIONAL') - Tarea leve vinculada a obra (presupuesto TAREA_LEVE)
+//   OBRA_INDEPENDIENTE ('OBRA_INDEPENDIENTE')- Obra sin presupuesto, creada manualmente
 // ================================================================================
 import apiClient from './api';
 import { getCurrentEmpresaId } from './api';
+import {
+  TIPOS_OBRA,
+  OBRA_PRINCIPAL,
+  OBRA_TRABAJO_DIARIO,
+  OBRA_ADICIONAL,
+  OBRA_TAREA_LEVE,
+  OBRA_INDEPENDIENTE,
+  tipoObraDesdePresupuesto,
+} from '../constants/obraTypes';
 
 const BASE_URL = '/api/v1/entidades-financieras';
 
@@ -42,9 +52,8 @@ export const invalidarCache = () => {
  *
  * @param {Object} data - SincronizarRequest
  * @param {number} data.empresaId
- * @param {'OBRA_PRINCIPAL'|'OBRA_INDEPENDIENTE'|'TRABAJO_EXTRA'|'TRABAJO_ADICIONAL'} data.tipoEntidad
- * @param {number} data.entidadId - ID de la entidad original en su tabla
- * @param {number|null} [data.presupuestoNoClienteId]
+ * @param {'OBRA_PRINCIPAL'|'OBRA_TRABAJO_DIARIO'|'OBRA_ADICIONAL'|'OBRA_TAREA_LEVE'|'OBRA_INDEPENDIENTE'} data.tipoEntidad
+ * @param {number} entidadId - ID de la entidad original
  * @param {string} [data.nombreDisplay]
  * @returns {Promise<EntidadFinanciera>}
  */
@@ -116,8 +125,7 @@ export const listarEntidadesFinancieras = async (empresaIdParam, forzarRecarga =
  * Estrategia 2: POST /sincronizar si no esta en cache.
  *
  * @param {number} empresaId
- * @param {'OBRA_PRINCIPAL'|'OBRA_INDEPENDIENTE'|'TRABAJO_EXTRA'|'TRABAJO_ADICIONAL'} tipoEntidad
- * @param {number} entidadId - ID de la entidad original
+ * @param {'OBRA_PRINCIPAL'|'OBRA_TRABAJO_DIARIO'|'OBRA_ADICIONAL'|'OBRA_TAREA_LEVE'|'OBRA_INDEPENDIENTE'} tipoEntidad
  * @param {Object} [extraData] - Datos adicionales para /sincronizar si es necesario
  * @returns {Promise<number|null>} - entidadFinancieraId, o null si falla
  */
@@ -318,11 +326,11 @@ export const migrarEntidadesFinancieras = async (empresaIdParam) => {
 /**
  * Clasifica una obra segun si tiene o no presupuestoNoClienteId.
  * @param {Object} obra
- * @returns {'OBRA_PRINCIPAL'|'OBRA_INDEPENDIENTE'}
+ * @returns {string} OBRA_PRINCIPAL | OBRA_INDEPENDIENTE
  */
 export const clasificarTipoObra = (obra) => {
-  if (obra.presupuestoNoClienteId != null) return 'OBRA_PRINCIPAL';
-  return 'OBRA_INDEPENDIENTE';
+  if (obra.presupuestoNoClienteId != null) return OBRA_PRINCIPAL;
+  return OBRA_INDEPENDIENTE;
 };
 
 /**
@@ -330,13 +338,15 @@ export const clasificarTipoObra = (obra) => {
  * combinada que maneja el frontend (presupuesto seleccionado).
  *
  * @param {Object} entidad - Objeto de presupuesto/obra/trabajo del frontend
- * @returns {'OBRA_PRINCIPAL'|'OBRA_INDEPENDIENTE'|'TRABAJO_EXTRA'|'TRABAJO_ADICIONAL'}
+ * @returns {string} - Valor de TIPOS_OBRA
  */
 export const inferirTipoEntidad = (entidad) => {
-  if (entidad._esTrabajoAdicional) return 'TRABAJO_ADICIONAL';
-  if (entidad._esTrabajoExtra || entidad.esTrabajoExtra) return 'TRABAJO_EXTRA';
-  if (entidad.esObraIndependiente) return 'OBRA_INDEPENDIENTE';
-  return 'OBRA_PRINCIPAL';
+  if (entidad._esTrabajoAdicional) return OBRA_TAREA_LEVE;
+  if (entidad._esTrabajoExtra || entidad.esTrabajoExtra) return OBRA_ADICIONAL;
+  if (entidad.esObraIndependiente) return OBRA_INDEPENDIENTE;
+  // Si tiene tipoPresupuesto explícito, usar el mapeo directo
+  if (entidad.tipoPresupuesto) return tipoObraDesdePresupuesto(entidad.tipoPresupuesto);
+  return OBRA_PRINCIPAL;
 };
 
 // -----------------------------------------------------------------------
@@ -363,7 +373,11 @@ export const cargarEstadisticasParaEntidades = async (empresaIdParam, entidades)
     const tipoEntidad = inferirTipoEntidad(entidad);
 
     // entidadId = ID original en la tabla correspondiente
-    const entidadId = tipoEntidad === 'OBRA_PRINCIPAL' || tipoEntidad === 'OBRA_INDEPENDIENTE'
+    // Obras (principales, independientes, trabajo diario) usan obraId; adicionales/leves usan su propio id
+    const esObra = tipoEntidad === OBRA_PRINCIPAL ||
+                   tipoEntidad === OBRA_TRABAJO_DIARIO ||
+                   tipoEntidad === OBRA_INDEPENDIENTE;
+    const entidadId = esObra
       ? (entidad.obraId || entidad.direccionObraId || entidad.id)
       : entidad.id;
 

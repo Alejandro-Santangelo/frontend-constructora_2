@@ -1,4 +1,4 @@
-import React, { useEffect, useContext } from 'react';
+﻿import React, { useEffect, useContext } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEmpresa } from '../EmpresaContext';
 import { SidebarContext } from '../App';
@@ -22,10 +22,13 @@ import EnviarObraManualModal from '../components/EnviarObraManualModal';
 import EstadisticasObraModal from '../components/EstadisticasObraModal';
 import EstadisticasTodasObrasModal from '../components/EstadisticasTodasObrasModal';
 import DebugPanel from '../components/DebugPanel';
+import ModalPresupuestoUnificado from '../components/ModalPresupuestoUnificado';
 import api from '../services/api';
 import axios from 'axios';
 import { obtenerAsignacionesSemanalPorObra } from '../services/profesionalesObraService';
-import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
+// âœ… NUEVO: Servicio unificado de presupuestos (reemplaza trabajosAdicionalesService)
+import * as presupuestoService from '../services/presupuestoUnificadoService';
+import { TIPOS_PRESUPUESTO, getConfigPresupuesto, getNivelJerarquico } from '../constants/presupuestoTypes';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 import { calcularSemanasParaDiasHabiles, convertirDiasHabilesASemanasSimple, esDiaHabil } from '../utils/feriadosArgentina';
 import { fetchClientes } from '../store/slices/clientesSlice';
@@ -81,9 +84,9 @@ const ObrasPage = ({ showNotification }) => {
   const profesionalesAsignados = useSelector(selectProfesionalesAsignados);
   const estadisticas = useSelector(selectEstadisticas);
 
-  // ✅ Procesamiento de obras para detectar obras independientes
+  // âœ… Procesamiento de obras para detectar obras independientes
   const obrasConFlags = React.useMemo(() => {
-    console.log('🔍 [ObrasPage] Procesando obras:', obras.length);
+    console.log('ðŸ” [ObrasPage] Procesando obras:', obras.length);
     return obras.map(obra => {
       // Detectar si es obra independiente (sin presupuesto)
       const tienePresupuesto = obra.presupuestoId ||
@@ -93,8 +96,8 @@ const ObrasPage = ({ showNotification }) => {
 
       const esObraIndependiente = !tienePresupuesto;
 
-      // 🔍 Debug: mostrar TODAS las obras con sus campos clave
-      console.log(`🔍 [ObrasPage] Obra id:${obra.id}:`, {
+      // ðŸ” Debug: mostrar TODAS las obras con sus campos clave
+      console.log(`ðŸ” [ObrasPage] Obra id:${obra.id}:`, {
         tienePresupuesto,
         esObraIndependiente,
         presupuestoId: obra.presupuestoId,
@@ -118,7 +121,7 @@ const ObrasPage = ({ showNotification }) => {
   // Estado local para controlar obra seleccionada desde tabla
   const [selectedObraId, setSelectedObraId] = React.useState(null);
 
-  // 🔧 Estado para rastrear relación: obra padre -> obras de trabajo extra
+  // ðŸ”§ Estado para rastrear relación: obra padre -> obras de trabajo extra
   const [mapObraPadre, setMapObraPadre] = React.useState({});
 
   // Estado para modal de presupuestos
@@ -131,7 +134,7 @@ const ObrasPage = ({ showNotification }) => {
   const [mostrarModalCambiarEstado, setMostrarModalCambiarEstado] = React.useState(false);
   const [nuevoEstadoSeleccionado, setNuevoEstadoSeleccionado] = React.useState('');
 
-  // ==================== CONFIGURACIÓN GLOBAL DE OBRA ====================
+  // ==================== CONFIGURACIÃ“N GLOBAL DE OBRA ====================
     const [mostrarModalConfiguracionObra, setMostrarModalConfiguracionObra] = React.useState(false);
     const [obraParaConfigurar, setObraParaConfigurar] = React.useState(null);
     // Estado global de planificación por obra
@@ -183,6 +186,13 @@ const ObrasPage = ({ showNotification }) => {
   const [trabajosExtra, setTrabajosExtra] = React.useState([]);
   const [loadingTrabajosExtra, setLoadingTrabajosExtra] = React.useState(false);
   const [mostrarModalTrabajoExtra, setMostrarModalTrabajoExtra] = React.useState(false);
+
+  // Estados para Trabajo Diario (obras independientes sin presupuesto previo)
+  const [mostrarModalTrabajoDiario, setMostrarModalTrabajoDiario] = React.useState(false);
+
+  // Estados para Tarea Leve
+  const [mostrarModalTareaLeve, setMostrarModalTareaLeve] = React.useState(false);
+  const [obraParaTareaLeve, setObraParaTareaLeve] = React.useState(null);
   const [autoGenerarPDFTrabajoExtra, setAutoGenerarPDFTrabajoExtra] = React.useState(false);
   const [abrirWhatsAppTrabajoExtra, setAbrirWhatsAppTrabajoExtra] = React.useState(false);
   const [abrirEmailTrabajoExtra, setAbrirEmailTrabajoExtra] = React.useState(false);
@@ -190,7 +200,13 @@ const ObrasPage = ({ showNotification }) => {
 
   // Estados para Trabajos Adicionales
   const [mostrarModalListaTrabajosAdicionales, setMostrarModalListaTrabajosAdicionales] = React.useState(false);
-  const [mostrarModalTrabajoAdicional, setMostrarModalTrabajoAdicional] = React.useState(false);
+  // âœ… NUEVO: Estado unificado para modal de presupuestos (reemplaza mostrarModalTrabajoAdicional)
+  const [modalPresupuesto, setModalPresupuesto] = React.useState({
+    mostrar: false,
+    tipo: null,         // 'TRADICIONAL' | 'TRABAJO_DIARIO' | 'TRABAJO_EXTRA' | 'TAREA_LEVE'
+    contexto: {},       // { obraId, obraNombre, trabajoExtraId, trabajoExtraNombre }
+    datosIniciales: null // Para edición
+  });
   const [obraParaTrabajosAdicionales, setObraParaTrabajosAdicionales] = React.useState(null);
   const [trabajoAdicionalEditar, setTrabajoAdicionalEditar] = React.useState(null);
   const [trabajosAdicionales, setTrabajosAdicionales] = React.useState([]);
@@ -575,13 +591,13 @@ const ObrasPage = ({ showNotification }) => {
   // Cargar profesionales cuando se abre el modal de trabajo adicional
   React.useEffect(() => {
     const cargarProfesionales = async () => {
-      if (mostrarModalTrabajoAdicional && empresaId) {
+      if (modalPresupuesto.mostrar && modalPresupuesto.tipo === TIPOS_PRESUPUESTO.TAREA_LEVE && empresaId) {
         setLoadingProfesionalesTA(true);
         try {
           const response = await api.profesionales.getAll(empresaId);
           const profesionalesData = Array.isArray(response) ? response : (response?.data || response?.resultado || []);
           setProfesionalesDisponiblesTA(profesionalesData);
-          console.log('✅ Profesionales cargados:', profesionalesData.length);
+          console.log('âœ… Profesionales cargados:', profesionalesData.length);
 
           // Si estamos editando, restaurar desglose desde campos nativos del DTO
           if (trabajoAdicionalEditar) {
@@ -642,7 +658,7 @@ const ObrasPage = ({ showNotification }) => {
               setDescuentoHonorarioMayoresCostos(ta.descuentoHonorarioMayoresCostos != null ? String(ta.descuentoHonorarioMayoresCostos) : '');
               setTipoDescuentoHonorarioMayoresCostos(ta.tipoDescuentoHonorarioMayoresCostos || 'porcentaje');
 
-              console.log('📂 Desglose TA restaurado desde DTO:', ta);
+              console.log('ðŸ“‚ Desglose TA restaurado desde DTO:', ta);
             } else {
               setUsarDesglose(false);
               setImporteJornales('');
@@ -703,17 +719,17 @@ const ObrasPage = ({ showNotification }) => {
 
             setProfesionalesSeleccionados(profRegistrados);
             setProfesionalesAdhoc(profAdhoc);
-            console.log('📋 Profesionales cargados para edición:', { registrados: profRegistrados.length, adhoc: profAdhoc.length });
+            console.log('ðŸ“‹ Profesionales cargados para edición:', { registrados: profRegistrados.length, adhoc: profAdhoc.length });
           }
         }
         } catch (error) {
-          console.error('❌ Error cargando profesionales:', error);
+          console.error('âŒ Error cargando profesionales:', error);
           showNotification('Error al cargar profesionales', 'error');
           setProfesionalesDisponiblesTA([]);
         } finally {
           setLoadingProfesionalesTA(false);
         }
-      } else if (!mostrarModalTrabajoAdicional) {
+      } else if (!modalPresupuesto.mostrar || modalPresupuesto.tipo !== TIPOS_PRESUPUESTO.TAREA_LEVE) {
         // Limpiar al cerrar modal
         setProfesionalesSeleccionados([]);
         setProfesionalesAdhoc([]);
@@ -728,18 +744,20 @@ const ObrasPage = ({ showNotification }) => {
       }
     };
     cargarProfesionales();
-  }, [mostrarModalTrabajoAdicional, empresaId]);
+  }, [modalPresupuesto.mostrar, modalPresupuesto.tipo, empresaId]);
 
   // Cargar trabajos adicionales al montar o cuando cambia la empresa
   React.useEffect(() => {
+    // âœ… REFACTORIZADO: Cargar presupuestos tipo TAREA_LEVE
     const cargarTrabajosAdicionales = async () => {
       if (empresaId) {
         try {
-          const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
-          const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
-          setTrabajosAdicionales(trabajosArray);
+          const todasLasTareas = await presupuestoService.listarPresupuestos(empresaId, {
+            tipo: TIPOS_PRESUPUESTO.TAREA_LEVE
+          });
+          setTrabajosAdicionales(todasLasTareas);
         } catch (error) {
-          console.error('❌ Error al cargar trabajos adicionales:', error);
+          console.error('âŒ Error al cargar trabajos adicionales:', error);
           setTrabajosAdicionales([]);
         }
       } else {
@@ -751,30 +769,30 @@ const ObrasPage = ({ showNotification }) => {
 
 
 
-  // 🐛 DEBUG: Exponer función global para inspeccionar trabajos extra desde consola
+  // ðŸ› DEBUG: Exponer función global para inspeccionar trabajos extra desde consola
   React.useEffect(() => {
     window.debugTrabajosExtra = () => {
       console.clear();
-      console.log('%c═══════════════════════════════════════════════════', 'color: #00f; font-weight: bold');
-      console.log('%c 🔍 DEBUG TRABAJOS EXTRA - Estado Completo', 'color: #00f; font-weight: bold; font-size: 16px');
-      console.log('%c═══════════════════════════════════════════════════', 'color: #00f; font-weight: bold');
+      console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #00f; font-weight: bold');
+      console.log('%c ðŸ” DEBUG TRABAJOS EXTRA - Estado Completo', 'color: #00f; font-weight: bold; font-size: 16px');
+      console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #00f; font-weight: bold');
       console.log('');
 
-      console.log('%c📊 RESUMEN GENERAL', 'color: #f80; font-weight: bold; font-size: 14px');
+      console.log('%cðŸ“Š RESUMEN GENERAL', 'color: #f80; font-weight: bold; font-size: 14px');
       console.log('Total trabajos extra en estado:', trabajosExtra.length);
       console.log('IDs:', trabajosExtra.map(t => t.id));
       console.log('');
 
       trabajosExtra.forEach((trabajo, index) => {
-        console.log(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'color: #0f0');
-        console.log(`%c📋 TRABAJO #${index + 1}: ${trabajo.nombreObra || trabajo.nombre}`, 'color: #0f0; font-weight: bold; font-size: 13px');
-        console.log(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'color: #0f0');
+        console.log(`%câ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”`, 'color: #0f0');
+        console.log(`%cðŸ“‹ TRABAJO #${index + 1}: ${trabajo.nombreObra || trabajo.nombre}`, 'color: #0f0; font-weight: bold; font-size: 13px');
+        console.log(`%câ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”`, 'color: #0f0');
 
-        console.log('🆔 ID:', trabajo.id);
-        console.log('📝 Nombre:', trabajo.nombreObra || trabajo.nombre);
+        console.log('ðŸ†” ID:', trabajo.id);
+        console.log('ðŸ“ Nombre:', trabajo.nombreObra || trabajo.nombre);
         console.log('');
 
-        console.log('%c👥 PROFESIONALES', 'color: #00f; font-weight: bold');
+        console.log('%cðŸ‘¥ PROFESIONALES', 'color: #00f; font-weight: bold');
         console.log('  Array existe:', !!trabajo.profesionales);
         console.log('  Es array:', Array.isArray(trabajo.profesionales));
         console.log('  Cantidad:', trabajo.profesionales?.length || 0);
@@ -787,7 +805,7 @@ const ObrasPage = ({ showNotification }) => {
         }
         console.log('');
 
-        console.log('%c📦 MATERIALES', 'color: #f80; font-weight: bold');
+        console.log('%cðŸ“¦ MATERIALES', 'color: #f80; font-weight: bold');
         console.log('  Array existe:', !!trabajo.materiales);
         console.log('  Es array:', Array.isArray(trabajo.materiales));
         console.log('  Cantidad:', trabajo.materiales?.length || 0);
@@ -800,7 +818,7 @@ const ObrasPage = ({ showNotification }) => {
         }
         console.log('');
 
-        console.log('%c💰 GASTOS GENERALES', 'color: #f00; font-weight: bold');
+        console.log('%cðŸ’° GASTOS GENERALES', 'color: #f00; font-weight: bold');
         console.log('  Array existe:', !!trabajo.gastosGenerales);
         console.log('  Es array:', Array.isArray(trabajo.gastosGenerales));
         console.log('  Cantidad:', trabajo.gastosGenerales?.length || 0);
@@ -813,41 +831,41 @@ const ObrasPage = ({ showNotification }) => {
         }
         console.log('');
 
-        console.log('%c🔧 DATOS COMPLETOS DEL OBJETO', 'color: #666; font-weight: bold');
+        console.log('%cðŸ”§ DATOS COMPLETOS DEL OBJETO', 'color: #666; font-weight: bold');
         console.log(trabajo);
         console.log('');
       });
 
-      console.log('%c═══════════════════════════════════════════════════', 'color: #00f; font-weight: bold');
-      console.log('%c✅ Inspección completa finalizada', 'color: #0f0; font-weight: bold');
-      console.log('%c═══════════════════════════════════════════════════', 'color: #00f; font-weight: bold');
+      console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #00f; font-weight: bold');
+      console.log('%câœ… Inspección completa finalizada', 'color: #0f0; font-weight: bold');
+      console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #00f; font-weight: bold');
       console.log('');
       console.log('%cPara volver a ejecutar, escribe: debugTrabajosExtra()', 'color: #666; font-style: italic');
     };
 
-    // 🔍 Función para verificar asignaciones reales del backend
+    // ðŸ” Función para verificar asignaciones reales del backend
     window.verificarAsignacionesBackend = async (trabajoExtraId = 7) => {
       console.clear();
-      console.log('%c═══════════════════════════════════════════════════', 'color: #f00; font-weight: bold');
-      console.log('%c 🌐 VERIFICACIÓN BACKEND - Trabajo Extra ID: ' + trabajoExtraId, 'color: #f00; font-weight: bold; font-size: 16px');
-      console.log('%c═══════════════════════════════════════════════════', 'color: #f00; font-weight: bold');
+      console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #f00; font-weight: bold');
+      console.log('%c ðŸŒ VERIFICACIÃ“N BACKEND - Trabajo Extra ID: ' + trabajoExtraId, 'color: #f00; font-weight: bold; font-size: 16px');
+      console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #f00; font-weight: bold');
       console.log('');
 
       const empresaId = localStorage.getItem('empresaId') || 1;
-      console.log('🏢 Empresa ID:', empresaId);
-      console.log('🆔 Consultando asignaciones para Trabajo Extra ID:', trabajoExtraId);
+      console.log('ðŸ¢ Empresa ID:', empresaId);
+      console.log('ðŸ†” Consultando asignaciones para Trabajo Extra ID:', trabajoExtraId);
 
       // Buscar info del trabajo extra
       const trabajoInfo = trabajosExtra.find(t => t.id === trabajoExtraId);
       if (trabajoInfo) {
-        console.log('📋 Nombre:', trabajoInfo.nombreObra || trabajoInfo.nombre);
-        console.log('🏗️ Obra Padre ID:', trabajoInfo.obraId);
+        console.log('ðŸ“‹ Nombre:', trabajoInfo.nombreObra || trabajoInfo.nombre);
+        console.log('ðŸ—ï¸ Obra Padre ID:', trabajoInfo.obraId);
       }
       console.log('');
 
       try {
         // 1. Verificar Profesionales
-        console.log('%c👥 CONSULTANDO PROFESIONALES...', 'color: #00f; font-weight: bold');
+        console.log('%cðŸ‘¥ CONSULTANDO PROFESIONALES...', 'color: #00f; font-weight: bold');
         const responseProfesionales = await fetch(`/api/profesionales/asignaciones/${trabajoExtraId}`, {
           headers: {
             'empresaId': empresaId,
@@ -886,8 +904,8 @@ const ObrasPage = ({ showNotification }) => {
         console.log('  Profesionales únicos:', profesionalesUnicos.size);
         console.log('  Profesionales procesados:', profesionales);
 
-        // 🔍 VERIFICAR OBRA_ID DE CADA ASIGNACIÓN
-        console.log('%c  🔍 VERIFICANDO OBRA_ID DE ASIGNACIONES:', 'color: #ff0; font-weight: bold; background: #000; padding: 2px');
+        // ðŸ” VERIFICAR OBRA_ID DE CADA ASIGNACIÃ“N
+        console.log('%c  ðŸ” VERIFICANDO OBRA_ID DE ASIGNACIONES:', 'color: #ff0; font-weight: bold; background: #000; padding: 2px');
         asignaciones.forEach((asig, idx) => {
           console.log(`    Asignación ${idx + 1}:`, {
             id: asig.id,
@@ -900,7 +918,7 @@ const ObrasPage = ({ showNotification }) => {
         console.log('');
 
         // 2. Verificar Materiales
-        console.log('%c📦 CONSULTANDO MATERIALES...', 'color: #f80; font-weight: bold');
+        console.log('%cðŸ“¦ CONSULTANDO MATERIALES...', 'color: #f80; font-weight: bold');
         const responseMateriales = await fetch(`/api/obras/${trabajoExtraId}/materiales?empresaId=${empresaId}`, {
           headers: {
             'empresaId': empresaId,
@@ -913,8 +931,8 @@ const ObrasPage = ({ showNotification }) => {
         console.log('  Cantidad:', Array.isArray(materiales) ? materiales.length : 0);
         console.log('  Datos:', materiales);
 
-        // 🔍 VERIFICAR OBRA_ID DE CADA MATERIAL
-        console.log('%c  🔍 VERIFICANDO OBRA_ID DE MATERIALES:', 'color: #ff0; font-weight: bold; background: #000; padding: 2px');
+        // ðŸ” VERIFICAR OBRA_ID DE CADA MATERIAL
+        console.log('%c  ðŸ” VERIFICANDO OBRA_ID DE MATERIALES:', 'color: #ff0; font-weight: bold; background: #000; padding: 2px');
         if (Array.isArray(materiales)) {
           materiales.forEach((mat, idx) => {
             console.log(`    Material ${idx + 1}:`, {
@@ -930,7 +948,7 @@ const ObrasPage = ({ showNotification }) => {
         console.log('');
 
         // 3. Verificar Gastos
-        console.log('%c💰 CONSULTANDO GASTOS GENERALES...', 'color: #f00; font-weight: bold');
+        console.log('%cðŸ’° CONSULTANDO GASTOS GENERALES...', 'color: #f00; font-weight: bold');
         const responseGastos = await fetch(`/api/obras/${trabajoExtraId}/otros-costos`, {
           headers: {
             'empresaId': empresaId,
@@ -943,8 +961,8 @@ const ObrasPage = ({ showNotification }) => {
         console.log('  Cantidad:', Array.isArray(gastos) ? gastos.length : 0);
         console.log('  Datos:', gastos);
 
-        // 🔍 VERIFICAR OBRA_ID DE CADA GASTO
-        console.log('%c  🔍 VERIFICANDO OBRA_ID DE GASTOS:', 'color: #ff0; font-weight: bold; background: #000; padding: 2px');
+        // ðŸ” VERIFICAR OBRA_ID DE CADA GASTO
+        console.log('%c  ðŸ” VERIFICANDO OBRA_ID DE GASTOS:', 'color: #ff0; font-weight: bold; background: #000; padding: 2px');
         if (Array.isArray(gastos)) {
           gastos.forEach((gasto, idx) => {
             console.log(`    Gasto ${idx + 1}:`, {
@@ -960,16 +978,16 @@ const ObrasPage = ({ showNotification }) => {
         console.log('');
 
         // Resumen
-        console.log('%c═══════════════════════════════════════════════════', 'color: #f00; font-weight: bold');
-        console.log('%c📊 RESUMEN BACKEND', 'color: #0f0; font-weight: bold; font-size: 14px');
-        console.log('%c═══════════════════════════════════════════════════', 'color: #f00; font-weight: bold');
-        console.log('✅ Profesionales:', Array.isArray(profesionales) ? profesionales.length : 0);
-        console.log('✅ Materiales:', Array.isArray(materiales) ? materiales.length : 0);
-        console.log('✅ Gastos:', Array.isArray(gastos) ? gastos.length : 0);
+        console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #f00; font-weight: bold');
+        console.log('%cðŸ“Š RESUMEN BACKEND', 'color: #0f0; font-weight: bold; font-size: 14px');
+        console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #f00; font-weight: bold');
+        console.log('âœ… Profesionales:', Array.isArray(profesionales) ? profesionales.length : 0);
+        console.log('âœ… Materiales:', Array.isArray(materiales) ? materiales.length : 0);
+        console.log('âœ… Gastos:', Array.isArray(gastos) ? gastos.length : 0);
         console.log('');
 
-        // VALIDACIÓN DE PERTENENCIA
-        console.log('%c🎯 VALIDACIÓN DE PERTENENCIA', 'color: #f0f; font-weight: bold; font-size: 14px');
+        // VALIDACIÃ“N DE PERTENENCIA
+        console.log('%cðŸŽ¯ VALIDACIÃ“N DE PERTENENCIA', 'color: #f0f; font-weight: bold; font-size: 14px');
         const profDelTrabajoExtra = asignaciones.filter(a => a.obraId === trabajoExtraId).length;
         const matDelTrabajoExtra = Array.isArray(materiales) ? materiales.filter(m => m.obraId === trabajoExtraId).length : 0;
         const gastosDelTrabajoExtra = Array.isArray(gastos) ? gastos.filter(g => g.obraId === trabajoExtraId).length : 0;
@@ -979,17 +997,17 @@ const ObrasPage = ({ showNotification }) => {
         console.log(`Gastos con obraId=${trabajoExtraId}:`, gastosDelTrabajoExtra, '/', (Array.isArray(gastos) ? gastos.length : 0));
 
         if (profDelTrabajoExtra !== asignaciones.length) {
-          console.log('%c⚠️ ADVERTENCIA: Algunas asignaciones de profesionales NO pertenecen al trabajo extra', 'color: #f00; font-weight: bold; background: #ff0; padding: 5px');
+          console.log('%c ADVERTENCIA: Algunas asignaciones de profesionales NO pertenecen al trabajo extra', 'color: #f00; font-weight: bold; background: #ff0; padding: 5px');
         }
         if (matDelTrabajoExtra !== (Array.isArray(materiales) ? materiales.length : 0)) {
-          console.log('%c⚠️ ADVERTENCIA: Algunos materiales NO pertenecen al trabajo extra', 'color: #f00; font-weight: bold; background: #ff0; padding: 5px');
+          console.log('%c ADVERTENCIA: Algunos materiales NO pertenecen al trabajo extra', 'color: #f00; font-weight: bold; background: #ff0; padding: 5px');
         }
         if (gastosDelTrabajoExtra !== (Array.isArray(gastos) ? gastos.length : 0)) {
-          console.log('%c⚠️ ADVERTENCIA: Algunos gastos NO pertenecen al trabajo extra', 'color: #f00; font-weight: bold; background: #ff0; padding: 5px');
+          console.log('%c ADVERTENCIA: Algunos gastos NO pertenecen al trabajo extra', 'color: #f00; font-weight: bold; background: #ff0; padding: 5px');
         }
         console.log('');
 
-        console.log('%c🔍 COMPARACIÓN CON ESTADO REACT', 'color: #00f; font-weight: bold; font-size: 14px');
+        console.log('%cðŸ” COMPARACIÃ“N CON ESTADO REACT', 'color: #00f; font-weight: bold; font-size: 14px');
         const trabajoEnEstado = trabajosExtra.find(t => t.id === trabajoExtraId);
         if (trabajoEnEstado) {
           console.log('Estado React - Profesionales:', trabajoEnEstado.profesionales?.length || 0);
@@ -1001,22 +1019,22 @@ const ObrasPage = ({ showNotification }) => {
           const matMatch = (trabajoEnEstado.materiales?.length || 0) === (Array.isArray(materiales) ? materiales.length : 0);
           const gastMatch = (trabajoEnEstado.gastosGenerales?.length || 0) === (Array.isArray(gastos) ? gastos.length : 0);
 
-          console.log(profMatch ? '%c✅ Profesionales: CORRECTO' : '%c❌ Profesionales: DESINCRONIZADO', profMatch ? 'color: #0f0' : 'color: #f00; font-weight: bold');
-          console.log(matMatch ? '%c✅ Materiales: CORRECTO' : '%c❌ Materiales: DESINCRONIZADO', matMatch ? 'color: #0f0' : 'color: #f00; font-weight: bold');
-          console.log(gastMatch ? '%c✅ Gastos: CORRECTO' : '%c❌ Gastos: DESINCRONIZADO', gastMatch ? 'color: #0f0' : 'color: #f00; font-weight: bold');
+          console.log(profMatch ? '%câœ… Profesionales: CORRECTO' : '%câŒ Profesionales: DESINCRONIZADO', profMatch ? 'color: #0f0' : 'color: #f00; font-weight: bold');
+          console.log(matMatch ? '%câœ… Materiales: CORRECTO' : '%câŒ Materiales: DESINCRONIZADO', matMatch ? 'color: #0f0' : 'color: #f00; font-weight: bold');
+          console.log(gastMatch ? '%câœ… Gastos: CORRECTO' : '%câŒ Gastos: DESINCRONIZADO', gastMatch ? 'color: #0f0' : 'color: #f00; font-weight: bold');
         } else {
-          console.log('%c⚠️ Trabajo Extra no encontrado en el estado React', 'color: #f80; font-weight: bold');
+          console.log('%c Trabajo Extra no encontrado en el estado React', 'color: #f80; font-weight: bold');
         }
         console.log('');
-        console.log('%c═══════════════════════════════════════════════════', 'color: #f00; font-weight: bold');
+        console.log('%câ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•', 'color: #f00; font-weight: bold');
 
       } catch (error) {
-        console.error('%c❌ ERROR consultando backend:', 'color: #f00; font-weight: bold', error);
+        console.error('%câŒ ERROR consultando backend:', 'color: #f00; font-weight: bold', error);
       }
     };
 
-    console.log('%c🐛 DEBUG HABILITADO: Usa debugTrabajosExtra() en la consola para inspeccionar', 'color: #0ff; font-weight: bold; background: #000; padding: 5px');
-    console.log('%c🌐 BACKEND CHECK: Usa verificarAsignacionesBackend(7) para consultar asignaciones reales', 'color: #f0f; font-weight: bold; background: #000; padding: 5px');
+    console.log('%cðŸ› DEBUG HABILITADO: Usa debugTrabajosExtra() en la consola para inspeccionar', 'color: #0ff; font-weight: bold; background: #000; padding: 5px');
+    console.log('%cðŸŒ BACKEND CHECK: Usa verificarAsignacionesBackend(7) para consultar asignaciones reales', 'color: #f0f; font-weight: bold; background: #000; padding: 5px');
 
     return () => {
       delete window.debugTrabajosExtra;
@@ -1214,7 +1232,7 @@ const ObrasPage = ({ showNotification }) => {
     inicializadoRef.current = false;
   }, [empresaId]);
 
-  // 🔧 Construir mapa de relaciones obra padre -> obras trabajo extra
+  // ðŸ”§ Construir mapa de relaciones obra padre -> obras trabajo extra
   useEffect(() => {
     if (!obras || obras.length === 0) {
       setMapObraPadre({});
@@ -1224,7 +1242,7 @@ const ObrasPage = ({ showNotification }) => {
     const mapa = {};
     obras.forEach(obra => {
       if (obra.esTrabajoExtra) {
-        // 🔍 El backend debería enviar obraPadreId indicando qué obra generó este trabajo extra
+        // ðŸ” El backend debería enviar obraPadreId indicando qué obra generó este trabajo extra
         // Este valor proviene del presupuesto que creó esta obra (campo obraId del presupuesto)
         const obraPadreId = obra.obraPadreId || obra.obra_padre_id || obra.idObraPadre;
 
@@ -1233,16 +1251,16 @@ const ObrasPage = ({ showNotification }) => {
             mapa[obraPadreId] = [];
           }
           mapa[obraPadreId].push(obra.id);
-          console.log(`🔗 Obra ${obra.id} (${obra.nombre}) es trabajo extra de obra ${obraPadreId}`);
+          console.log(`ðŸ”— Obra ${obra.id} (${obra.nombre}) es trabajo extra de obra ${obraPadreId}`);
         } else {
-          console.warn(`⚠️ Obra ${obra.id} (${obra.nombre}) marcada como trabajo extra pero sin obraPadreId`);
+          console.warn(` Obra ${obra.id} (${obra.nombre}) marcada como trabajo extra pero sin obraPadreId`);
         }
       }
     });
 
     setMapObraPadre(mapa);
     if (Object.keys(mapa).length > 0) {
-      console.log('📊 Mapa de obras padre construido:', mapa);
+      console.log('ðŸ“Š Mapa de obras padre construido:', mapa);
     }
   }, [obras]);
 
@@ -1253,7 +1271,7 @@ const ObrasPage = ({ showNotification }) => {
     }
   }, [estadoFilter, empresaId]);
 
-  // 🆕 Enriquecer obras con presupuestos completos para que el badge funcione
+  // ðŸ†• Enriquecer obras con presupuestos completos para que el badge funcione
   useEffect(() => {
     const enriquecerObrasConPresupuestos = async () => {
       if (!obras || obras.length === 0 || !empresaId) return;
@@ -1262,7 +1280,7 @@ const ObrasPage = ({ showNotification }) => {
         // Obtener todos los presupuestos de la empresa CON CACHE BUST
         const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId, { _t: Date.now() });
 
-        console.log('🔍 DEBUG: Todos los presupuestos cargados:', todosPresupuestos.length);
+        console.log('ðŸ” DEBUG: Todos los presupuestos cargados:', todosPresupuestos.length);
         todosPresupuestos.forEach(p => {
           console.log(`   - Presupuesto ID: ${p.id}, Nombre: "${p.nombreObra}", obraId: ${p.obraId}, Versión: ${p.numeroVersion}`);
         });
@@ -1274,15 +1292,15 @@ const ObrasPage = ({ showNotification }) => {
           const obraId = presupuesto.obraId || presupuesto.idObra;
           if (obraId) {
             if (!presupuestosPorObra[obraId] || (presupuesto.numeroVersion > (presupuestosPorObra[obraId].numeroVersion || 0))) {
-              console.log(`📦 Guardando presupuesto ID ${presupuesto.id} ("${presupuesto.nombreObra}") para obra ${obraId}`);
+              console.log(`ðŸ“¦ Guardando presupuesto ID ${presupuesto.id} ("${presupuesto.nombreObra}") para obra ${obraId}`);
               presupuestosPorObra[obraId] = presupuesto;
             } else {
-              console.log(`   ⏭️ Saltando presupuesto ID ${presupuesto.id} (versión menor o igual)`);
+              console.log(`   â­ï¸ Saltando presupuesto ID ${presupuesto.id} (versión menor o igual)`);
             }
           }
         });
 
-        console.log('🗂️ Diccionario presupuestosObras construido:');
+        console.log('ðŸ—‚ï¸ Diccionario presupuestosObras construido:');
         console.table(Object.entries(presupuestosPorObra).map(([obraId, p]) => ({
           ObraID: obraId,
           PresupuestoID: p.id,
@@ -1292,11 +1310,11 @@ const ObrasPage = ({ showNotification }) => {
 
         // Guardar en estado para que el badge pueda acceder
         setPresupuestosObras(presupuestosPorObra);
-        console.log('✅ Presupuestos cargados:', Object.keys(presupuestosPorObra).length);
-        console.log('📋 Claves del diccionario:', Object.keys(presupuestosPorObra).join(', '));
+        console.log('âœ… Presupuestos cargados:', Object.keys(presupuestosPorObra).length);
+        console.log('ðŸ“‹ Claves del diccionario:', Object.keys(presupuestosPorObra).join(', '));
 
       } catch (error) {
-        console.warn('⚠️ No se pudieron cargar presupuestos para badges:', error);
+        console.warn(' No se pudieron cargar presupuestos para badges:', error);
       }
     };
 
@@ -1308,7 +1326,7 @@ const ObrasPage = ({ showNotification }) => {
     if (selectedObraId && empresaId) {
       // No cargar configuración para tareas leves
       if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
-        console.log('⏭️ [ObrasPage] Saltando carga de configuración para tarea leve:', selectedObraId);
+        console.log('â­ï¸ [ObrasPage] Saltando carga de configuración para tarea leve:', selectedObraId);
         return;
       }
 
@@ -1324,7 +1342,7 @@ const ObrasPage = ({ showNotification }) => {
     }
   }, [selectedObraId, empresaId]);
 
-  // 🔄 Refrescar presupuesto de la obra seleccionada para usar días hábiles actuales
+  // ðŸ”„ Refrescar presupuesto de la obra seleccionada para usar días hábiles actuales
   useEffect(() => {
     if (!obraParaEtapasDiarias?.id || !obraParaEtapasDiarias?.presupuestoNoCliente?.id || !empresaId) return;
 
@@ -1344,7 +1362,7 @@ const ObrasPage = ({ showNotification }) => {
           [obraParaEtapasDiarias.id]: presupuestoActualizado
         }));
       } catch (error) {
-        console.warn('⚠️ No se pudo refrescar presupuesto de la obra seleccionada:', error);
+        console.warn(' No se pudo refrescar presupuesto de la obra seleccionada:', error);
       }
     };
 
@@ -1372,7 +1390,7 @@ const ObrasPage = ({ showNotification }) => {
   // Cargar datos de obra en modo edición
   useEffect(() => {
     if (modoEdicion && obraEditando) {
-      console.log('📝 Cargando datos de obra en modo edición:', obraEditando);
+      console.log('ðŸ“ Cargando datos de obra en modo edición:', obraEditando);
       setFormData({
         nombre: obraEditando.nombre || '',
         direccion: obraEditando.direccion || '',
@@ -1418,7 +1436,7 @@ const ObrasPage = ({ showNotification }) => {
 
       setObrasControls({
         selectedId: selectedObraId,
-        handleNuevo: () => dispatch(setActiveTab('crear')),
+        handleNuevo: () => abrirModalTrabajoDiario(),
         handleBuscarPorCliente,
         handleCargarEstadisticas,
         handleVerEstadisticasObraSeleccionada,
@@ -1435,46 +1453,54 @@ const ObrasPage = ({ showNotification }) => {
               const tarea = trabajosAdicionales.find(ta => ta.id === tareaId);
 
               if (tarea) {
-                // Buscar la obra padre (puede estar en obraId o trabajoExtraId)
-                const obraPadreId = tarea.obraId || tarea.trabajoExtraId;
-                const obraPadre = obras.find(o => o.id === obraPadreId);
+                console.log('ðŸ“ Editando tarea leve:', tarea.nombre);
 
-                if (obraPadre) {
-                  console.log('📝 Editando tarea leve:', tarea.nombre, 'de obra:', obraPadre.nombre);
+                // âœ… Determinar si es HIJA (tiene obraId) o NIETA (tiene trabajoExtraId)
+                if (tarea.trabajoExtraId) {
+                  // Es NIETA - hija de un trabajo extra
+                  const trabajoExtra = trabajosExtras.find(te => te.id === tarea.trabajoExtraId);
+                  const obraAbuelo = obras.find(o => o.id === tarea.obraId);
 
-                  // Configurar contexto para el modal
-                  setObraParaTrabajosAdicionales(obraPadre);
-                  setTrabajoAdicionalEditar(tarea);
-                  setMostrarModalTrabajoAdicional(true);
-                } else {
-                  showNotification('⚠️ No se encontró la obra padre de esta tarea', 'warning');
+                  if (trabajoExtra && obraAbuelo) {
+                    abrirModalTareaLeveNieta(obraAbuelo, trabajoExtra, tarea);
+                  } else {
+                    showNotification(' No se encontró el contexto completo de esta tarea', 'warning');
+                  }
+                } else if (tarea.obraId) {
+                  // Es HIJA - hija directa de obra
+                  const obraPadre = obras.find(o => o.id === tarea.obraId);
+
+                  if (obraPadre) {
+                    abrirModalTareaLeveHija(obraPadre, tarea);
+                  } else {
+                    showNotification(' No se encontró la obra padre de esta tarea', 'warning');
+                  }
                 }
               } else {
-                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+                showNotification('âš ï No se encontrÃ la tarea seleccionada', 'warning');
               }
               return;
             }
-
             const obra = obras.find(o => o.id === selectedObraId);
             if (obra) {
               // Verificar si tiene presupuesto
               const presupuesto = presupuestosObras[obra.id];
               const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
-              console.log('✏️ ========== EDITAR OBRA ==========');
-              console.log('✏️ Obra seleccionada:', obra.nombre, ' (ID:', obra.id, ')');
-              console.log('✏️ presupuestosObras[' + obra.id + ']:', presupuesto);
+              console.log('âœï¸ ========== EDITAR OBRA ==========');
+              console.log('âœï¸ Obra seleccionada:', obra.nombre, ' (ID:', obra.id, ')');
+              console.log('âœï¸ presupuestosObras[' + obra.id + ']:', presupuesto);
               if (presupuesto) {
-                console.log('     ├─ Presupuesto ID:', presupuesto.id);
-                console.log('     ├─ Nombre Obra:', presupuesto.nombreObra);
-                console.log('     ├─ Versión:', presupuesto.numeroVersion);
-                console.log('     └─ obraId del presupuesto:', presupuesto.obraId);
+                console.log('     â”œâ”€ Presupuesto ID:', presupuesto.id);
+                console.log('     â”œâ”€ Nombre Obra:', presupuesto.nombreObra);
+                console.log('     â”œâ”€ Versión:', presupuesto.numeroVersion);
+                console.log('     â””â”€ obraId del presupuesto:', presupuesto.obraId);
               }
-              console.log('✏️ =====================================');
+              console.log('âœï¸ =====================================');
 
               if (tienePresupuesto) {
-                // 🔥 OBRA CON PRESUPUESTO: Abrir modal de edición en la misma página (sin navegar)
-                console.log('📄 Abriendo modal de edición para presupuesto ID:', presupuesto.id, 'de obra:', obra.nombre);
+                // ðŸ”¥ OBRA CON PRESUPUESTO: Abrir modal de edición en la misma página (sin navegar)
+                console.log('ðŸ“„ Abriendo modal de edición para presupuesto ID:', presupuesto.id, 'de obra:', obra.nombre);
                 setPresupuestoParaEditar(presupuesto);
                 setMostrarModalEditarPresupuesto(true);
                 return;
@@ -1483,10 +1509,10 @@ const ObrasPage = ({ showNotification }) => {
               // Cargar datos de la obra en el formulario (para obras sin presupuesto / trabajos diarios)
               // Normalizar estado: mapear estados con tildes a estados válidos del backend
               const mapeoEstados = {
-                'EN_PLANIFICACIÓN': 'BORRADOR',
+                'EN_PLANIFICACIÃ“N': 'BORRADOR',
                 'EN_PLANIFICACION': 'BORRADOR',
-                'EN PLANIFICACIÓN': 'BORRADOR',
-                'EN_EJECUCIÓN': 'EN_EJECUCION',
+                'EN PLANIFICACIÃ“N': 'BORRADOR',
+                'EN_EJECUCIÃ“N': 'EN_EJECUCION',
                 'EN_EJECUCION': 'EN_EJECUCION'
               };
 
@@ -1582,7 +1608,7 @@ const ObrasPage = ({ showNotification }) => {
                   setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'porcentaje');
                 }
 
-                console.log('📂 Desglose obra restaurado desde DTO:', obra);
+                console.log('ðŸ“‚ Desglose obra restaurado desde DTO:', obra);
               } else {
                 setUsarDesgloseObra(false);
                 setImporteMaterialesObra('');
@@ -1615,12 +1641,12 @@ const ObrasPage = ({ showNotification }) => {
 
               if (tarea) {
                 // Confirmar eliminación de tarea
-                const confirmar = window.confirm(`¿Está seguro de eliminar la tarea leve "${tarea.nombre}"?\n\nEsta acción NO se puede deshacer.`);
+                const confirmar = window.confirm(`Â¿Está seguro de eliminar la tarea leve "${tarea.nombre}"?\n\nEsta acción NO se puede deshacer.`);
                 if (confirmar) {
                   handleEliminarTrabajoAdicional(tareaIdNumerico, tarea.nombre);
                 }
               } else {
-                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+                showNotification(' No se encontró la tarea seleccionada', 'warning');
               }
               return;
             }
@@ -1652,7 +1678,7 @@ const ObrasPage = ({ showNotification }) => {
                 setObraParaVerAsignaciones(tareaComoObra);
                 setMostrarModalVerAsignaciones(true);
               } else {
-                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+                showNotification(' No se encontró la tarea seleccionada', 'warning');
               }
             } else {
               // Es una obra normal
@@ -1673,7 +1699,7 @@ const ObrasPage = ({ showNotification }) => {
           if (selectedObraId) {
             // Verificar si es una tarea (no se puede cambiar estado de tareas leves)
             if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
-              showNotification('⚠️ No se puede cambiar el estado de tareas leves. Las tareas se gestionan desde su obra principal.', 'warning');
+              showNotification(' No se puede cambiar el estado de tareas leves. Las tareas se gestionan desde su obra principal.', 'warning');
               return;
             }
 
@@ -1690,7 +1716,7 @@ const ObrasPage = ({ showNotification }) => {
           if (selectedObraId) {
             // Verificar si es una tarea (las tareas no tienen sub-trabajos)
             if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
-              showNotification('⚠️ Las tareas leves no pueden tener trabajos adicionales. Son ellas mismas trabajos adicionales.', 'warning');
+              showNotification(' Las tareas leves no pueden tener trabajos adicionales. Son ellas mismas trabajos adicionales.', 'warning');
               return;
             }
 
@@ -1708,7 +1734,7 @@ const ObrasPage = ({ showNotification }) => {
           if (selectedObraId) {
             // Verificar si es una tarea (las tareas no tienen etapas diarias complejas)
             if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
-              showNotification('⚠️ Las tareas leves no tienen cronograma de etapas diarias. Son trabajos puntuales.', 'warning');
+              showNotification(' Las tareas leves no tienen cronograma de etapas diarias. Son trabajos puntuales.', 'warning');
               return;
             }
 
@@ -1733,7 +1759,7 @@ const ObrasPage = ({ showNotification }) => {
 
               if (tarea) {
                 // Generar PDF directamente de la tarea
-                console.log('📤 Generando PDF de tarea leve:', tarea.nombre);
+                console.log('ðŸ“¤ Generando PDF de tarea leve:', tarea.nombre);
 
                 // Importar dinámicamente las librerías
                 const html2canvas = (await import('html2canvas')).default;
@@ -1766,7 +1792,7 @@ const ObrasPage = ({ showNotification }) => {
 
                       <div style="margin-bottom: 25px;">
                         <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                          📍 Información General
+                          ðŸ“ Información General
                         </h3>
                         <table style="width: 100%; border-collapse: collapse;">
                           <tr>
@@ -1799,7 +1825,7 @@ const ObrasPage = ({ showNotification }) => {
 
                       <div style="margin-bottom: 25px;">
                         <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                          👷 Profesionales Asignados
+                          ðŸ‘· Profesionales Asignados
                         </h3>
                         <div style="padding: 12px; background-color: #fce7f3; border-radius: 4px; border-left: 4px solid #ec4899;">
                           <p style="color: #555; line-height: 1.8; margin: 0;">${profesionalesTexto}</p>
@@ -1809,7 +1835,7 @@ const ObrasPage = ({ showNotification }) => {
                       ${tarea.descripcion ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📋 Descripción
+                            ðŸ“‹ Descripción
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
                             ${tarea.descripcion}
@@ -1820,7 +1846,7 @@ const ObrasPage = ({ showNotification }) => {
                       ${tarea.observaciones ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📝 Observaciones
+                            ðŸ“ Observaciones
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
                             ${tarea.observaciones}
@@ -1870,20 +1896,20 @@ const ObrasPage = ({ showNotification }) => {
                   const nombreArchivo = `Presupuesto_${tarea.nombre?.replace(/\s/g, '_') || `Tarea_${tarea.id}`}_${new Date().getTime()}.pdf`;
                   pdf.save(nombreArchivo);
 
-                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+                  showNotification('âœ… PDF generado y descargado exitosamente', 'success');
 
                   // Preguntar si desea enviar por WhatsApp
-                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                  if (confirm('Â¿Desea enviar este presupuesto por WhatsApp?')) {
                     const mensaje = `
 *PRESUPUESTO - TAREA LEVE*
 
-📋 *${tarea.nombre}*
-${obraPadre ? `🏗️ Obra: ${obraPadre.nombre}` : ''}
+ðŸ“‹ *${tarea.nombre}*
+${obraPadre ? `ðŸ—ï¸ Obra: ${obraPadre.nombre}` : ''}
 
-📅 Inicio: ${tarea.fechaInicio || 'A definir'}
-⏱️ Duración: ${tarea.diasNecesarios || 'N/A'} días
+ðŸ“… Inicio: ${tarea.fechaInicio || 'A definir'}
+â±ï¸ Duración: ${tarea.diasNecesarios || 'N/A'} días
 
-💰 *TOTAL: $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+ðŸ’° *TOTAL: $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
 
 _PDF descargado - Adjúntalo al mensaje_
 _Válido por 30 días_
@@ -1898,13 +1924,13 @@ _Válido por 30 días_
                   }
 
                 } catch (error) {
-                  console.error('❌ Error generando PDF:', error);
-                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                  console.error('âŒ Error generando PDF:', error);
+                  showNotification('âŒ Error al generar PDF: ' + error.message, 'error');
                 }
 
                 return;
               } else {
-                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+                showNotification(' No se encontró la tarea seleccionada', 'warning');
                 return;
               }
             }
@@ -1916,13 +1942,13 @@ _Válido por 30 días_
               const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
               if (tienePresupuesto) {
-                // 🔥 OBRA CON PRESUPUESTO: Abrir modal en la misma página (sin navegar)
-                console.log('📤 Abriendo modal de envío para presupuesto ID:', presupuesto.id, 'de obra:', obra.nombre);
+                // ðŸ”¥ OBRA CON PRESUPUESTO: Abrir modal en la misma página (sin navegar)
+                console.log('ðŸ“¤ Abriendo modal de envío para presupuesto ID:', presupuesto.id, 'de obra:', obra.nombre);
                 setPresupuestoParaEnviar(presupuesto);
                 setMostrarModalEnviarPresupuesto(true);
               } else {
-                // 🔥 OBRA SIN PRESUPUESTO: Generar PDF directamente (Trabajo Diario)
-                console.log('📤 Generando PDF de Trabajo Diario:', obra.nombre);
+                // ðŸ”¥ OBRA SIN PRESUPUESTO: Generar PDF directamente (Trabajo Diario)
+                console.log('ðŸ“¤ Generando PDF de Trabajo Diario:', obra.nombre);
 
                 // Importar dinámicamente las librerías
                 const html2canvas = (await import('html2canvas')).default;
@@ -1932,7 +1958,7 @@ _Válido por 30 días_
                   // Formatear dirección completa
                   const direccionCompleta = [
                     obra.direccionObraCalle || obra.direccionObra || obra.direccion,
-                    obra.direccionObraAltura ? `N° ${obra.direccionObraAltura}` : '',
+                    obra.direccionObraAltura ? `NÂ° ${obra.direccionObraAltura}` : '',
                     obra.direccionObraTorre ? `Torre ${obra.direccionObraTorre}` : '',
                     obra.direccionObraPiso ? `Piso ${obra.direccionObraPiso}` : '',
                     obra.direccionObraDepartamento ? `Depto ${obra.direccionObraDepartamento}` : ''
@@ -1956,7 +1982,7 @@ _Válido por 30 días_
 
                       <div style="margin-bottom: 25px;">
                         <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                          📍 Información General
+                          ðŸ“ Información General
                         </h3>
                         <table style="width: 100%; border-collapse: collapse;">
                           ${obra.nombreSolicitante || obra.clienteNombre ? `
@@ -2010,7 +2036,7 @@ _Válido por 30 días_
                       ${obra.descripcion ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📋 Descripción
+                            ðŸ“‹ Descripción
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
                             ${obra.descripcion}
@@ -2021,7 +2047,7 @@ _Válido por 30 días_
                       ${obra.observaciones ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📝 Observaciones
+                            ðŸ“ Observaciones
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
                             ${obra.observaciones}
@@ -2071,20 +2097,20 @@ _Válido por 30 días_
                   const nombreArchivo = `Presupuesto_${obra.nombre?.replace(/\s/g, '_') || `Obra_${obra.id}`}_${new Date().getTime()}.pdf`;
                   pdf.save(nombreArchivo);
 
-                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+                  showNotification('âœ… PDF generado y descargado exitosamente', 'success');
 
                   // Preguntar si desea enviar por WhatsApp
-                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                  if (confirm('Â¿Desea enviar este presupuesto por WhatsApp?')) {
                     const mensaje = `
 *PRESUPUESTO - TRABAJO DIARIO*
 
-📋 *${obra.nombre}*
-${obra.direccionObra || obra.direccion ? `📍 ${obra.direccionObra || obra.direccion}` : ''}
+ðŸ“‹ *${obra.nombre}*
+${obra.direccionObra || obra.direccion ? `ðŸ“ ${obra.direccionObra || obra.direccion}` : ''}
 
-${obra.fechaInicio ? `📅 Inicio: ${obra.fechaInicio}` : ''}
-${obra.dias || obra.duracionDias ? `⏱️ Duración: ${obra.dias || obra.duracionDias} días` : ''}
+${obra.fechaInicio ? `ðŸ“… Inicio: ${obra.fechaInicio}` : ''}
+${obra.dias || obra.duracionDias ? `â±ï¸ Duración: ${obra.dias || obra.duracionDias} días` : ''}
 
-💰 *TOTAL: $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+ðŸ’° *TOTAL: $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
 
 _PDF descargado - Adjúntalo al mensaje_
 _Válido por 30 días_
@@ -2099,19 +2125,19 @@ _Válido por 30 días_
                   }
 
                 } catch (error) {
-                  console.error('❌ Error generando PDF:', error);
-                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                  console.error('âŒ Error generando PDF:', error);
+                  showNotification('âŒ Error al generar PDF: ' + error.message, 'error');
                 }
               }
             } else {
-              console.error('❌ No se encontró la obra con ID:', selectedObraId);
-              showNotification('⚠️ No se encontró la obra seleccionada', 'warning');
+              console.error('âŒ No se encontró la obra con ID:', selectedObraId);
+              showNotification(' No se encontró la obra seleccionada', 'warning');
             }
           } else {
             showNotification('Seleccione una obra para enviar', 'warning');
           }
         },
-        // CÓDIGO ANTIGUO COMENTADO - ELIMINADO TODO EL CÓDIGO DE GENERACIÓN DE PDF
+        // CÃ“DIGO ANTIGUO COMENTADO - ELIMINADO TODO EL CÃ“DIGO DE GENERACIÃ“N DE PDF
         handleEnviarObraOLD_BACKUP: async () => {
           if (selectedObraId) {
             // Verificar si es una tarea (ID comienza con "ta_")
@@ -2124,7 +2150,7 @@ _Válido por 30 días_
 
               if (tarea) {
                 // Generar PDF directamente de la tarea
-                console.log('📤 Generando PDF de tarea leve:', tarea.nombre);
+                console.log('ðŸ“¤ Generando PDF de tarea leve:', tarea.nombre);
 
                 // Importar dinámicamente las librerías
                 const html2canvas = (await import('html2canvas')).default;
@@ -2157,7 +2183,7 @@ _Válido por 30 días_
 
                       <div style="margin-bottom: 25px;">
                         <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                          📍 Información General
+                          ðŸ“ Información General
                         </h3>
                         <table style="width: 100%; border-collapse: collapse;">
                           <tr>
@@ -2190,7 +2216,7 @@ _Válido por 30 días_
 
                       <div style="margin-bottom: 25px;">
                         <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                          👷 Profesionales Asignados
+                          ðŸ‘· Profesionales Asignados
                         </h3>
                         <div style="padding: 12px; background-color: #fce7f3; border-radius: 4px; border-left: 4px solid #ec4899;">
                           <p style="color: #555; line-height: 1.8; margin: 0;">${profesionalesTexto}</p>
@@ -2200,7 +2226,7 @@ _Válido por 30 días_
                       ${tarea.descripcion ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📋 Descripción
+                            ðŸ“‹ Descripción
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
                             ${tarea.descripcion}
@@ -2211,7 +2237,7 @@ _Válido por 30 días_
                       ${tarea.observaciones ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📝 Observaciones
+                            ðŸ“ Observaciones
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
                             ${tarea.observaciones}
@@ -2261,20 +2287,20 @@ _Válido por 30 días_
                   const nombreArchivo = `Presupuesto_${tarea.nombre?.replace(/\s/g, '_') || `Tarea_${tarea.id}`}_${new Date().getTime()}.pdf`;
                   pdf.save(nombreArchivo);
 
-                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+                  showNotification('âœ… PDF generado y descargado exitosamente', 'success');
 
                   // Preguntar si desea enviar por WhatsApp
-                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                  if (confirm('Â¿Desea enviar este presupuesto por WhatsApp?')) {
                     const mensaje = `
 *PRESUPUESTO - TAREA LEVE*
 
-📋 *${tarea.nombre}*
-${obraPadre ? `🏗️ Obra: ${obraPadre.nombre}` : ''}
+ðŸ“‹ *${tarea.nombre}*
+${obraPadre ? `ðŸ—ï¸ Obra: ${obraPadre.nombre}` : ''}
 
-📅 Inicio: ${tarea.fechaInicio || 'A definir'}
-⏱️ Duración: ${tarea.diasNecesarios || 'N/A'} días
+ðŸ“… Inicio: ${tarea.fechaInicio || 'A definir'}
+â±ï¸ Duración: ${tarea.diasNecesarios || 'N/A'} días
 
-💰 *TOTAL: $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+ðŸ’° *TOTAL: $${(tarea.importe || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
 
 _PDF descargado - Adjúntalo al mensaje_
 _Válido por 30 días_
@@ -2289,54 +2315,54 @@ _Válido por 30 días_
                   }
 
                 } catch (error) {
-                  console.error('❌ Error generando PDF:', error);
-                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                  console.error('âŒ Error generando PDF:', error);
+                  showNotification('âŒ Error al generar PDF: ' + error.message, 'error');
                 }
 
                 return;
               } else {
-                showNotification('⚠️ No se encontró la tarea seleccionada', 'warning');
+                showNotification(' No se encontró la tarea seleccionada', 'warning');
                 return;
               }
             }
 
             const obra = obras.find(o => o.id === selectedObraId);
-            console.log('🔍 Buscando obra con ID:', selectedObraId, '| Encontrada:', !!obra);
+            console.log('ðŸ” Buscando obra con ID:', selectedObraId, '| Encontrada:', !!obra);
 
             if (obra) {
               // Verificar si tiene presupuesto (en presupuestosObras o presupuestoNoCliente)
               const presupuesto = presupuestosObras[obra.id];
               const presupuestoNoCliente = obra.presupuestoNoCliente;
 
-              console.log('📤 ========== ENVIAR OBRA ==========');
-              console.log('📤 Obra:', obra.nombre, 'ID:', obra.id);
-              console.log('📤 Presupuesto en diccionario:', presupuesto ? 'SI (ID: ' + presupuesto.id + ')' : 'NO');
-              console.log('📤 presupuestoNoCliente en obra:', presupuestoNoCliente ? 'SI (ID: ' + presupuestoNoCliente.id + ')' : 'NO');
-              console.log('📤 =====================================');
+              console.log('ðŸ“¤ ========== ENVIAR OBRA ==========');
+              console.log('ðŸ“¤ Obra:', obra.nombre, 'ID:', obra.id);
+              console.log('ðŸ“¤ Presupuesto en diccionario:', presupuesto ? 'SI (ID: ' + presupuesto.id + ')' : 'NO');
+              console.log('ðŸ“¤ presupuestoNoCliente en obra:', presupuestoNoCliente ? 'SI (ID: ' + presupuestoNoCliente.id + ')' : 'NO');
+              console.log('ðŸ“¤ =====================================');
 
               // Si tiene presupuesto en presupuestosObras
               if (presupuesto && typeof presupuesto === 'object') {
-                console.log('✅ RUTA 1: Usando presupuesto del diccionario - ID:', presupuesto.id, 'Nombre:', presupuesto.nombreObra);
+                console.log('âœ… RUTA 1: Usando presupuesto del diccionario - ID:', presupuesto.id, 'Nombre:', presupuesto.nombreObra);
                 setPresupuestoParaEnviar(presupuesto);
                 setMostrarModalEnviarPresupuesto(true);
               }
               // Si tiene presupuestoNoCliente vinculado (Obras Principales / Adicionales)
               else if (presupuestoNoCliente && typeof presupuestoNoCliente === 'object') {
-                console.log('✅ RUTA 2: Usando presupuestoNoCliente de la obra - ID:', presupuestoNoCliente.id);
+                console.log('âœ… RUTA 2: Usando presupuestoNoCliente de la obra - ID:', presupuestoNoCliente.id);
                 console.log('   - itemsCalculadora:', presupuestoNoCliente.itemsCalculadora?.length || 0, 'items');
 
                 // Verificar si ya tiene todos los datos necesarios
                 if (presupuestoNoCliente.itemsCalculadora && Array.isArray(presupuestoNoCliente.itemsCalculadora) && presupuestoNoCliente.itemsCalculadora.length > 0) {
-                  console.log('✅ presupuestoNoCliente ya tiene itemsCalculadora completo, usando directamente');
+                  console.log('âœ… presupuestoNoCliente ya tiene itemsCalculadora completo, usando directamente');
                   setPresupuestoParaEnviar(presupuestoNoCliente);
                   setMostrarModalEnviarPresupuesto(true);
                 } else if (presupuestoNoCliente.id) {
                   // Cargar el presupuesto completo desde el backend
-                  console.log('🔄 itemsCalculadora vacío o inexistente, cargando desde backend...');
+                  console.log('ðŸ”„ itemsCalculadora vacío o inexistente, cargando desde backend...');
                   try {
                     const response = await api.presupuestosNoCliente.getById(presupuestoNoCliente.id, empresaId);
                     const presupuestoCompleto = response.data;
-                    console.log('✅ presupuestoNoCliente completo cargado del backend:');
+                    console.log('âœ… presupuestoNoCliente completo cargado del backend:');
                     console.log('   - Presupuesto ID:', presupuestoCompleto.id);
                     console.log('   - Versión:', presupuestoCompleto.numeroVersion);
                     console.log('   - Nombre Obra:', presupuestoCompleto.nombreObraManual);
@@ -2346,17 +2372,17 @@ _Válido por 30 días_
                     setPresupuestoParaEnviar(presupuestoCompleto);
                     setMostrarModalEnviarPresupuesto(true);
                   } catch (error) {
-                    console.error('❌ Error cargando presupuestoNoCliente completo:', error);
-                    showNotification('❌ Error al cargar el presupuesto: ' + (error.response?.data?.message || error.message), 'error');
+                    console.error('âŒ Error cargando presupuestoNoCliente completo:', error);
+                    showNotification('âŒ Error al cargar el presupuesto: ' + (error.response?.data?.message || error.message), 'error');
                   }
                 } else {
-                  console.log('⚠️ presupuestoNoCliente sin ID, usando datos disponibles');
+                  console.log(' presupuestoNoCliente sin ID, usando datos disponibles');
                   setPresupuestoParaEnviar(presupuestoNoCliente);
                   setMostrarModalEnviarPresupuesto(true);
                 }
               } else {
                 // Trabajo Diario (obra sin presupuesto) - generar PDF directamente
-                console.log('📤 Generando PDF de Trabajo Diario:', obra.nombre);
+                console.log('ðŸ“¤ Generando PDF de Trabajo Diario:', obra.nombre);
 
                 // Importar dinámicamente las librerías
                 const html2canvas = (await import('html2canvas')).default;
@@ -2366,7 +2392,7 @@ _Válido por 30 días_
                   // Formatear dirección completa
                   const direccionCompleta = [
                     obra.direccionObraCalle || obra.direccionObra || obra.direccion,
-                    obra.direccionObraAltura ? `N° ${obra.direccionObraAltura}` : '',
+                    obra.direccionObraAltura ? `NÂ° ${obra.direccionObraAltura}` : '',
                     obra.direccionObraTorre ? `Torre ${obra.direccionObraTorre}` : '',
                     obra.direccionObraPiso ? `Piso ${obra.direccionObraPiso}` : '',
                     obra.direccionObraDepartamento ? `Depto ${obra.direccionObraDepartamento}` : ''
@@ -2390,7 +2416,7 @@ _Válido por 30 días_
 
                       <div style="margin-bottom: 25px;">
                         <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                          📍 Información General
+                          ðŸ“ Información General
                         </h3>
                         <table style="width: 100%; border-collapse: collapse;">
                           ${obra.nombreSolicitante || obra.clienteNombre ? `
@@ -2444,7 +2470,7 @@ _Válido por 30 días_
                       ${obra.descripcion ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📋 Descripción
+                            ðŸ“‹ Descripción
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #f9f9f9; border-radius: 4px;">
                             ${obra.descripcion}
@@ -2455,7 +2481,7 @@ _Válido por 30 días_
                       ${obra.observaciones ? `
                         <div style="margin-bottom: 25px;">
                           <h3 style="color: #333; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">
-                            📝 Observaciones
+                            ðŸ“ Observaciones
                           </h3>
                           <p style="color: #555; line-height: 1.6; margin: 0; padding: 12px; background-color: #fff9e6; border-left: 4px solid #ffa726; border-radius: 4px;">
                             ${obra.observaciones}
@@ -2505,20 +2531,20 @@ _Válido por 30 días_
                   const nombreArchivo = `Presupuesto_${obra.nombre?.replace(/\s/g, '_') || `Obra_${obra.id}`}_${new Date().getTime()}.pdf`;
                   pdf.save(nombreArchivo);
 
-                  showNotification('✅ PDF generado y descargado exitosamente', 'success');
+                  showNotification('âœ… PDF generado y descargado exitosamente', 'success');
 
                   // Preguntar si desea enviar por WhatsApp
-                  if (confirm('¿Desea enviar este presupuesto por WhatsApp?')) {
+                  if (confirm('Â¿Desea enviar este presupuesto por WhatsApp?')) {
                     const mensaje = `
 *PRESUPUESTO - TRABAJO DIARIO*
 
-📋 *${obra.nombre}*
-${obra.direccionObra || obra.direccion ? `📍 ${obra.direccionObra || obra.direccion}` : ''}
+ðŸ“‹ *${obra.nombre}*
+${obra.direccionObra || obra.direccion ? `ðŸ“ ${obra.direccionObra || obra.direccion}` : ''}
 
-${obra.fechaInicio ? `📅 Inicio: ${obra.fechaInicio}` : ''}
-${obra.dias || obra.duracionDias ? `⏱️ Duración: ${obra.dias || obra.duracionDias} días` : ''}
+${obra.fechaInicio ? `ðŸ“… Inicio: ${obra.fechaInicio}` : ''}
+${obra.dias || obra.duracionDias ? `â±ï¸ Duración: ${obra.dias || obra.duracionDias} días` : ''}
 
-💰 *TOTAL: $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
+ðŸ’° *TOTAL: $${(obra.presupuestoEstimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}*
 
 _PDF descargado - Adjúntalo al mensaje_
 _Válido por 30 días_
@@ -2533,16 +2559,16 @@ _Válido por 30 días_
                   }
 
                 } catch (error) {
-                  console.error('❌ Error generando PDF:', error);
-                  showNotification('❌ Error al generar PDF: ' + error.message, 'error');
+                  console.error('âŒ Error generando PDF:', error);
+                  showNotification('âŒ Error al generar PDF: ' + error.message, 'error');
                 }
               }
             } else {
-              console.error('❌ No se encontró la obra con ID:', selectedObraId);
-              showNotification('⚠️ No se encontró la obra seleccionada', 'warning');
+              console.error('âŒ No se encontró la obra con ID:', selectedObraId);
+              showNotification(' No se encontró la obra seleccionada', 'warning');
             }
           } else {
-            console.log('⚠️ No hay obra seleccionada');
+            console.log(' No hay obra seleccionada');
             showNotification('Seleccione una obra para enviar', 'warning');
           }
         },
@@ -2568,7 +2594,7 @@ _Válido por 30 días_
   // Enviar controles de trabajos extra al Sidebar
   useEffect(() => {
     if (activeTab === 'trabajos-extra' && setObrasControls) {
-      console.log('🔧 Configurando controles de trabajos extra, seleccionado:', trabajoExtraSeleccionado);
+      console.log('ðŸ”§ Configurando controles de trabajos extra, seleccionado:', trabajoExtraSeleccionado);
       setObrasControls({
         selectedId: trabajoExtraSeleccionado?.id,
         selectedPresupuesto: trabajoExtraSeleccionado,
@@ -2606,7 +2632,7 @@ _Válido por 30 días_
             const trabajoConFlag = { ...trabajoExtraSeleccionado, _editarSoloFechas: true };
             setTrabajoExtraEditar(trabajoConFlag);
             setMostrarModalTrabajoExtra(true);
-            showNotification('📅 Modo edición de fechas: Solo puede modificar fechas.\nEl estado y versión se preservarán.', 'info');
+            showNotification('ðŸ“… Modo edición de fechas: Solo puede modificar fechas.\nEl estado y versión se preservarán.', 'info');
           } else {
             showNotification('Seleccione un trabajo extra para editar fechas', 'warning');
           }
@@ -2633,12 +2659,12 @@ _Válido por 30 días_
                 esPresupuestoTrabajoExtra: true
               }, empresaId)
                 .then(() => {
-                  showNotification('✅ Trabajo extra marcado como listo para enviar', 'success');
+                  showNotification('âœ… Trabajo extra marcado como listo para enviar', 'success');
                   cargarTrabajosExtra(obraParaTrabajosExtra);
                   setTrabajoExtraSeleccionado(null);
                 })
                 .catch(error => {
-                  showNotification('❌ Error al cambiar estado: ' + error.message, 'error');
+                  showNotification('âŒ Error al cambiar estado: ' + error.message, 'error');
                 });
             } else {
               showNotification('El trabajo extra debe estar en estado BORRADOR para marcarlo como listo para enviar', 'warning');
@@ -2658,11 +2684,11 @@ _Válido por 30 días_
                 esPresupuestoTrabajoExtra: true
               }, empresaId)
                 .then(() => {
-                  showNotification('✅ Trabajo extra marcado como "Listo para Enviar"', 'success');
+                  showNotification('âœ… Trabajo extra marcado como "Listo para Enviar"', 'success');
                   cargarTrabajosExtra(obraParaTrabajosExtra);
                 })
                 .catch(error => {
-                  showNotification('❌ Error al marcar trabajo extra: ' + error.message, 'error');
+                  showNotification('âŒ Error al marcar trabajo extra: ' + error.message, 'error');
                 });
             } else {
               showNotification(`Este trabajo extra ya está en estado ${trabajoExtraSeleccionado.estado}`, 'warning');
@@ -2688,19 +2714,19 @@ _Válido por 30 días_
           setTrabajoExtraEditar(trabajoExtraSeleccionado);
 
           if (tipo === 'whatsapp') {
-            // ✅ ACTIVAR FLAGS PARA WHATSAPP
+            // âœ… ACTIVAR FLAGS PARA WHATSAPP
             setAbrirWhatsAppTrabajoExtra(true);
             setAbrirEmailTrabajoExtra(false);
 
-            console.log('📱 FLAGS ACTIVADOS para WhatsApp');
-            showNotification('📱 Abre el modal, genera el PDF y envía por WhatsApp', 'info');
+            console.log('ðŸ“± FLAGS ACTIVADOS para WhatsApp');
+            showNotification('ðŸ“± Abre el modal, genera el PDF y envía por WhatsApp', 'info');
           } else if (tipo === 'email') {
-            // ✅ ACTIVAR FLAGS PARA EMAIL
+            // âœ… ACTIVAR FLAGS PARA EMAIL
             setAbrirWhatsAppTrabajoExtra(false);
             setAbrirEmailTrabajoExtra(true);
 
-            console.log('📧 FLAGS ACTIVADOS para Email');
-            showNotification('📧 Abre el modal, genera el PDF y envía por Email', 'info');
+            console.log('ðŸ“§ FLAGS ACTIVADOS para Email');
+            showNotification('ðŸ“§ Abre el modal, genera el PDF y envía por Email', 'info');
           }
 
           setMostrarModalTrabajoExtra(true);
@@ -2715,12 +2741,12 @@ _Válido por 30 días_
                 esPresupuestoTrabajoExtra: true
               }, empresaId)
                 .then(() => {
-                  showNotification('✅ Trabajo extra aprobado exitosamente', 'success');
+                  showNotification('âœ… Trabajo extra aprobado exitosamente', 'success');
                   cargarTrabajosExtra(obraParaTrabajosExtra);
                   setTrabajoExtraSeleccionado(null);
                 })
                 .catch(error => {
-                  showNotification('❌ Error al aprobar: ' + error.message, 'error');
+                  showNotification('âŒ Error al aprobar: ' + error.message, 'error');
                 });
             } else {
               showNotification('El trabajo extra debe estar en estado ENVIADO o A_ENVIAR para aprobarlo', 'warning');
@@ -2741,7 +2767,7 @@ _Válido por 30 días_
     // Cleanup cuando salimos de trabajos extra
     return () => {
       if (activeTab === 'trabajos-extra' && setObrasControls) {
-        console.log('🧹 Limpiando controles de trabajos extra');
+        console.log('ðŸ§¹ Limpiando controles de trabajos extra');
         setObrasControls(null);
       }
     };
@@ -2757,7 +2783,7 @@ _Válido por 30 días_
       });
 
       setObrasControls({
-        handleNuevo: () => dispatch(setActiveTab('crear')),
+        handleNuevo: () => abrirModalTrabajoDiario(),
         handleVolver: () => {
           dispatch(setActiveTab('lista'));
         },
@@ -2842,7 +2868,7 @@ _Válido por 30 días_
     cargarPresupuestos();
   }, [obrasIds, empresaId]);
 
-  // 🔄 Cargar contadores automáticamente para todas las obras visibles (OPTIMIZADO)
+  // ðŸ”„ Cargar contadores automáticamente para todas las obras visibles (OPTIMIZADO)
   const contadoresCargadosRef = React.useRef(new Set());
 
   useEffect(() => {
@@ -2854,7 +2880,7 @@ _Válido por 30 días_
 
       if (obrasPendientes.length === 0) return;
 
-      // console.log('🔄 Cargando contadores para', obrasPendientes.length, 'obras nuevas');
+      // console.log('ðŸ”„ Cargando contadores para', obrasPendientes.length, 'obras nuevas');
 
       // Cargar contadores en paralelo (limitado a 5 simultáneas)
       const batchSize = 5;
@@ -2868,7 +2894,7 @@ _Válido por 30 días_
         );
       }
 
-      console.log('✅ Contadores cargados');
+      console.log('âœ… Contadores cargados');
     };
 
     cargarContadoresAutomaticamente();
@@ -2900,7 +2926,7 @@ _Válido por 30 días_
     }
 
     // Asignar el presupuesto
-    // 🔒 NO actualizar presupuesto para trabajos extra - mantener presupuesto precargado
+    // ðŸ”’ NO actualizar presupuesto para trabajos extra - mantener presupuesto precargado
     if (!obraParaEtapasDiarias._esTrabajoExtra) {
       presupuestoAsignadoRef.current.add(presupuestoKey);
       setObraParaEtapasDiarias(prev => ({
@@ -2908,7 +2934,7 @@ _Válido por 30 días_
         presupuestoNoCliente: presupuestoActualizado
       }));
     } else {
-      console.log('🔒 [useEffect presupuestosObras] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA');
+      console.log('ðŸ”’ [useEffect presupuestosObras] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA');
     }
   }, [presupuestosObras, obraParaEtapasDiarias?.id]);
 
@@ -2971,13 +2997,13 @@ _Válido por 30 días_
   // Función para actualizar obra completa (incluye profesionales)
   const handleActualizarObraCompleta = async () => {
     console.log(' handleActualizarObraCompleta INICIADO');
-    console.log('📋 Obra a actualizar:', obraEditando);
-    console.log('📝 Datos del formulario:', formData);
+    console.log('ðŸ“‹ Obra a actualizar:', obraEditando);
+    console.log('ðŸ“Â Datos del formulario:', formData);
 
     try {
       // Validar campos obligatorios
       if (!formData.direccionObraCalle || !formData.direccionObraAltura) {
-        console.log(' VALIDACIÓN FALLIDA: Faltan calle o altura');
+        console.log(' VALIDACIÃ“N FALLIDA: Faltan calle o altura');
         showNotification(' Los campos Calle y Altura son obligatorios', 'error');
         return;
       }
@@ -2989,8 +3015,8 @@ _Válido por 30 días_
         (estadoAnterior === 'SUSPENDIDA' || estadoAnterior === 'CANCELADO') &&
         estadoNuevo !== estadoAnterior;
 
-      // 🔍 DEBUG: Valores de variables de estado ANTES de construir payload
-      console.log('🔍 DEBUG ESTADO DESGLOSE:');
+      // ðŸ” DEBUG: Valores de variables de estado ANTES de construir payload
+      console.log('ðŸ” DEBUG ESTADO DESGLOSE:');
       console.log('  usarDesgloseObra:', usarDesgloseObra);
       console.log('  importeJornalesObra:', importeJornalesObra);
       console.log('  importeMaterialesObra:', importeMaterialesObra);
@@ -3007,7 +3033,7 @@ _Válido por 30 días_
         presupuestoEstimado: formData.presupuestoEstimado ? parseFloat(formData.presupuestoEstimado) : null,
         descripcion: formData.descripcion || null,
         observaciones: formData.observaciones || null,
-        // ⚠️ MAPEO CORRECTO SEGÚN ESPECIFICACIÓN BACKEND
+        //  MAPEO CORRECTO SEGÃšN ESPECIFICACIÃ“N BACKEND
         // Desglose de presupuesto - importes base (4 categorías)
         presupuestoJornales: usarDesgloseObra ? (parseFloat(importeJornalesObra) || null) : null,
         presupuestoMateriales: usarDesgloseObra ? (parseFloat(importeMaterialesObra) || null) : null,
@@ -3059,8 +3085,8 @@ _Válido por 30 días_
         empresaId: formData.empresaId || empresaId || 1
       };
 
-      // 📦 DEBUG: Payload final a enviar
-      console.log('📦 PAYLOAD FINAL A ENVIAR:', JSON.stringify(obraData, null, 2));
+      // ðŸ“¦ DEBUG: Payload final a enviar
+      console.log('ðŸ“¦ PAYLOAD FINAL A ENVIAR:', JSON.stringify(obraData, null, 2));
       window.PAYLOAD_OBRA_UPDATE = obraData; // Para debugging en consola
 
 
@@ -3070,7 +3096,7 @@ _Válido por 30 días_
       // Si salimos de SUSPENDIDA o CANCELADO, actualizar presupuesto a BORRADOR
       if (saliendoDeSuspensionOCancelacion) {
         try {
-          console.log(`🔄 Obra sale de ${estadoAnterior} → ${estadoNuevo}. Actualizando presupuesto a BORRADOR...`);
+          console.log(`ðŸ”„ Obra sale de ${estadoAnterior} â†’ ${estadoNuevo}. Actualizando presupuesto a BORRADOR...`);
 
           // Buscar el presupuesto vinculado a esta obra
           const presupuesto = presupuestosObras[obraEditando.id];
@@ -3088,13 +3114,13 @@ _Válido por 30 días_
               [obraEditando.id]: presupuestoActualizado
             }));
 
-            console.log('✅ Presupuesto actualizado a BORRADOR');
+            console.log('âœ… Presupuesto actualizado a BORRADOR');
           } else {
-            console.warn('⚠️ No se encontró presupuesto vinculado para actualizar');
+            console.warn(' No se encontró presupuesto vinculado para actualizar');
           }
         } catch (error) {
-          console.error('❌ Error actualizando presupuesto a BORRADOR:', error);
-          showNotification('⚠️ Obra actualizada pero hubo un problema al actualizar el presupuesto', 'warning');
+          console.error('âŒ Error actualizando presupuesto a BORRADOR:', error);
+          showNotification(' Obra actualizada pero hubo un problema al actualizar el presupuesto', 'warning');
         }
       }
 
@@ -3175,29 +3201,29 @@ _Válido por 30 días_
   };
 
   const handleCrearObra = async () => {
-    console.log('🔵 handleCrearObra LLAMADO');
-    console.log('🔵 modoEdicion:', modoEdicion);
-    console.log('🔵 obraEditando:', obraEditando);
+    console.log('ðŸ”µ handleCrearObra LLAMADO');
+    console.log('ðŸ”µ modoEdicion:', modoEdicion);
+    console.log('ðŸ”µ obraEditando:', obraEditando);
 
     // Si estamos en modo edición, usar la función de actualización
     if (modoEdicion && obraEditando) {
-      console.log('✅ Entrando en modo actualización');
+      console.log('âœ… Entrando en modo actualización');
       await handleActualizarObraCompleta();
       return;
     }
 
-    console.log('✅ Entrando en modo creación');
-    // Modo CREACIÓN (código original)
+    console.log('âœ… Entrando en modo creación');
+    // Modo CREACIÃ“N (código original)
 
     try {
       // Validar campos obligatorios
       if (!formData.direccionObraCalle || !formData.direccionObraAltura) {
-        console.log(' VALIDACIÓN FALLIDA: Faltan calle o altura');
+        console.log(' VALIDACIÃ“N FALLIDA: Faltan calle o altura');
         showNotification(' Los campos Calle y Altura son obligatorios', 'error');
         return;
       }
 
-      // 🔍 Verificar si hay profesionales temporales (adhoc) que no se guardarán
+      // ðŸ” Verificar si hay profesionales temporales (adhoc) que no se guardarán
       const profesionalesAdhoc = profesionalesAsignadosForm.filter(prof =>
         typeof prof.id === 'string' && prof.id.startsWith('adhoc_')
       );
@@ -3205,9 +3231,9 @@ _Válido por 30 días_
       if (profesionalesAdhoc.length > 0) {
         const nombresAdhoc = profesionalesAdhoc.map(p => p.nombre).join(', ');
         const confirmar = window.confirm(
-          `⚠️ Hay ${profesionalesAdhoc.length} profesional(es) temporal(es) que NO se guardarán con la obra:\n\n${nombresAdhoc}\n\n` +
+          ` Hay ${profesionalesAdhoc.length} profesional(es) temporal(es) que NO se guardarán con la obra:\n\n${nombresAdhoc}\n\n` +
           `Para incluirlos, debes marcar "Guardar en catálogo permanente" al agregarlos.\n\n` +
-          `¿Deseas continuar creando la obra SIN estos profesionales?`
+          `Â¿Deseas continuar creando la obra SIN estos profesionales?`
         );
 
         if (!confirmar) {
@@ -3222,7 +3248,7 @@ _Válido por 30 días_
       if (!formData.idCliente && !nombreSolicitanteFinal) {
         // Generar nombre de cliente automáticamente desde la dirección de la obra
         nombreSolicitanteFinal = `Cliente - ${formData.direccionObraCalle} ${formData.direccionObraAltura}`.trim();
-        console.log(' €¢ Cliente genérico creado:', nombreSolicitanteFinal);
+        console.log('Â â‚¬Â¢ Cliente genérico creado:', nombreSolicitanteFinal);
       }
 
       // Preparar datos según especificación del backend
@@ -3235,7 +3261,7 @@ _Válido por 30 días_
         presupuestoEstimado: formData.presupuestoEstimado ? parseFloat(formData.presupuestoEstimado) : null,
         descripcion: formData.descripcion || null,
         observaciones: formData.observaciones || null,
-        // ⚠️ MAPEO CORRECTO SEGÚN ESPECIFICACIÓN BACKEND
+        //  MAPEO CORRECTO SEGÃšN ESPECIFICACIÃ“N BACKEND
         // Desglose de presupuesto - importes base (4 categorías)
         presupuestoJornales: usarDesgloseObra ? (parseFloat(importeJornalesObra) || null) : null,
         presupuestoMateriales: usarDesgloseObra ? (parseFloat(importeMaterialesObra) || null) : null,
@@ -3293,7 +3319,7 @@ _Válido por 30 días_
         empresaId: formData.empresaId || empresaId || 1,
 
         // Profesionales asignados (formato específico del backend)
-        // 🚫 Filtrar profesionales adhoc (temporales) - solo enviar los guardados en BD
+        // ðŸš« Filtrar profesionales adhoc (temporales) - solo enviar los guardados en BD
         profesionalesAsignadosForm: profesionalesAsignadosForm
           .filter(prof => {
             const esAdhoc = typeof prof.id === 'string' && prof.id.startsWith('adhoc_');
@@ -3308,9 +3334,9 @@ _Válido por 30 días_
           }))
       };
 
-      console.log('�🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
-      console.log('📤 PAYLOAD COMPLETO A ENVIAR AL BACKEND:');
-      console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
+      console.log('ï¿½ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢');
+      console.log('ðŸ“¤ PAYLOAD COMPLETO A ENVIAR AL BACKEND:');
+      console.log('ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢ðŸŸ¢');
       console.log(JSON.stringify(obraData, null, 2));
       console.log('========================================');
 
@@ -3437,17 +3463,17 @@ _Válido por 30 días_
             }));
 
             // Si hay etapas diarias abiertas, recargarlas
-            // 🔒 NO actualizar presupuesto para trabajos extra - mantener presupuesto precargado
+            // ðŸ”’ NO actualizar presupuesto para trabajos extra - mantener presupuesto precargado
             if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === id && !obraParaEtapasDiarias._esTrabajoExtra) {
               const obraActualizada = { ...obraParaEtapasDiarias, presupuestoNoCliente: presupuestoActualizado };
               setObraParaEtapasDiarias(obraActualizada);
             } else if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === id && obraParaEtapasDiarias._esTrabajoExtra) {
-              console.log('🔒 [handleModificarFechaInicio] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA');
+              console.log('ðŸ”’ [handleModificarFechaInicio] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA');
             }
 
             console.log(' Presupuesto actualizado con nueva fecha de inicio');
           } catch (error) {
-            console.warn(' ⚠️ No se pudo actualizar la fecha del presupuesto:', error);
+            console.warn('Â Â No se pudo actualizar la fecha del presupuesto:', error);
           }
         }
       }
@@ -3461,8 +3487,8 @@ _Válido por 30 días_
 
   const handleEliminarObra = async (id) => {
     const obra = obras.find(o => o.id === id);
-    const confirmMessage = `¿está seguro de eliminar la obra "${obra?.nombre || id}"?\n\n` +
-      ` ⚠️ ADVERTENCIA: Se eliminarán en cascada:\n` +
+    const confirmMessage = `Â¿está seguro de eliminar la obra "${obra?.nombre || id}"?\n\n` +
+      `Â Â ADVERTENCIA: Se eliminarán en cascada:\n` +
       ` Todos los profesionales asignados\n` +
       ` Todos los presupuestos asociados\n` +
       ` Todos los cobros registrados\n` +
@@ -3614,24 +3640,272 @@ _Válido por 30 días_
     }
   };
 
+  // ==================== FUNCIONES MODALES PRESUPUESTO UNIFICADO ====================
+
+  /**
+   * Cerrar modal de presupuesto unificado
+   */
+  const cerrarModalPresupuesto = () => {
+    setModalPresupuesto({
+      mostrar: false,
+      tipo: null,
+      contexto: {},
+      datosIniciales: null
+    });
+    setTrabajoAdicionalEditar(null);
+    // Limpiar profesionales seleccionados
+    setProfesionalesSeleccionados([]);
+    setProfesionalesAdhoc([]);
+  };
+
+  /**
+   * Abrir modal para Obra Principal (TRADICIONAL)
+   */
+  const abrirModalObraPrincipal = () => {
+    setModalPresupuesto({
+      mostrar: true,
+      tipo: TIPOS_PRESUPUESTO.TRADICIONAL,
+      contexto: {},
+      datosIniciales: null
+    });
+  };
+
+  /**
+   * Abrir modal para Trabajo Diario - Nuevo Cliente (TRABAJO_DIARIO)
+   */
+  const abrirModalTrabajoDiario = () => {
+    setMostrarModalTrabajoDiario(true);
+  };
+
+  /**
+   * Guardar trabajo diario (obra independiente sin presupuesto previo)
+   */
+  const handleGuardadoTrabajoDiario = async (datosPresupuesto) => {
+    try {
+      console.log('💾 Guardando trabajo diario:', datosPresupuesto);
+
+      const presupuestoData = {
+        ...datosPresupuesto,
+        esPresupuestoTrabajoExtra: false, // No es trabajo extra
+        idEmpresa: empresaSeleccionada?.id || datosPresupuesto.idEmpresa
+      };
+
+      console.log('📤 Creando nuevo trabajo diario');
+      const response = await api.presupuestosNoCliente.create(presupuestoData, empresaSeleccionada.id);
+      console.log('✅ Trabajo diario creado:', response);
+      showNotification('✅ Trabajo diario creado exitosamente', 'success');
+
+      // Cerrar modal
+      setMostrarModalTrabajoDiario(false);
+
+      // Recargar obras
+      await dispatch(fetchObrasPorEmpresa(empresaId));
+      cargarObrasSegunFiltro();
+
+      // 🗂️ AUTO-GENERAR OBRA SI EL PRESUPUESTO ESTÁ APROBADO
+      if (presupuestoData.estado === 'APROBADO') {
+        console.log('🗂️ Presupuesto APROBADO detectado - Generando obra automáticamente...');
+        try {
+          const presupuestoId = response?.data?.id || response?.id;
+
+          const obraData = {
+            nombre: presupuestoData.nombreObra || presupuestoData.nombreObraManual || `Trabajo Diario #${presupuestoId}`,
+            direccion: presupuestoData.direccionObraCalle || 'Dirección no especificada',
+            direccionObraCalle: presupuestoData.direccionObraCalle || '',
+            direccionObraAltura: presupuestoData.direccionObraAltura || '',
+            direccionObraBarrio: presupuestoData.direccionObraBarrio || '',
+            direccionObraLocalidad: presupuestoData.direccionObraLocalidad || '',
+            direccionObraProvincia: presupuestoData.direccionObraProvincia || '',
+            direccionObraCodigoPostal: presupuestoData.direccionObraCodigoPostal || '',
+            idEmpresa: empresaId,
+            clienteId: presupuestoData.clienteId,
+            estado: 'APROBADO',
+            nombreSolicitante: presupuestoData.nombreSolicitante || '',
+            telefono: presupuestoData.telefono || '',
+            mail: presupuestoData.mail || '',
+            presupuestoOriginalId: presupuestoId,
+            observaciones: `Obra generada automáticamente desde trabajo diario aprobado #${presupuestoId}.\n${presupuestoData.observaciones || ''}`
+          };
+
+          await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
+          console.log('✅ Obra creada automáticamente');
+          showNotification('✅ Presupuesto aprobado y obra creada automáticamente', 'success');
+          await dispatch(fetchObrasPorEmpresa(empresaId));
+        } catch (errorObra) {
+          console.error('❌ Error al crear obra automáticamente:', errorObra);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error al guardar trabajo diario:', error);
+      showNotification('❌ Error al guardar trabajo diario: ' + (error.message || 'Error desconocido'), 'error');
+    }
+  };
+
+  /**
+   * Abrir modal para Adicional Obra (TRABAJO_EXTRA)
+   * @param {Object} obra - Obra padre
+   */
+  const abrirModalAdicionalObra = (obra) => {
+    setModalPresupuesto({
+      mostrar: true,
+      tipo: TIPOS_PRESUPUESTO.TRABAJO_EXTRA,
+      contexto: {
+        obraId: obra.id,
+        obraNombre: obra.nombre || obra.nombreObra
+      },
+      datosIniciales: null
+    });
+  };
+
+  /**
+   * Abrir modal para Tarea Leve con PresupuestoNoClienteModal (directo)
+   * @param {Object} obra - Obra padre
+   */
+  const abrirModalTareaLeveDirecto = (obra) => {
+    console.log('🟢 Abriendo modal Tarea Leve (PresupuestoNoClienteModal) para obra:', obra);
+    setObraParaTareaLeve(obra);
+    setMostrarModalTareaLeve(true);
+  };
+
+  /**
+   * Guardar tarea leve (desde PresupuestoNoClienteModal)
+   */
+  const handleGuardadoTareaLeve = async (datosPresupuesto) => {
+    try {
+      console.log('💾 Guardando tarea leve:', datosPresupuesto);
+
+      const presupuestoData = {
+        ...datosPresupuesto,
+        esPresupuestoTrabajoExtra: false,
+        obraId: obraParaTareaLeve?.id,
+        idObra: obraParaTareaLeve?.id,
+        idEmpresa: empresaSeleccionada?.id || datosPresupuesto.idEmpresa
+      };
+
+      console.log('📤 Creando nueva tarea leve');
+      const response = await api.presupuestosNoCliente.create(presupuestoData, empresaSeleccionada.id);
+      console.log('✅ Tarea leve creada:', response);
+      showNotification('✅ Tarea leve creada exitosamente', 'success');
+
+      // Cerrar modal
+      setMostrarModalTareaLeve(false);
+      setObraParaTareaLeve(null);
+
+      // Recargar obras y trabajos adicionales
+      await dispatch(fetchObrasPorEmpresa(empresaId));
+      cargarObrasSegunFiltro();
+
+      // Recargar lista de trabajos adicionales si está abierta
+      if (obraParaTrabajosAdicionales) {
+        await cargarTrabajosAdicionales(obraParaTrabajosAdicionales.id);
+      }
+    } catch (error) {
+      console.error('❌ Error al guardar tarea leve:', error);
+      showNotification('❌ Error al guardar tarea leve: ' + (error.message || 'Error desconocido'), 'error');
+    }
+  };
+
+  /**
+   * Abrir modal para Tarea Leve HIJA (de obra principal)
+   * @param {Object} obra - Obra padre
+   */
+  const abrirModalTareaLeveHija = (obra) => {
+    console.log('ðŸŸ¢ Abriendo modal Tarea Leve HIJA para obra:', obra);
+    setObraParaTrabajosAdicionales(obra);
+    setModalPresupuesto({
+      mostrar: true,
+      tipo: TIPOS_PRESUPUESTO.TAREA_LEVE,
+      contexto: {
+        obraId: obra.id,
+        obraNombre: obra.nombre || obra.nombreObra,
+        trabajoExtraId: null // â† NULL = HIJA directa
+      },
+      datosIniciales: null
+    });
+  };
+
+  /**
+   * Abrir modal para Tarea Leve NIETA (de trabajo extra)
+   * @param {Object} obra - Obra abuelo
+   * @param {Object} trabajoExtra - Trabajo extra padre
+   */
+  const abrirModalTareaLeveNieta = (obra, trabajoExtra) => {
+    console.log('ðŸŸ¢ Abriendo modal Tarea Leve NIETA para trabajo extra:', trabajoExtra);
+    setObraParaTrabajosAdicionales({
+      ...obra,
+      _esTrabajoExtra: true,
+      _trabajoExtraId: trabajoExtra.id,
+      _trabajoExtraNombre: trabajoExtra.nombre || trabajoExtra.nombreObra
+    });
+    setModalPresupuesto({
+      mostrar: true,
+      tipo: TIPOS_PRESUPUESTO.TAREA_LEVE,
+      contexto: {
+        obraId: obra.id,
+        obraNombre: obra.nombre || obra.nombreObra,
+        trabajoExtraId: trabajoExtra.id, // â† Padre directo
+        trabajoExtraNombre: trabajoExtra.nombre || trabajoExtra.nombreObra
+      },
+      datosIniciales: null
+    });
+  };
+
+  /**
+   * Guardar presupuesto (crear o actualizar)
+   * Handler unificado para todos los tipos de presupuesto
+   */
+  const handleGuardarPresupuesto = async (datos) => {
+    try {
+      console.log('ðŸ’¾ Guardando presupuesto:', datos);
+
+      const config = getConfigPresupuesto(datos.tipoPresupuesto);
+      showNotification(`Guardando ${config.label}...`, 'info');
+
+      // Usar servicio unificado
+      const resultado = await presupuestoService.crearPresupuesto(
+        datos,
+        empresaId
+      );
+
+      console.log('âœ… Presupuesto creado:', resultado);
+
+      // Recargar listas
+      await loadObras();
+      await cargarTrabajosAdicionales();
+
+      // Notificación de éxito
+      showNotification(
+        `âœ… ${config.label} creado correctamente`,
+        'success'
+      );
+
+      return resultado;
+    } catch (error) {
+      console.error('âŒ Error al crear presupuesto:', error);
+      const mensaje = error.response?.data?.message || error.message || 'Error desconocido';
+      showNotification(`Error al guardar: ${mensaje}`, 'error');
+      throw error;
+    }
+  };
+
   // ==================== FUNCIONES TRABAJOS EXTRA ====================
 
   /**
-   * 🔑 Normaliza datos de trabajo extra desde BD
-   * Mapea obra_id → obraId para consistencia del frontend
+   * ðŸ”‘ Normaliza datos de trabajo extra desde BD
+   * Mapea obra_id â†’ obraId para consistencia del frontend
    */
   const normalizarTrabajoExtra = (trabajo) => {
     if (!trabajo) return null;
     return {
       ...trabajo,
-      // 🔑 Asegurar que tenga obraId mapeado desde obra_id si viene de BD
+      // ðŸ”‘ Asegurar que tenga obraId mapeado desde obra_id si viene de BD
       obraId: trabajo.obraId ?? trabajo.obra_id ?? null,
       idObra: trabajo.idObra ?? trabajo.obra_id ?? null
     };
   };
 
   /**
-   * 🔑 Extrae profesionales, materiales y gastos de itemsCalculadora[]
+   * ðŸ”‘ Extrae profesionales, materiales y gastos de itemsCalculadora[]
    * Para trabajos extra, estos datos están en el JSON, NO en tablas relacionales
    */
   const extraerDatosDeItemsCalculadora = (trabajo) => {
@@ -3640,11 +3914,11 @@ _Válido por 30 días_
     const gastosGenerales = [];
 
     if (!trabajo.itemsCalculadora || !Array.isArray(trabajo.itemsCalculadora)) {
-      console.log(`  📋 Trabajo ${trabajo.id}: No tiene itemsCalculadora`);
+      console.log(`  ðŸ“‹ Trabajo ${trabajo.id}: No tiene itemsCalculadora`);
       return { profesionales, materiales, gastosGenerales };
     }
 
-    console.log(`  📋 Trabajo ${trabajo.id}: Procesando ${trabajo.itemsCalculadora.length} items de calculadora`);
+    console.log(`  ðŸ“‹ Trabajo ${trabajo.id}: Procesando ${trabajo.itemsCalculadora.length} items de calculadora`);
 
     trabajo.itemsCalculadora.forEach((item, idx) => {
       // Extraer profesionales del item
@@ -3699,36 +3973,36 @@ _Válido por 30 días_
       }
     });
 
-    console.log(`  ✅ Trabajo ${trabajo.id}: Extraídos ${profesionales.length} profesionales, ${materiales.length} materiales, ${gastosGenerales.length} gastos`);
+    console.log(`  âœ… Trabajo ${trabajo.id}: Extraídos ${profesionales.length} profesionales, ${materiales.length} materiales, ${gastosGenerales.length} gastos`);
 
     return { profesionales, materiales, gastosGenerales };
   };
 
   const cargarTrabajosExtra = async (obra) => {
     if (!obra) {
-      console.warn('⚠️ No hay obra para cargar trabajos extra');
+      console.warn(' No hay obra para cargar trabajos extra');
       return;
     }
 
     try {
       setLoadingTrabajosExtra(true);
-      // 🔧 Usar _obraOriginalId si estamos dentro de un trabajo extra, sino usar id directamente
+      // ðŸ”§ Usar _obraOriginalId si estamos dentro de un trabajo extra, sino usar id directamente
       const obraIdParaAPI = obra._obraOriginalId || obra.id;
       const data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId: obraIdParaAPI, esPresupuestoTrabajoExtra: true });
 
-      // 🔧 FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+      // ðŸ”§ FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
       const soloTrabajosExtra = (Array.isArray(data) ? data : []).filter(p =>
         p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
       );
 
-      // 🔑 Normalizar datos para asegurar que tienen obraId
+      // ðŸ”‘ Normalizar datos para asegurar que tienen obraId
       const dataNormalizada = soloTrabajosExtra.map(normalizarTrabajoExtra);
 
-      // ✅ EXTRAER DATOS DE ITEMSCALCULADORA para trabajos extra
+      // âœ… EXTRAER DATOS DE ITEMSCALCULADORA para trabajos extra
       // Los trabajos extra NO usan tablas relacionales, todo está en itemsCalculadora[]
       const trabajosEnriquecidos = await Promise.all(dataNormalizada.map(async (trabajo) => {
         try {
-          // 🔑 EXTRAER profesionales, materiales y gastos de itemsCalculadora[]
+          // ðŸ”‘ EXTRAER profesionales, materiales y gastos de itemsCalculadora[]
           const { profesionales: profesionalesReales, materiales: materialesReales, gastosGenerales: gastosReales } =
             extraerDatosDeItemsCalculadora(trabajo);
 
@@ -3744,7 +4018,7 @@ _Válido por 30 días_
             dias: trabajo.dias || []
           };
         } catch (error) {
-          console.error(`❌ Error procesando trabajo extra ${trabajo.id}:`, error);
+          console.error(`âŒ Error procesando trabajo extra ${trabajo.id}:`, error);
           // En caso de error, devolver el trabajo sin asignaciones
           return {
             ...trabajo,
@@ -3757,7 +4031,7 @@ _Válido por 30 días_
         }
       }));
 
-      // 🔧 FILTRAR: Si estamos dentro de un trabajo extra gestionando sus sub-trabajos extra,
+      // ðŸ”§ FILTRAR: Si estamos dentro de un trabajo extra gestionando sus sub-trabajos extra,
       // excluir el trabajo extra actual de la lista para evitar que aparezca a sí mismo
       let trabajosFiltrados = trabajosEnriquecidos;
 
@@ -3784,7 +4058,7 @@ _Válido por 30 días_
 
       // Verificar si es un error 404 (endpoint no implementado)
       if (error.status === 404 || error.response?.status === 404 || error.message?.includes('404')) {
-        showNotification(' ⚠️ El módulo de Trabajos Extra aún no está disponible en el backend', 'warning');
+        showNotification('Â Â El módulo de Trabajos Extra aún no está disponible en el backend', 'warning');
       } else {
         const errorMsg = error.response?.data?.message || error.message || 'Error desconocido';
         showNotification('Error al cargar trabajos extra: ' + errorMsg, 'error');
@@ -3803,8 +4077,8 @@ _Válido por 30 días_
   };
 
   const handleEditarTrabajoExtra = (trabajo) => {
-    console.log('🔍 Trabajo extra a editar:', trabajo);
-    console.log('📅 Fechas en trabajo:', {
+    console.log('ðŸ” Trabajo extra a editar:', trabajo);
+    console.log('ðŸ“… Fechas en trabajo:', {
       createdAt: trabajo.createdAt,
       updatedAt: trabajo.updatedAt,
       fechaProbableInicio: trabajo.fechaProbableInicio,
@@ -3815,7 +4089,7 @@ _Válido por 30 días_
   };
 
   const handleEliminarTrabajoExtra = async (trabajoId) => {
-    if (!window.confirm('¿Está seguro de eliminar este trabajo extra?')) {
+    if (!window.confirm('Â¿Está seguro de eliminar este trabajo extra?')) {
       return;
     }
 
@@ -3827,7 +4101,7 @@ _Válido por 30 días_
       console.error('Error eliminando trabajo extra:', error);
 
       if (error.status === 404 || error.response?.status === 404 || error.message?.includes('404')) {
-        showNotification(' ⚠️ El módulo de Trabajos Extra aún no está disponible en el backend', 'warning');
+        showNotification('Â Â El módulo de Trabajos Extra aún no está disponible en el backend', 'warning');
       } else {
         showNotification('Error al eliminar el trabajo extra: ' + (error.message || 'Error desconocido'), 'error');
       }
@@ -3836,14 +4110,14 @@ _Válido por 30 días_
 
   const handleGuardadoTrabajoExtra = async (datosPresupuesto) => {
     try {
-      console.log('💾 Guardando trabajo extra como presupuestoNoCliente:', datosPresupuesto);
-      console.log('📝 Trabajo extra en edición:', trabajoExtraEditar);
+      console.log('ðŸ’¾ Guardando trabajo extra como presupuestoNoCliente:', datosPresupuesto);
+      console.log('ðŸ“ Trabajo extra en edición:', trabajoExtraEditar);
 
-      // ✅ USAR EL FORMATO DE PRESUPUESTO NO CLIENTE (el modal ya lo prepara correctamente)
+      // âœ… USAR EL FORMATO DE PRESUPUESTO NO CLIENTE (el modal ya lo prepara correctamente)
       // El modal PresupuestoNoClienteModal ya envía los datos en el formato correcto
       const presupuestoData = {
         ...datosPresupuesto,
-        // 🔧 CRÍTICO: Marcar como trabajo extra
+        // ðŸ”§ CRÃTICO: Marcar como trabajo extra
         esPresupuestoTrabajoExtra: true,
         // Asegurar que tenga obraId
         obraId: obraParaTrabajosExtra?.id || datosPresupuesto.obraId,
@@ -3852,58 +4126,58 @@ _Válido por 30 días_
         idEmpresa: empresaSeleccionada?.id || datosPresupuesto.idEmpresa
       };
 
-      console.log('🔗 ObraId vinculada al trabajo extra:', presupuestoData.obraId, '(Obra:', obraParaTrabajosExtra?.nombre || 'sin nombre', ')');
-      console.log('📦 Datos para presupuesto no cliente (trabajo extra):', presupuestoData);
+      console.log('ðŸ”— ObraId vinculada al trabajo extra:', presupuestoData.obraId, '(Obra:', obraParaTrabajosExtra?.nombre || 'sin nombre', ')');
+      console.log('ðŸ“¦ Datos para presupuesto no cliente (trabajo extra):', presupuestoData);
 
       let response;
 
       // Detectar si es edición o creación
       if (trabajoExtraEditar && trabajoExtraEditar.id) {
         // EDITAR presupuesto existente (trabajo extra)
-        console.log('✏️ Editando presupuesto trabajo extra ID:', trabajoExtraEditar.id);
-        console.log('🔑 Empresa seleccionada ID:', empresaSeleccionada.id);
+        console.log('âœï¸ Editando presupuesto trabajo extra ID:', trabajoExtraEditar.id);
+        console.log('ðŸ”‘ Empresa seleccionada ID:', empresaSeleccionada.id);
 
-        // 🔥 SOLUCIÓN CRÍTICA: Obtener presupuesto completo del backend primero
-        console.log('📥 Obteniendo presupuesto completo del backend...');
+        // ðŸ”¥ SOLUCIÃ“N CRÃTICA: Obtener presupuesto completo del backend primero
+        console.log('ðŸ“¥ Obteniendo presupuesto completo del backend...');
         const presupuestoCompleto = await api.presupuestosNoCliente.getById(
           trabajoExtraEditar.id,
           empresaSeleccionada.id
         );
-        console.log('✅ Presupuesto completo obtenido');
+        console.log('âœ… Presupuesto completo obtenido');
 
         // Hacer merge: todos los campos + cambios del usuario
         const presupuestoFinal = {
-          ...presupuestoCompleto,  // ← Todos los campos del backend
-          ...presupuestoData,      // ← Cambios del usuario
-          id: trabajoExtraEditar.id // ← Asegurar ID
+          ...presupuestoCompleto,  // â† Todos los campos del backend
+          ...presupuestoData,      // â† Cambios del usuario
+          id: trabajoExtraEditar.id // â† Asegurar ID
         };
 
-        console.log('📤 Enviando PUT a /api/v1/presupuestos-no-cliente/' + trabajoExtraEditar.id);
+        console.log('ðŸ“¤ Enviando PUT a /api/v1/presupuestos-no-cliente/' + trabajoExtraEditar.id);
         response = await api.presupuestosNoCliente.update(
           trabajoExtraEditar.id,
           presupuestoFinal,
           empresaSeleccionada.id
         );
-        console.log('✅ Presupuesto trabajo extra actualizado:', response);
+        console.log('âœ… Presupuesto trabajo extra actualizado:', response);
         showNotification('Trabajo extra actualizado exitosamente', 'success');
       } else {
         // CREAR nuevo presupuesto (trabajo extra)
-        console.log('➕ Creando nuevo presupuesto trabajo extra');
-        console.log('📤 Enviando POST a /api/v1/presupuestos-no-cliente');
+        console.log('âž• Creando nuevo presupuesto trabajo extra');
+        console.log('ðŸ“¤ Enviando POST a /api/v1/presupuestos-no-cliente');
 
         response = await api.presupuestosNoCliente.create(presupuestoData, empresaSeleccionada.id);
-        console.log('✅ Presupuesto trabajo extra creado:', response);
+        console.log('âœ… Presupuesto trabajo extra creado:', response);
         showNotification('Trabajo extra creado exitosamente', 'success');
       }
 
       // Recargar los trabajos extra (ahora desde presupuestos-no-cliente con filtro)
-      console.log('🔄 Recargando trabajos extra para obra:', obraParaTrabajosExtra?.id, obraParaTrabajosExtra?.nombre);
+      console.log('ðŸ”„ Recargando trabajos extra para obra:', obraParaTrabajosExtra?.id, obraParaTrabajosExtra?.nombre);
       await cargarTrabajosExtra(obraParaTrabajosExtra);
-      console.log('✅ Trabajos extra recargados correctamente');
+      console.log('âœ… Trabajos extra recargados correctamente');
 
-      // 🏗️ AUTO-GENERAR OBRA SI EL PRESUPUESTO ESTÁ APROBADO
+      // ðŸ—ï¸ AUTO-GENERAR OBRA SI EL PRESUPUESTO ESTÁ APROBADO
       if (presupuestoData.estado === 'APROBADO') {
-        console.log('🏗️ Presupuesto APROBADO detectado - Generando obra automáticamente...');
+        console.log('ðŸ—ï¸ Presupuesto APROBADO detectado - Generando obra automáticamente...');
         try {
           // Obtener el ID del presupuesto guardado
           const presupuestoId = response?.data?.id || response?.id || trabajoExtraEditar?.id;
@@ -3920,7 +4194,7 @@ _Válido por 30 días_
             idEmpresa: empresaId,
             clienteId: presupuestoData.clienteId || obraParaTrabajosExtra?.clienteId,
             estado: 'APROBADO', // Obra en estado aprobado, lista para ejecución
-            esTrabajoExtra: true, // 🔧 Marcar como trabajo extra
+            esTrabajoExtra: true, // ðŸ”§ Marcar como trabajo extra
             obraPadreId: obraParaTrabajosExtra?.id, // Referencia a la obra padre
             nombreSolicitante: presupuestoData.nombreSolicitante || '',
             telefono: presupuestoData.telefono || '',
@@ -3930,19 +4204,19 @@ _Válido por 30 días_
             observaciones: `Obra generada automáticamente desde trabajo extra aprobado #${presupuestoId}.\n${presupuestoData.observaciones || ''}`
           };
 
-          console.log('📤 Creando obra automáticamente:', obraData);
+          console.log('ðŸ“¤ Creando obra automáticamente:', obraData);
           const obraCreada = await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
-          console.log('✅ Obra creada automáticamente:', obraCreada);
+          console.log('âœ… Obra creada automáticamente:', obraCreada);
 
-          showNotification('✅ Presupuesto aprobado y obra creada automáticamente', 'success');
+          showNotification('âœ… Presupuesto aprobado y obra creada automáticamente', 'success');
 
           // Recargar lista de obras principales para mostrar la nueva obra
           await dispatch(fetchObrasPorEmpresa(empresaId));
-          console.log('✅ Lista de obras recargada');
+          console.log('âœ… Lista de obras recargada');
         } catch (errorObra) {
-          console.error('❌ Error al crear obra automáticamente:', errorObra);
+          console.error('âŒ Error al crear obra automáticamente:', errorObra);
           showNotification(
-            '⚠️ Presupuesto guardado pero error al crear obra automáticamente: ' + (errorObra.message || 'Error desconocido'),
+            ' Presupuesto guardado pero error al crear obra automáticamente: ' + (errorObra.message || 'Error desconocido'),
             'warning'
           );
         }
@@ -3954,8 +4228,8 @@ _Válido por 30 días_
 
       return response;
     } catch (error) {
-      console.error('❌ Error al guardar trabajo extra:', error);
-      console.error('❌ Detalles del error:', {
+      console.error('âŒ Error al guardar trabajo extra:', error);
+      console.error('âŒ Detalles del error:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status
@@ -3965,12 +4239,12 @@ _Válido por 30 días_
     }
   };
 
-  // ✅ Función para cambiar estado de trabajo extra
+  // âœ… Función para cambiar estado de trabajo extra
   const handleCambiarEstadoTrabajoExtra = async (trabajo, nuevoEstado) => {
     try {
-      if (!window.confirm(`¿Estás seguro de cambiar el estado a ${nuevoEstado}?`)) return;
+      if (!window.confirm(`Â¿Estás seguro de cambiar el estado a ${nuevoEstado}?`)) return;
 
-      // 🔑 Normalizar el trabajo antes de enviar
+      // ðŸ”‘ Normalizar el trabajo antes de enviar
       const trabajoNormalizado = {
         ...normalizarTrabajoExtra(trabajo),
         estado: nuevoEstado
@@ -3995,10 +4269,10 @@ _Válido por 30 días_
     }
   };
 
-  // ✅ Función para generar obra derivada desde trabajo extra aprobado
+  // âœ… Función para generar obra derivada desde trabajo extra aprobado
   const handleGenerarObraDesdeTrabajoExtra = async (trabajo) => {
     try {
-      if (!window.confirm('¿Desea generar una nueva OBRA a partir de este trabajo extra aprobado?')) return;
+      if (!window.confirm('Â¿Desea generar una nueva OBRA a partir de este trabajo extra aprobado?')) return;
 
       const obraData = {
         nombre: trabajo.nombre || `Trabajo Extra #${trabajo.id} - ${obraParaTrabajosExtra?.nombre || 'Obra Padre'}`,
@@ -4058,7 +4332,7 @@ _Válido por 30 días_
     '2025-04-18', // Viernes Santo
     '2025-05-01', // Día del Trabajador
     '2025-05-25', // Revolución de Mayo
-    '2025-06-16', // Día de Gü¼emes
+    '2025-06-16', // Día de GÃ¼Â¼emes
     '2025-06-20', // Día de la Bandera
     '2025-07-09', // Día de la Independencia
     '2025-08-15', // Paso a la Inmortalidad del Gral. San Martín (puente)
@@ -4076,7 +4350,7 @@ _Válido por 30 días_
     '2026-04-03', // Viernes Santo
     '2026-05-01', // Día del Trabajador
     '2026-05-25', // Revolución de Mayo
-    '2026-06-15', // Día de Gü¼emes (puente)
+    '2026-06-15', // Día de GÃ¼Â¼emes (puente)
     '2026-06-20', // Día de la Bandera
     '2026-07-09', // Día de la Independencia
     '2026-08-17', // Paso a la Inmortalidad del Gral. San Martín
@@ -4144,7 +4418,7 @@ _Válido por 30 días_
 
   // Helper para obtener configuración de obra desde localStorage (sincrónico)
   const obtenerConfiguracionObra = (obraId) => {
-    // ✅ REPARADO: Verificar si la obra está configurada (tiene presupuesto con tiempoEstimadoTerminacion)
+    // âœ… REPARADO: Verificar si la obra está configurada (tiene presupuesto con tiempoEstimadoTerminacion)
     const presupuestoObra = presupuestosObras[obraId];
 
     // Una obra está configurada si tiene presupuesto con tiempoEstimadoTerminacion definido
@@ -4159,7 +4433,7 @@ _Válido por 30 días_
         return JSON.parse(configGuardada);
       }
     } catch (err) {
-      console.warn(`⚠️ Error leyendo configuración de obra ${obraId} desde localStorage:`, err);
+      console.warn(` Error leyendo configuración de obra ${obraId} desde localStorage:`, err);
     }
 
     return null;
@@ -4170,7 +4444,7 @@ _Válido por 30 días_
     try {
       // No cargar configuración para tareas leves
       if (typeof obraId === 'string' && obraId.startsWith('ta_')) {
-        console.log('⏭️ [cargarYSincronizarConfiguracion] Saltando tarea leve:', obraId);
+        console.log('â­ï¸ [cargarYSincronizarConfiguracion] Saltando tarea leve:', obraId);
         return null;
       }
 
@@ -4181,16 +4455,16 @@ _Válido por 30 días_
 
       if (presupuestoObra?.tiempoEstimadoTerminacion) {
         diasHabilesReales = parseInt(presupuestoObra.tiempoEstimadoTerminacion);
-        console.log(`📋 [ObrasPage] Días hábiles desde presupuesto: ${diasHabilesReales}`);
+        console.log(`ðŸ“‹ [ObrasPage] Días hábiles desde presupuesto: ${diasHabilesReales}`);
 
-        // 🔥 Calcular semanas reales considerando feriados si hay fecha de inicio
+        // ðŸ”¥ Calcular semanas reales considerando feriados si hay fecha de inicio
         if (presupuestoObra.fechaProbableInicio && diasHabilesReales > 0) {
           try {
             const fechaInicio = parsearFechaLocal(presupuestoObra.fechaProbableInicio);
             semanasRealesCalculadas = calcularSemanasParaDiasHabiles(fechaInicio, diasHabilesReales);
-            console.log(`📅 [ObrasPage] Semanas reales calculadas con feriados: ${semanasRealesCalculadas}`);
+            console.log(`ðŸ“… [ObrasPage] Semanas reales calculadas con feriados: ${semanasRealesCalculadas}`);
           } catch (error) {
-            console.warn('⚠️ Error calculando semanas con feriados, usando fallback simple');
+            console.warn(' Error calculando semanas con feriados, usando fallback simple');
             semanasRealesCalculadas = convertirDiasHabilesASemanasSimple(diasHabilesReales);
           }
         }
@@ -4205,11 +4479,11 @@ _Válido por 30 días_
       if (asignaciones.length > 0 && asignaciones[0].semanasObjetivo) {
         const semanasObjetivoOriginal = parseInt(asignaciones[0].semanasObjetivo);
 
-        // 🔥 PRIORIDAD:
+        // ðŸ”¥ PRIORIDAD:
         // 1. Días hábiles del presupuesto (fuente de verdad)
         // 2. Semanas calculadas con feriados desde presupuesto
         // 3. Semanas desde BD
-        // 4. Fallback: semanas × 5
+        // 4. Fallback: semanas Ã— 5
         const diasHabiles = diasHabilesReales || (semanasObjetivoOriginal * 5);
         const semanasObjetivo = semanasRealesCalculadas || semanasObjetivoOriginal;
 
@@ -4224,14 +4498,14 @@ _Válido por 30 días_
 
         // Sincronizar con localStorage para uso inmediato
         localStorage.setItem(`configuracionObra_${obraId}`, JSON.stringify(config));
-        console.log(`✅ [ObrasPage] Configuración recuperada desde BD y guardada en localStorage:`, config);
+        console.log(`âœ… [ObrasPage] Configuración recuperada desde BD y guardada en localStorage:`, config);
 
         return config;
       }
 
       return null;
     } catch (err) {
-      console.warn('⚠️ [ObrasPage] No se pudo cargar configuración desde BD:', err);
+      console.warn(' [ObrasPage] No se pudo cargar configuración desde BD:', err);
       return null;
     }
   };
@@ -4296,7 +4570,7 @@ _Válido por 30 días_
 
           } catch (errorObra) {
             // Si una obra falla, continuar con las demás
-            console.warn(`⚠️ Error obteniendo asignaciones para obra ${obra.id}:`, errorObra.message);
+            console.warn(` Error obteniendo asignaciones para obra ${obra.id}:`, errorObra.message);
           }
         });
 
@@ -4313,16 +4587,16 @@ _Válido por 30 días_
           !profesionalesAsignados.has(prof.id)
         );
 
-        console.log(`🔄 Profesionales actualizados: ${todosProfesionales.length} total, ${profesionalesActivos.length} activos, ${profesionalesAsignados.size} asignados, ${profesionalesDisponiblesActualizados.length} disponibles`);
-        console.log(`🔍 IDs de profesionales asignados:`, Array.from(profesionalesAsignados));
-        console.log(`📊 Contador de obras por profesional:`, Object.fromEntries(contadorObrasPorProfesional));
+        console.log(`ðŸ”„ Profesionales actualizados: ${todosProfesionales.length} total, ${profesionalesActivos.length} activos, ${profesionalesAsignados.size} asignados, ${profesionalesDisponiblesActualizados.length} disponibles`);
+        console.log(`ðŸ” IDs de profesionales asignados:`, Array.from(profesionalesAsignados));
+        console.log(`ðŸ“Š Contador de obras por profesional:`, Object.fromEntries(contadorObrasPorProfesional));
 
         setProfesionalesDisponibles(profesionalesDisponiblesActualizados);
 
         // Emitir evento para que otros componentes se actualicen
         // Crear copia profunda para asegurar que React detecte el cambio
         const profesionalesParaEvento = todosProfesionales.map(prof => ({...prof}));
-        console.log(`📡 Emitiendo evento PROFESIONALES_ACTUALIZADOS con ${profesionalesParaEvento.length} profesionales`);
+        console.log(`ðŸ“¡ Emitiendo evento PROFESIONALES_ACTUALIZADOS con ${profesionalesParaEvento.length} profesionales`);
 
         eventBus.emit(FINANCIAL_EVENTS.PROFESIONALES_ACTUALIZADOS, {
           profesionales: profesionalesParaEvento,
@@ -4332,13 +4606,13 @@ _Válido por 30 días_
         });
 
       } catch (errorAsignaciones) {
-        console.warn('⚠️ Error obteniendo asignaciones para filtrar disponibilidad:', errorAsignaciones);
+        console.warn(' Error obteniendo asignaciones para filtrar disponibilidad:', errorAsignaciones);
         // Si falla, mostrar todos los profesionales activos como fallback
         setProfesionalesDisponibles(profesionalesActivos);
       }
 
     } catch (error) {
-      console.error('❌ Error refrescando profesionales disponibles:', error);
+      console.error('âŒ Error refrescando profesionales disponibles:', error);
     } finally {
       setLoadingProfesionales(false);
     }
@@ -4355,28 +4629,28 @@ _Válido por 30 días_
       ? items.reduce((sum, item) => sum + (parseInt(item.cantidadJornales) || 0), 0)
       : 0;
 
-    // ✅ Configuración: SOLO para obras normales (trabajos extra NUNCA usan configuración de obra)
+    // âœ… Configuración: SOLO para obras normales (trabajos extra NUNCA usan configuración de obra)
     const configuracion = obra._esTrabajoExtra
       ? obra.configuracionPlanificacion || null
       : obtenerConfiguracionObra(obra.id);
 
-    // 🔥 PRIORIZAR presupuesto sobre configuración vieja
+    // ðŸ”¥ PRIORIZAR presupuesto sobre configuración vieja
     let totalJornales;
 
     if (obra.presupuestoNoCliente?.tiempoEstimadoTerminacion > 0) {
       totalJornales = parseInt(obra.presupuestoNoCliente.tiempoEstimadoTerminacion);
     } else if (!obra._esTrabajoExtra && configuracion && configuracion.diasHabiles > 0) {
-      // ✅ Solo obras normales pueden usar configuracion.diasHabiles (NUNCA trabajos extra)
+      // âœ… Solo obras normales pueden usar configuracion.diasHabiles (NUNCA trabajos extra)
       totalJornales = parseInt(configuracion.diasHabiles);
     } else {
       totalJornales = jornalesPresupuesto || 0;
     }
 
-    // 🔥 LOG SIMPLE Y CLARO: Exactamente qué se está generando
+    // ðŸ”¥ LOG SIMPLE Y CLARO: Exactamente qué se está generando
     if (obra._esTrabajoExtra) {
-      console.log(`🎯 [generarCalendarioAutomatico TE] Generando TRABAJO EXTRA con ${totalJornales} días hábiles (${Math.ceil(totalJornales / 5)} semanas)`);
+      console.log(`ðŸŽ¯ [generarCalendarioAutomatico TE] Generando TRABAJO EXTRA con ${totalJornales} días hábiles (${Math.ceil(totalJornales / 5)} semanas)`);
     } else {
-      console.log(`🎯 [generarCalendarioAutomatico OBRA] Generando obra con ${totalJornales} días hábiles (${Math.ceil(totalJornales / 5)} semanas)`);
+      console.log(`ðŸŽ¯ [generarCalendarioAutomatico OBRA] Generando obra con ${totalJornales} días hábiles (${Math.ceil(totalJornales / 5)} semanas)`);
     }
 
     // Permitir generación si hay fecha probable de inicio y días hábiles > 0
@@ -4385,7 +4659,7 @@ _Válido por 30 días_
       return [];
     }
 
-    //  €¢ Fecha de inicio: PRIORIDAD a fechaProbableInicio del presupuesto
+    // Â â‚¬Â¢ Fecha de inicio: PRIORIDAD a fechaProbableInicio del presupuesto
     let fechaInicio = new Date();
 
     if (obra.presupuestoNoCliente?.fechaProbableInicio) {
@@ -4484,7 +4758,7 @@ _Válido por 30 días_
         const semanaData = diasPorSemana[clave];
         const lunesDate = semanaData.lunes;
 
-        //  €¢ GENERAR TODOS LOS DÃƒÂAS DE LA SEMANA (lun-vie) para visualización completa
+        // Â â‚¬Â¢ GENERAR TODOS LOS DÃƒÆ’Ã‚ÂAS DE LA SEMANA (lun-vie) para visualización completa
         // PERO solo hasta el último día hábil en la última semana
         const esUltimaSemana = index === clavesOrdenadas.length - 1;
         const ultimoDiaHabil = esUltimaSemana ? diasHabiles[diasHabiles.length - 1].fecha : null;
@@ -4527,7 +4801,7 @@ _Válido por 30 días_
           }
         }
 
-        // Debug desactivado - genera demasiados logs (144 semanas × 5 días = 720+ líneas)
+        // Debug desactivado - genera demasiados logs (144 semanas Ã— 5 días = 720+ líneas)
         // console.log(` Semana ${index + 1}:`, diasCompletos.length, 'días totales');
         // diasCompletos.forEach(d => {
         //   const tipo = d.esFeriado ? ' FERIADO' : (d.estado === 'FIN_DE_SEMANA' ? ' No laborable' : ` Día hábil`);
@@ -4553,11 +4827,11 @@ _Válido por 30 días_
   // Obtener etapas diarias con calendario pre-generado usando useMemo
   const calendarioCompleto = React.useMemo(() => {
     if (!obraParaEtapasDiarias) {
-      console.log(' ⚠️ No hay obra seleccionada para etapas');
+      console.log('Â Â No hay obra seleccionada para etapas');
       return [];
     }
 
-    // 🔥 Si es trabajo extra, FORZAR el uso del presupuesto precargado ORIGINAL
+    // ðŸ”¥ Si es trabajo extra, FORZAR el uso del presupuesto precargado ORIGINAL
     // NUNCA permitir que se lea o se actualice desde presupuestosObras
     let presupuestoFinalSeguro;
 
@@ -4568,7 +4842,7 @@ _Válido por 30 días_
 
       // Log de diagnóstico (sin hardcodes de valores específicos)
       if (!presupuestoFinalSeguro || !presupuestoFinalSeguro.tiempoEstimadoTerminacion) {
-        console.warn('⚠️ ALERTA: Presupuesto de trabajo extra incompleto', presupuestoFinalSeguro);
+        console.warn(' ALERTA: Presupuesto de trabajo extra incompleto', presupuestoFinalSeguro);
       }
     } else {
       // Obra normal: usar del cache si está disponible
@@ -4576,7 +4850,7 @@ _Válido por 30 días_
       presupuestoFinalSeguro = presupuestoFinal;
     }
 
-    console.log(`🎯 [calendarioCompleto] ${obraParaEtapasDiarias._esTrabajoExtra ? 'TRABAJO EXTRA' : 'OBRA'} - Presupuesto final: ${presupuestoFinalSeguro?.tiempoEstimadoTerminacion} días (${Math.ceil((presupuestoFinalSeguro?.tiempoEstimadoTerminacion || 0) / 5)} semanas)`);
+    console.log(`ðŸŽ¯ [calendarioCompleto] ${obraParaEtapasDiarias._esTrabajoExtra ? 'TRABAJO EXTRA' : 'OBRA'} - Presupuesto final: ${presupuestoFinalSeguro?.tiempoEstimadoTerminacion} días (${Math.ceil((presupuestoFinalSeguro?.tiempoEstimadoTerminacion || 0) / 5)} semanas)`);
     const obraConPresupuestoFinal = {
       ...obraParaEtapasDiarias,
       presupuestoNoCliente: presupuestoFinalSeguro
@@ -4630,7 +4904,7 @@ _Válido por 30 días_
     return resultado;
   }, [
     obraParaEtapasDiarias?.id,
-    obraParaEtapasDiarias?._esTrabajoExtra, // 🔥 Detectar cuando es trabajo extra
+    obraParaEtapasDiarias?._esTrabajoExtra, // ðŸ”¥ Detectar cuando es trabajo extra
     obraParaEtapasDiarias?._trabajoExtraId,
     // Para obras normales: escuchar cambios en cache de presupuestos
     obraParaEtapasDiarias?._esTrabajoExtra ? null : presupuestosObras[obraParaEtapasDiarias?.id]?.fechaProbableInicio,
@@ -4663,19 +4937,19 @@ _Válido por 30 días_
       // IMPORTANTE: Cargar el presupuestoNoCliente vinculado a la obra
       let obraCompleta = { ...obra };
 
-      // 🔥 CORRECCIÓN: Usar obraId real en lugar de ID del trabajo extra
+      // ðŸ”¥ CORRECCIÃ“N: Usar obraId real en lugar de ID del trabajo extra
       const obraIdReal = obra._obraOriginalId || obra.obraId || obra.id;
-      console.log('🔍 [cargarEtapasDiarias] obra.id:', obra.id, '| obraIdReal:', obraIdReal, '| esTrabajoExtra:', obra._esTrabajoExtra);
+      console.log('ðŸ” [cargarEtapasDiarias] obra.id:', obra.id, '| obraIdReal:', obraIdReal, '| esTrabajoExtra:', obra._esTrabajoExtra);
 
-      // ✅ Si es trabajo extra y ya tiene presupuesto pre-cargado, usarlo tal cual (NO sobrescribir)
+      // âœ… Si es trabajo extra y ya tiene presupuesto pre-cargado, usarlo tal cual (NO sobrescribir)
       if (obra._esTrabajoExtra && obra.presupuestoNoCliente) {
-        console.log('✅ [Trabajo Extra] Usando presupuesto pre-cargado (no buscar en backend)');
+        console.log('âœ… [Trabajo Extra] Usando presupuesto pre-cargado (no buscar en backend)');
         obraCompleta.presupuestoNoCliente = obra.presupuestoNoCliente;
 
-        // 🔥 TAMBIÉN: Verificar si existe presupuesto congelado en cache y usar ESE en lugar del objeto
+        // ðŸ”¥ TAMBIÃ‰N: Verificar si existe presupuesto congelado en cache y usar ESE en lugar del objeto
         const presupuestoCongelado = presupuestosObras[`te_${obra._trabajoExtraId}`];
         if (presupuestoCongelado) {
-          console.log('✅ [Trabajo Extra] USANDO presupuesto CONGELADO del cache:', presupuestoCongelado.tiempoEstimadoTerminacion);
+          console.log('âœ… [Trabajo Extra] USANDO presupuesto CONGELADO del cache:', presupuestoCongelado.tiempoEstimadoTerminacion);
           obraCompleta.presupuestoNoCliente = presupuestoCongelado;
         }
       } else {
@@ -4699,22 +4973,22 @@ _Válido por 30 días_
               (curr.numeroVersion > (max?.numeroVersion || 0) ? curr : max), presupuestos[0]
             );
             if (presupuestoMayorVersion) {
-              // 🔥 BLOQUEO TOTAL: NUNCA tocar presupuestoNoCliente si es trabajo extra
+              // ðŸ”¥ BLOQUEO TOTAL: NUNCA tocar presupuestoNoCliente si es trabajo extra
               if (!obra._esTrabajoExtra) {
                 obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
                 setPresupuestosObras(prev => ({...prev, [obra.id]: presupuestoMayorVersion}));
               } else {
-                console.log('🔒 [cargarEtapasDiarias] TRABAJO EXTRA - BLOQUEANDO sobrescritura de presupuestoNoCliente');
+                console.log('ðŸ”’ [cargarEtapasDiarias] TRABAJO EXTRA - BLOQUEANDO sobrescritura de presupuestoNoCliente');
               }
             }
           } else {
-            console.warn(' ⚠️ No se pudo cargar presupuesto (HTTP', response.status, ')');
+            console.warn('Â Â No se pudo cargar presupuesto (HTTP', response.status, ')');
           }
         } catch (errorPresupuesto) {
-          console.warn(' ⚠️ Error cargando presupuesto de la obra:', errorPresupuesto);
+          console.warn('Â Â Error cargando presupuesto de la obra:', errorPresupuesto);
         }
       }
-        // 🔥 BLOQUEO TOTAL: NUNCA tocar presupuestoNoCliente si es trabajo extra
+        // ðŸ”¥ BLOQUEO TOTAL: NUNCA tocar presupuestoNoCliente si es trabajo extra
         if (presupuestoMayorVersion && !obra._esTrabajoExtra) {
           obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
         }
@@ -4722,9 +4996,9 @@ _Válido por 30 días_
 
       const data = await api.etapasDiarias.getAll(empresaSeleccionada.id, { obraId: obra.id });
 
-      console.log('🔍 DATOS DEL BACKEND:', data);
+      console.log('ðŸ” DATOS DEL BACKEND:', data);
       if (data && data.length > 0) {
-        console.log('🔍 Primera etapa del backend - tareas:', data[0].tareas?.map(t => ({ desc: t.descripcion, estado: t.estado })));
+        console.log('ðŸ” Primera etapa del backend - tareas:', data[0].tareas?.map(t => ({ desc: t.descripcion, estado: t.estado })));
       }
 
       // Cargar profesionales para convertir IDs a objetos
@@ -4755,11 +5029,11 @@ _Válido por 30 días_
       })) : [];
 
       if (localStorage.getItem('debug_etapa')) {
-        console.log('📝¦ BACKEND RESPONSE - Etapas Diarias:', JSON.stringify(data, null, 2));
-        console.log('  Total etapas recibidas:', Array.isArray(data) ? data.length : 0);
+        console.log('ðŸ“Â¦ BACKEND RESPONSE - Etapas Diarias:', JSON.stringify(data, null, 2));
+        console.log('Â  Total etapas recibidas:', Array.isArray(data) ? data.length : 0);
       }
       setEtapasDiarias(etapasConProfesionales);
-      console.log('🔥🔥🔥 [cargarEtapasDiarias] ANTES de setObraParaEtapasDiarias:', {
+      console.log('ðŸ”¥ðŸ”¥ðŸ”¥ [cargarEtapasDiarias] ANTES de setObraParaEtapasDiarias:', {
         obraCompletaId: obraCompleta.id,
         esTrabajoExtra: obraCompleta._esTrabajoExtra,
         presupuestoNoClienteTimepo: obraCompleta.presupuestoNoCliente?.tiempoEstimadoTerminacion,
@@ -4767,10 +5041,10 @@ _Válido por 30 días_
         OBRA_COMPLETA: obraCompleta
       });
 
-      // 🔥 PROTECCIÓN CRÍTICA: Guardar presupuesto de trabajo extra en cache etiquetado
+      // ðŸ”¥ PROTECCIÃ“N CRÃTICA: Guardar presupuesto de trabajo extra en cache etiquetado
       // Esto PREVIENE que el presupuesto se contamine después de cerrar/reabrir
       if (obraCompleta._esTrabajoExtra && obraCompleta._trabajoExtraId && obraCompleta.presupuestoNoCliente) {
-        console.log('🔒 [cargarEtapasDiarias] CONGELANDO presupuesto de trabajo extra en cache');
+        console.log('ðŸ”’ [cargarEtapasDiarias] CONGELANDO presupuesto de trabajo extra en cache');
         setPresupuestosObras(prev => ({
           ...prev,
           [`te_${obraCompleta._trabajoExtraId}`]: obraCompleta.presupuestoNoCliente,
@@ -4789,7 +5063,7 @@ _Válido por 30 días_
       console.error('Error cargando etapas diarias:', error);
 
       if (error.status === 404 || error.response?.status === 404 || error.message?.includes('404')) {
-        showNotification(' ⚠️ El módulo de Etapas Diarias aún no está disponible en el backend', 'warning');
+        showNotification('Â Â El módulo de Etapas Diarias aún no está disponible en el backend', 'warning');
       } else {
         showNotification('Error al cargar etapas diarias: ' + (error.message || 'Error desconocido'), 'error');
       }
@@ -4813,7 +5087,7 @@ _Válido por 30 días_
             .filter(p => p.estado === 'APROBADO')
             .sort((a, b) => b.version - a.version)[0];
 
-          // 🔒 Bloquear sobrescritura de presupuesto para trabajos extra
+          // ðŸ”’ Bloquear sobrescritura de presupuesto para trabajos extra
           if (!obraCompleta._esTrabajoExtra) {
             if (presupuestoAprobado) {
               obraCompleta.presupuestoNoCliente = presupuestoAprobado;
@@ -4824,7 +5098,7 @@ _Válido por 30 días_
           }
         }
       } catch (errorPresupuesto) {
-        console.warn(' ⚠️ Error cargando presupuesto tras error:', errorPresupuesto);
+        console.warn('Â Â Error cargando presupuesto tras error:', errorPresupuesto);
       }
       setObraParaEtapasDiarias(obraCompleta);
 
@@ -4888,7 +5162,7 @@ _Válido por 30 días_
         if (i === tareaIndex) {
           // Actualizar solo el estado, preservando TODO lo demás (incluido el ID)
           return {
-            id: t.id, //  ⚠️ CRÃƒÂTICO: Incluir el ID para que el backend ACTUALICE en vez de CREAR
+            id: t.id, // Â Â CRÃƒÆ’Ã‚ÂTICO: Incluir el ID para que el backend ACTUALICE en vez de CREAR
             descripcion: t.descripcion,
             estado: nuevoEstado,
             profesionales: profesionalesIds
@@ -4903,7 +5177,7 @@ _Válido por 30 días_
         };
       });
 
-      console.log('📤 Enviando al backend:', tareasActualizadas);
+      console.log('ðŸ“¤ Enviando al backend:', tareasActualizadas);
 
       const dataActualizar = {
         obraId: dia.obraId || obraParaEtapasDiarias.id,
@@ -4928,7 +5202,7 @@ _Válido por 30 días_
   };
 
   const handleEliminarEtapaDiaria = async (etapaId) => {
-    if (!window.confirm('¿Está seguro de eliminar esta etapa diaria?')) {
+    if (!window.confirm('Â¿Está seguro de eliminar esta etapa diaria?')) {
       return;
     }
 
@@ -4940,7 +5214,7 @@ _Válido por 30 días_
       console.error('Error eliminando etapa diaria:', error);
 
       if (error.status === 404 || error.response?.status === 404 || error.message?.includes('404')) {
-        showNotification(' ⚠️ El módulo de Etapas Diarias aún no está disponible en el backend', 'warning');
+        showNotification('Â Â El módulo de Etapas Diarias aún no está disponible en el backend', 'warning');
       } else {
         showNotification('Error al eliminar la etapa diaria: ' + (error.message || 'Error desconocido'), 'error');
       }
@@ -5063,22 +5337,24 @@ _Válido por 30 días_
   };
 
   const handleEliminarTrabajoAdicional = async (trabajoAdicionalId, nombre) => {
-    if (!window.confirm(`¿Está seguro de eliminar el trabajo adicional "${nombre}"?`)) {
+    if (!window.confirm(`Â¿Está seguro de eliminar el trabajo adicional "${nombre}"?`)) {
       return;
     }
 
     try {
       showNotification('Eliminando trabajo adicional...', 'info');
-      await trabajosAdicionalesService.eliminarTrabajoAdicional(trabajoAdicionalId);
+      // âœ… REFACTORIZADO: Usar servicio unificado
+      await presupuestoService.eliminarPresupuesto(trabajoAdicionalId, empresaId);
 
       // Actualizar lista
-      const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
-      const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
-      setTrabajosAdicionales(trabajosArray);
+      const todasLasTareas = await presupuestoService.listarPresupuestos(empresaId, {
+        tipo: TIPOS_PRESUPUESTO.TAREA_LEVE
+      });
+      setTrabajosAdicionales(todasLasTareas);
 
-      showNotification('✅ Trabajo adicional eliminado correctamente', 'success');
+      showNotification('âœ… Trabajo adicional eliminado correctamente', 'success');
     } catch (error) {
-      console.error('❌ Error al eliminar trabajo adicional:', error);
+      console.error('âŒ Error al eliminar trabajo adicional:', error);
       showNotification('Error al eliminar trabajo adicional', 'error');
     }
   };
@@ -5086,21 +5362,23 @@ _Válido por 30 días_
   const handleCambiarEstadoTrabajoAdicional = async (trabajoAdicionalId, nuevoEstado) => {
     try {
       showNotification(`Cambiando estado a ${nuevoEstado}...`, 'info');
-      await trabajosAdicionalesService.actualizarEstadoTrabajoAdicional(trabajoAdicionalId, nuevoEstado);
+      // âœ… REFACTORIZADO: Usar servicio unificado
+      await presupuestoService.actualizarPresupuesto(trabajoAdicionalId, { estado: nuevoEstado }, empresaId);
 
       // Actualizar lista
-      const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
-      const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
-      setTrabajosAdicionales(trabajosArray);
+      const todasLasTareas = await presupuestoService.listarPresupuestos(empresaId, {
+        tipo: TIPOS_PRESUPUESTO.TAREA_LEVE
+      });
+      setTrabajosAdicionales(todasLasTareas);
 
-      showNotification('✅ Estado actualizado correctamente', 'success');
+      showNotification('âœ… Estado actualizado correctamente', 'success');
     } catch (error) {
-      console.error('❌ Error al cambiar estado:', error);
+      console.error('âŒ Error al cambiar estado:', error);
       showNotification('Error al cambiar estado del trabajo adicional', 'error');
     }
   };
 
-  // 🔥 NUEVA FUNCIONALIDAD: Calcular estado de tiempo de la obra comparando profesionales asignados vs presupuesto
+  // ðŸ”¥ NUEVA FUNCIONALIDAD: Calcular estado de tiempo de la obra comparando profesionales asignados vs presupuesto
   const calcularEstadoTiempoObra = (obraId) => {
     try {
       const obra = obras.find(o => o.id === obraId);
@@ -5127,7 +5405,7 @@ _Válido por 30 días_
       // Obtener datos de profesionales asignados desde contadores
       const contador = contadoresObras[obraId];
       if (!contador || !contador.profesionalesData) {
-        return { emoji: '⏱️', tooltip: 'Sin profesionales asignados aún' };
+        return { emoji: 'â±ï¸', tooltip: 'Sin profesionales asignados aún' };
       }
 
       // Calcular total de profesionales únicos asignados
@@ -5150,7 +5428,7 @@ _Válido por 30 días_
       const profesionalesAsignados = profesionalesUnicos.size;
 
       if (profesionalesAsignados === 0) {
-        return { emoji: '⏱️', tooltip: 'Sin profesionales asignados aún' };
+        return { emoji: 'â±ï¸', tooltip: 'Sin profesionales asignados aún' };
       }
 
       // Comparar profesionales asignados vs necesarios
@@ -5163,20 +5441,20 @@ _Válido por 30 días_
       // Determinar emoji y tooltip
       if (diferenciaProfesionales === 0) {
         return {
-          emoji: '✅',
-          tooltip: `Perfecto: ${profesionalesAsignados} profesionales asignados = ${capacidadNecesaria} necesarios → Terminarás en ${diasEstimados} días`
+          emoji: 'âœ…',
+          tooltip: `Perfecto: ${profesionalesAsignados} profesionales asignados = ${capacidadNecesaria} necesarios â†’ Terminarás en ${diasEstimados} días`
         };
       } else if (diferenciaProfesionales > 0) {
         const profesionalesMas = diferenciaProfesionales;
         return {
-          emoji: '🚀',
-          tooltip: `${profesionalesMas} profesional${profesionalesMas !== 1 ? 'es' : ''} extra → Terminarás en ${diasReales} días (${Math.abs(diasDiferencia)} día${Math.abs(diasDiferencia) !== 1 ? 's' : ''} menos)`
+          emoji: 'ðŸš€',
+          tooltip: `${profesionalesMas} profesional${profesionalesMas !== 1 ? 'es' : ''} extra â†’ Terminarás en ${diasReales} días (${Math.abs(diasDiferencia)} día${Math.abs(diasDiferencia) !== 1 ? 's' : ''} menos)`
         };
       } else {
         const profesionalesFaltantes = Math.abs(diferenciaProfesionales);
         return {
-          emoji: '⚠️',
-          tooltip: `Faltan ${profesionalesFaltantes} profesional${profesionalesFaltantes !== 1 ? 'es' : ''} → Terminarás en ${diasReales} días (${diasDiferencia} día${diasDiferencia !== 1 ? 's' : ''} más)`
+          emoji: '',
+          tooltip: `Faltan ${profesionalesFaltantes} profesional${profesionalesFaltantes !== 1 ? 'es' : ''} â†’ Terminarás en ${diasReales} días (${diasDiferencia} día${diasDiferencia !== 1 ? 's' : ''} más)`
         };
       }
     } catch (error) {
@@ -5187,14 +5465,14 @@ _Válido por 30 días_
 
   // Función para cargar todos los contadores de una obra cuando se expande
   const cargarContadoresObra = async (obraId) => {
-    // console.log('🔄 Cargando contadores para obra:', obraId);
+    // console.log('ðŸ”„ Cargando contadores para obra:', obraId);
     try {
-      // 🔥 Detectar si es un trabajo extra buscando en el array de obras
+      // ðŸ”¥ Detectar si es un trabajo extra buscando en el array de obras
       const obraEncontrada = obras.find(o => o.id === obraId);
       const esTrabajoExtra = obraEncontrada?._esTrabajoExtra || false;
       const idParaConsulta = esTrabajoExtra ? obraId : obraId; // Para trabajo extra usar su propio ID
 
-      console.log('🔍 cargarContadoresObra - obraId:', obraId, 'esTrabajoExtra:', esTrabajoExtra);
+      console.log('ðŸ” cargarContadoresObra - obraId:', obraId, 'esTrabajoExtra:', esTrabajoExtra);
 
       const contadores = {
         presupuestos: 0,
@@ -5217,21 +5495,21 @@ _Válido por 30 días_
         // Presupuestos
         api.presupuestosNoCliente.getAll(empresaId).then(todos => {
           const count = (todos || []).filter(p => p.obraId === obraId || p.idObra === obraId).length;
-          console.log('  📊 Presupuestos:', count);
+          console.log('  ðŸ“Š Presupuestos:', count);
           return count;
         }).catch(error => {
-          console.warn('  ⚠️ Error cargando presupuestos:', error.message);
+          console.warn('   Error cargando presupuestos:', error.message);
           return 0;
         }),
 
         // Trabajos Extra
         api.presupuestosNoCliente.getAll(empresaId, { obraId, esPresupuestoTrabajoExtra: true }).then(data => {
-          // 🔧 FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+          // ðŸ”§ FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
           let trabajosArray = (Array.isArray(data) ? data : []).filter(p =>
             p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
           );
 
-          // 🔧 FILTRAR: Si estamos dentro de un trabajo extra (obraId es un trabajo extra),
+          // ðŸ”§ FILTRAR: Si estamos dentro de un trabajo extra (obraId es un trabajo extra),
           // excluir ese trabajo extra de su propia lista
           const obraActual = obras.find(o => o.id === obraId);
           const esTrabajoExtra = obraActual?.esTrabajoExtra || obraActual?._esTrabajoExtra || obraActual?.esObraTrabajoExtra;
@@ -5255,15 +5533,15 @@ _Válido por 30 días_
 
           return count;
         }).catch(error => {
-          console.warn('  ⚠️ Error cargando trabajos extra:', error.message);
+          console.warn('   Error cargando trabajos extra:', error.message);
           return 0;
         }),
 
         // Profesionales asignados - usar el servicio correcto que devuelve formato agrupado
         obtenerAsignacionesSemanalPorObra(obraId, empresaId).then(response => {
           let data = response.data || response;
-          console.log('  📊 Respuesta profesionales (RAW):', response);
-          console.log('  📊 Profesionales data:', data);
+          console.log('  ðŸ“Š Respuesta profesionales (RAW):', response);
+          console.log('  ðŸ“Š Profesionales data:', data);
 
           // Si data tiene una propiedad data, extraerla
           if (data.data && Array.isArray(data.data)) {
@@ -5292,7 +5570,7 @@ _Válido por 30 días_
           });
 
           const count = profesionalesUnicos.size;
-          console.log('  📊 Total profesionales únicos asignados:', count);
+          console.log('  ðŸ“Š Total profesionales únicos asignados:', count);
 
           // Guardar los datos completos
           setDatosAsignacionesPorObra(prev => ({
@@ -5303,17 +5581,17 @@ _Válido por 30 días_
             }
           }));
 
-          // 🔥 Retornar objeto con count y datos completos para el cálculo de tiempo
+          // ðŸ”¥ Retornar objeto con count y datos completos para el cálculo de tiempo
           return { count, asignaciones };
         }).catch(error => {
-          console.warn('  ⚠️ Error cargando profesionales:', error.message);
+          console.warn('   Error cargando profesionales:', error.message);
           return { count: 0, asignaciones: [] };
         }),
 
         // Materiales - Obtener asignaciones reales desde el backend
         (async () => {
           try {
-            // 🔥 Tanto para obra normal como trabajo extra, consultar el endpoint de asignaciones
+            // ðŸ”¥ Tanto para obra normal como trabajo extra, consultar el endpoint de asignaciones
             const response = await axios.get(`/api/obras/${obraId}/materiales`, {
               headers: {
                 empresaId: empresaId,
@@ -5324,7 +5602,7 @@ _Válido por 30 días_
             const materialesBackend = Array.isArray(data) ? data : [];
             const count = materialesBackend.length;
 
-            console.log(`  📊 Materiales asignados ${esTrabajoExtra ? '(trabajo extra)' : ''}:`, count);
+            console.log(`  ðŸ“Š Materiales asignados ${esTrabajoExtra ? '(trabajo extra)' : ''}:`, count);
 
             // Guardar los datos completos de materiales
             setDatosAsignacionesPorObra(prev => ({
@@ -5337,7 +5615,7 @@ _Válido por 30 días_
 
             return count;
           } catch (error) {
-            console.warn('  ⚠️ Error cargando materiales:', error.message);
+            console.warn('   Error cargando materiales:', error.message);
             return 0;
           }
         })(),
@@ -5345,7 +5623,7 @@ _Válido por 30 días_
         // Gastos/Otros costos asignados - Obtener asignaciones reales desde el backend
         (async () => {
           try {
-            // 🔥 Tanto para obra normal como trabajo extra, consultar el endpoint de asignaciones
+            // ðŸ”¥ Tanto para obra normal como trabajo extra, consultar el endpoint de asignaciones
             const response = await axios.get(`/api/obras/${obraId}/otros-costos`, {
               headers: {
                 empresaId: empresaId,
@@ -5357,7 +5635,7 @@ _Válido por 30 días_
             const gastos = Array.isArray(data) ? data : [];
             const count = gastos.length;
 
-            console.log(`  📊 Gastos asignados ${esTrabajoExtra ? '(trabajo extra)' : ''}:`, count, gastos);
+            console.log(`  ðŸ“Š Gastos asignados ${esTrabajoExtra ? '(trabajo extra)' : ''}:`, count, gastos);
 
             // Guardar los datos completos de gastos generales
             setDatosAsignacionesPorObra(prev => ({
@@ -5370,7 +5648,7 @@ _Válido por 30 días_
 
             return count;
           } catch (error) {
-            console.warn('  ⚠️ Error cargando gastos generales:', error.message);
+            console.warn('   Error cargando gastos generales:', error.message);
             return 0;
           }
         })(),
@@ -5384,12 +5662,12 @@ _Válido por 30 días_
       contadores.presupuestos = presupuestos;
       contadores.trabajosExtra = trabajosExtra;
       contadores.profesionales = profesionales.count || profesionales;
-      contadores.profesionalesData = profesionales.asignaciones || []; // 🔥 Guardar datos completos
+      contadores.profesionalesData = profesionales.asignaciones || []; // ðŸ”¥ Guardar datos completos
       contadores.materiales = materialesData;
       contadores.gastos = gastosData;
       contadores.etapas = etapas;
 
-      console.log('✅ Contadores cargados para obra', obraId, ':', contadores);
+      console.log('âœ… Contadores cargados para obra', obraId, ':', contadores);
 
       // Actualizar el estado
       setContadoresObras(prev => ({
@@ -5398,7 +5676,7 @@ _Válido por 30 días_
       }));
 
     } catch (error) {
-      console.error('❌ Error cargando contadores de obra:', obraId, error);
+      console.error('âŒ Error cargando contadores de obra:', obraId, error);
     }
   };
 
@@ -5409,31 +5687,31 @@ _Válido por 30 días_
       setMostrarModalPresupuestos(true);
       setLoadingPresupuestos(true);
 
-      console.log('🔍 Buscando TODOS los presupuestos con obraId:', obra.id);
+      console.log('ðŸ” Buscando TODOS los presupuestos con obraId:', obra.id);
 
       // Obtener TODOS los presupuestos (IMPORTANTE: pasar empresaId)
-      console.log('📡 Llamando a getAll con empresaId:', empresaId);
+      console.log('ðŸ“¡ Llamando a getAll con empresaId:', empresaId);
       const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId);
 
-      console.log('📦 Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
+      console.log('ðŸ“¦ Total presupuestos obtenidos:', todosPresupuestos?.length || 0);
 
       // Filtrar presupuestos que tienen esta obra vinculada
       const presupuestosFiltrados = (todosPresupuestos || []).filter(p => {
         const tieneObraVinculada = p.obraId === obra.id || p.idObra === obra.id;
         if (tieneObraVinculada) {
-          console.log('✅ Presupuesto', p.id, 'vinculado a obra', obra.id);
+          console.log('âœ… Presupuesto', p.id, 'vinculado a obra', obra.id);
         }
         return tieneObraVinculada;
       });
 
-      console.log('✅ Presupuestos vinculados a obra', obra.id, ':', presupuestosFiltrados.length);
+      console.log('âœ… Presupuestos vinculados a obra', obra.id, ':', presupuestosFiltrados.length);
 
-      // Ordenar presupuestos: primero por estado (APROBADO/EN_EJECUCIÓN arriba), luego por versión DESC, luego por fecha de creación DESC
+      // Ordenar presupuestos: primero por estado (APROBADO/EN_EJECUCIÃ“N arriba), luego por versión DESC, luego por fecha de creación DESC
       const presupuestosOrdenados = presupuestosFiltrados.sort((a, b) => {
         // Definir prioridad de estados
         const estadosPrioridad = {
           'APROBADO': 1,
-          'EN_EJECUCIÓN': 1,
+          'EN_EJECUCIÃ“N': 1,
           'EN_EJECUCION': 1, // Por si acaso hay variación en el nombre
           'ENVIADO': 2,
           'BORRADOR': 3
@@ -5460,26 +5738,26 @@ _Válido por 30 días_
         return fechaB - fechaA;
       });
 
-      console.log('📋 Presupuestos ordenados (APROBADO/EN_EJECUCIÓN primero, luego por versión):', presupuestosOrdenados.map(p => ({
+      console.log('ðŸ“‹ Presupuestos ordenados (APROBADO/EN_EJECUCIÃ“N primero, luego por versión):', presupuestosOrdenados.map(p => ({
         id: p.id,
         version: p.version,
         estado: p.estado,
         fechaCreacion: p.fechaCreacion,
-        prioridad: p.estado === 'APROBADO' || p.estado === 'EN_EJECUCIÓN' || p.estado === 'EN_EJECUCION' ? 'ALTA' : 'NORMAL'
+        prioridad: p.estado === 'APROBADO' || p.estado === 'EN_EJECUCIÃ“N' || p.estado === 'EN_EJECUCION' ? 'ALTA' : 'NORMAL'
       })));
 
       setPresupuestosObra(presupuestosOrdenados);
 
       // Si solo hay un presupuesto, abrirlo automáticamente
       if (presupuestosOrdenados.length === 1) {
-        console.log('🚀 Solo hay un presupuesto, abriéndolo automáticamente:', presupuestosOrdenados[0].id);
+        console.log('ðŸš€ Solo hay un presupuesto, abriéndolo automáticamente:', presupuestosOrdenados[0].id);
         setTimeout(() => {
           handleAbrirPresupuesto(presupuestosOrdenados[0]);
         }, 500); // Pequeño delay para que se vea el modal de lista primero
       }
     } catch (error) {
-      console.error('❌ Error cargando presupuesto:', error);
-      console.error('❌ Detalles del error:', error.message, error.response);
+      console.error('âŒ Error cargando presupuesto:', error);
+      console.error('âŒ Detalles del error:', error.message, error.response);
       showNotification('Error al cargar presupuesto de la obra: ' + (error.message || 'Error desconocido'), 'error');
       setPresupuestosObra([]);
     } finally {
@@ -5487,7 +5765,7 @@ _Válido por 30 días_
     }
   };
 
-  //  €¢ Función para abrir presupuesto en modal de edición
+  // Â â‚¬Â¢ Función para abrir presupuesto en modal de edición
   const handleAbrirPresupuesto = async (presupuesto) => {
     if (!empresaId) {
       showNotification('Error: No hay empresa seleccionada', 'error');
@@ -5510,7 +5788,7 @@ _Válido por 30 días_
       setPresupuestoParaEditar(presupuestoConContexto);
       setMostrarModalEditarPresupuesto(true);
     } catch (error) {
-      console.error('❌ Error al cargar presupuesto:', error);
+      console.error('âŒ Error al cargar presupuesto:', error);
 
       let mensajeError = 'Error al cargar el presupuesto';
       if (error.response?.data?.mensaje) {
@@ -5557,7 +5835,7 @@ _Válido por 30 días_
         _editarSoloFechas: true // Flag para indicar modo de edición limitada
       };
 
-      console.log('📅 Abriendo presupuesto en modo edición de fechas:', {
+      console.log('ðŸ“… Abriendo presupuesto en modo edición de fechas:', {
         presupuestoId: presupuestoConContexto.id,
         obraId: presupuestoConContexto.obraId,
         editarSoloFechas: true
@@ -5567,11 +5845,11 @@ _Válido por 30 días_
       setMostrarModalEditarPresupuesto(true);
 
       showNotification(
-        '📅 Modo edición de fechas: Solo puede modificar Fecha Probable de Inicio y Días Hábiles. La versión y el estado se preservarán.',
+        'ðŸ“… Modo edición de fechas: Solo puede modificar Fecha Probable de Inicio y Días Hábiles. La versión y el estado se preservarán.',
         'info'
       );
     } catch (error) {
-      console.error('❌ Error al cargar presupuesto para editar fechas:', error);
+      console.error('âŒ Error al cargar presupuesto para editar fechas:', error);
       showNotification(
         'Error al cargar presupuesto: ' + (error.message || 'Error desconocido'),
         'error'
@@ -5581,7 +5859,7 @@ _Válido por 30 días_
     }
   };
 
-  // ==================== CONFIGURACIÓN GLOBAL DE OBRA ====================
+  // ==================== CONFIGURACIÃ“N GLOBAL DE OBRA ====================
 
   // Helper para recalcular semanas desde presupuesto (usado por badge y modal)
   const recalcularSemanasDesdePresupuesto = (presupuesto) => {
@@ -5610,18 +5888,18 @@ _Válido por 30 días_
     return semanasCalculadas;
   };
 
-  // 🔥 EFECTO: Cuando se abre el modal de configuración, cargar datos correctos
+  // ðŸ”¥ EFECTO: Cuando se abre el modal de configuración, cargar datos correctos
   React.useEffect(() => {
     if (!mostrarModalConfiguracionObra || !obraParaConfigurar) {
       return;
     }
 
-    // ✅ SI ES TRABAJO EXTRA: usar presupuesto pre-cargado, NO buscar en backend
+    // âœ… SI ES TRABAJO EXTRA: usar presupuesto pre-cargado, NO buscar en backend
     if (obraParaConfigurar._esTrabajoExtra && obraParaConfigurar.presupuestoNoCliente) {
-      console.log('✅ [Modal Configuración TE] Es trabajo extra - usando presupuesto pre-cargado');
+      console.log('âœ… [Modal Configuración TE] Es trabajo extra - usando presupuesto pre-cargado');
       const presupuesto = obraParaConfigurar.presupuestoNoCliente;
 
-      // 🔥 Para trabajos extra: usar cálculo SIMPLE de semanas (no con feriados)
+      // ðŸ”¥ Para trabajos extra: usar cálculo SIMPLE de semanas (no con feriados)
       const semanasCalculadas = presupuesto.tiempoEstimadoTerminacion
         ? Math.ceil(presupuesto.tiempoEstimadoTerminacion / 5)
         : 0;
@@ -5638,7 +5916,7 @@ _Válido por 30 días_
         fechaFinEstimada: null
       });
 
-      console.log('✅ [Modal Configuración TE] configuracionObra inicializada:', {
+      console.log('âœ… [Modal Configuración TE] configuracionObra inicializada:', {
         presupuestoId: presupuesto.id,
         diasHabiles: presupuesto.tiempoEstimadoTerminacion,
         semanas: semanasCalculadas
@@ -5646,12 +5924,12 @@ _Válido por 30 días_
       return;
     }
 
-    // 🔥 SI ES OBRA NORMAL: llamar handleConfigurarObra para buscar presupuestos
+    // ðŸ”¥ SI ES OBRA NORMAL: llamar handleConfigurarObra para buscar presupuestos
     handleConfigurarObra(obraParaConfigurar);
   }, [mostrarModalConfiguracionObra, obraParaConfigurar?._esTrabajoExtra]);
 
   const handleConfigurarObra = async (obra) => {
-    console.log('🚀🚀🚀 INICIO handleConfigurarObra - Obra:', obra?.id, obra?.direccion);
+    console.log('ðŸš€ðŸš€ðŸš€ INICIO handleConfigurarObra - Obra:', obra?.id, obra?.direccion);
 
     if (!obra?.id || !empresaSeleccionada?.id) {
       showNotification('Error: Datos inválidos', 'error');
@@ -5663,12 +5941,12 @@ _Válido por 30 días_
       setObraParaConfigurar(obra);
     }
 
-    console.log('🚀 Buscando presupuesto para configuración...');
+    console.log('ðŸš€ Buscando presupuesto para configuración...');
 
     try {
       // Buscar todos los presupuestos de la obra y elegir el de mayor versión
       const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
-      console.log('🔍 TODOS LOS PRESUPUESTOS:', todosPresupuestos);
+      console.log('ðŸ” TODOS LOS PRESUPUESTOS:', todosPresupuestos);
 
       // Filtrar solo los de la obra
       const presupuestosObra = (todosPresupuestos || []).filter(p =>
@@ -5683,52 +5961,52 @@ _Válido por 30 días_
         );
       }
 
-      console.log('🔍 PRESUPUESTO VINCULADO (mayor versión):', presupuestoVinculado);
-      console.log('🔍 Obra ID buscada:', obra.id);
+      console.log('ðŸ” PRESUPUESTO VINCULADO (mayor versión):', presupuestoVinculado);
+      console.log('ðŸ” Obra ID buscada:', obra.id);
 
       if (presupuestoVinculado) {
-        // ✅ VALIDACIÓN IMPORTANTE: El presupuesto DEBE tener fecha y días estimados
+        // âœ… VALIDACIÃ“N IMPORTANTE: El presupuesto DEBE tener fecha y días estimados
         // Ahora solo mostramos advertencia, no cerramos el modal
         let advertenciaConfig = null;
         if (!presupuestoVinculado.fechaProbableInicio) {
-          advertenciaConfig = '⚠️ El presupuesto no tiene fecha probable de inicio configurada. Por favor, complétala para poder guardar la configuración.';
+          advertenciaConfig = ' El presupuesto no tiene fecha probable de inicio configurada. Por favor, complétala para poder guardar la configuración.';
         } else if (!presupuestoVinculado.tiempoEstimadoTerminacion || presupuestoVinculado.tiempoEstimadoTerminacion <= 0) {
-          advertenciaConfig = '⚠️ El presupuesto no tiene tiempo estimado de terminación configurado. Por favor, complétalo para poder guardar la configuración.';
+          advertenciaConfig = ' El presupuesto no tiene tiempo estimado de terminación configurado. Por favor, complétalo para poder guardar la configuración.';
         }
         // Guardar advertencia en el estado para mostrarla en el modal
         setAdvertenciaConfiguracionObra(advertenciaConfig);
 
-        // 🆕 Calcular semanas automáticamente basándose en tiempoEstimadoTerminacion
+        // ðŸ†• Calcular semanas automáticamente basándose en tiempoEstimadoTerminacion
         let semanasCalculadas = 0;
         let fechaInicio = null;
         const jornalesTotales = parseInt(presupuestoVinculado.tiempoEstimadoTerminacion) || 30;
 
-        console.log('📋 tiempoEstimadoTerminacion del presupuesto:', presupuestoVinculado.tiempoEstimadoTerminacion);
+        console.log('ðŸ“‹ tiempoEstimadoTerminacion del presupuesto:', presupuestoVinculado.tiempoEstimadoTerminacion);
 
         if (presupuestoVinculado.tiempoEstimadoTerminacion) {
-          console.log('✅ Hay tiempoEstimadoTerminacion, calculando semanas...');
+          console.log('âœ… Hay tiempoEstimadoTerminacion, calculando semanas...');
 
           // Con fechaProbableInicio validada, hacer cálculo preciso con feriados
-          console.log('✅ Hay fechaProbableInicio, cálculo preciso con feriados');
+          console.log('âœ… Hay fechaProbableInicio, cálculo preciso con feriados');
           fechaInicio = parsearFechaLocal(presupuestoVinculado.fechaProbableInicio);
           try {
             semanasCalculadas = calcularSemanasParaDiasHabiles(
               fechaInicio,
               presupuestoVinculado.tiempoEstimadoTerminacion
             );
-            console.log('✅ Semanas calculadas con feriados:', semanasCalculadas);
+            console.log('âœ… Semanas calculadas con feriados:', semanasCalculadas);
           } catch (error) {
-            console.warn('⚠️ Error al calcular semanas con feriados, usando cálculo simple:', error);
+            console.warn(' Error al calcular semanas con feriados, usando cálculo simple:', error);
             semanasCalculadas = convertirDiasHabilesASemanasSimple(
               presupuestoVinculado.tiempoEstimadoTerminacion
             );
-            console.log('✅ Semanas calculadas simple (fallback):', semanasCalculadas);
+            console.log('âœ… Semanas calculadas simple (fallback):', semanasCalculadas);
           }
         } else {
-          console.warn('⚠️ No hay tiempoEstimadoTerminacion');
+          console.warn(' No hay tiempoEstimadoTerminacion');
         }
 
-        console.log('🔍 DEBUG - Configurando obra:', {
+        console.log('ðŸ” DEBUG - Configurando obra:', {
           fechaProbableInicio: presupuestoVinculado.fechaProbableInicio,
           fechaInicio: fechaInicio,
           fechaInicioStr: fechaInicio ? fechaInicio.toLocaleDateString('es-AR') : 'Sin fecha',
@@ -5737,9 +6015,9 @@ _Válido por 30 días_
           semanasCalculadas
         });
 
-        console.log('📝 ANTES DE setConfiguracionObra - semanasCalculadas:', semanasCalculadas);
+        console.log('ðŸ“ ANTES DE setConfiguracionObra - semanasCalculadas:', semanasCalculadas);
 
-        // 🆕 Calcular capacidad necesaria (profesionales trabajando en paralelo por día)
+        // ðŸ†• Calcular capacidad necesaria (profesionales trabajando en paralelo por día)
         let capacidadNecesaria = 0;
         if (presupuestoVinculado.itemsCalculadora && Array.isArray(presupuestoVinculado.itemsCalculadora)) {
           // Contar profesionales en paralelo de rubros incluidos en cálculo de días
@@ -5759,7 +6037,7 @@ _Válido por 30 días_
               });
             }
           });
-          console.log('👥 Capacidad necesaria calculada:', capacidadNecesaria, 'profesionales/día');
+          console.log('ðŸ‘¥ Capacidad necesaria calculada:', capacidadNecesaria, 'profesionales/día');
         }
 
         setConfiguracionObra({
@@ -5772,13 +6050,13 @@ _Válido por 30 días_
           fechaFinEstimada: null
         });
 
-        console.log('✅ setConfiguracionObra ejecutado con semanasObjetivo:', semanasCalculadas > 0 ? semanasCalculadas.toString() : '');
+        console.log('âœ… setConfiguracionObra ejecutado con semanasObjetivo:', semanasCalculadas > 0 ? semanasCalculadas.toString() : '');
 
-        // ✅ ABRIR MODAL DE CONFIGURACIÓN
+        // âœ… ABRIR MODAL DE CONFIGURACIÃ“N
         setMostrarModalConfiguracionObra(true);
       } else {
         // Fallback si no hay presupuesto vinculado
-        showNotification('⚠️ No se encontró un presupuesto vinculado a esta obra', 'warning');
+        showNotification(' No se encontró un presupuesto vinculado a esta obra', 'warning');
         setConfiguracionObra({
           jornalesTotales: 30,
           fechaInicio: new Date(),
@@ -5788,13 +6066,13 @@ _Válido por 30 días_
           capacidadNecesaria: 0,
           fechaFinEstimada: null
         });
-        // ✅ ABRIR MODAL INCLUSO SIN PRESUPUESTO (para que el usuario configure manualmente)
+        // âœ… ABRIR MODAL INCLUSO SIN PRESUPUESTO (para que el usuario configure manualmente)
         setMostrarModalConfiguracionObra(true);
       }
 
     } catch (error) {
       console.error('Error:', error);
-      showNotification('❌ Error al intentar cargar la configuración: ' + error.message, 'error');
+      showNotification('âŒ Error al intentar cargar la configuración: ' + error.message, 'error');
       setConfiguracionObra({
         jornalesTotales: 30,
         fechaInicio: new Date(),
@@ -5804,19 +6082,19 @@ _Válido por 30 días_
         capacidadNecesaria: 0,
         fechaFinEstimada: null
       });
-      // ✅ ABRIR MODAL PARA QUE EL USUARIO INTENTE CONFIGURAR MANUALMENTE
+      // âœ… ABRIR MODAL PARA QUE EL USUARIO INTENTE CONFIGURAR MANUALMENTE
       setMostrarModalConfiguracionObra(true);
     }
   };
 
   const handleGuardarConfiguracionObra = async () => {
-    // ✅ OBTENER fecha probable de inicio (desde presupuesto o input)
+    // âœ… OBTENER fecha probable de inicio (desde presupuesto o input)
     const fechaProbableInicio = configuracionObra.presupuestoSeleccionado?.fechaProbableInicio ||
                                 configuracionObra.fechaProbableInicioInput;
 
-    // ✅ VALIDACIÓN: Verificar que hay fecha probable de inicio configurada o ingresada
+    // âœ… VALIDACIÃ“N: Verificar que hay fecha probable de inicio configurada o ingresada
     if (!fechaProbableInicio || fechaProbableInicio.trim() === '') {
-      showNotification('❌ Debes configurar una fecha probable de inicio para continuar', 'error');
+      showNotification('âŒ Debes configurar una fecha probable de inicio para continuar', 'error');
       return;
     }
 
@@ -5826,16 +6104,16 @@ _Válido por 30 días_
       : configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion;
 
     if (!diasHabiles || diasHabiles <= 0) {
-      showNotification('❌ Debes configurar los días hábiles para la obra', 'error');
+      showNotification('âŒ Debes configurar los días hábiles para la obra', 'error');
       return;
     }
 
-    // 🆕 SI se ingresó una nueva fecha o nuevos días hábiles, actualizar el presupuestoNoCliente
+    // ðŸ†• SI se ingresó una nueva fecha o nuevos días hábiles, actualizar el presupuestoNoCliente
     if ((configuracionObra.fechaProbableInicioInput &&
          configuracionObra.fechaProbableInicioInput !== configuracionObra.presupuestoSeleccionado?.fechaProbableInicio) ||
         (configuracionObra.diasHabiles && parseInt(configuracionObra.diasHabiles) !== configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion)) {
 
-      console.log('🔄 Actualizando presupuesto con configuración del usuario:', {
+      console.log('ðŸ”„ Actualizando presupuesto con configuración del usuario:', {
         presupuestoId: configuracionObra.presupuestoSeleccionado?.id,
         fechaAnterior: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio,
         fechaNueva: configuracionObra.fechaProbableInicioInput || configuracionObra.presupuestoSeleccionado?.fechaProbableInicio,
@@ -5863,10 +6141,10 @@ _Válido por 30 días_
           }
         }));
 
-        showNotification('✅ Presupuesto actualizado con la nueva planificación', 'success');
+        showNotification('âœ… Presupuesto actualizado con la nueva planificación', 'success');
       } catch (error) {
         console.error('Error al actualizar presupuesto:', error);
-        showNotification('⚠️ Error al actualizar el presupuesto', 'warning');
+        showNotification(' Error al actualizar el presupuesto', 'warning');
         // Continuar con el guardado de configuración aunque falle la actualización del presupuesto
       }
     }
@@ -5874,7 +6152,7 @@ _Válido por 30 días_
     // Usar directamente los valores calculados
     const semanasCalculadas = Math.ceil(diasHabiles / 5); // Solo para cálculos internos
 
-    // 🆕 Calcular capacidad necesaria desde el presupuesto (igual que en handleConfigurarObra)
+    // ðŸ†• Calcular capacidad necesaria desde el presupuesto (igual que en handleConfigurarObra)
     let capacidadNecesaria = 0;
 
     // Si no está calculado, intentar calcularlo desde el presupuesto
@@ -5908,7 +6186,7 @@ _Válido por 30 días_
       fechaFinEstimada = new Date(configuracionObra.fechaInicio);
       let diasContados = 0;
 
-      console.log('🔍 DEBUG - Calculando fecha fin:', {
+      console.log('ðŸ” DEBUG - Calculando fecha fin:', {
         fechaInicio: configuracionObra.fechaInicio,
         fechaInicioStr: fechaFinEstimada.toLocaleDateString('es-AR'),
         diasHabiles,
@@ -5919,13 +6197,13 @@ _Válido por 30 días_
       while (diasContados < diasHabiles) {
         fechaFinEstimada.setDate(fechaFinEstimada.getDate() + 1);
 
-        // 🔥 Solo contar si es día hábil: lunes-viernes Y no es feriado
+        // ðŸ”¥ Solo contar si es día hábil: lunes-viernes Y no es feriado
         if (esDiaHabil(fechaFinEstimada)) {
           diasContados++;
         }
       }
 
-      console.log('🔍 DEBUG - Fecha fin calculada (con feriados):', {
+      console.log('ðŸ” DEBUG - Fecha fin calculada (con feriados):', {
         fechaFin: fechaFinEstimada.toLocaleDateString('es-AR'),
         diasContados
       });
@@ -5943,7 +6221,7 @@ _Válido por 30 días_
 
     // Actualizar la obra seleccionada para etapas diarias (si existe)
     if (obraParaEtapasDiarias) {
-      // 🔥 Para trabajos extra: actualizar también presupuestoNoCliente con los nuevos datos de fechas/días
+      // ðŸ”¥ Para trabajos extra: actualizar también presupuestoNoCliente con los nuevos datos de fechas/días
       const obraActualizada = {
         ...obraParaEtapasDiarias,
         configuracionPlanificacion: nuevaConfiguracion
@@ -5951,7 +6229,7 @@ _Válido por 30 días_
 
       // Si es trabajo extra, actualizar presupuestoNoCliente con fechaProbableInicio y tiempoEstimadoTerminacion
       if (obraParaEtapasDiarias._esTrabajoExtra && obraParaEtapasDiarias.presupuestoNoCliente) {
-        console.log('✅ [Guardada Configuración TE] Actualizando presupuestoNoCliente con fechas:', {
+        console.log('âœ… [Guardada Configuración TE] Actualizando presupuestoNoCliente con fechas:', {
           fechaProbableInicio: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio,
           tiempoEstimadoTerminacion: diasHabiles
         });
@@ -5961,16 +6239,16 @@ _Válido por 30 días_
           fechaProbableInicio: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio || obraParaEtapasDiarias.presupuestoNoCliente.fechaProbableInicio,
           tiempoEstimadoTerminacion: diasHabiles
         };
-        // 🔥 IMPORTANTE: También actualizar directamente en la obra para que calendarioCompleto lo vea
+        // ðŸ”¥ IMPORTANTE: También actualizar directamente en la obra para que calendarioCompleto lo vea
         obraActualizada.tiempoEstimadoTerminacion = diasHabiles;
         obraActualizada.fechaProbableInicio = configuracionObra.presupuestoSeleccionado?.fechaProbableInicio || obraParaEtapasDiarias.fechaProbableInicio;
       }
 
       setObraParaEtapasDiarias(obraActualizada);
 
-      // 🔥 PARA TRABAJOS EXTRA: Guardar el presupuesto en cache CONGELADO
+      // ðŸ”¥ PARA TRABAJOS EXTRA: Guardar el presupuesto en cache CONGELADO
       if (obraParaEtapasDiarias._esTrabajoExtra && obraActualizada.presupuestoNoCliente) {
-        console.log('🔥 [Guardada Configuración TE] CONGELANDO presupuesto en cache:', {
+        console.log('ðŸ”¥ [Guardada Configuración TE] CONGELANDO presupuesto en cache:', {
           presupuestoId: obraActualizada.presupuestoNoCliente.id,
           tiempoEstimadoTerminacion: obraActualizada.presupuestoNoCliente.tiempoEstimadoTerminacion
         });
@@ -5988,9 +6266,9 @@ _Válido por 30 días_
       }));
     }
 
-    // 🔥 Si el modal se abrió desde un trabajo extra (pestaña trabajos-extra), actualizar ese trabajo en el array
+    // ðŸ”¥ Si el modal se abrió desde un trabajo extra (pestaña trabajos-extra), actualizar ese trabajo en el array
     if (obraParaConfigurar?._esTrabajoExtra && obraParaConfigurar._trabajoExtraId) {
-      console.log('✅ [Guardada TE Config] Actualizando trabajo extra en array trabajosExtra:', {
+      console.log('âœ… [Guardada TE Config] Actualizando trabajo extra en array trabajosExtra:', {
         trabajoExtraId: obraParaConfigurar._trabajoExtraId,
         tiempoEstimadoTerminacion: diasHabiles,
         fechaProbableInicio: configuracionObra.presupuestoSeleccionado?.fechaProbableInicio
@@ -6010,7 +6288,7 @@ _Válido por 30 días_
 
     // Forzar regeneración del calendario
     setCalendarioVersion(v => {
-      console.log(' 🔄 Configuración cambiada - Incrementando calendarioVersion:', v, ' → ', v + 1);
+      console.log(' ðŸ”„ Configuración cambiada - Incrementando calendarioVersion:', v, ' â†’ ', v + 1);
       return v + 1;
     });
 
@@ -6029,9 +6307,9 @@ _Válido por 30 días_
       modalVisible: false
     });
 
-    showNotification(`✅ Planificación confirmada: ${diasHabiles} días hábiles (${semanasCalculadas} semanas, ${capacidadNecesaria} jornales/día)`, 'success');
+    showNotification(`âœ… Planificación confirmada: ${diasHabiles} días hábiles (${semanasCalculadas} semanas, ${capacidadNecesaria} jornales/día)`, 'success');
 
-    console.log('💾 Configuración guardada:', nuevaConfiguracion);
+    console.log('ðŸ’¾ Configuración guardada:', nuevaConfiguracion);
   };
 
   // Helper para formatear dirección de obra
@@ -6100,7 +6378,7 @@ _Válido por 30 días_
                         });
 
                         if (obrasManuales.length === 0) {
-                          showNotification('ℹ️ No hay obras independientes (sin presupuesto)', 'info');
+                          showNotification('â„¹ï¸ No hay obras independientes (sin presupuesto)', 'info');
                           return;
                         }
 
@@ -6170,12 +6448,12 @@ _Válido por 30 días_
                         </thead>
                         <tbody>
                           {(() => {
-                            // 🎯 ORDENAMIENTO INTELIGENTE: Agrupar obras de trabajo extra con sus obras padre
-                            // 🔍 Detección de subobras por NOMBRE (además del flag esTrabajoExtra)
+                            // ðŸŽ¯ ORDENAMIENTO INTELIGENTE: Agrupar obras de trabajo extra con sus obras padre
+                            // ðŸ” Detección de subobras por NOMBRE (además del flag esTrabajoExtra)
                             const todasObrasActivas = obras.filter(o => o.estado !== 'CANCELADO').sort((a, b) => a.id - b.id);
                             const obrasCanceladas = obras.filter(o => o.estado === 'CANCELADO');
 
-                            // 🔍 Marcar subobras detectadas por patrón de nombre
+                            // ðŸ” Marcar subobras detectadas por patrón de nombre
                             const subobrasDetectadas = new Set();
                             todasObrasActivas.forEach(posibleSubobra => {
                               todasObrasActivas.forEach(posiblePadre => {
@@ -6209,8 +6487,8 @@ _Válido por 30 días_
 
                             const listaOrdenada = [];
 
-                            // 🎨 Para cada obra normal, agregar la obra y sus trabajos extra con metadatos de grupo
-                            let grupoIndex = 2; // 🎨 Sincronizar con índice de grupos de obra en página de Presupuestos
+                            // ðŸŽ¨ Para cada obra normal, agregar la obra y sus trabajos extra con metadatos de grupo
+                            let grupoIndex = 2; // ðŸŽ¨ Sincronizar con índice de grupos de obra en página de Presupuestos
 
                             obrasNormales.forEach(obraPadre => {
                               // Buscar trabajos extra de esta obra (por ID o por detección de nombre)
@@ -6222,7 +6500,7 @@ _Válido por 30 días_
                               const tieneSubObras = trabajosExtraDeEstaObra.length > 0;
                               const totalEnGrupo = tieneSubObras ? trabajosExtraDeEstaObra.length + 1 : 1;
 
-                              // 🏢 Agregar obra PADRE primero (ARRIBA)
+                              // ðŸ¢ Agregar obra PADRE primero (ARRIBA)
                               listaOrdenada.push({
                                 ...obraPadre,
                                 _grupoObra: tieneSubObras ? obraPadre.id : null,
@@ -6234,7 +6512,7 @@ _Válido por 30 días_
                               });
 
                               if (tieneSubObras) {
-                                // 🔧 Ordenar trabajos extra por ID ASCENDENTE (del más antiguo al más nuevo)
+                                // ðŸ”§ Ordenar trabajos extra por ID ASCENDENTE (del más antiguo al más nuevo)
                                 // Esto asegura que las sub-obras aparezcan DEBAJO de la obra padre
                                 trabajosExtraDeEstaObra.sort((a, b) => a.id - b.id);
 
@@ -6296,17 +6574,17 @@ _Válido por 30 días_
                             const obraId = obra.id;
                             const isSelected = selectedObraId && obraId && selectedObraId === obraId;
 
-                            // 🔍 Determinar si es subobra/trabajo extra (explícito o detectado)
+                            // ðŸ” Determinar si es subobra/trabajo extra (explícito o detectado)
                             const esSubobra = obra.esTrabajoExtra || obra._grupoTipo === 'trabajoExtra';
 
-                            // 🎨 Determinar información de grupo para estilos visuales
+                            // ðŸŽ¨ Determinar información de grupo para estilos visuales
                             const perteneceAGrupo = obra._grupoObra !== null;
                             const esPrimerEnGrupo = obra._primerEnGrupo;
                             const esUltimoEnGrupo = obra._ultimoEnGrupo;
                             const grupoIndex = obra._grupoIndex || 0;
                             const totalEnGrupo = obra._totalEnGrupo || 1;
 
-                            // 🔥 Verificar si es un cambio de grupo (comparar grupoIndex con el anterior)
+                            // ðŸ”¥ Verificar si es un cambio de grupo (comparar grupoIndex con el anterior)
                             const esCambioDeGrupo = index > 0 && (
                               array[index - 1]._grupoIndex !== obra._grupoIndex
                             );
@@ -6321,7 +6599,7 @@ _Válido por 30 días_
                               '#e7d6ff'  // Púrpura claro
                             ];
 
-                            // 💡 Función helper para ajustar brillo (oscurecer/aclarar)
+                            // ðŸ’¡ Función helper para ajustar brillo (oscurecer/aclarar)
                             const adjustColorBrightness = (color, percent) => {
                               const num = parseInt(color.replace("#", ""), 16);
                               const amt = Math.round(2.55 * percent);
@@ -6334,10 +6612,10 @@ _Válido por 30 días_
                                 .toString(16).slice(1);
                             };
 
-                            // 🎨 Color base del grupo
+                            // ðŸŽ¨ Color base del grupo
                             const colorBaseGrupo = coloresGrupo[grupoIndex % coloresGrupo.length];
 
-                            // 🎨 Alternar tonalidades dentro del grupo
+                            // ðŸŽ¨ Alternar tonalidades dentro del grupo
                             let colorGrupo = '#ffffff';
 
                             if (perteneceAGrupo) {
@@ -6351,7 +6629,7 @@ _Válido por 30 días_
 
                             return (
                             <React.Fragment key={obraId}>
-                              {/* 🎨 Separador visual entre grupos - se muestra ANTES del primer elemento del nuevo grupo */}
+                              {/* ðŸŽ¨ Separador visual entre grupos - se muestra ANTES del primer elemento del nuevo grupo */}
                               {esCambioDeGrupo && index > 0 && (
                                 <tr style={{ height: '10px', backgroundColor: '#000000' }}><td colSpan="13" style={{
                                     padding: 0,
@@ -6362,7 +6640,7 @@ _Válido por 30 días_
                                   }}></td></tr>
                               )}
 
-                              {/* 🔴 Línea delgada entre obras del mismo grupo */}
+                              {/* ðŸ”´ Línea delgada entre obras del mismo grupo */}
                               {index > 0 && perteneceAGrupo &&
                                array[index - 1] &&
                                array[index - 1]._grupoIndex === obra._grupoIndex &&
@@ -6638,22 +6916,22 @@ _Válido por 30 días_
                               <tr>
                                 <td colSpan="11" className="p-0">
                                   <div className="bg-light p-3 border-top">
-                                    {/* CONFIGURACIÓN GLOBAL DE OBRA */}
+                                    {/* CONFIGURACIÃ“N GLOBAL DE OBRA */}
                                     <div className="mb-4 p-3 border rounded bg-white">
                                       <div className="row align-items-center">
                                         <div className="col-md-8">
                                           <h6 className="text-primary mb-1">
                                             <i className="fas fa-cog me-2"></i>
-                                            Configuración de Planificación
+                                            Configuración y Planificación de Obra
                                           </h6>
                                           {(() => {
                                             const config = obtenerConfiguracionObra(obra.id);
                                             const profesionalesAsignados = contarProfesionalesAsignados(obra.id)?.count || 0;
                                             const presupuesto = presupuestosObras[obra.id] || obra.presupuestoNoCliente;
 
-                                            // ✅ VALIDAR: Solo mostrar configuración si el presupuesto tiene fechas
+                                            // âœ… VALIDAR: Solo mostrar configuración si el presupuesto tiene fechas
                                             if (config && presupuesto?.fechaProbableInicio && presupuesto?.tiempoEstimadoTerminacion) {
-                                              // 🔥 CALCULAR SEMANAS desde presupuesto usando función centralizada
+                                              // ðŸ”¥ CALCULAR SEMANAS desde presupuesto usando función centralizada
                                               const diasHabiles = config.diasHabiles || presupuesto.tiempoEstimadoTerminacion || 0;
 
                                               let semanasReales = config.semanasObjetivo; // Fallback
@@ -6667,17 +6945,17 @@ _Válido por 30 días_
 
                                               return (
                                                 <small className="text-success">
-                                                  ✅ Configurado: {semanasReales} semanas ({diasHabilesAprox} días)
+                                                  âœ… Configurado: {semanasReales} semanas ({diasHabilesAprox} días)
                                                   - {profesionalesAsignados} profesional{profesionalesAsignados !== 1 ? 'es' : ''} asignado{profesionalesAsignados !== 1 ? 's' : ''}
                                                 </small>
                                               );
                                             }
 
-                                            // ⚠️ Si no tiene fechas, mostrar advertencia clara
+                                            //  Si no tiene fechas, mostrar advertencia clara
                                             if (config && presupuesto && !presupuesto?.fechaProbableInicio) {
                                               return (
                                                 <small className="text-danger">
-                                                  ⚠️ El presupuesto no tiene fecha probable de inicio configurada
+                                                   El presupuesto no tiene fecha probable de inicio configurada
                                                 </small>
                                               );
                                             }
@@ -6795,8 +7073,8 @@ _Válido por 30 días_
                                           className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            console.log('🔍 Click en Gestionar Trabajos Extra - Objeto obra:', obra);
-                                            console.log('🔍 Propiedades de trabajo extra:', {
+                                            console.log('ðŸ” Click en Gestionar Trabajos Extra - Objeto obra:', obra);
+                                            console.log('ðŸ” Propiedades de trabajo extra:', {
                                               esObraTrabajoExtra: obra.esObraTrabajoExtra,
                                               es_obra_trabajo_extra: obra.es_obra_trabajo_extra,
                                               id: obra.id
@@ -6827,25 +7105,25 @@ _Válido por 30 días_
                                             e.stopPropagation();
                                             const config = obtenerConfiguracionObra(obra.id);
                                             if (!config) {
-                                              showNotification('⚠️ Primero configura la planificación de la obra', 'warning');
+                                              showNotification(' Primero configura la planificación de la obra', 'warning');
                                               return;
                                             }
 
-                                            // 🔥 Enriquecer obra con presupuesto completo Y asignaciones antes de abrir modal
+                                            // ðŸ”¥ Enriquecer obra con presupuesto completo Y asignaciones antes de abrir modal
                                             try {
                                               const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId);
                                               const presupuestoCompleto = todosPresupuestos.find(p =>
                                                 p.obraId === obra.id || p.idObra === obra.id
                                               );
 
-                                              // 🔥 NUEVO: Obtener asignaciones actuales de profesionales
+                                              // ðŸ”¥ NUEVO: Obtener asignaciones actuales de profesionales
                                               let asignacionesActuales = [];
                                               try {
                                                 const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaId);
                                                 asignacionesActuales = responseAsignaciones?.data || responseAsignaciones || [];
-                                                console.log('📋 Asignaciones actuales cargadas:', asignacionesActuales.length);
+                                                console.log('ðŸ“‹ Asignaciones actuales cargadas:', asignacionesActuales.length);
                                               } catch (error) {
-                                                console.warn('⚠️ No se pudieron cargar asignaciones:', error.message);
+                                                console.warn(' No se pudieron cargar asignaciones:', error.message);
                                               }
 
                                               const obraEnriquecida = {
@@ -6854,7 +7132,7 @@ _Válido por 30 días_
                                                 asignacionesActuales: asignacionesActuales
                                               };
 
-                                              console.log('🔍 DEBUG - Obra enriquecida:', {
+                                              console.log('ðŸ” DEBUG - Obra enriquecida:', {
                                                 obraId: obraEnriquecida.id,
                                                 tienePresupuesto: !!obraEnriquecida.presupuestoNoCliente,
                                                 fechaProbableInicio: obraEnriquecida.presupuestoNoCliente?.fechaProbableInicio,
@@ -6905,7 +7183,7 @@ _Válido por 30 días_
                                             e.stopPropagation();
                                             const config = obtenerConfiguracionObra(obra.id);
                                             if (!config) {
-                                              showNotification('⚠️ Primero configura la planificación de la obra', 'warning');
+                                              showNotification(' Primero configura la planificación de la obra', 'warning');
                                               return;
                                             }
                                             setObraParaAsignarMateriales(obra);
@@ -6933,7 +7211,7 @@ _Válido por 30 días_
                                             e.stopPropagation();
                                             const config = obtenerConfiguracionObra(obra.id);
                                             if (!config) {
-                                              showNotification('⚠️ Primero configura la planificación de la obra', 'warning');
+                                              showNotification(' Primero configura la planificación de la obra', 'warning');
                                               return;
                                             }
                                             setObraParaAsignarGastos(obra);
@@ -6993,7 +7271,7 @@ _Válido por 30 días_
                                                 _trabajoExtraId: obra.id,  // ID de la obra que es trabajo extra
                                                 _trabajoExtraNombre: obra.nombre
                                               };
-                                              console.log('🔵 Obra es trabajo extra, configurando contexto:', {
+                                              console.log('ðŸ”µ Obra es trabajo extra, configurando contexto:', {
                                                 trabajoExtraId: obra.id,
                                                 obraPadreId: obra.obraPadreId,
                                                 obraConContextoTrabajoExtra
@@ -7003,7 +7281,8 @@ _Válido por 30 días_
                                               setObraParaTrabajosAdicionales(obra);
                                             }
 
-                                            setMostrarModalListaTrabajosAdicionales(true);
+                                            // Abrir directamente el modal de PresupuestoNoClienteModal
+                                            abrirModalTareaLeveDirecto(obra);
                                           }}
                                         >
                                           <span>
@@ -7016,7 +7295,7 @@ _Válido por 30 días_
                                               const count = obra.esTrabajoExtra
                                                 ? trabajosAdicionales.filter(ta => ta.trabajoExtraId === obra.id).length
                                                 : contarTrabajosAdicionalesObra(obra.id);
-                                              console.log(`🏗️ Badge OBRA ${obra.id} (esTE:${!!obra.esTrabajoExtra}): count=${count}, total=${trabajosAdicionales.length}`);
+                                              console.log(`ðŸ—ï¸ Badge OBRA ${obra.id} (esTE:${!!obra.esTrabajoExtra}): count=${count}, total=${trabajosAdicionales.length}`);
                                               return count;
                                             })()}
                                           </span>
@@ -7053,9 +7332,8 @@ _Válido por 30 días_
                                                         className="btn btn-outline-secondary"
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          setTrabajoAdicionalEditar(ta);
-                                                          setObraParaTrabajosAdicionales(obra);
-                                                          setMostrarModalTrabajoAdicional(true);
+                                                          // âœ… Editar tarea HIJA (directa de obra)
+                                                          abrirModalTareaLeveHija(obra, ta);
                                                         }}
                                                         title="Editar"
                                                       >
@@ -7120,9 +7398,9 @@ _Válido por 30 días_
                               </tr>
                             )}
 
-                            {/* ══════════════════════════════════════════════════
+                            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                                 SUBGRUPO: TAREAS LEVES / MANTENIMIENTO
-                                ══════════════════════════════════════════════════ */}
+                                â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
                             {(() => {
                               const tareasObra = obtenerTareasParaSubgrupo(obra);
                               if (tareasObra.length === 0) return null;
@@ -7147,7 +7425,7 @@ _Válido por 30 días_
                                     <td colSpan="13" className="py-1 px-3 small">
                                       <span className="fw-bold text-primary">
                                         <i className={`fas fa-chevron-${colTareas ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
-                                        🔧 Tareas Leves / Mantenimiento
+                                        ðŸ”§ Tareas Leves / Mantenimiento
                                         <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{tareasObra.length}</span>
                                       </span>
                                       <span className="text-muted ms-3 small">Clic para {colTareas ? 'mostrar' : 'ocultar'}</span>
@@ -7240,13 +7518,13 @@ _Válido por 30 días_
                                       <tr>
                                         <td colSpan="13" className="p-0">
                                           <div className="bg-light p-3 border-top">
-                                            {/* CONFIGURACIÓN GLOBAL DE TAREA LEVE */}
+                                            {/* CONFIGURACIÃ“N GLOBAL DE TAREA LEVE */}
                                             <div className="mb-4 p-3 border rounded bg-white">
                                               <div className="row align-items-center">
                                                 <div className="col-md-8">
                                                   <h6 className="text-primary mb-1">
                                                     <i className="fas fa-cog me-2"></i>
-                                                    Configuración de Planificación
+                                                    Configuración y Planificación de Obra
                                                   </h6>
                                                   <small className="text-muted">
                                                     Tarea Leve: {ta.nombre || '—'} | Estado: <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO?.[ta.estado] || 'secondary'}`} style={{fontSize:'0.7em'}}>{ta.estado || '—'}</span> | Importe: ${ta.importe > 0 ? Number(ta.importe).toLocaleString('es-AR', {minimumFractionDigits:2}) : '0,00'}
@@ -7271,9 +7549,8 @@ _Válido por 30 días_
                                                   className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setTrabajoAdicionalEditar(ta);
-                                                    setObraParaTrabajosAdicionales(obra);
-                                                    setMostrarModalTrabajoAdicional(true);
+                                                    // âœ… Editar presupuesto tarea HIJA
+                                                    abrirModalTareaLeveHija(obra, ta);
                                                   }}
                                                 >
                                                   <span>
@@ -7296,7 +7573,7 @@ _Válido por 30 días_
                                                   className="btn btn-sm btn-outline-warning w-100 d-flex justify-content-between align-items-center"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    showNotification('ℹ️ Funcionalidad de asignación de materiales para tareas leves próximamente', 'info');
+                                                    showNotification('â„¹ï¸ Funcionalidad de asignación de materiales para tareas leves próximamente', 'info');
                                                   }}
                                                 >
                                                   <span>
@@ -7317,7 +7594,7 @@ _Válido por 30 días_
                                                   className="btn btn-sm btn-outline-danger w-100 d-flex justify-content-between align-items-center"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    showNotification('ℹ️ Funcionalidad de asignación de gastos para tareas leves próximamente', 'info');
+                                                    showNotification('â„¹ï¸ Funcionalidad de asignación de gastos para tareas leves próximamente', 'info');
                                                   }}
                                                 >
                                                   <span>
@@ -7338,7 +7615,7 @@ _Válido por 30 días_
                                                   className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    showNotification('ℹ️ Las tareas leves son trabajos puntuales sin cronograma de etapas diarias', 'info');
+                                                    showNotification('â„¹ï¸ Las tareas leves son trabajos puntuales sin cronograma de etapas diarias', 'info');
                                                   }}
                                                   disabled
                                                 >
@@ -7805,7 +8082,7 @@ _Válido por 30 días_
                                         {/* Cálculo en tiempo real */}
                                         {importeJornalesObra && honorarioJornalesObra && (
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.75rem', color: '#92400e' }}>
-                                            <strong>💰 Importe:</strong> $
+                                            <strong>ðŸ’° Importe:</strong> $
                                             {tipoHonorarioJornalesObra === 'fijo'
                                               ? parseFloat(honorarioJornalesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeJornalesObra || 0) * parseFloat(honorarioJornalesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -7898,7 +8175,7 @@ _Válido por 30 días_
                                         {/* Cálculo en tiempo real */}
                                         {importeMaterialesObra && honorarioMaterialesObra && (
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.75rem', color: '#1e40af' }}>
-                                            <strong>💰 Importe:</strong> $
+                                            <strong>ðŸ’° Importe:</strong> $
                                             {tipoHonorarioMaterialesObra === 'fijo'
                                               ? parseFloat(honorarioMaterialesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeMaterialesObra || 0) * parseFloat(honorarioMaterialesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -7993,7 +8270,7 @@ _Válido por 30 días_
                                         {/* Cálculo en tiempo real */}
                                         {importeGastosGeneralesObra && honorarioGastosGeneralesObra && (
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.75rem', color: '#065f46' }}>
-                                            <strong>💰 Importe:</strong> $
+                                            <strong>ðŸ’° Importe:</strong> $
                                             {tipoHonorarioGastosGeneralesObra === 'fijo'
                                               ? parseFloat(honorarioGastosGeneralesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -8086,7 +8363,7 @@ _Válido por 30 días_
                                         {/* Cálculo en tiempo real */}
                                         {importeMayoresCostosObra && honorarioMayoresCostosObra && (
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.75rem', color: '#991b1b' }}>
-                                            <strong>💰 Importe:</strong> $
+                                            <strong>ðŸ’° Importe:</strong> $
                                             {tipoHonorarioMayoresCostosObra === 'fijo'
                                               ? parseFloat(honorarioMayoresCostosObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -8115,7 +8392,7 @@ _Válido por 30 días_
                                       {/* Importe base */}
                                       {importeJornalesObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e', border: '1px solid #f59e0b' }}>
-                                          <strong>📊 Base:</strong> ${parseFloat(importeJornalesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          <strong>ðŸ“Š Base:</strong> ${parseFloat(importeJornalesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
                                       )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
@@ -8165,14 +8442,14 @@ _Válido por 30 días_
                                       {importeJornalesObra && descuentoJornalesObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {tipoDescuentoJornalesObra === 'fijo'
                                               ? parseFloat(descuentoJornalesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeJornalesObra || 0) * parseFloat(descuentoJornalesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                             }
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Total: $
+                                            ðŸ’µ Total: $
                                             {(() => {
                                               const base = parseFloat(importeJornalesObra || 0);
                                               const desc = tipoDescuentoJornalesObra === 'fijo'
@@ -8194,7 +8471,7 @@ _Válido por 30 días_
                                       {/* Importe base */}
                                       {importeMaterialesObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af', border: '1px solid #3b82f6' }}>
-                                          <strong>📊 Base:</strong> ${parseFloat(importeMaterialesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          <strong>ðŸ“Š Base:</strong> ${parseFloat(importeMaterialesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
                                       )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
@@ -8244,14 +8521,14 @@ _Válido por 30 días_
                                       {importeMaterialesObra && descuentoMaterialesObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {tipoDescuentoMaterialesObra === 'fijo'
                                               ? parseFloat(descuentoMaterialesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeMaterialesObra || 0) * parseFloat(descuentoMaterialesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                             }
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#3b82f6', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Total: $
+                                            ðŸ’µ Total: $
                                             {(() => {
                                               const base = parseFloat(importeMaterialesObra || 0);
                                               const desc = tipoDescuentoMaterialesObra === 'fijo'
@@ -8273,7 +8550,7 @@ _Válido por 30 días_
                                       {/* Importe base */}
                                       {importeGastosGeneralesObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46', border: '1px solid #10b981' }}>
-                                          <strong>📊 Base:</strong> ${parseFloat(importeGastosGeneralesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          <strong>ðŸ“Š Base:</strong> ${parseFloat(importeGastosGeneralesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
                                       )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
@@ -8323,14 +8600,14 @@ _Válido por 30 días_
                                       {importeGastosGeneralesObra && descuentoGastosGeneralesObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {tipoDescuentoGastosGeneralesObra === 'fijo'
                                               ? parseFloat(descuentoGastosGeneralesObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(descuentoGastosGeneralesObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                             }
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#10b981', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Total: $
+                                            ðŸ’µ Total: $
                                             {(() => {
                                               const base = parseFloat(importeGastosGeneralesObra || 0);
                                               const desc = tipoDescuentoGastosGeneralesObra === 'fijo'
@@ -8352,7 +8629,7 @@ _Válido por 30 días_
                                       {/* Importe base */}
                                       {importeMayoresCostosObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b', border: '1px solid #ef4444' }}>
-                                          <strong>📊 Base:</strong> ${parseFloat(importeMayoresCostosObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          <strong>ðŸ“Š Base:</strong> ${parseFloat(importeMayoresCostosObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
                                       )}
                                       <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
@@ -8402,14 +8679,14 @@ _Válido por 30 días_
                                       {importeMayoresCostosObra && descuentoMayoresCostosObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {tipoDescuentoMayoresCostosObra === 'fijo'
                                               ? parseFloat(descuentoMayoresCostosObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                               : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(descuentoMayoresCostosObra || 0)) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                                             }
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#ef4444', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Total: $
+                                            ðŸ’µ Total: $
                                             {(() => {
                                               const base = parseFloat(importeMayoresCostosObra || 0);
                                               const desc = tipoDescuentoMayoresCostosObra === 'fijo'
@@ -8441,7 +8718,7 @@ _Válido por 30 días_
                                       {/* Honorario base */}
                                       {honorarioJornalesObra && importeJornalesObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e', border: '1px solid #f59e0b' }}>
-                                          <strong>📊 Hon. Base:</strong> $
+                                          <strong>ðŸ“Š Hon. Base:</strong> $
                                           {(tipoHonorarioJornalesObra === 'fijo'
                                             ? parseFloat(honorarioJornalesObra || 0)
                                             : ((parseFloat(importeJornalesObra || 0) * parseFloat(honorarioJornalesObra || 0)) / 100)
@@ -8495,7 +8772,7 @@ _Válido por 30 días_
                                       {honorarioJornalesObra && descuentoHonorarioJornalesObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {(() => {
                                               const honorario = tipoHonorarioJornalesObra === 'fijo'
                                                 ? parseFloat(honorarioJornalesObra || 0)
@@ -8507,7 +8784,7 @@ _Válido por 30 días_
                                             })()}
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
+                                            ðŸ’µ Hon. Final: $
                                             {(() => {
                                               const honorario = tipoHonorarioJornalesObra === 'fijo'
                                                 ? parseFloat(honorarioJornalesObra || 0)
@@ -8531,7 +8808,7 @@ _Válido por 30 días_
                                       {/* Honorario base */}
                                       {honorarioMaterialesObra && importeMaterialesObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af', border: '1px solid #3b82f6' }}>
-                                          <strong>📊 Hon. Base:</strong> $
+                                          <strong>ðŸ“Š Hon. Base:</strong> $
                                           {(tipoHonorarioMaterialesObra === 'fijo'
                                             ? parseFloat(honorarioMaterialesObra || 0)
                                             : ((parseFloat(importeMaterialesObra || 0) * parseFloat(honorarioMaterialesObra || 0)) / 100)
@@ -8585,7 +8862,7 @@ _Válido por 30 días_
                                       {honorarioMaterialesObra && descuentoHonorarioMaterialesObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {(() => {
                                               const honorario = tipoHonorarioMaterialesObra === 'fijo'
                                                 ? parseFloat(honorarioMaterialesObra || 0)
@@ -8597,7 +8874,7 @@ _Válido por 30 días_
                                             })()}
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#3b82f6', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
+                                            ðŸ’µ Hon. Final: $
                                             {(() => {
                                               const honorario = tipoHonorarioMaterialesObra === 'fijo'
                                                 ? parseFloat(honorarioMaterialesObra || 0)
@@ -8621,7 +8898,7 @@ _Válido por 30 días_
                                       {/* Honorario base */}
                                       {honorarioGastosGeneralesObra && importeGastosGeneralesObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46', border: '1px solid #10b981' }}>
-                                          <strong>📊 Hon. Base:</strong> $
+                                          <strong>ðŸ“Š Hon. Base:</strong> $
                                           {(tipoHonorarioGastosGeneralesObra === 'fijo'
                                             ? parseFloat(honorarioGastosGeneralesObra || 0)
                                             : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100)
@@ -8674,7 +8951,7 @@ _Válido por 30 días_
                                       {/* Honorario Base */}
                                       {honorarioGastosGeneralesObra && importeGastosGeneralesObra && (
                                         <div className="mt-1 p-1" style={{ backgroundColor: '#ecfdf5', borderRadius: '4px', fontSize: '0.7rem', color: '#047857', fontWeight: 'bold' }}>
-                                          📊 Hon. Base: $
+                                          ðŸ“Š Hon. Base: $
                                           {(tipoHonorarioGastosGeneralesObra === 'fijo'
                                             ? parseFloat(honorarioGastosGeneralesObra || 0)
                                             : ((parseFloat(importeGastosGeneralesObra || 0) * parseFloat(honorarioGastosGeneralesObra || 0)) / 100)
@@ -8685,7 +8962,7 @@ _Válido por 30 días_
                                       {honorarioGastosGeneralesObra && descuentoHonorarioGastosGeneralesObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {(() => {
                                               const honorario = tipoHonorarioGastosGeneralesObra === 'fijo'
                                                 ? parseFloat(honorarioGastosGeneralesObra || 0)
@@ -8697,7 +8974,7 @@ _Válido por 30 días_
                                             })()}
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#10b981', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
+                                            ðŸ’µ Hon. Final: $
                                             {(() => {
                                               const honorario = tipoHonorarioGastosGeneralesObra === 'fijo'
                                                 ? parseFloat(honorarioGastosGeneralesObra || 0)
@@ -8721,7 +8998,7 @@ _Válido por 30 días_
                                       {/* Honorario base */}
                                       {honorarioMayoresCostosObra && importeMayoresCostosObra && (
                                         <div className="mb-2 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b', border: '1px solid #ef4444' }}>
-                                          <strong>📊 Hon. Base:</strong> $
+                                          <strong>ðŸ“Š Hon. Base:</strong> $
                                           {(tipoHonorarioMayoresCostosObra === 'fijo'
                                             ? parseFloat(honorarioMayoresCostosObra || 0)
                                             : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100)
@@ -8774,7 +9051,7 @@ _Válido por 30 días_
                                       {/* Honorario Base */}
                                       {honorarioMayoresCostosObra && importeMayoresCostosObra && (
                                         <div className="mt-1 p-1" style={{ backgroundColor: '#fef2f2', borderRadius: '4px', fontSize: '0.7rem', color: '#7f1d1d', fontWeight: 'bold' }}>
-                                          📊 Hon. Base: $
+                                          ðŸ“Š Hon. Base: $
                                           {(tipoHonorarioMayoresCostosObra === 'fijo'
                                             ? parseFloat(honorarioMayoresCostosObra || 0)
                                             : ((parseFloat(importeMayoresCostosObra || 0) * parseFloat(honorarioMayoresCostosObra || 0)) / 100)
@@ -8785,7 +9062,7 @@ _Válido por 30 días_
                                       {honorarioMayoresCostosObra && descuentoHonorarioMayoresCostosObra && (
                                         <>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b' }}>
-                                            <strong>💰 Descuento:</strong> $
+                                            <strong>ðŸ’° Descuento:</strong> $
                                             {(() => {
                                               const honorario = tipoHonorarioMayoresCostosObra === 'fijo'
                                                 ? parseFloat(honorarioMayoresCostosObra || 0)
@@ -8797,7 +9074,7 @@ _Válido por 30 días_
                                             })()}
                                           </div>
                                           <div className="mt-1 p-1" style={{ backgroundColor: '#ef4444', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
+                                            ðŸ’µ Hon. Final: $
                                             {(() => {
                                               const honorario = tipoHonorarioMayoresCostosObra === 'fijo'
                                                 ? parseFloat(honorarioMayoresCostosObra || 0)
@@ -8833,7 +9110,7 @@ _Válido por 30 días_
                                     <small className="text-muted d-block mt-2">
                                       <div className="row">
                                         <div className="col-6 mb-1">
-                                          ⚒️ <strong>Jornales:</strong> ${(parseFloat(importeJornalesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          âš’ï¸ <strong>Jornales:</strong> ${(parseFloat(importeJornalesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                           {honorarioJornalesObra && parseFloat(honorarioJornalesObra) > 0 && (
                                             <span className="ms-1 text-success">
                                               + Hon. {tipoHonorarioJornalesObra === 'porcentaje' ? `${honorarioJornalesObra}%` : `$${(parseFloat(honorarioJornalesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
@@ -8841,7 +9118,7 @@ _Válido por 30 días_
                                           )}
                                         </div>
                                         <div className="col-6 mb-1">
-                                          📦 <strong>Materiales:</strong> ${(parseFloat(importeMaterialesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          ðŸ“¦ <strong>Materiales:</strong> ${(parseFloat(importeMaterialesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                           {honorarioMaterialesObra && parseFloat(honorarioMaterialesObra) > 0 && (
                                             <span className="ms-1 text-success">
                                               + Hon. {tipoHonorarioMaterialesObra === 'porcentaje' ? `${honorarioMaterialesObra}%` : `$${(parseFloat(honorarioMaterialesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
@@ -8849,7 +9126,7 @@ _Válido por 30 días_
                                           )}
                                         </div>
                                         <div className="col-6 mb-1">
-                                          💼 <strong>Gastos Generales:</strong> ${(parseFloat(importeGastosGeneralesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          ðŸ’¼ <strong>Gastos Generales:</strong> ${(parseFloat(importeGastosGeneralesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                           {honorarioGastosGeneralesObra && parseFloat(honorarioGastosGeneralesObra) > 0 && (
                                             <span className="ms-1 text-success">
                                               + Hon. {tipoHonorarioGastosGeneralesObra === 'porcentaje' ? `${honorarioGastosGeneralesObra}%` : `$${(parseFloat(honorarioGastosGeneralesObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
@@ -8857,7 +9134,7 @@ _Válido por 30 días_
                                           )}
                                         </div>
                                         <div className="col-6 mb-1">
-                                          📈 <strong>Mayores Costos:</strong> ${(parseFloat(importeMayoresCostosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          ðŸ“ˆ <strong>Mayores Costos:</strong> ${(parseFloat(importeMayoresCostosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                           {honorarioMayoresCostosObra && parseFloat(honorarioMayoresCostosObra) > 0 && (
                                             <span className="ms-1 text-success">
                                               + Hon. {tipoHonorarioMayoresCostosObra === 'porcentaje' ? `${honorarioMayoresCostosObra}%` : `$${(parseFloat(honorarioMayoresCostosObra) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
@@ -9002,11 +9279,11 @@ _Válido por 30 días_
                                         </td>
                                         <td>
                                                                                    {etapa.estado === 'COMPLETADA' ? (
-                                            <span className="badge bg-success">✅ Completada</span>
+                                            <span className="badge bg-success">âœ… Completada</span>
                                           ) : etapa.estado === 'EN_PROCESO' ? (
-                                            <span className="badge bg-primary">🔄 En Proceso</span>
+                                            <span className="badge bg-primary">ðŸ”„ En Proceso</span>
                                           ) : (
-                                            <span className="badge bg-secondary">⏳ Pendiente</span>
+                                            <span className="badge bg-secondary">â³ Pendiente</span>
                                           )}
                                         </td>
                                       </tr>
@@ -9253,7 +9530,7 @@ _Válido por 30 días_
                         <p>Las obras independientes son aquellas creadas directamente sin un presupuesto previo.</p>
                         <button
                           className="btn btn-primary mt-3"
-                          onClick={() => dispatch(setActiveTab('crear'))}
+                          onClick={abrirModalTrabajoDiario}
                         >
                           <i className="fas fa-plus me-2"></i>
                           Crear Primer Trabajo Diario
@@ -9364,16 +9641,16 @@ _Válido por 30 días_
                                                                 (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
 
                                         if (tienePresupuesto) {
-                                          showNotification('⚠️ No se puede editar una obra creada desde presupuesto', 'warning');
+                                          showNotification(' No se puede editar una obra creada desde presupuesto', 'warning');
                                           return;
                                         }
 
                                         // Cargar datos en formulario
                                         const mapeoEstados = {
-                                          'EN_PLANIFICACIÓN': 'BORRADOR',
+                                          'EN_PLANIFICACIÃ“N': 'BORRADOR',
                                           'EN_PLANIFICACION': 'BORRADOR',
-                                          'EN PLANIFICACIÓN': 'BORRADOR',
-                                          'EN_EJECUCIÓN': 'EN_EJECUCION',
+                                          'EN PLANIFICACIÃ“N': 'BORRADOR',
+                                          'EN_EJECUCIÃ“N': 'EN_EJECUCION',
                                           'EN_EJECUCION': 'EN_EJECUCION'
                                         };
 
@@ -9466,7 +9743,7 @@ _Válido por 30 días_
                                             setTipoDescuentoHonorarioMayoresCostosObra(obra.tipoDescuentoHonorarioMayoresCostosObra || 'porcentaje');
                                           }
 
-                                          console.log('📂 Desglose obra restaurado desde DTO (tabla):', obra);
+                                          console.log('ðŸ“‚ Desglose obra restaurado desde DTO (tabla):', obra);
                                         } else {
                                           setUsarDesgloseObra(false);
                                           setImporteMaterialesObra('');
@@ -9629,7 +9906,7 @@ _Válido por 30 días_
                                 {row.nombreObra || row.nombre || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}
                                 {row.esTrabajoExtra && (
                                   <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.65rem', padding: '2px 6px'}}>
-                                    🔧 EXTRA
+                                    ðŸ”§ EXTRA
                                   </span>
                                 )}
                               </td>
@@ -9746,8 +10023,8 @@ _Válido por 30 días_
                                     });
                                   }
 
-                                  // Si tiene elementos globales y NO tiene elementos específicos → GLOBAL
-                                  // Si tiene elementos específicos → DETALLADO
+                                  // Si tiene elementos globales y NO tiene elementos específicos â†’ GLOBAL
+                                  // Si tiene elementos específicos â†’ DETALLADO
                                   const esGlobal = tieneElementosGlobales && !tieneElementosEspecificos;
 
                                   return esGlobal ? (
@@ -9963,7 +10240,7 @@ _Válido por 30 días_
                               </td>
                             </tr>
 
-                            {/* FILA EXPANDIDA CON DETALLES DE PLANIFICACIÓN */}
+                            {/* FILA EXPANDIDA CON DETALLES DE PLANIFICACIÃ“N */}
                             {trabajoExtraExpandido === rowId && (
                               <tr className="bg-light" key={`trabajo-extra-expandido-${rowId}-${row.profesionales?.length || 0}-${row.materiales?.length || 0}-${row.gastosGenerales?.length || 0}`}>
                                 <td colSpan="8" className="p-0">
@@ -9973,7 +10250,7 @@ _Válido por 30 días_
                                         <div className="col-md-8">
                                           <h6 className="text-primary mb-1">
                                             <i className="fas fa-cog me-2"></i>
-                                            Configuración de Planificación
+                                            Configuración y Planificación de Obra
                                           </h6>
                                           {row?.fechaProbableInicio && row?.tiempoEstimadoTerminacion ? (
                                             <small className="text-success">
@@ -9992,10 +10269,10 @@ _Válido por 30 días_
                                               title="Reconfigurar planificación del trabajo extra"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                // 🔥 PRIMERO: buscar el trabajo extra actualizado en el estado local
+                                                // ðŸ”¥ PRIMERO: buscar el trabajo extra actualizado en el estado local
                                                 const trabajoExtraActualizado = trabajosExtra.find(t => t.id === row.id) || row;
 
-                                                console.log('✅ [Reconfigurar TE] Usando trabajo extra actualizado:', {
+                                                console.log('âœ… [Reconfigurar TE] Usando trabajo extra actualizado:', {
                                                   rowId: row.id,
                                                   tiempoEnRow: row.tiempoEstimadoTerminacion,
                                                   tiempoEnEstado: trabajoExtraActualizado.tiempoEstimadoTerminacion,
@@ -10008,7 +10285,7 @@ _Válido por 30 días_
                                                   id: `te_${trabajoExtraActualizado.id}`,
                                                   nombre: trabajoExtraActualizado.nombreObra || trabajoExtraActualizado.nombre,
                                                   direccion: obraParaTrabajosExtra?.direccion || '',
-                                                  // ✅ Usar el trabajo extra ACTUALIZADO del estado local (NO el row del backend)
+                                                  // âœ… Usar el trabajo extra ACTUALIZADO del estado local (NO el row del backend)
                                                   presupuestoNoCliente: trabajoExtraActualizado,
                                                   fechaProbableInicio: trabajoExtraActualizado.fechaProbableInicio || '',
                                                   tiempoEstimadoTerminacion: trabajoExtraActualizado.tiempoEstimadoTerminacion || 0,
@@ -10076,17 +10353,17 @@ _Válido por 30 días_
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             // Crear objeto de trabajo extra como si fuera una obra para gestionar sus sub-trabajos
-                                            // 🔧 CRÍTICO: Obtener el ID numérico de la obra original (nunca usar IDs tipo "te_X")
+                                            // ðŸ”§ CRÃTICO: Obtener el ID numérico de la obra original (nunca usar IDs tipo "te_X")
                                             const obraOriginalIdNumerico = obraParaTrabajosExtra._obraOriginalId ||
                                               (typeof obraParaTrabajosExtra.id === 'number' ? obraParaTrabajosExtra.id : null);
 
                                             if (!obraOriginalIdNumerico) {
-                                              console.error('❌ No se pudo determinar el ID de la obra original');
+                                              console.error('âŒ No se pudo determinar el ID de la obra original');
                                               showNotification('Error: No se pudo determinar la obra original', 'error');
                                               return;
                                             }
 
-                                            // 🔧 CRÍTICO: Usar el ID correcto del trabajo extra (puede venir como id_trabajo_extra o id)
+                                            // ðŸ”§ CRÃTICO: Usar el ID correcto del trabajo extra (puede venir como id_trabajo_extra o id)
                                             const trabajoExtraIdReal = row.id_trabajo_extra || row.presupuestoNoClienteId || row.id;
 
                                             const trabajoComoObra = {
@@ -10097,7 +10374,7 @@ _Válido por 30 días_
                                               _trabajoExtraId: trabajoExtraIdReal,
                                               _obraOriginalId: obraOriginalIdNumerico
                                             };
-                                            console.log('🔍 Gestionar trabajos extra del trabajo extra:', {
+                                            console.log('ðŸ” Gestionar trabajos extra del trabajo extra:', {
                                               trabajoExtraId: trabajoExtraIdReal,
                                               obraOriginalId: obraOriginalIdNumerico,
                                               row,
@@ -10127,27 +10404,27 @@ _Válido por 30 días_
                                           className={`btn btn-sm w-100 d-flex justify-content-between align-items-center btn-outline-success`}
                                           onClick={async (e) => {
                                             e.stopPropagation();
-                                            console.log('🎯 CLICK en Asignar Profesionales - Trabajo Extra ID:', row.id);
+                                            console.log('ðŸŽ¯ CLICK en Asignar Profesionales - Trabajo Extra ID:', row.id);
 
                                             try {
-                                              // ✅ CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
-                                              console.log('🔍 Cargando presupuesto completo del trabajo extra ID:', row.id);
+                                              // âœ… CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
+                                              console.log('ðŸ” Cargando presupuesto completo del trabajo extra ID:', row.id);
                                               const presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
-                                              console.log('✅ Presupuesto completo cargado:', presupuestoCompleto);
+                                              console.log('âœ… Presupuesto completo cargado:', presupuestoCompleto);
 
-                                              // ✅ BUSCAR trabajo extra actualizado del estado (con asignaciones reales)
+                                              // âœ… BUSCAR trabajo extra actualizado del estado (con asignaciones reales)
                                               const trabajoActualizado = trabajosExtra.find(t => t.id === row.id) || row;
-                                              console.log('🔍 Usando asignaciones actualizadas:', trabajoActualizado.profesionales?.length || 0);
+                                              console.log('ðŸ” Usando asignaciones actualizadas:', trabajoActualizado.profesionales?.length || 0);
                                               const asignaciones = trabajoActualizado.profesionales || [];
 
                                               // Usar el presupuesto completo como si fuera una obra
-                                              // 🔑 IMPORTANTE: Para trabajos extra, id y obraId deben ser el ID del TRABAJO EXTRA,
+                                              // ðŸ”‘ IMPORTANTE: Para trabajos extra, id y obraId deben ser el ID del TRABAJO EXTRA,
                                               // no del obra padre. Esto asegura que las asignaciones se guarden correctamente.
                                               const trabajoComoObra = {
-                                                id: row.id, // ✅ ID del trabajo extra - USADO POR EL MODAL PARA GUARDAR
-                                                obraId: row.id, // ✅ ID del trabajo extra (NO de la obra padre)
+                                                id: row.id, // âœ… ID del trabajo extra - USADO POR EL MODAL PARA GUARDAR
+                                                obraId: row.id, // âœ… ID del trabajo extra (NO de la obra padre)
                                                 nombre: row.nombreObra || row.nombre,
-                                                presupuestoNoCliente: presupuestoCompleto, // ✅ Presupuesto completo cargado
+                                                presupuestoNoCliente: presupuestoCompleto, // âœ… Presupuesto completo cargado
                                                 fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || row.fechaProbableInicio,
                                                 tiempoEstimadoTerminacion: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
                                                 diasHabiles: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
@@ -10160,7 +10437,7 @@ _Válido por 30 días_
                                                   jornalesTotales: presupuestoCompleto.jornalesTotales || row.jornalesTotales || 0,
                                                   semanasObjetivo: Math.ceil((presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion || 0) / 5)
                                                 },
-                                                // ✅ Asignaciones reales cargadas del backend
+                                                // âœ… Asignaciones reales cargadas del backend
                                                 asignacionesActuales: asignaciones,
                                                 profesionales: asignaciones,
                                                 _esTrabajoExtra: true,
@@ -10170,7 +10447,7 @@ _Válido por 30 días_
                                                 _obraOriginalId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
                                               };
 
-                                              console.log('🔍 DEBUG - Trabajo Extra para profesionales:', {
+                                              console.log('ðŸ” DEBUG - Trabajo Extra para profesionales:', {
                                                 id: trabajoComoObra.id,
                                                 presupuesto: !!trabajoComoObra.presupuestoNoCliente,
                                                 items: trabajoComoObra.presupuestoNoCliente?.itemsCalculadora?.length || 0,
@@ -10181,7 +10458,7 @@ _Válido por 30 días_
                                               setObraParaAsignarProfesionales(trabajoComoObra);
                                               setMostrarModalAsignarProfesionalesSemanal(true);
                                             } catch (error) {
-                                              console.error('❌ Error cargando presupuesto del trabajo extra:', error);
+                                              console.error('âŒ Error cargando presupuesto del trabajo extra:', error);
                                               showNotification('Error al cargar el presupuesto del trabajo extra', 'error');
                                             }
                                           }}
@@ -10211,19 +10488,19 @@ _Válido por 30 días_
                                             e.stopPropagation();
 
                                             try {
-                                              // ✅ CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
-                                              console.log('🔍 Cargando presupuesto completo del trabajo extra ID:', row.id);
+                                              // âœ… CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
+                                              console.log('ðŸ” Cargando presupuesto completo del trabajo extra ID:', row.id);
                                               const presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
-                                              console.log('✅ Presupuesto completo cargado:', presupuestoCompleto);
+                                              console.log('âœ… Presupuesto completo cargado:', presupuestoCompleto);
 
                                               // Usar el presupuesto completo como si fuera una obra
-                                              // 🔑 IMPORTANTE: Para trabajos extra, id y obraId deben ser el ID del TRABAJO EXTRA,
+                                              // ðŸ”‘ IMPORTANTE: Para trabajos extra, id y obraId deben ser el ID del TRABAJO EXTRA,
                                               // no del obra padre. Esto asegura que las asignaciones se guarden correctamente.
                                               const trabajoParaMateriales = {
-                                                id: row.id, // ✅ ID del trabajo extra - USADO POR EL MODAL PARA GUARDAR
-                                                obraId: row.id, // ✅ ID del trabajo extra (NO de la obra padre)
+                                                id: row.id, // âœ… ID del trabajo extra - USADO POR EL MODAL PARA GUARDAR
+                                                obraId: row.id, // âœ… ID del trabajo extra (NO de la obra padre)
                                                 nombre: row.nombreObra || row.nombre,
-                                                presupuestoNoCliente: presupuestoCompleto, // ✅ Presupuesto completo cargado
+                                                presupuestoNoCliente: presupuestoCompleto, // âœ… Presupuesto completo cargado
                                                 fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || row.fechaProbableInicio,
                                                 tiempoEstimadoTerminacion: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
                                                 diasHabiles: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
@@ -10247,7 +10524,7 @@ _Válido por 30 días_
                                               setObraParaAsignarMateriales(trabajoParaMateriales);
                                               setMostrarModalAsignarMateriales(true);
                                             } catch (error) {
-                                              console.error('❌ Error cargando presupuesto del trabajo extra:', error);
+                                              console.error('âŒ Error cargando presupuesto del trabajo extra:', error);
                                               showNotification('Error al cargar el presupuesto del trabajo extra', 'error');
                                             }
                                           }}
@@ -10277,19 +10554,19 @@ _Válido por 30 días_
                                             e.stopPropagation();
 
                                             try {
-                                              // ✅ CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
-                                              console.log('🔍 Cargando presupuesto completo del trabajo extra ID:', row.id);
+                                              // âœ… CARGAR EL PRESUPUESTO COMPLETO DEL TRABAJO EXTRA
+                                              console.log('ðŸ” Cargando presupuesto completo del trabajo extra ID:', row.id);
                                               const presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
-                                              console.log('✅ Presupuesto completo cargado:', presupuestoCompleto);
+                                              console.log('âœ… Presupuesto completo cargado:', presupuestoCompleto);
 
                                               // Usar el presupuesto completo como si fuera una obra
-                                              // 🔑 IMPORTANTE: Para trabajos extra, id y obraId deben ser el ID del TRABAJO EXTRA,
+                                              // ðŸ”‘ IMPORTANTE: Para trabajos extra, id y obraId deben ser el ID del TRABAJO EXTRA,
                                               // no del obra padre. Esto asegura que las asignaciones se guarden correctamente.
                                               const trabajoParaGastos = {
-                                                id: row.id, // ✅ ID del trabajo extra - USADO POR EL MODAL PARA GUARDAR
-                                                obraId: row.id, // ✅ ID del trabajo extra (NO de la obra padre)
+                                                id: row.id, // âœ… ID del trabajo extra - USADO POR EL MODAL PARA GUARDAR
+                                                obraId: row.id, // âœ… ID del trabajo extra (NO de la obra padre)
                                                 nombre: row.nombreObra || row.nombre,
-                                                presupuestoNoCliente: presupuestoCompleto, // ✅ Presupuesto completo cargado
+                                                presupuestoNoCliente: presupuestoCompleto, // âœ… Presupuesto completo cargado
                                                 fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || row.fechaProbableInicio,
                                                 tiempoEstimadoTerminacion: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
                                                 diasHabiles: presupuestoCompleto.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion,
@@ -10314,7 +10591,7 @@ _Válido por 30 días_
                                               setObraParaAsignarGastos(trabajoParaGastos);
                                               setMostrarModalAsignarGastos(true);
                                             } catch (error) {
-                                              console.error('❌ Error cargando presupuesto del trabajo extra:', error);
+                                              console.error('âŒ Error cargando presupuesto del trabajo extra:', error);
                                               showNotification('Error al cargar el presupuesto del trabajo extra', 'error');
                                             }
                                           }}
@@ -10344,12 +10621,12 @@ _Válido por 30 días_
                                             e.stopPropagation();
 
                                             try {
-                                              // 🔥 PRIMERO: buscar el trabajo extra actualizado en el estado local
+                                              // ðŸ”¥ PRIMERO: buscar el trabajo extra actualizado en el estado local
                                               const trabajoExtraEnEstado = trabajosExtra.find(t => t.id === row.id);
                                               const tiempoActualizado = trabajoExtraEnEstado?.tiempoEstimadoTerminacion || row.tiempoEstimadoTerminacion;
                                               const fechaActualizada = trabajoExtraEnEstado?.fechaProbableInicio || row.fechaProbableInicio;
 
-                                              console.log('🔍 [Cronograma TE] Buscando trabajo extra con configuración actualizada:', {
+                                              console.log('ðŸ” [Cronograma TE] Buscando trabajo extra con configuración actualizada:', {
                                                 rowId: row.id,
                                                 trabajoEnEstado: !!trabajoExtraEnEstado,
                                                 tiempoEnEstado: trabajoExtraEnEstado?.tiempoEstimadoTerminacion,
@@ -10359,21 +10636,21 @@ _Válido por 30 días_
                                               // Si el trabajo extra en estado tiene datos diferentes a row, usarlos sin cargar del backend
                                               let presupuestoCompleto;
 
-                                              // 🔒 PASO 1: Buscar en cache etiquetado para trabajos extra (más confiable)
+                                              // ðŸ”’ PASO 1: Buscar en cache etiquetado para trabajos extra (más confiable)
                                               const presupuestoCacheado = presupuestosObras[`te_${row.id}`];
 
                                               if (presupuestoCacheado && presupuestoCacheado.tiempoEstimadoTerminacion) {
-                                                console.log('✅ [Cronograma TE] RECUPERANDO presupuesto del cache etiquetado (congelado)');
+                                                console.log('âœ… [Cronograma TE] RECUPERANDO presupuesto del cache etiquetado (congelado)');
                                                 presupuestoCompleto = presupuestoCacheado;
                                               } else if (trabajoExtraEnEstado && (trabajoExtraEnEstado.tiempoEstimadoTerminacion !== row.tiempoEstimadoTerminacion || trabajoExtraEnEstado.fechaProbableInicio !== row.fechaProbableInicio)) {
-                                                console.log('✅ [Cronograma TE] Usando trabajo extra actualizado del estado (NO cargar del backend)');
+                                                console.log('âœ… [Cronograma TE] Usando trabajo extra actualizado del estado (NO cargar del backend)');
                                                 presupuestoCompleto = { ...row, ...trabajoExtraEnEstado };
                                               } else {
-                                                console.log('🔍 [Cronograma TE] Cargando presupuesto completo del trabajo extra ID:', row.id);
+                                                console.log('ðŸ” [Cronograma TE] Cargando presupuesto completo del trabajo extra ID:', row.id);
                                                 presupuestoCompleto = await api.presupuestosNoCliente.getById(row.id, empresaId);
                                               }
 
-                                              console.log('✅ [Cronograma TE] Presupuesto resuelto:', {
+                                              console.log('âœ… [Cronograma TE] Presupuesto resuelto:', {
                                                 tiempoEstimadoTerminacion: presupuestoCompleto.tiempoEstimadoTerminacion,
                                                 fechaProbableInicio: presupuestoCompleto.fechaProbableInicio
                                               });
@@ -10401,11 +10678,11 @@ _Válido por 30 días_
                                                 _obraOriginalId: row.obraId || obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id,
                                                 _trabajoExtraNombre: row.nombreObra || row.nombre,
                                                 obraId: row.obraId || obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id,
-                                                // 🔥 IMPORTANTE: Usar el presupuesto actualizado (puede ser del estado o del backend)
+                                                // ðŸ”¥ IMPORTANTE: Usar el presupuesto actualizado (puede ser del estado o del backend)
                                                 presupuestoNoCliente: presupuestoCompleto
                                               };
-                                              console.log('🎯 [Gestionar Etapa TE] Usando presupuesto con', presupuestoCompleto.tiempoEstimadoTerminacion, 'días hábiles');
-                                              console.log('🎯🎯🎯 [Gestionar Etapa TE] TRABAJO_PARA_ETAPAS COMPLETO:', {
+                                              console.log('ðŸŽ¯ [Gestionar Etapa TE] Usando presupuesto con', presupuestoCompleto.tiempoEstimadoTerminacion, 'días hábiles');
+                                              console.log('ðŸŽ¯ðŸŽ¯ðŸŽ¯ [Gestionar Etapa TE] TRABAJO_PARA_ETAPAS COMPLETO:', {
                                                 id: trabajoParaEtapas.id,
                                                 presupuestoNoClienteTiempo: trabajoParaEtapas.presupuestoNoCliente?.tiempoEstimadoTerminacion,
                                                 presupuestoNoClienteFecha: trabajoParaEtapas.presupuestoNoCliente?.fechaProbableInicio,
@@ -10415,7 +10692,7 @@ _Válido por 30 días_
                                               cargarEtapasDiarias(trabajoParaEtapas);
                                               dispatch(setActiveTab('etapas-diarias'));
                                             } catch (error) {
-                                              console.error('❌ Error cargando presupuesto del trabajo extra:', error);
+                                              console.error('âŒ Error cargando presupuesto del trabajo extra:', error);
                                               showNotification('Error al cargar el presupuesto del trabajo extra', 'error');
                                             }
                                           }}
@@ -10447,7 +10724,8 @@ _Válido por 30 días_
                                               _trabajoExtraNombre: row.nombreObra || row.nombre
                                             };
                                             setObraParaTrabajosAdicionales(trabajoExtraComoObra);
-                                            setMostrarModalListaTrabajosAdicionales(true);
+                                            // Abrir directamente el modal de PresupuestoNoClienteModal
+                                            abrirModalTareaLeveDirecto(trabajoExtraComoObra);
                                           }}
                                         >
                                           <span>
@@ -10490,16 +10768,13 @@ Gestionar Tareas Leves
                                                         className="btn btn-outline-secondary"
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          const trabajoExtraComoObra = {
-                                                            ...row,
-                                                            id: row.obraId || obraParaTrabajosExtra.id,
-                                                            _esTrabajoExtra: true,
-                                                            _trabajoExtraId: row.id,
-                                                            _trabajoExtraNombre: row.nombreObra || row.nombre
-                                                          };
-                                                          setTrabajoAdicionalEditar(ta);
-                                                          setObraParaTrabajosAdicionales(trabajoExtraComoObra);
-                                                          setMostrarModalTrabajoAdicional(true);
+                                                          // âœ… Editar tarea NIETA (hija de trabajo extra)
+                                                          const trabajoExtra = trabajosExtras.find(te => te.id === row.id);
+                                                          const obraAbuelo = obras.find(o => o.id === row.obraId || o.id === obraParaTrabajosExtra.id);
+
+                                                          if (trabajoExtra && obraAbuelo) {
+                                                            abrirModalTareaLeveNieta(obraAbuelo, trabajoExtra, ta);
+                                                          }
                                                         }}
                                                         title="Editar"
                                                       >
@@ -10559,7 +10834,7 @@ Gestionar Tareas Leves
                                         )}
                                       </div>
 
-                                      {/* NUEVA SECCIÓN: GESTIÓN DE ESTADO Y CICLO DE VIDA */}
+                                      {/* NUEVA SECCIÃ“N: GESTIÃ“N DE ESTADO Y CICLO DE VIDA */}
                                       <div className="col-12 mt-4">
                                         <div className="card border-primary">
                                             <div className="card-header bg-primary text-white py-2">
@@ -10696,20 +10971,20 @@ Gestionar Tareas Leves
                   <button
                     className="btn btn-outline-primary me-3"
                     onClick={() => {
-                      console.log('🔍 DEBUG Volver:', {
+                      console.log('ðŸ” DEBUG Volver:', {
                         esTrabajoExtra: obraParaEtapasDiarias?._esTrabajoExtra,
                         obraOriginalId: obraParaEtapasDiarias?._obraOriginalId,
                         obraCompleta: obraParaEtapasDiarias
                       });
                       if (obraParaEtapasDiarias?._esTrabajoExtra && obraParaEtapasDiarias?._obraOriginalId) {
-                        console.log('✅ Es trabajo extra, volviendo a trabajos-extra');
+                        console.log('âœ… Es trabajo extra, volviendo a trabajos-extra');
                         const obraOriginal = obras.find(o => o.id === obraParaEtapasDiarias._obraOriginalId);
                         setObraParaTrabajosExtra(obraOriginal);
                         setObraParaEtapasDiarias(null);
-                        cargarTrabajosExtra(obraOriginal); // 🔥 Recargar los trabajos extra
+                        cargarTrabajosExtra(obraOriginal); // ðŸ”¥ Recargar los trabajos extra
                         dispatch(setActiveTab('trabajos-extra'));
                       } else {
-                        console.log('⚠️ No es trabajo extra, volviendo a lista');
+                        console.log(' No es trabajo extra, volviendo a lista');
                         dispatch(setActiveTab('lista'));
                       }
                     }}
@@ -10757,13 +11032,13 @@ Gestionar Tareas Leves
                     <p className="mt-2 text-muted">Cargando calendario...</p>
                   </div>
                 ) : (() => {
-                    // 🔥 Si es trabajo extra, usar SOLO su presupuesto pre-cargado (no buscar en cache)
+                    // ðŸ”¥ Si es trabajo extra, usar SOLO su presupuesto pre-cargado (no buscar en cache)
                     const presupuestoActualizado = obraParaEtapasDiarias?._esTrabajoExtra
                       ? obraParaEtapasDiarias?.presupuestoNoCliente
                       : (presupuestosObras[obraParaEtapasDiarias?.id] || obraParaEtapasDiarias?.presupuestoNoCliente);
 
-                    // 🔍 DEBUG: Ver qué presupuesto se está usando
-                    console.log('🔍 [CRONOGRAMA JSX] presupuestoActualizado:', {
+                    // ðŸ” DEBUG: Ver qué presupuesto se está usando
+                    console.log('ðŸ” [CRONOGRAMA JSX] presupuestoActualizado:', {
                       esTrabajoExtra: obraParaEtapasDiarias?._esTrabajoExtra,
                       obraId: obraParaEtapasDiarias?.id,
                       tiempoEstimado: presupuestoActualizado?.tiempoEstimadoTerminacion,
@@ -10802,14 +11077,14 @@ Gestionar Tareas Leves
                       <div className="row text-center">
                         <div className="col-3">
                           <h5>
-                            {/* ✅ USAR MISMA LÓGICA QUE LÍNEA 5181*/}
+                            {/* âœ… USAR MISMA LÃ“GICA QUE LÃNEA 5181*/}
                             {obraParaEtapasDiarias?.tiempoEstimadoTerminacion || obraParaEtapasDiarias?.presupuestoNoCliente?.tiempoEstimadoTerminacion || 0}
                           </h5>
                           <small>Días</small>
                         </div>
                         <div className="col-3">
                           <h5>
-                            {/* ✅ CALCULAR SEMANAS CONSIDERANDO FERIADOS */}
+                            {/* âœ… CALCULAR SEMANAS CONSIDERANDO FERIADOS */}
                             {(() => {
                               const diasHabiles = obraParaEtapasDiarias?.tiempoEstimadoTerminacion || obraParaEtapasDiarias?.presupuestoNoCliente?.tiempoEstimadoTerminacion || 0;
                               const fechaInicio = obraParaEtapasDiarias?.fechaProbableInicio || obraParaEtapasDiarias?.presupuestoNoCliente?.fechaProbableInicio;
@@ -10819,7 +11094,7 @@ Gestionar Tareas Leves
                                   // Usar función que calcula semanas considerando feriados
                                   return calcularSemanasParaDiasHabiles(parsearFechaLocal(fechaInicio), diasHabiles);
                                 } catch (error) {
-                                  console.warn('⚠️ Error calculando semanas con feriados, usando fallback:', error);
+                                  console.warn(' Error calculando semanas con feriados, usando fallback:', error);
                                   return Math.ceil(diasHabiles / 5);
                                 }
                               } else {
@@ -10905,7 +11180,7 @@ Gestionar Tareas Leves
                                         <br/><small className="text-muted">{dia.diaNumero}/{dia.mes}</small>
                                       </td>
                                       <td colSpan="3" className="text-center text-muted fst-italic">
-                                        🎊 Feriado - No laborable
+                                        ðŸŽŠ Feriado - No laborable
                                       </td>
                                     </tr>
                                   );
@@ -10918,7 +11193,7 @@ Gestionar Tareas Leves
                                         <br/><small className="text-muted">{dia.diaNumero}/{dia.mes}</small>
                                       </td>
                                       <td colSpan="3" className="text-center text-muted fst-italic">
-                                        ⏸️ No laborable
+                                        â¸ï¸ No laborable
                                       </td>
                                     </tr>
                                   );
@@ -10950,17 +11225,17 @@ Gestionar Tareas Leves
                                                   title="Click para cambiar estado"
                                                 >
                                                   {t.estado === 'COMPLETADA' ? (
-                                                    <span className="badge bg-success me-1" style={{ fontSize: '8px' }}>✓ Completada</span>
+                                                    <span className="badge bg-success me-1" style={{ fontSize: '8px' }}>âœ“ Completada</span>
                                                   ) : t.estado === 'EN_PROCESO' ? (
-                                                    <span className="badge bg-primary me-1" style={{ fontSize: '8px' }}>🔄 En Proceso</span>
+                                                    <span className="badge bg-primary me-1" style={{ fontSize: '8px' }}>ðŸ”„ En Proceso</span>
                                                   ) : (
-                                                    <span className="badge bg-secondary me-1" style={{ fontSize: '8px' }}>○ Pendiente</span>
+                                                    <span className="badge bg-secondary me-1" style={{ fontSize: '8px' }}>â—‹ Pendiente</span>
                                                   )}
                                                   <span style={{ fontSize: '11px' }}>{t.descripcion}</span>
                                                 </div>
                                                 {t.profesionales && t.profesionales.length > 0 && (
                                                   <div className="text-muted" style={{ fontSize: '9px', marginLeft: '20px' }}>
-                                                    👤 {t.profesionales.map(p =>
+                                                    ðŸ‘¤ {t.profesionales.map(p =>
                                                       typeof p === 'object' ? p.nombre : p
                                                     ).join(', ')}
                                                   </div>
@@ -11160,10 +11435,10 @@ Gestionar Tareas Leves
                         ) : (
                           <i className="fas fa-eye me-2"></i>
                         )}
-                        Abrir Última Versión (v{presupuestosObra[0].numeroVersion || presupuestosObra[0].version || 1})
+                        Abrir Ãšltima Versión (v{presupuestosObra[0].numeroVersion || presupuestosObra[0].version || 1})
                       </button>
                       <small className="text-muted ms-3">
-                        Última modificación: {presupuestosObra[0].fechaUltimaModificacionEstado ?
+                        Ãšltima modificación: {presupuestosObra[0].fechaUltimaModificacionEstado ?
                           new Date(presupuestosObra[0].fechaUltimaModificacionEstado).toLocaleDateString() :
                           (presupuestosObra[0].fechaCreacion ? new Date(presupuestosObra[0].fechaCreacion).toLocaleDateString() : 'N/A')}
                       </small>
@@ -11184,7 +11459,7 @@ Gestionar Tareas Leves
                       </thead>
                       <tbody>
                         {presupuestosObra.map((presupuesto, index) => {
-                          const esPresupuestoActivo = presupuesto.estado === 'APROBADO' || presupuesto.estado === 'EN_EJECUCIÓN' || presupuesto.estado === 'EN_EJECUCION';
+                          const esPresupuestoActivo = presupuesto.estado === 'APROBADO' || presupuesto.estado === 'EN_EJECUCIÃ“N' || presupuesto.estado === 'EN_EJECUCION';
                           const esElPrimero = index === 0;
 
                           return (
@@ -11399,15 +11674,15 @@ Gestionar Tareas Leves
             // Backend integrado - recargar obras después de asignación exitosa
             console.log('Asignación semanal guardada:', asignacionData);
 
-            // 🔥 Si es trabajo extra, recargar trabajos extra; si es obra normal, recargar contadores
+            // ðŸ”¥ Si es trabajo extra, recargar trabajos extra; si es obra normal, recargar contadores
             if (obraParaAsignarProfesionales?._esTrabajoExtra && obraParaTrabajosExtra) {
-              console.log('🔄 [Profesionales] Recargando trabajos extra para actualizar badges...', {
+              console.log('ðŸ”„ [Profesionales] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarProfesionales.id,
                 // Si estamos dentro de un trabajo extra, usar el ID de la obra original
                 obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
-              console.log('✅ [Profesionales] Trabajos extra recargados');
+              console.log('âœ… [Profesionales] Trabajos extra recargados');
             } else if (obraParaAsignarProfesionales?.id) {
               cargarContadoresObra(obraParaAsignarProfesionales.id);
             }
@@ -11425,16 +11700,16 @@ Gestionar Tareas Leves
         <AsignarMaterialObraModal
           show={mostrarModalAsignarMateriales}
           onClose={async () => {
-            console.log('🔄 Cerrando modal de materiales - recargando contadores...');
-            // 🔥 Si es trabajo extra, recargar trabajos extra ANTES de cerrar
+            console.log('ðŸ”„ Cerrando modal de materiales - recargando contadores...');
+            // ðŸ”¥ Si es trabajo extra, recargar trabajos extra ANTES de cerrar
             if (obraParaAsignarMateriales?._esTrabajoExtra && obraParaTrabajosExtra) {
-              console.log('🔄 [Materiales] Recargando trabajos extra para actualizar badges...', {
+              console.log('ðŸ”„ [Materiales] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarMateriales.id,
                 // Si estamos dentro de un trabajo extra, usar el ID de la obra original
                 obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
-              console.log('✅ [Materiales] Trabajos extra recargados');
+              console.log('âœ… [Materiales] Trabajos extra recargados');
             } else if (obraParaAsignarMateriales?.id) {
               cargarContadoresObra(obraParaAsignarMateriales.id);
             }
@@ -11450,16 +11725,16 @@ Gestionar Tareas Leves
               : obtenerConfiguracionObra(obraParaAsignarMateriales?.id)
           }
           onAsignacionExitosa={async () => {
-            showNotification('✓ Materiales asignados correctamente', 'success');
-            // 🔥 Si es trabajo extra, recargar trabajos extra; si es obra normal, recargar contadores
+            showNotification('âœ“ Materiales asignados correctamente', 'success');
+            // ðŸ”¥ Si es trabajo extra, recargar trabajos extra; si es obra normal, recargar contadores
             if (obraParaAsignarMateriales?._esTrabajoExtra && obraParaTrabajosExtra) {
-              console.log('🔄 [Materiales Success] Recargando trabajos extra para actualizar badges...', {
+              console.log('ðŸ”„ [Materiales Success] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarMateriales.id,
                 // Si estamos dentro de un trabajo extra, usar el ID de la obra original
                 obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
-              console.log('✅ [Materiales Success] Trabajos extra recargados');
+              console.log('âœ… [Materiales Success] Trabajos extra recargados');
             } else if (obraParaAsignarMateriales?.id) {
               cargarContadoresObra(obraParaAsignarMateriales.id);
             }
@@ -11473,15 +11748,15 @@ Gestionar Tareas Leves
         <AsignarOtroCostoObraModal
           show={mostrarModalAsignarGastos}
           onClose={async () => {
-            // 🔥 Si es trabajo extra, recargar trabajos extra ANTES de cerrar
+            // ðŸ”¥ Si es trabajo extra, recargar trabajos extra ANTES de cerrar
             if (obraParaAsignarGastos?._esTrabajoExtra && obraParaTrabajosExtra) {
-              console.log('🔄 [Gastos] Recargando trabajos extra para actualizar badges...', {
+              console.log('ðŸ”„ [Gastos] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarGastos.id,
                 // Si estamos dentro de un trabajo extra, usar el ID de la obra original
                 obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
-              console.log('✅ [Gastos] Trabajos extra recargados');
+              console.log('âœ… [Gastos] Trabajos extra recargados');
             }
             setMostrarModalAsignarGastos(false);
             setObraParaAsignarGastos(null);
@@ -11495,16 +11770,16 @@ Gestionar Tareas Leves
               : obtenerConfiguracionObra(obraParaAsignarGastos?.id)
           }
           onAsignacionExitosa={async () => {
-            showNotification('✓ Gastos generales asignados correctamente', 'success');
-            // 🔥 Si es trabajo extra, recargar trabajos extra; si es obra normal, recargar contadores
+            showNotification('âœ“ Gastos generales asignados correctamente', 'success');
+            // ðŸ”¥ Si es trabajo extra, recargar trabajos extra; si es obra normal, recargar contadores
             if (obraParaAsignarGastos?._esTrabajoExtra && obraParaTrabajosExtra) {
-              console.log('🔄 [Gastos Success] Recargando trabajos extra para actualizar badges...', {
+              console.log('ðŸ”„ [Gastos Success] Recargando trabajos extra para actualizar badges...', {
                 trabajoExtraId: obraParaAsignarGastos.id,
                 // Si estamos dentro de un trabajo extra, usar el ID de la obra original
                 obraId: obraParaTrabajosExtra._obraOriginalId || obraParaTrabajosExtra.id
               });
               await cargarTrabajosExtra(obraParaTrabajosExtra);
-              console.log('✅ [Gastos Success] Trabajos extra recargados');
+              console.log('âœ… [Gastos Success] Trabajos extra recargados');
             } else if (obraParaAsignarGastos?.id) {
               cargarContadoresObra(obraParaAsignarGastos.id);
             }
@@ -11522,12 +11797,12 @@ Gestionar Tareas Leves
             setPresupuestoParaEditar(null);
           }}
           onSave={async (presupuesto) => {
-            console.log('💾 Presupuesto guardado desde modal edición:', presupuesto);
+            console.log('ðŸ’¾ Presupuesto guardado desde modal edición:', presupuesto);
 
             // Si es un presupuesto APROBADO y tiene obraId, buscar la versión anterior y marcarla como MODIFICADO
             if (
               presupuesto &&
-              (presupuesto.estado === 'APROBADO' || presupuesto.estado === 'EN_EJECUCIÓN' || presupuesto.estado === 'EN_EJECUCION') &&
+              (presupuesto.estado === 'APROBADO' || presupuesto.estado === 'EN_EJECUCIÃ“N' || presupuesto.estado === 'EN_EJECUCION') &&
               presupuesto.obraId &&
               (presupuesto.numeroVersion || presupuesto.version) > 1
             ) {
@@ -11541,67 +11816,67 @@ Gestionar Tareas Leves
                   p => (p.numeroVersion || p.version) === versionActual - 1
                 );
                 if (anterior && anterior.id) {
-                  console.log('🔄 Marcando versión anterior como MODIFICADO:', anterior.id);
+                  console.log('ðŸ”„ Marcando versión anterior como MODIFICADO:', anterior.id);
                   await api.presupuestosNoCliente.actualizarEstado(anterior.id, 'MODIFICADO', empresaId);
                 }
               } catch (err) {
-                console.warn('⚠️ No se pudo marcar la versión anterior como MODIFICADO:', err);
+                console.warn(' No se pudo marcar la versión anterior como MODIFICADO:', err);
               }
             }
 
             try {
-              // ✅ CASO ESPECIAL: Edición solo de fechas (cualquier estado)
+              // âœ… CASO ESPECIAL: Edición solo de fechas (cualquier estado)
               if (presupuesto._editarSoloFechas === true) {
-                console.log('🔄 FLUJO EDITAR SOLO FECHAS - Iniciando desde ObrasPage...');
-                console.log('📋 Presupuesto ID:', presupuesto.id);
-                console.log('📅 Nueva fechaProbableInicio:', presupuesto.fechaProbableInicio);
-                console.log('⏱️ Nuevo tiempoEstimadoTerminacion:', presupuesto.tiempoEstimadoTerminacion);
+                console.log('ðŸ”„ FLUJO EDITAR SOLO FECHAS - Iniciando desde ObrasPage...');
+                console.log('ðŸ“‹ Presupuesto ID:', presupuesto.id);
+                console.log('ðŸ“… Nueva fechaProbableInicio:', presupuesto.fechaProbableInicio);
+                console.log('â±ï¸ Nuevo tiempoEstimadoTerminacion:', presupuesto.tiempoEstimadoTerminacion);
 
                 try {
-                  // ✅ Usar endpoint específico para actualizar solo fechas (PATCH /fechas)
+                  // âœ… Usar endpoint específico para actualizar solo fechas (PATCH /fechas)
                   const datosActualizarFechas = {
                     fechaProbableInicio: presupuesto.fechaProbableInicio,
                     tiempoEstimadoTerminacion: presupuesto.tiempoEstimadoTerminacion
                   };
 
-                  console.log('📤 Enviando PATCH /fechas al backend - ID:', presupuesto.id);
+                  console.log('ðŸ“¤ Enviando PATCH /fechas al backend - ID:', presupuesto.id);
                   await api.presupuestosNoCliente.actualizarSoloFechas(presupuesto.id, datosActualizarFechas, empresaId);
-                  console.log('✅ PATCH /fechas completado exitosamente');
+                  console.log('âœ… PATCH /fechas completado exitosamente');
 
                   showNotification(
-                    '✅ Fechas actualizadas exitosamente.\nVersión y estado preservados.',
+                    'âœ… Fechas actualizadas exitosamente.\nVersión y estado preservados.',
                     'success'
                   );
                 } catch (error) {
                   const mensaje = error.response?.data?.mensaje || error.message || 'Error al actualizar fechas';
                   showNotification(
-                    `❌ Error al actualizar fechas:\n\n${mensaje}`,
+                    `âŒ Error al actualizar fechas:\n\n${mensaje}`,
                     'error'
                   );
                   return; // Salir sin cerrar el modal si hay error
                 }
               } else {
                 // Guardado normal (actualizar presupuesto completo)
-                console.log('💾 FLUJO GUARDADO NORMAL - Actualizando presupuesto completo...');
+                console.log('ðŸ’¾ FLUJO GUARDADO NORMAL - Actualizando presupuesto completo...');
 
                 try {
-                  // 🔥 ACTUALIZADO: Ya NO crear nuevas versiones, siempre actualizar la existente
+                  // ðŸ”¥ ACTUALIZADO: Ya NO crear nuevas versiones, siempre actualizar la existente
                   // Esto mantiene consistencia y evita problemas de datos vacíos
-                  console.log('🔄 Actualizando presupuesto sin crear nueva versión...');
+                  console.log('ðŸ”„ Actualizando presupuesto sin crear nueva versión...');
                   await api.presupuestosNoCliente.update(presupuesto.id, presupuesto, empresaId);
-                  console.log(`✅ Presupuesto v${presupuesto.numeroVersion || presupuesto.version || 1} actualizado exitosamente`);
+                  console.log(`âœ… Presupuesto v${presupuesto.numeroVersion || presupuesto.version || 1} actualizado exitosamente`);
 
-                  showNotification('✅ Presupuesto guardado exitosamente - Todos los datos se mantuvieron', 'success');
+                  showNotification('âœ… Presupuesto guardado exitosamente - Todos los datos se mantuvieron', 'success');
 
-                  // 🔄 Recargar obras - Usar fetchObrasPorEmpresa en lugar de función no definida
-                  // await dispatch(fetchPresupuestosObras(empresaId)); // ❌ No existe
+                  // ðŸ”„ Recargar obras - Usar fetchObrasPorEmpresa en lugar de función no definida
+                  // await dispatch(fetchPresupuestosObras(empresaId)); // âŒ No existe
                   await dispatch(fetchObrasPorEmpresa(empresaId));
-                  console.log('✅ Obras recargadas exitosamente');
+                  console.log('âœ… Obras recargadas exitosamente');
                 } catch (error) {
-                  console.error('❌ Error guardando presupuesto:', error);
-                  console.error('❌ Error response:', error.response?.data);
-                  console.error('❌ Error status:', error.response?.status);
-                  console.error('❌ Error message:', error.message);
+                  console.error('âŒ Error guardando presupuesto:', error);
+                  console.error('âŒ Error response:', error.response?.data);
+                  console.error('âŒ Error status:', error.response?.status);
+                  console.error('âŒ Error message:', error.message);
 
                   let mensajeError = 'Error desconocido';
                   if (error.response?.data?.mensaje) {
@@ -11612,20 +11887,20 @@ Gestionar Tareas Leves
                     mensajeError = error.message;
                   }
 
-                  showNotification(`❌ Error al guardar presupuesto: ${mensajeError}`, 'error');
+                  showNotification(`âŒ Error al guardar presupuesto: ${mensajeError}`, 'error');
                   return; // Salir sin cerrar el modal si hay error
                 }
 
-                // 🏗️ AUTO-GENERAR OBRA SI ES TRABAJO EXTRA APROBADO
+                // ðŸ—ï¸ AUTO-GENERAR OBRA SI ES TRABAJO EXTRA APROBADO
                 if (presupuesto.esPresupuestoTrabajoExtra && presupuesto.estado === 'APROBADO' && presupuesto.obraId) {
-                  console.log('🏗️ Trabajo Extra APROBADO detectado - Verificando si necesita crear obra...');
+                  console.log('ðŸ—ï¸ Trabajo Extra APROBADO detectado - Verificando si necesita crear obra...');
                   try {
                     // Buscar si ya existe una obra con este presupuestoOriginalId
                     const obrasExistentes = await api.obras.obtenerObras({ empresaId });
                     const yaExisteObra = obrasExistentes?.data?.some(o => o.presupuestoOriginalId === presupuesto.id);
 
                     if (!yaExisteObra) {
-                      console.log('📤 No existe obra para este presupuesto - Creando automáticamente...');
+                      console.log('ðŸ“¤ No existe obra para este presupuesto - Creando automáticamente...');
 
                       const obraData = {
                         nombre: presupuesto.nombreObra || presupuesto.nombreObraManual || `Trabajo Extra #${presupuesto.id}`,
@@ -11649,19 +11924,19 @@ Gestionar Tareas Leves
                       };
 
                       await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
-                      console.log('✅ Obra creada automáticamente desde presupuesto aprobado');
+                      console.log('âœ… Obra creada automáticamente desde presupuesto aprobado');
 
-                      showNotification('✅ Presupuesto aprobado y obra creada automáticamente', 'success');
+                      showNotification('âœ… Presupuesto aprobado y obra creada automáticamente', 'success');
 
                       // Recargar obras
                       await dispatch(fetchObrasPorEmpresa(empresaId));
                     } else {
-                      console.log('ℹ️ Ya existe una obra para este presupuesto - No se crea duplicada');
+                      console.log('â„¹ï¸ Ya existe una obra para este presupuesto - No se crea duplicada');
                     }
                   } catch (errorObra) {
-                    console.error('❌ Error al crear obra automáticamente:', errorObra);
+                    console.error('âŒ Error al crear obra automáticamente:', errorObra);
                     showNotification(
-                      '⚠️ Presupuesto guardado pero error al crear obra: ' + (errorObra.message || 'Error desconocido'),
+                      ' Presupuesto guardado pero error al crear obra: ' + (errorObra.message || 'Error desconocido'),
                       'warning'
                     );
                   }
@@ -11671,20 +11946,20 @@ Gestionar Tareas Leves
               setMostrarModalEditarPresupuesto(false);
               setPresupuestoParaEditar(null);
             } catch (error) {
-              console.error('❌ Error en onSave:', error);
+              console.error('âŒ Error en onSave:', error);
               showNotification('Error al guardar presupuesto: ' + (error.message || 'Error desconocido'), 'error');
               return;
             }
 
             // Actualizar el presupuesto en el estado local
             if (presupuesto && presupuesto.obraId) {
-              console.log('📋 Actualizando presupuestosObras para obra:', presupuesto.obraId);
+              console.log('ðŸ“‹ Actualizando presupuestosObras para obra:', presupuesto.obraId);
               setPresupuestosObras(prev => {
                 const nuevo = {
                   ...prev,
                   [presupuesto.obraId]: presupuesto
                 };
-                console.log('  presupuestosObras actualizado:', nuevo);
+                console.log('Â  presupuestosObras actualizado:', nuevo);
                 return nuevo;
               });
 
@@ -11701,14 +11976,14 @@ Gestionar Tareas Leves
                 });
                 // Incrementar contador para forzar regeneración del calendario
                 setCalendarioVersion(v => {
-                  console.log(' Incrementando calendarioVersion:', v, ' €™', v + 1);
+                  console.log(' Incrementando calendarioVersion:', v, 'Â â‚¬â„¢', v + 1);
                   return v + 1;
                 });
               } else if (obraParaEtapasDiarias && obraParaEtapasDiarias.id === presupuesto.obraId && obraParaEtapasDiarias._esTrabajoExtra) {
-                console.log('🔒 [eventBus] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA - manteniendo presupuestoNoCliente intacto');
+                console.log('ðŸ”’ [eventBus] BLOQUEANDO actualización de presupuesto para TRABAJO EXTRA - manteniendo presupuestoNoCliente intacto');
               }
             } else {
-              console.warn(' ⚠️ Presupuesto sin obraId:', presupuesto);
+              console.warn('Â Â Presupuesto sin obraId:', presupuesto);
             }
 
             // Recargar la lista de presupuestos de la obra si está abierta
@@ -11895,16 +12170,16 @@ Gestionar Tareas Leves
             setPresupuestoParaEnviar(null);
           }}
           onSave={async (presupuesto) => {
-            console.log('💾 Presupuesto enviado:', presupuesto);
+            console.log('ðŸ’¾ Presupuesto enviado:', presupuesto);
             setMostrarModalEnviarPresupuesto(false);
             setPresupuestoParaEnviar(null);
-            showNotification('✅ Presupuesto enviado exitosamente', 'success');
+            showNotification('âœ… Presupuesto enviado exitosamente', 'success');
 
             // Recargar obras para actualizar estados
             cargarObrasSegunFiltro();
           }}
           initialData={presupuestoParaEnviar}
-          showDownloadPdfButton={true}  // 🔥 Mostrar botón "Descargar PDF" y auto-scroll
+          showDownloadPdfButton={true}  // ðŸ”¥ Mostrar botón "Descargar PDF" y auto-scroll
         />
       )}
 
@@ -11920,17 +12195,18 @@ Gestionar Tareas Leves
             setAbrirEmailTrabajoExtra(false);
           }}
           modoTrabajoExtra={true}
+          tituloPersonalizado={`${trabajoExtraEditar?.id ? 'Editar' : 'Nuevo'} Presupuesto para Adicional Obra -- ${obraParaTrabajosExtra.nombre || obraParaTrabajosExtra.nombreObra || 'Obra'}`}
           autoGenerarPDF={autoGenerarPDFTrabajoExtra}
           abrirWhatsAppDespuesDePDF={abrirWhatsAppTrabajoExtra}
           abrirEmailDespuesDePDF={abrirEmailTrabajoExtra}
           onPDFGenerado={() => {
-            console.log('✅ PDF generado para trabajo extra, cerrando modal...');
-            console.log('📥 Iniciando recarga de trabajos extra después del envío...');
+            console.log('âœ… PDF generado para trabajo extra, cerrando modal...');
+            console.log('ðŸ“¥ Iniciando recarga de trabajos extra después del envío...');
 
-            // ⚠️ NO actualizar el estado aquí - ya lo hace marcarTrabajoExtraComoEnviado() dentro del modal
+            //  NO actualizar el estado aquí - ya lo hace marcarTrabajoExtraComoEnviado() dentro del modal
             // Si se hace aquí, sobrescribe el cambio de estado con el objeto viejo (estado A_ENVIAR)
 
-            showNotification('✅ Trabajo extra enviado exitosamente', 'success');
+            showNotification('âœ… Trabajo extra enviado exitosamente', 'success');
 
             setAutoGenerarPDFTrabajoExtra(false);
             setAbrirWhatsAppTrabajoExtra(false);
@@ -11939,12 +12215,12 @@ Gestionar Tareas Leves
             setTrabajoExtraEditar(null);
 
             // Recargar trabajos extra para reflejar el cambio de estado
-            console.log('🔄 Llamando cargarTrabajosExtra para refrescar después del envío...');
+            console.log('ðŸ”„ Llamando cargarTrabajosExtra para refrescar después del envío...');
             cargarTrabajosExtra(obraParaTrabajosExtra);
-            console.log('✅ Recarga de trabajos extra completada');
+            console.log('âœ… Recarga de trabajos extra completada');
           }}
           initialData={{
-            // ✅ Pasar TODOS los datos del trabajo extra (para incluir campos planos como los de honorarios)
+            // âœ… Pasar TODOS los datos del trabajo extra (para incluir campos planos como los de honorarios)
             ...(trabajoExtraEditar || {}),
 
             // Usar id_trabajo_extra del backend (si está editando) o null si es nuevo
@@ -11958,10 +12234,10 @@ Gestionar Tareas Leves
             idEmpresa: empresaSeleccionada.id,
             nombreEmpresa: empresaSeleccionada.nombreEmpresa,
 
-            // 🔧 CRÍTICO: Marcar como trabajo extra
+            // ðŸ”§ CRÃTICO: Marcar como trabajo extra
             esPresupuestoTrabajoExtra: true,
 
-            // 🆕 Si estamos creando un trabajo extra dentro de otro trabajo extra (subobra),
+            // ðŸ†• Si estamos creando un trabajo extra dentro de otro trabajo extra (subobra),
             // pasar el ID del trabajo extra padre para excluirlo de la lista
             _trabajoExtraPadreId: obraParaTrabajosExtra._trabajoExtraId || null,
 
@@ -12003,26 +12279,26 @@ Gestionar Tareas Leves
             calculoAutomaticoDiasHabiles: false,
 
             // Tipo de presupuesto
-            tipoPresupuesto: 'TRADICIONAL',
+            tipoPresupuesto: trabajoExtraEditar?.tipoPresupuesto || 'TRABAJO_EXTRA',
 
             // Si está editando, pasar TODOS los datos del trabajo extra
             ...(trabajoExtraEditar && {
-              // ✅ Pasar itemsCalculadora directamente desde el trabajo extra (incluye rubros con jornales)
+              // âœ… Pasar itemsCalculadora directamente desde el trabajo extra (incluye rubros con jornales)
               itemsCalculadora: trabajoExtraEditar.itemsCalculadora || [],
 
-              // ✅ Pasar honorarios si existen
+              // âœ… Pasar honorarios si existen
               honorarios: trabajoExtraEditar.honorarios || undefined,
 
-              // ✅ Pasar mayores costos si existen
+              // âœ… Pasar mayores costos si existen
               mayoresCostos: trabajoExtraEditar.mayoresCostos || undefined,
 
-              // ✅ Pasar profesionales legacy si existen (compatibilidad)
+              // âœ… Pasar profesionales legacy si existen (compatibilidad)
               profesionales: trabajoExtraEditar.profesionales || [],
 
-              // ✅ Pasar materiales si existen
+              // âœ… Pasar materiales si existen
               materiales: trabajoExtraEditar.materiales || [],
 
-              // ✅ Pasar otros costos si existen
+              // âœ… Pasar otros costos si existen
               otrosCostos: trabajoExtraEditar.otrosCostos || []
             })
           }}
@@ -12221,7 +12497,7 @@ Gestionar Tareas Leves
                 </div>
 
                 <div className="alert alert-info">
-                  <strong>📊 Información del presupuesto:</strong>
+                  <strong>ðŸ“Š Información del presupuesto:</strong>
                   {configuracionObra.presupuestoSeleccionado && (
                     <div className="mb-2 mt-2">
                       <small className="text-info d-block">
@@ -12335,7 +12611,7 @@ Gestionar Tareas Leves
                 {/* Resumen automático basado en el presupuesto */}
                 {configuracionObra.diasHabiles > 0 && (
                   <div className="alert alert-success mt-3">
-                    <strong>✅ Configuración de obra:</strong>
+                    <strong>âœ… Configuración de obra:</strong>
                     <ul className="mb-0 mt-2">
                       <li><strong>{configuracionObra.diasHabiles} días hábiles</strong> de trabajo efectivo</li>
                       <li><strong>{Math.ceil(configuracionObra.diasHabiles / 5)} semanas</strong> aproximadas de duración</li>
@@ -12440,15 +12716,15 @@ Gestionar Tareas Leves
       {/* Modal de estadísticas de todas las obras */}
       {mostrarModalEstadisticasTodasObras && (
         <EstadisticasTodasObrasModal
-          obras={obrasConFlags} // ✅ Usar obras procesadas con flags
+          obras={obrasConFlags} // âœ… Usar obras procesadas con flags
           empresaId={empresaId}
           empresaSeleccionada={empresaSeleccionada}
           onClose={() => setMostrarModalEstadisticasTodasObras(false)}
           showNotification={showNotification}
-          obrasDisponibles={obrasConFlags} // ✅ Pasar obras con flags esObraIndependiente
-          obrasSeleccionadas={new Set()} // ✅ Sin selección específica (mostrar todas)
-          trabajosExtraSeleccionados={new Set()} // ✅ Sin filtro de trabajos extra
-          trabajosAdicionalesDisponibles={trabajosAdicionales} // ✅ Pasar TAs ya cargados
+          obrasDisponibles={obrasConFlags} // âœ… Pasar obras con flags esObraIndependiente
+          obrasSeleccionadas={new Set()} // âœ… Sin selección específica (mostrar todas)
+          trabajosExtraSeleccionados={new Set()} // âœ… Sin filtro de trabajos extra
+          trabajosAdicionalesDisponibles={trabajosAdicionales} // âœ… Pasar TAs ya cargados
         />
       )}
 
@@ -12474,7 +12750,7 @@ Gestionar Tareas Leves
             <div className="modal-content">
               <div className="modal-header bg-primary text-white">
                 <h5 className="modal-title">
-                  <i className="fas fa-paper-plane me-2"></i>¿Cómo desea enviar el trabajo extra?
+                  <i className="fas fa-paper-plane me-2"></i>Â¿Cómo desea enviar el trabajo extra?
                 </h5>
                 <button
                   type="button"
@@ -12498,12 +12774,12 @@ Gestionar Tareas Leves
                       // Configurar el trabajo extra seleccionado para el modal
                       setTrabajoExtraEditar(trabajoExtraSeleccionado);
 
-                      // ✅ ACTIVAR FLAGS PARA WHATSAPP
+                      // âœ… ACTIVAR FLAGS PARA WHATSAPP
                       setAbrirWhatsAppTrabajoExtra(true);
                       setAbrirEmailTrabajoExtra(false);
 
-                      console.log('📱 FLAGS ACTIVADOS para WhatsApp');
-                      showNotification('📱 Generando PDF para WhatsApp...', 'info');
+                      console.log('ðŸ“± FLAGS ACTIVADOS para WhatsApp');
+                      showNotification('ðŸ“± Generando PDF para WhatsApp...', 'info');
 
                       setMostrarModalTrabajoExtra(true);
                     }}
@@ -12523,12 +12799,12 @@ Gestionar Tareas Leves
                       // Configurar el trabajo extra seleccionado para el modal
                       setTrabajoExtraEditar(trabajoExtraSeleccionado);
 
-                      // ✅ ACTIVAR FLAGS PARA EMAIL
+                      // âœ… ACTIVAR FLAGS PARA EMAIL
                       setAbrirWhatsAppTrabajoExtra(false);
                       setAbrirEmailTrabajoExtra(true);
 
-                      console.log('📧 FLAGS ACTIVADOS para Email');
-                      showNotification('📧 Generando PDF para Email...', 'info');
+                      console.log('ðŸ“§ FLAGS ACTIVADOS para Email');
+                      showNotification('ðŸ“§ Generando PDF para Email...', 'info');
 
                       setMostrarModalTrabajoExtra(true);
                     }}
@@ -12590,13 +12866,26 @@ Gestionar Tareas Leves
                   <button
                     className="btn btn-primary"
                     onClick={() => {
-                      console.log('🟢 Click en Nueva Tarea Leve desde modal de lista:', {
+                      console.log('ðŸŸ¢ Click en Nueva Tarea Leve desde modal de lista:', {
                         obraParaTrabajosAdicionales,
                         _esTrabajoExtra: obraParaTrabajosAdicionales._esTrabajoExtra,
                         _trabajoExtraId: obraParaTrabajosAdicionales._trabajoExtraId
                       });
                       setTrabajoAdicionalEditar(null);
-                      setMostrarModalTrabajoAdicional(true);
+
+                      // âœ… Usar función helper según contexto
+                      if (obraParaTrabajosAdicionales._esTrabajoExtra) {
+                        // Es NIETA (hija de trabajo extra)
+                        const trabajoExtra = {
+                          id: obraParaTrabajosAdicionales._trabajoExtraId,
+                          nombre: obraParaTrabajosAdicionales._trabajoExtraNombre
+                        };
+                        const obraAbuelo = obras.find(o => o.id === obraParaTrabajosAdicionales.id);
+                        abrirModalTareaLeveNieta(obraAbuelo || obraParaTrabajosAdicionales, trabajoExtra);
+                      } else {
+                        // Es HIJA (hija directa de obra)
+                        abrirModalTareaLeveHija(obraParaTrabajosAdicionales);
+                      }
                     }}
                   >
                     <i className="fas fa-plus me-2"></i>
@@ -12610,7 +12899,7 @@ Gestionar Tareas Leves
                     ? obtenerTrabajosAdicionalesTrabajoExtra(obraParaTrabajosAdicionales._trabajoExtraId)
                     : obtenerTrabajosAdicionalesObra(obraParaTrabajosAdicionales.id);
 
-                  console.log('🔍 DEBUG Modal Trabajos Adicionales:', {
+                  console.log('ðŸ” DEBUG Modal Trabajos Adicionales:', {
                     esTrabajoExtra: obraParaTrabajosAdicionales._esTrabajoExtra,
                     trabajoExtraId: obraParaTrabajosAdicionales._trabajoExtraId,
                     obraId: obraParaTrabajosAdicionales.id,
@@ -12692,8 +12981,20 @@ Gestionar Tareas Leves
                                     <button
                                       className="btn btn-outline-primary"
                                       onClick={() => {
-                                        setTrabajoAdicionalEditar(ta);
-                                        setMostrarModalTrabajoAdicional(true);
+                                        // âœ… Editar tarea desde modal de lista
+                                        // El contexto ya está en obraParaTrabajosAdicionales
+                                        if (obraParaTrabajosAdicionales._esTrabajoExtra) {
+                                          // Es NIETA
+                                          const trabajoExtra = {
+                                            id: obraParaTrabajosAdicionales._trabajoExtraId,
+                                            nombre: obraParaTrabajosAdicionales._trabajoExtraNombre
+                                          };
+                                          const obraAbuelo = obras.find(o => o.id === obraParaTrabajosAdicionales.id);
+                                          abrirModalTareaLeveNieta(obraAbuelo || obraParaTrabajosAdicionales, trabajoExtra, ta);
+                                        } else {
+                                          // Es HIJA
+                                          abrirModalTareaLeveHija(obraParaTrabajosAdicionales, ta);
+                                        }
                                       }}
                                       title="Editar"
                                     >
@@ -12787,2315 +13088,69 @@ Gestionar Tareas Leves
         </div>
       )}
 
-      {/* Modal Trabajos Adicionales */}
-      {mostrarModalTrabajoAdicional && obraParaTrabajosAdicionales && (
-        <div
-          className="modal fade show"
-          style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.7)' }}
-          tabIndex="-1"
-          onClick={() => {
-            setMostrarModalTrabajoAdicional(false);
-            setGuardarEnCatalogoTA(false);
-            setGuardandoProfesionalTA(false);
-            // Resetear estados de desglose
-            setUsarDesglose(false);
-            setImporteMateriales('');
-            setImporteJornales('');
-            setImporteHonorarios('');
-            setTipoHonorarios('porcentaje');
-            setImporteMayoresCostos('');
-            setTipoMayoresCostos('porcentaje');
-            setImporteTotal('');
-            setProfesionalAdhocForm({
-              nombre: '',
-              tipoProfesional: '',
-              honorarioDia: '',
-              telefono: '',
-              email: ''
-            });
-            // No cerrar el modal de lista, solo el de crear/editar
+      {/* Modal Trabajo Diario (obras independientes - Nuevo Cliente) */}
+      {mostrarModalTrabajoDiario && (
+        <PresupuestoNoClienteModal
+          show={mostrarModalTrabajoDiario}
+          onClose={() => {
+            setMostrarModalTrabajoDiario(false);
           }}
-        >
-          <div className="modal-dialog modal-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-content" style={{ borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 50px rgba(0,0,0,0.3)' }}>
-              {/* Header con gradiente */}
-              <div className="modal-header text-white" style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                borderBottom: '3px solid #5a67d8',
-                padding: '1.5rem'
-              }}>
-                <div>
-                  <h4 className="modal-title mb-0" style={{ fontWeight: '600' }}>
-                    <i className="fas fa-clipboard-list me-3" style={{ fontSize: '1.5rem' }}></i>
-                    {trabajoAdicionalEditar ? 'Editar Tarea Leve' : 'Nueva Tarea Leve'}
-                  </h4>
-                  <small className="text-white-50 ms-5">Complete la información de la tarea leve</small>
-                </div>
-                <button
-                  type="button"
-                  className="btn-close btn-close-white"
-                  onClick={() => {
-                    setMostrarModalTrabajoAdicional(false);
-                    setTrabajoAdicionalEditar(null);
-                    setGuardarEnCatalogoTA(false);
-                    setGuardandoProfesionalTA(false);
-                    // Resetear estados de desglose
-                    setUsarDesglose(false);
-                    setImporteMateriales('');
-                    setImporteJornales('');
-                    setImporteHonorarios('');
-                    setTipoHonorarios('porcentaje');
-                    setImporteMayoresCostos('');
-                    setTipoMayoresCostos('porcentaje');
-                    setImporteTotal('');
-                    setProfesionalAdhocForm({
-                      nombre: '',
-                      tipoProfesional: '',
-                      honorarioDia: '',
-                      telefono: '',
-                      email: ''
-                    });
-                  }}
-                  style={{ fontSize: '1.2rem' }}
-                ></button>
-              </div>
-
-              {/* Body */}
-              <div className="modal-body" style={{ padding: '2rem', backgroundColor: '#f8f9fa' }}>
-                {/* Información de la obra/trabajo extra vinculado */}
-                <div className="card mb-4" style={{
-                  border: 'none',
-                  borderRadius: '12px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                  background: obraParaTrabajosAdicionales._esTrabajoExtra
-                    ? 'linear-gradient(135deg, #fff5e6 0%, #ffe0b2 100%)'
-                    : 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)'
-                }}>
-                  <div className="card-body py-3">
-                    <div className="d-flex align-items-center">
-                      <div className="me-3" style={{
-                        width: '50px',
-                        height: '50px',
-                        borderRadius: '12px',
-                        background: obraParaTrabajosAdicionales._esTrabajoExtra ? '#ff9800' : '#2196f3',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                      }}>
-                        <i className={`fas fa-${obraParaTrabajosAdicionales._esTrabajoExtra ? 'wrench' : 'building'} text-white`} style={{ fontSize: '1.5rem' }}></i>
-                      </div>
-                      <div>
-                        <div className="fw-bold text-dark" style={{ fontSize: '0.9rem', marginBottom: '2px' }}>
-                          <i className="fas fa-link me-2 text-muted"></i>
-                          Vinculado a:
-                        </div>
-                        <div style={{ fontSize: '1.1rem', fontWeight: '600', color: '#333' }}>
-                          {obraParaTrabajosAdicionales._esTrabajoExtra
-                            ? obraParaTrabajosAdicionales._trabajoExtraNombre
-                            : obraParaTrabajosAdicionales.nombre}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Formulario */}
-                <form
-                  key={trabajoAdicionalEditar?.id || 'nuevo'}
-                  id="formTrabajoAdicional"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    // El submit se maneja desde el botón de guardar
-                  }}
-                >
-                  {/* Sección 1: Información General */}
-                  <div className="card mb-4" style={{ border: 'none', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-                    <div className="card-header" style={{
-                      background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)',
-                      color: 'white',
-                      borderRadius: '12px 12px 0 0',
-                      padding: '1rem 1.5rem'
-                    }}>
-                      <h6 className="mb-0" style={{ fontWeight: '600' }}>
-                        <i className="fas fa-info-circle me-2"></i>
-                        Información General
-                      </h6>
-                    </div>
-                    <div className="card-body p-4">
-                      {/* Nombre de la tarea */}
-                      <div className="mb-4">
-                        <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
-                          <i className="fas fa-tasks me-2 text-primary"></i>
-                          Nombre de la Tarea Leve
-                          <span className="text-danger ms-1">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          name="nombre"
-                          className="form-control form-control-lg"
-                          placeholder="Ej: Instalación de sistema eléctrico adicional"
-                          defaultValue={trabajoAdicionalEditar?.nombre || ''}
-                          required
-                          style={{
-                            borderRadius: '10px',
-                            border: '2px solid #e5e7eb',
-                            padding: '0.75rem 1rem',
-                            fontSize: '1rem'
-                          }}
-                        />
-                      </div>
-
-                      <div className="row">
-                        {/* Importe */}
-                        <div className="col-md-4 mb-4">
-                          <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
-                            <i className="fas fa-dollar-sign me-2 text-success"></i>
-                            Importe Total
-                            <span className="text-danger ms-1">*</span>
-                          </label>
-                          <div className="input-group" style={{ borderRadius: '10px', overflow: 'hidden' }}>
-                            <span className="input-group-text" style={{
-                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                              color: 'white',
-                              border: 'none',
-                              fontWeight: '600'
-                            }}>
-                              $
-                            </span>
-                            <input
-                              type="number"
-                              name="importe"
-                              className="form-control form-control-lg"
-                              placeholder="0.00"
-                              step="0.01"
-                              min="0"
-                              value={usarDesglose ? importeTotal : undefined}
-                              defaultValue={!usarDesglose ? (trabajoAdicionalEditar?.importe || '') : undefined}
-                              onChange={(e) => !usarDesglose && setImporteTotal(e.target.value)}
-                              readOnly={usarDesglose}
-                              required
-                              style={{
-                                border: '2px solid #e5e7eb',
-                                borderLeft: 'none',
-                                fontSize: '1rem',
-                                backgroundColor: usarDesglose ? '#f3f4f6' : 'white',
-                                cursor: usarDesglose ? 'not-allowed' : 'text'
-                              }}
-                            />
-                          </div>
-
-                          {/* Toggle para desglose */}
-                          <div className="mt-2">
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-primary"
-                              onClick={() => {
-                                setUsarDesglose(!usarDesglose);
-                                // Limpiar todos los campos al activar/desactivar
-                                setImporteMateriales('');
-                                setImporteJornales('');
-                                setImporteGastosGenerales('');
-                                setImporteMayoresCostos('');
-                                setHonorarioJornales('');
-                                setTipoHonorarioJornales('porcentaje');
-                                setHonorarioMateriales('');
-                                setTipoHonorarioMateriales('porcentaje');
-                                setHonorarioGastosGenerales('');
-                                setTipoHonorarioGastosGenerales('porcentaje');
-                                setHonorarioMayoresCostos('');
-                                setTipoHonorarioMayoresCostos('porcentaje');
-                                setDescuentoJornales('');
-                                setTipoDescuentoJornales('porcentaje');
-                                setDescuentoMateriales('');
-                                setTipoDescuentoMateriales('porcentaje');
-                                setDescuentoGastosGenerales('');
-                                setTipoDescuentoGastosGenerales('porcentaje');
-                                setDescuentoMayoresCostos('');
-                                setTipoDescuentoMayoresCostos('porcentaje');
-                                setImporteTotal('');
-                              }}
-                              style={{ borderRadius: '8px', fontSize: '0.85rem' }}
-                            >
-                              <i className={`fas fa-${usarDesglose ? 'calculator' : 'list'} me-2`}></i>
-                              {usarDesglose ? 'Usar Importe Simple' : 'Desglosar Importe'}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Sección Colapsable de Desglose */}
-                        {usarDesglose && (
-                          <div className="col-12 mb-4">
-                            <div className="card" style={{
-                              border: '2px solid #3b82f6',
-                              borderRadius: '12px',
-                              backgroundColor: '#eff6ff'
-                            }}>
-                              <div className="card-header" style={{
-                                background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
-                                color: 'white',
-                                borderRadius: '10px 10px 0 0',
-                                padding: '0.75rem 1rem'
-                              }}>
-                                <h6 className="mb-0" style={{ fontWeight: '600', fontSize: '0.95rem' }}>
-                                  <i className="fas fa-calculator me-2"></i>
-                                  Desglose del Importe
-                                </h6>
-                                <small style={{ fontSize: '0.8rem', opacity: '0.9' }}>
-                                  Especifique cada componente del costo total
-                                </small>
-                              </div>
-                              <div className="card-body p-3">
-                                <div className="row">
-                                  {/* Jornales */}
-                                  <div className="col-md-6 mb-4">
-                                    <div className="border rounded p-3" style={{ backgroundColor: '#fffbeb', borderColor: '#f59e0b !important' }}>
-                                      <label className="form-label fw-bold" style={{ color: '#92400e', fontSize: '0.95rem' }}>
-                                        <i className="fas fa-user-hard-hat me-2"></i>
-                                        Jornales
-                                      </label>
-                                      <div className="input-group mb-2">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#fef3c7',
-                                          color: '#92400e',
-                                          border: '1px solid #f59e0b'
-                                        }}>
-                                          $
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0.00"
-                                          step="0.01"
-                                          min="0"
-                                          value={importeJornales}
-                                          onChange={(e) => setImporteJornales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #f59e0b',
-                                            borderLeft: 'none'
-                                          }}
-                                        />
-                                      </div>
-
-                                      {/* Honorarios para Jornales */}
-                                      <div className="mt-2">
-                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
-                                          <i className="fas fa-handshake me-1"></i>
-                                          Honorarios
-                                        </label>
-                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioJornales === 'fijo' ? 'btn-warning' : 'btn-outline-warning'}`}
-                                            onClick={() => setTipoHonorarioJornales('fijo')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            $ Fijo
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioJornales === 'porcentaje' ? 'btn-warning' : 'btn-outline-warning'}`}
-                                            onClick={() => setTipoHonorarioJornales('porcentaje')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            % Porcentaje
-                                          </button>
-                                        </div>
-                                        <div className="input-group input-group-sm">
-                                          <span className="input-group-text" style={{
-                                            backgroundColor: '#fef3c7',
-                                            color: '#92400e',
-                                            border: '1px solid #f59e0b',
-                                            fontSize: '0.8rem'
-                                          }}>
-                                            {tipoHonorarioJornales === 'fijo' ? '$' : '%'}
-                                          </span>
-                                          <input
-                                            type="number"
-                                            className="form-control"
-                                            placeholder={tipoHonorarioJornales === 'fijo' ? '0.00' : '0'}
-                                            step={tipoHonorarioJornales === 'fijo' ? '0.01' : '1'}
-                                            min="0"
-                                            max={tipoHonorarioJornales === 'porcentaje' ? '100' : undefined}
-                                            value={honorarioJornales}
-                                            onChange={(e) => setHonorarioJornales(e.target.value)}
-                                            style={{
-                                              border: '1px solid #f59e0b',
-                                              borderLeft: 'none',
-                                              fontSize: '0.85rem'
-                                            }}
-                                          />
-                                        </div>
-                                        {honorarioJornales && importeJornales && (
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#fef3c7',
-                                            borderRadius: '4px',
-                                            border: '1px solid #f59e0b',
-                                            fontSize: '0.75rem',
-                                            color: '#92400e',
-                                            fontWeight: '600'
-                                          }}>
-                                            {`Honorario: $${(() => {
-                                              const importe = parseFloat(importeJornales);
-                                              const hon = parseFloat(honorarioJornales);
-                                              const montoHon = tipoHonorarioJornales === 'fijo' ? hon : (importe * hon / 100);
-                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}`}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Materiales */}
-                                  <div className="col-md-6 mb-4">
-                                    <div className="border rounded p-3" style={{ backgroundColor: '#eff6ff', borderColor: '#3b82f6 !important' }}>
-                                      <label className="form-label fw-bold" style={{ color: '#1e40af', fontSize: '0.95rem' }}>
-                                        <i className="fas fa-boxes me-2"></i>
-                                        Materiales
-                                      </label>
-                                      <div className="input-group mb-2">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#dbeafe',
-                                          color: '#1e40af',
-                                          border: '1px solid #3b82f6'
-                                        }}>
-                                          $
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0.00"
-                                          step="0.01"
-                                          min="0"
-                                          value={importeMateriales}
-                                          onChange={(e) => setImporteMateriales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #3b82f6',
-                                            borderLeft: 'none'
-                                          }}
-                                        />
-                                      </div>
-
-                                      {/* Honorarios para Materiales */}
-                                      <div className="mt-2">
-                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
-                                          <i className="fas fa-handshake me-1"></i>
-                                          Honorarios
-                                        </label>
-                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioMateriales === 'fijo' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                            onClick={() => setTipoHonorarioMateriales('fijo')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            $ Fijo
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioMateriales === 'porcentaje' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                            onClick={() => setTipoHonorarioMateriales('porcentaje')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            % Porcentaje
-                                          </button>
-                                        </div>
-                                        <div className="input-group input-group-sm">
-                                          <span className="input-group-text" style={{
-                                            backgroundColor: '#dbeafe',
-                                            color: '#1e40af',
-                                            border: '1px solid #3b82f6',
-                                            fontSize: '0.8rem'
-                                          }}>
-                                            {tipoHonorarioMateriales === 'fijo' ? '$' : '%'}
-                                          </span>
-                                          <input
-                                            type="number"
-                                            className="form-control"
-                                            placeholder={tipoHonorarioMateriales === 'fijo' ? '0.00' : '0'}
-                                            step={tipoHonorarioMateriales === 'fijo' ? '0.01' : '1'}
-                                            min="0"
-                                            max={tipoHonorarioMateriales === 'porcentaje' ? '100' : undefined}
-                                            value={honorarioMateriales}
-                                            onChange={(e) => setHonorarioMateriales(e.target.value)}
-                                            style={{
-                                              border: '1px solid #3b82f6',
-                                              borderLeft: 'none',
-                                              fontSize: '0.85rem'
-                                            }}
-                                          />
-                                        </div>
-                                        {honorarioMateriales && importeMateriales && (
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#dbeafe',
-                                            borderRadius: '4px',
-                                            border: '1px solid #3b82f6',
-                                            fontSize: '0.75rem',
-                                            color: '#1e40af',
-                                            fontWeight: '600'
-                                          }}>
-                                            {`Honorario: $${(() => {
-                                              const importe = parseFloat(importeMateriales);
-                                              const hon = parseFloat(honorarioMateriales);
-                                              const montoHon = tipoHonorarioMateriales === 'fijo' ? hon : (importe * hon / 100);
-                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}`}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Gastos Generales */}
-                                  <div className="col-md-6 mb-4">
-                                    <div className="border rounded p-3" style={{ backgroundColor: '#f0fdf4', borderColor: '#10b981 !important' }}>
-                                      <label className="form-label fw-bold" style={{ color: '#065f46', fontSize: '0.95rem' }}>
-                                        <i className="fas fa-file-invoice-dollar me-2"></i>
-                                        Gastos Generales
-                                      </label>
-                                      <div className="input-group mb-2">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#d1fae5',
-                                          color: '#065f46',
-                                          border: '1px solid #10b981'
-                                        }}>
-                                          $
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0.00"
-                                          step="0.01"
-                                          min="0"
-                                          value={importeGastosGenerales}
-                                          onChange={(e) => setImporteGastosGenerales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #10b981',
-                                            borderLeft: 'none'
-                                          }}
-                                        />
-                                      </div>
-
-                                      {/* Honorarios para Gastos Generales */}
-                                      <div className="mt-2">
-                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
-                                          <i className="fas fa-handshake me-1"></i>
-                                          Honorarios
-                                        </label>
-                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioGastosGenerales === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
-                                            onClick={() => setTipoHonorarioGastosGenerales('fijo')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            $ Fijo
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioGastosGenerales === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
-                                            onClick={() => setTipoHonorarioGastosGenerales('porcentaje')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            % Porcentaje
-                                          </button>
-                                        </div>
-                                        <div className="input-group input-group-sm">
-                                          <span className="input-group-text" style={{
-                                            backgroundColor: '#d1fae5',
-                                            color: '#065f46',
-                                            border: '1px solid #10b981',
-                                            fontSize: '0.8rem'
-                                          }}>
-                                            {tipoHonorarioGastosGenerales === 'fijo' ? '$' : '%'}
-                                          </span>
-                                          <input
-                                            type="number"
-                                            className="form-control"
-                                            placeholder={tipoHonorarioGastosGenerales === 'fijo' ? '0.00' : '0'}
-                                            step={tipoHonorarioGastosGenerales === 'fijo' ? '0.01' : '1'}
-                                            min="0"
-                                            max={tipoHonorarioGastosGenerales === 'porcentaje' ? '100' : undefined}
-                                            value={honorarioGastosGenerales}
-                                            onChange={(e) => setHonorarioGastosGenerales(e.target.value)}
-                                            style={{
-                                              border: '1px solid #10b981',
-                                              borderLeft: 'none',
-                                              fontSize: '0.85rem'
-                                            }}
-                                          />
-                                        </div>
-                                        {honorarioGastosGenerales && importeGastosGenerales && (
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#d1fae5',
-                                            borderRadius: '4px',
-                                            border: '1px solid #10b981',
-                                            fontSize: '0.75rem',
-                                            color: '#065f46',
-                                            fontWeight: '600'
-                                          }}>
-                                            {`Honorario: $${(() => {
-                                              const importe = parseFloat(importeGastosGenerales);
-                                              const hon = parseFloat(honorarioGastosGenerales);
-                                              const montoHon = tipoHonorarioGastosGenerales === 'fijo' ? hon : (importe * hon / 100);
-                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}`}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Mayores Costos */}
-                                  <div className="col-md-6 mb-4">
-                                    <div className="border rounded p-3" style={{ backgroundColor: '#fef2f2', borderColor: '#ef4444 !important' }}>
-                                      <label className="form-label fw-bold" style={{ color: '#991b1b', fontSize: '0.95rem' }}>
-                                        <i className="fas fa-chart-line me-2"></i>
-                                        Mayores Costos
-                                      </label>
-                                      <div className="input-group mb-2">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#fee2e2',
-                                          color: '#991b1b',
-                                          border: '1px solid #ef4444'
-                                        }}>
-                                          $
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0.00"
-                                          step="0.01"
-                                          min="0"
-                                          value={importeMayoresCostos}
-                                          onChange={(e) => setImporteMayoresCostos(e.target.value)}
-                                          style={{
-                                            border: '1px solid #ef4444',
-                                            borderLeft: 'none'
-                                          }}
-                                        />
-                                      </div>
-
-                                      {/* Honorarios para Mayores Costos */}
-                                      <div className="mt-2">
-                                        <label className="form-label small mb-1" style={{ color: '#6b7280' }}>
-                                          <i className="fas fa-handshake me-1"></i>
-                                          Honorarios
-                                        </label>
-                                        <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioMayoresCostos === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                            onClick={() => setTipoHonorarioMayoresCostos('fijo')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            $ Fijo
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className={`btn btn-sm ${tipoHonorarioMayoresCostos === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                            onClick={() => setTipoHonorarioMayoresCostos('porcentaje')}
-                                            style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                          >
-                                            % Porcentaje
-                                          </button>
-                                        </div>
-                                        <div className="input-group input-group-sm">
-                                          <span className="input-group-text" style={{
-                                            backgroundColor: '#fee2e2',
-                                            color: '#991b1b',
-                                            border: '1px solid #ef4444',
-                                            fontSize: '0.8rem'
-                                          }}>
-                                            {tipoHonorarioMayoresCostos === 'fijo' ? '$' : '%'}
-                                          </span>
-                                          <input
-                                            type="number"
-                                            className="form-control"
-                                            placeholder={tipoHonorarioMayoresCostos === 'fijo' ? '0.00' : '0'}
-                                            step={tipoHonorarioMayoresCostos === 'fijo' ? '0.01' : '1'}
-                                            min="0"
-                                            max={tipoHonorarioMayoresCostos === 'porcentaje' ? '100' : undefined}
-                                            value={honorarioMayoresCostos}
-                                            onChange={(e) => setHonorarioMayoresCostos(e.target.value)}
-                                            style={{
-                                              border: '1px solid #ef4444',
-                                              borderLeft: 'none',
-                                              fontSize: '0.85rem'
-                                            }}
-                                          />
-                                        </div>
-                                        {honorarioMayoresCostos && importeMayoresCostos && (
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#fee2e2',
-                                            borderRadius: '4px',
-                                            border: '1px solid #ef4444',
-                                            fontSize: '0.75rem',
-                                            color: '#991b1b',
-                                            fontWeight: '600'
-                                          }}>
-                                            {`Honorario: $${(() => {
-                                              const importe = parseFloat(importeMayoresCostos);
-                                              const hon = parseFloat(honorarioMayoresCostos);
-                                              const montoHon = tipoHonorarioMayoresCostos === 'fijo' ? hon : (importe * hon / 100);
-                                              return montoHon.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}`}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Sección de Descuentos */}
-                                <div className="mt-4 pt-3" style={{ borderTop: '2px dashed #e5e7eb' }}>
-                                  <h6 className="mb-3" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
-                                    <i className="fas fa-percent me-2 text-danger"></i>
-                                    Descuentos Aplicables
-                                  </h6>
-
-                                  <div className="row">
-                                    {/* Descuento Jornales */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-tag me-1"></i>
-                                        Desc. Jornales
-                                      </label>
-                                      {/* Mostrar Base */}
-                                      {importeJornales && (
-                                        <div className="mb-1 p-1 text-center" style={{
-                                          backgroundColor: '#fef3c7',
-                                          borderRadius: '4px',
-                                          border: '1px solid #f59e0b',
-                                          fontSize: '0.75rem',
-                                          color: '#92400e',
-                                          fontWeight: '500'
-                                        }}>
-                                          📊 Base: ${parseFloat(importeJornales).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoJornales === 'fijo' ? 'btn-warning' : 'btn-outline-warning'}`}
-                                          onClick={() => setTipoDescuentoJornales('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoJornales === 'porcentaje' ? 'btn-warning' : 'btn-outline-warning'}`}
-                                          onClick={() => setTipoDescuentoJornales('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#fef3c7',
-                                          color: '#92400e',
-                                          border: '1px solid #f59e0b',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoJornales === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoJornales === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoJornales === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoJornales}
-                                          onChange={(e) => setDescuentoJornales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #f59e0b',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Mostrar Descuento y Total */}
-                                      {descuentoJornales && importeJornales && (
-                                        <>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#fed7aa',
-                                            borderRadius: '4px',
-                                            border: '1px solid #ea580c',
-                                            fontSize: '0.75rem',
-                                            color: '#7c2d12',
-                                            fontWeight: '600'
-                                          }}>
-                                            💰 Descuento: ${(() => {
-                                              const base = parseFloat(importeJornales);
-                                              const desc = parseFloat(descuentoJornales);
-                                              const montoDesc = tipoDescuentoJornales === 'fijo' ? desc : (base * desc / 100);
-                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#dcfce7',
-                                            borderRadius: '4px',
-                                            border: '1px solid #16a34a',
-                                            fontSize: '0.75rem',
-                                            color: '#14532d',
-                                            fontWeight: '700'
-                                          }}>
-                                            💵 Total: ${(() => {
-                                              const base = parseFloat(importeJornales);
-                                              const desc = parseFloat(descuentoJornales);
-                                              const montoDesc = tipoDescuentoJornales === 'fijo' ? desc : (base * desc / 100);
-                                              const total = base - montoDesc;
-                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-
-                                    {/* Descuento Materiales */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-tag me-1"></i>
-                                        Desc. Materiales
-                                      </label>
-                                      {/* Mostrar Base */}
-                                      {importeMateriales && (
-                                        <div className="mb-1 p-1 text-center" style={{
-                                          backgroundColor: '#dbeafe',
-                                          borderRadius: '4px',
-                                          border: '1px solid #3b82f6',
-                                          fontSize: '0.75rem',
-                                          color: '#1e40af',
-                                          fontWeight: '500'
-                                        }}>
-                                          📊 Base: ${parseFloat(importeMateriales).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoMateriales === 'fijo' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                          onClick={() => setTipoDescuentoMateriales('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoMateriales === 'porcentaje' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                          onClick={() => setTipoDescuentoMateriales('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#dbeafe',
-                                          color: '#1e40af',
-                                          border: '1px solid #3b82f6',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoMateriales === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoMateriales === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoMateriales === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoMateriales}
-                                          onChange={(e) => setDescuentoMateriales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #3b82f6',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Mostrar Descuento y Total */}
-                                      {descuentoMateriales && importeMateriales && (
-                                        <>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#bfdbfe',
-                                            borderRadius: '4px',
-                                            border: '1px solid #2563eb',
-                                            fontSize: '0.75rem',
-                                            color: '#1e3a8a',
-                                            fontWeight: '600'
-                                          }}>
-                                            💰 Descuento: ${(() => {
-                                              const base = parseFloat(importeMateriales);
-                                              const desc = parseFloat(descuentoMateriales);
-                                              const montoDesc = tipoDescuentoMateriales === 'fijo' ? desc : (base * desc / 100);
-                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#dcfce7',
-                                            borderRadius: '4px',
-                                            border: '1px solid #16a34a',
-                                            fontSize: '0.75rem',
-                                            color: '#14532d',
-                                            fontWeight: '700'
-                                          }}>
-                                            💵 Total: ${(() => {
-                                              const base = parseFloat(importeMateriales);
-                                              const desc = parseFloat(descuentoMateriales);
-                                              const montoDesc = tipoDescuentoMateriales === 'fijo' ? desc : (base * desc / 100);
-                                              const total = base - montoDesc;
-                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-
-                                    {/* Descuento Gastos Generales */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-tag me-1"></i>
-                                        Desc. Gastos Generales
-                                      </label>
-                                      {/* Mostrar Base */}
-                                      {importeGastosGenerales && (
-                                        <div className="mb-1 p-1 text-center" style={{
-                                          backgroundColor: '#d1fae5',
-                                          borderRadius: '4px',
-                                          border: '1px solid #10b981',
-                                          fontSize: '0.75rem',
-                                          color: '#065f46',
-                                          fontWeight: '500'
-                                        }}>
-                                          📊 Base: ${parseFloat(importeGastosGenerales).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoGastosGenerales === 'fijo' ? 'btn-success' : 'btn-outline-success'}`}
-                                          onClick={() => setTipoDescuentoGastosGenerales('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoGastosGenerales === 'porcentaje' ? 'btn-success' : 'btn-outline-success'}`}
-                                          onClick={() => setTipoDescuentoGastosGenerales('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#d1fae5',
-                                          color: '#065f46',
-                                          border: '1px solid #10b981',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoGastosGenerales === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoGastosGenerales === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoGastosGenerales === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoGastosGenerales}
-                                          onChange={(e) => setDescuentoGastosGenerales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #10b981',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Mostrar Descuento y Total */}
-                                      {descuentoGastosGenerales && importeGastosGenerales && (
-                                        <>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#a7f3d0',
-                                            borderRadius: '4px',
-                                            border: '1px solid #059669',
-                                            fontSize: '0.75rem',
-                                            color: '#064e3b',
-                                            fontWeight: '600'
-                                          }}>
-                                            💰 Descuento: ${(() => {
-                                              const base = parseFloat(importeGastosGenerales);
-                                              const desc = parseFloat(descuentoGastosGenerales);
-                                              const montoDesc = tipoDescuentoGastosGenerales === 'fijo' ? desc : (base * desc / 100);
-                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#dcfce7',
-                                            borderRadius: '4px',
-                                            border: '1px solid #16a34a',
-                                            fontSize: '0.75rem',
-                                            color: '#14532d',
-                                            fontWeight: '700'
-                                          }}>
-                                            💵 Total: ${(() => {
-                                              const base = parseFloat(importeGastosGenerales);
-                                              const desc = parseFloat(descuentoGastosGenerales);
-                                              const montoDesc = tipoDescuentoGastosGenerales === 'fijo' ? desc : (base * desc / 100);
-                                              const total = base - montoDesc;
-                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-
-                                    {/* Descuento Mayores Costos */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-tag me-1"></i>
-                                        Desc. Mayores Costos
-                                      </label>
-                                      {/* Mostrar Base */}
-                                      {importeMayoresCostos && (
-                                        <div className="mb-1 p-1 text-center" style={{
-                                          backgroundColor: '#fee2e2',
-                                          borderRadius: '4px',
-                                          border: '1px solid #ef4444',
-                                          fontSize: '0.75rem',
-                                          color: '#991b1b',
-                                          fontWeight: '500'
-                                        }}>
-                                          📊 Base: ${parseFloat(importeMayoresCostos).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoMayoresCostos === 'fijo' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                          onClick={() => setTipoDescuentoMayoresCostos('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoMayoresCostos === 'porcentaje' ? 'btn-danger' : 'btn-outline-danger'}`}
-                                          onClick={() => setTipoDescuentoMayoresCostos('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#fee2e2',
-                                          color: '#991b1b',
-                                          border: '1px solid #ef4444',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoMayoresCostos === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoMayoresCostos === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoMayoresCostos === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoMayoresCostos}
-                                          onChange={(e) => setDescuentoMayoresCostos(e.target.value)}
-                                          style={{
-                                            border: '1px solid #ef4444',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Mostrar Descuento y Total */}
-                                      {descuentoMayoresCostos && importeMayoresCostos && (
-                                        <>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#fecaca',
-                                            borderRadius: '4px',
-                                            border: '1px solid #dc2626',
-                                            fontSize: '0.75rem',
-                                            color: '#7f1d1d',
-                                            fontWeight: '600'
-                                          }}>
-                                            💰 Descuento: ${(() => {
-                                              const base = parseFloat(importeMayoresCostos);
-                                              const desc = parseFloat(descuentoMayoresCostos);
-                                              const montoDesc = tipoDescuentoMayoresCostos === 'fijo' ? desc : (base * desc / 100);
-                                              return montoDesc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1 text-center" style={{
-                                            backgroundColor: '#dcfce7',
-                                            borderRadius: '4px',
-                                            border: '1px solid #16a34a',
-                                            fontSize: '0.75rem',
-                                            color: '#14532d',
-                                            fontWeight: '700'
-                                          }}>
-                                            💵 Total: ${(() => {
-                                              const base = parseFloat(importeMayoresCostos);
-                                              const desc = parseFloat(descuentoMayoresCostos);
-                                              const montoDesc = tipoDescuentoMayoresCostos === 'fijo' ? desc : (base * desc / 100);
-                                              const total = base - montoDesc;
-                                              return total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Sección de Descuentos sobre Honorarios */}
-                                <div className="mt-4 pt-3" style={{ borderTop: '2px dashed #dc3545' }}>
-                                  <h6 className="mb-3" style={{ fontWeight: '600', color: '#dc3545', fontSize: '0.95rem' }}>
-                                    <i className="fas fa-percentage me-2 text-danger"></i>
-                                    Descuentos sobre Honorarios
-                                  </h6>
-
-                                  <div className="row">
-                                    {/* Descuento Honorario Jornales */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-percentage me-1"></i>
-                                        Desc. Hon. Jornales
-                                      </label>
-                                      {/* Honorario base */}
-                                      {honorarioJornales && importeJornales && (
-                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e', border: '1px solid #f59e0b' }}>
-                                          <strong>📊 Hon. Base:</strong> $
-                                          {(tipoHonorarioJornales === 'fijo'
-                                            ? parseFloat(honorarioJornales || 0)
-                                            : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioJornales === 'fijo' ? 'btn-outline-warning active' : 'btn-outline-warning'}`}
-                                          onClick={() => setTipoDescuentoHonorarioJornales('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioJornales === 'porcentaje' ? 'btn-outline-warning active' : 'btn-outline-warning'}`}
-                                          onClick={() => setTipoDescuentoHonorarioJornales('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#fef3c7',
-                                          color: '#92400e',
-                                          border: '1px solid #f59e0b',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoHonorarioJornales === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoHonorarioJornales === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoHonorarioJornales === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoHonorarioJornales}
-                                          onChange={(e) => setDescuentoHonorarioJornales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #f59e0b',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Honorario Base */}
-                                      {honorarioJornales && importeJornales && (
-                                        <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#78350f', fontWeight: 'bold' }}>
-                                          📊 Hon. Base: $
-                                          {(tipoHonorarioJornales === 'fijo'
-                                            ? parseFloat(honorarioJornales || 0)
-                                            : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      {/* Cálculo descuento sobre honorario */}
-                                      {honorarioJornales && descuentoHonorarioJornales && (
-                                        <>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.7rem', color: '#92400e' }}>
-                                            <strong>💰 Descuento:</strong> $
-                                            {(() => {
-                                              const honorario = tipoHonorarioJornales === 'fijo'
-                                                ? parseFloat(honorarioJornales || 0)
-                                                : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioJornales === 'fijo'
-                                                ? parseFloat(descuentoHonorarioJornales || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioJornales || 0) / 100);
-                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
-                                            {(() => {
-                                              const honorario = tipoHonorarioJornales === 'fijo'
-                                                ? parseFloat(honorarioJornales || 0)
-                                                : ((parseFloat(importeJornales || 0) * parseFloat(honorarioJornales || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioJornales === 'fijo'
-                                                ? parseFloat(descuentoHonorarioJornales || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioJornales || 0) / 100);
-                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-
-                                    {/* Descuento Honorario Materiales */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-percentage me-1"></i>
-                                        Desc. Hon. Materiales
-                                      </label>
-                                      {/* Honorario base */}
-                                      {honorarioMateriales && importeMateriales && (
-                                        <div className="mb-2 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af', border: '1px solid #3b82f6' }}>
-                                          <strong>📊 Hon. Base:</strong> $
-                                          {(tipoHonorarioMateriales === 'fijo'
-                                            ? parseFloat(honorarioMateriales || 0)
-                                            : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioMateriales === 'fijo' ? 'btn-outline-primary active' : 'btn-outline-primary'}`}
-                                          onClick={() => setTipoDescuentoHonorarioMateriales('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioMateriales === 'porcentaje' ? 'btn-outline-primary active' : 'btn-outline-primary'}`}
-                                          onClick={() => setTipoDescuentoHonorarioMateriales('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#dbeafe',
-                                          color: '#1e40af',
-                                          border: '1px solid #3b82f6',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoHonorarioMateriales === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoHonorarioMateriales === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoHonorarioMateriales === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoHonorarioMateriales}
-                                          onChange={(e) => setDescuentoHonorarioMateriales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #3b82f6',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Honorario Base */}
-                                      {honorarioMateriales && importeMateriales && (
-                                        <div className="mt-1 p-1" style={{ backgroundColor: '#eff6ff', borderRadius: '4px', fontSize: '0.7rem', color: '#1e3a8a', fontWeight: 'bold' }}>
-                                          📊 Hon. Base: $
-                                          {(tipoHonorarioMateriales === 'fijo'
-                                            ? parseFloat(honorarioMateriales || 0)
-                                            : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      {/* Cálculo descuento sobre honorario */}
-                                      {honorarioMateriales && descuentoHonorarioMateriales && (
-                                        <>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '0.7rem', color: '#1e40af' }}>
-                                            <strong>💰 Descuento:</strong> $
-                                            {(() => {
-                                              const honorario = tipoHonorarioMateriales === 'fijo'
-                                                ? parseFloat(honorarioMateriales || 0)
-                                                : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioMateriales === 'fijo'
-                                                ? parseFloat(descuentoHonorarioMateriales || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioMateriales || 0) / 100);
-                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#3b82f6', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
-                                            {(() => {
-                                              const honorario = tipoHonorarioMateriales === 'fijo'
-                                                ? parseFloat(honorarioMateriales || 0)
-                                                : ((parseFloat(importeMateriales || 0) * parseFloat(honorarioMateriales || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioMateriales === 'fijo'
-                                                ? parseFloat(descuentoHonorarioMateriales || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioMateriales || 0) / 100);
-                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-
-                                    {/* Descuento Honorario Gastos Generales */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-percentage me-1"></i>
-                                        Desc. Hon. Gastos Generales
-                                      </label>
-                                      {/* Honorario base */}
-                                      {honorarioGastosGenerales && importeGastosGenerales && (
-                                        <div className="mb-2 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46', border: '1px solid #10b981' }}>
-                                          <strong>📊 Hon. Base:</strong> $
-                                          {(tipoHonorarioGastosGenerales === 'fijo'
-                                            ? parseFloat(honorarioGastosGenerales || 0)
-                                            : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioGastosGenerales === 'fijo' ? 'btn-outline-success active' : 'btn-outline-success'}`}
-                                          onClick={() => setTipoDescuentoHonorarioGastosGenerales('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioGastosGenerales === 'porcentaje' ? 'btn-outline-success active' : 'btn-outline-success'}`}
-                                          onClick={() => setTipoDescuentoHonorarioGastosGenerales('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#d1fae5',
-                                          color: '#065f46',
-                                          border: '1px solid #10b981',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoHonorarioGastosGenerales === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoHonorarioGastosGenerales === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoHonorarioGastosGenerales === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoHonorarioGastosGenerales}
-                                          onChange={(e) => setDescuentoHonorarioGastosGenerales(e.target.value)}
-                                          style={{
-                                            border: '1px solid #10b981',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Honorario Base */}
-                                      {honorarioGastosGenerales && importeGastosGenerales && (
-                                        <div className="mt-1 p-1" style={{ backgroundColor: '#ecfdf5', borderRadius: '4px', fontSize: '0.7rem', color: '#047857', fontWeight: 'bold' }}>
-                                          📊 Hon. Base: $
-                                          {(tipoHonorarioGastosGenerales === 'fijo'
-                                            ? parseFloat(honorarioGastosGenerales || 0)
-                                            : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      {/* Cálculo descuento sobre honorario */}
-                                      {honorarioGastosGenerales && descuentoHonorarioGastosGenerales && (
-                                        <>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#d1fae5', borderRadius: '4px', fontSize: '0.7rem', color: '#065f46' }}>
-                                            <strong>💰 Descuento:</strong> $
-                                            {(() => {
-                                              const honorario = tipoHonorarioGastosGenerales === 'fijo'
-                                                ? parseFloat(honorarioGastosGenerales || 0)
-                                                : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioGastosGenerales === 'fijo'
-                                                ? parseFloat(descuentoHonorarioGastosGenerales || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioGastosGenerales || 0) / 100);
-                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#10b981', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
-                                            {(() => {
-                                              const honorario = tipoHonorarioGastosGenerales === 'fijo'
-                                                ? parseFloat(honorarioGastosGenerales || 0)
-                                                : ((parseFloat(importeGastosGenerales || 0) * parseFloat(honorarioGastosGenerales || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioGastosGenerales === 'fijo'
-                                                ? parseFloat(descuentoHonorarioGastosGenerales || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioGastosGenerales || 0) / 100);
-                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-
-                                    {/* Descuento Honorario Mayores Costos */}
-                                    <div className="col-md-6 col-lg-3 mb-3">
-                                      <label className="form-label small" style={{ color: '#6b7280', fontWeight: '500' }}>
-                                        <i className="fas fa-percentage me-1"></i>
-                                        Desc. Hon. Mayores Costos
-                                      </label>
-                                      {/* Honorario base */}
-                                      {honorarioMayoresCostos && importeMayoresCostos && (
-                                        <div className="mb-2 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b', border: '1px solid #ef4444' }}>
-                                          <strong>📊 Hon. Base:</strong> $
-                                          {(tipoHonorarioMayoresCostos === 'fijo'
-                                            ? parseFloat(honorarioMayoresCostos || 0)
-                                            : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      <div className="btn-group d-flex mb-1" role="group" style={{ borderRadius: '6px' }}>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioMayoresCostos === 'fijo' ? 'btn-outline-danger active' : 'btn-outline-danger'}`}
-                                          onClick={() => setTipoDescuentoHonorarioMayoresCostos('fijo')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          $ Fijo
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className={`btn btn-sm ${tipoDescuentoHonorarioMayoresCostos === 'porcentaje' ? 'btn-outline-danger active' : 'btn-outline-danger'}`}
-                                          onClick={() => setTipoDescuentoHonorarioMayoresCostos('porcentaje')}
-                                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
-                                        >
-                                          % Porcentaje
-                                        </button>
-                                      </div>
-                                      <div className="input-group input-group-sm">
-                                        <span className="input-group-text" style={{
-                                          backgroundColor: '#fee2e2',
-                                          color: '#991b1b',
-                                          border: '1px solid #ef4444',
-                                          fontSize: '0.75rem'
-                                        }}>
-                                          {tipoDescuentoHonorarioMayoresCostos === 'fijo' ? '$' : '%'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          className="form-control"
-                                          placeholder="0"
-                                          step={tipoDescuentoHonorarioMayoresCostos === 'fijo' ? '0.01' : '1'}
-                                          min="0"
-                                          max={tipoDescuentoHonorarioMayoresCostos === 'porcentaje' ? '100' : undefined}
-                                          value={descuentoHonorarioMayoresCostos}
-                                          onChange={(e) => setDescuentoHonorarioMayoresCostos(e.target.value)}
-                                          style={{
-                                            border: '1px solid #ef4444',
-                                            borderLeft: 'none',
-                                            fontSize: '0.8rem'
-                                          }}
-                                        />
-                                      </div>
-                                      {/* Honorario Base */}
-                                      {honorarioMayoresCostos && importeMayoresCostos && (
-                                        <div className="mt-1 p-1" style={{ backgroundColor: '#fef2f2', borderRadius: '4px', fontSize: '0.7rem', color: '#7f1d1d', fontWeight: 'bold' }}>
-                                          📊 Hon. Base: $
-                                          {(tipoHonorarioMayoresCostos === 'fijo'
-                                            ? parseFloat(honorarioMayoresCostos || 0)
-                                            : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100)
-                                          ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                      )}
-                                      {/* Cálculo descuento sobre honorario */}
-                                      {honorarioMayoresCostos && descuentoHonorarioMayoresCostos && (
-                                        <>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.7rem', color: '#991b1b' }}>
-                                            <strong>💰 Descuento:</strong> $
-                                            {(() => {
-                                              const honorario = tipoHonorarioMayoresCostos === 'fijo'
-                                                ? parseFloat(honorarioMayoresCostos || 0)
-                                                : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioMayoresCostos === 'fijo'
-                                                ? parseFloat(descuentoHonorarioMayoresCostos || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioMayoresCostos || 0) / 100);
-                                              return descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                          <div className="mt-1 p-1" style={{ backgroundColor: '#ef4444', color: 'white', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                                            💵 Hon. Final: $
-                                            {(() => {
-                                              const honorario = tipoHonorarioMayoresCostos === 'fijo'
-                                                ? parseFloat(honorarioMayoresCostos || 0)
-                                                : ((parseFloat(importeMayoresCostos || 0) * parseFloat(honorarioMayoresCostos || 0)) / 100);
-                                              const descuento = tipoDescuentoHonorarioMayoresCostos === 'fijo'
-                                                ? parseFloat(descuentoHonorarioMayoresCostos || 0)
-                                                : (honorario * parseFloat(descuentoHonorarioMayoresCostos || 0) / 100);
-                                              return (honorario - descuento).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                            })()}
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Resumen del Total */}
-                                {importeTotal && (
-                                  <div className="alert alert-success mb-0 mt-2" style={{
-                                    borderRadius: '8px',
-                                    border: '2px solid #10b981',
-                                    backgroundColor: '#ecfdf5'
-                                  }}>
-                                    <div className="d-flex justify-content-between align-items-center">
-                                      <span className="fw-semibold">
-                                        <i className="fas fa-check-circle me-2"></i>
-                                        Importe Total Calculado:
-                                      </span>
-                                      <span className="fs-5 fw-bold text-success">
-                                        ${parseFloat(importeTotal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                      </span>
-                                    </div>
-                                    <small className="text-muted d-block mt-2">
-                                      <div className="row">
-                                        <div className="col-6 mb-1">
-                                          ⚒️ <strong>Jornales:</strong> ${(parseFloat(importeJornales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                          {honorarioJornales && parseFloat(honorarioJornales) > 0 && (
-                                            <span className="ms-1 text-success">
-                                              + Hon. {tipoHonorarioJornales === 'porcentaje' ? `${honorarioJornales}%` : `$${(parseFloat(honorarioJornales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="col-6 mb-1">
-                                          📦 <strong>Materiales:</strong> ${(parseFloat(importeMateriales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                          {honorarioMateriales && parseFloat(honorarioMateriales) > 0 && (
-                                            <span className="ms-1 text-success">
-                                              + Hon. {tipoHonorarioMateriales === 'porcentaje' ? `${honorarioMateriales}%` : `$${(parseFloat(honorarioMateriales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="col-6 mb-1">
-                                          💼 <strong>Gastos Generales:</strong> ${(parseFloat(importeGastosGenerales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                          {honorarioGastosGenerales && parseFloat(honorarioGastosGenerales) > 0 && (
-                                            <span className="ms-1 text-success">
-                                              + Hon. {tipoHonorarioGastosGenerales === 'porcentaje' ? `${honorarioGastosGenerales}%` : `$${(parseFloat(honorarioGastosGenerales) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="col-6 mb-1">
-                                          📈 <strong>Mayores Costos:</strong> ${(parseFloat(importeMayoresCostos) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                          {honorarioMayoresCostos && parseFloat(honorarioMayoresCostos) > 0 && (
-                                            <span className="ms-1 text-success">
-                                              + Hon. {tipoHonorarioMayoresCostos === 'porcentaje' ? `${honorarioMayoresCostos}%` : `$${(parseFloat(honorarioMayoresCostos) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </small>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-
-                        {/* Días/Jornales necesarios */}
-                        <div className="col-md-4 mb-4">
-                          <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
-                            <i className="fas fa-calendar-day me-2 text-warning"></i>
-                            Días/Jornales
-                            <span className="text-danger ms-1">*</span>
-                          </label>
-                          <div className="input-group" style={{ borderRadius: '10px', overflow: 'hidden' }}>
-                            <span className="input-group-text" style={{
-                              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                              color: 'white',
-                              border: 'none'
-                            }}>
-                              <i className="fas fa-business-time"></i>
-                            </span>
-                            <input
-                              type="number"
-                              name="diasNecesarios"
-                              className="form-control form-control-lg"
-                              placeholder="5"
-                              min="1"
-                              defaultValue={trabajoAdicionalEditar?.diasNecesarios || ''}
-                              required
-                              style={{
-                                border: '2px solid #e5e7eb',
-                                borderLeft: 'none',
-                                fontSize: '1rem'
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Fecha de Inicio */}
-                        <div className="col-md-4 mb-4">
-                          <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
-                            <i className="fas fa-calendar-alt me-2 text-info"></i>
-                            Fecha de Inicio
-                            <span className="text-danger ms-1">*</span>
-                          </label>
-                          <div className="input-group" style={{ borderRadius: '10px', overflow: 'hidden' }}>
-                            <span className="input-group-text" style={{
-                              background: 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
-                              color: 'white',
-                              border: 'none'
-                            }}>
-                              <i className="fas fa-clock"></i>
-                            </span>
-                            <input
-                              type="date"
-                              name="fechaInicio"
-                              className="form-control form-control-lg"
-                              defaultValue={trabajoAdicionalEditar?.fechaInicio || ''}
-                              required
-                              style={{
-                                border: '2px solid #e5e7eb',
-                                borderLeft: 'none',
-                                fontSize: '1rem'
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sección 2: Profesionales */}
-                  <div className="card mb-4" style={{ border: 'none', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-                    <div className="card-header" style={{
-                      background: 'linear-gradient(90deg, #ec4899 0%, #db2777 100%)',
-                      color: 'white',
-                      borderRadius: '12px 12px 0 0',
-                      padding: '1rem 1.5rem'
-                    }}>
-                      <div className="d-flex justify-content-between align-items-center">
-                        <h6 className="mb-0" style={{ fontWeight: '600' }}>
-                          <i className="fas fa-users me-2"></i>
-                          Profesionales Asignados
-                        </h6>
-                        <span className="badge bg-white text-dark" style={{ fontSize: '0.85rem' }}>
-                          {profesionalesSeleccionados.length + profesionalesAdhoc.length} seleccionados
-                        </span>
-                      </div>
-                    </div>
-                    <div className="card-body p-4">
-                      {/* Tabs para seleccionar origen */}
-                      <ul className="nav nav-pills mb-3" style={{ gap: '0.5rem' }}>
-                        <li className="nav-item">
-                          <button
-                            className={`nav-link ${!mostrarFormularioAdhoc ? 'active' : ''}`}
-                            onClick={() => setMostrarFormularioAdhoc(false)}
-                            style={{
-                              borderRadius: '8px',
-                              fontWeight: '600',
-                              fontSize: '0.9rem',
-                              background: !mostrarFormularioAdhoc
-                                ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
-                                : '#f3f4f6',
-                              color: !mostrarFormularioAdhoc ? 'white' : '#6b7280',
-                              border: 'none'
-                            }}
-                          >
-                            <i className="fas fa-list me-2"></i>
-                            Seleccionar de Lista
-                          </button>
-                        </li>
-                        <li className="nav-item">
-                          <button
-                            className={`nav-link ${mostrarFormularioAdhoc ? 'active' : ''}`}
-                            onClick={() => setMostrarFormularioAdhoc(true)}
-                            style={{
-                              borderRadius: '8px',
-                              fontWeight: '600',
-                              fontSize: '0.9rem',
-                              background: mostrarFormularioAdhoc
-                                ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
-                                : '#f3f4f6',
-                              color: mostrarFormularioAdhoc ? 'white' : '#6b7280',
-                              border: 'none'
-                            }}
-                          >
-                            <i className="fas fa-user-plus me-2"></i>
-                            Agregar Manualmente
-                          </button>
-                        </li>
-                      </ul>
-
-                      {/* Contenido según tab seleccionado */}
-                      {!mostrarFormularioAdhoc ? (
-                        // TAB 1: Seleccionar de lista
-                        <>
-                          <div className="alert alert-light border-0 mb-3" style={{ borderRadius: '10px', backgroundColor: '#f9fafb' }}>
-                            <small className="text-muted d-flex align-items-center">
-                              <i className="fas fa-info-circle me-2 text-primary"></i>
-                              Seleccione profesionales de su catálogo registrado
-                            </small>
-                          </div>
-
-                          {loadingProfesionalesTA ? (
-                            <div className="text-center py-5">
-                              <div className="spinner-border text-primary" role="status">
-                                <span className="visually-hidden">Cargando...</span>
-                              </div>
-                              <p className="mt-2 text-muted">Cargando profesionales...</p>
-                            </div>
-                          ) : profesionalesDisponiblesTA.length === 0 ? (
-                            <div className="text-muted text-center py-5">
-                              <i className="fas fa-users-slash mb-3" style={{ fontSize: '3rem', opacity: 0.3 }}></i>
-                              <p className="mb-0">No hay profesionales registrados</p>
-                              <small className="text-muted">Use la pestaña "Agregar Manualmente" para añadir nuevos</small>
-                            </div>
-                          ) : (
-                            <div className="border rounded-3" style={{
-                              maxHeight: '300px',
-                              overflowY: 'auto',
-                              backgroundColor: 'white'
-                            }}>
-                              <table className="table table-hover mb-0">
-                                <thead style={{ position: 'sticky', top: 0, backgroundColor: '#f8f9fa', zIndex: 1 }}>
-                                  <tr>
-                                    <th style={{ width: '50px' }}></th>
-                                    <th>Nombre</th>
-                                    <th>Tipo</th>
-                                    <th>Honorario/Día</th>
-                                  </tr>
-                                </thead>
-                                <tbody>{profesionalesDisponiblesTA.map((prof) => {
-                                    const estaSeleccionado = profesionalesSeleccionados.some(p => p.id === prof.id);
-                                    return (
-                                      <tr
-                                        key={prof.id}
-                                        style={{
-                                          backgroundColor: estaSeleccionado ? '#fce7f3' : 'transparent',
-                                          cursor: 'pointer'
-                                        }}
-                                        onClick={() => {
-                                          if (estaSeleccionado) {
-                                            setProfesionalesSeleccionados(prev => prev.filter(p => p.id !== prof.id));
-                                          } else {
-                                            setProfesionalesSeleccionados(prev => [...prev, prof]);
-                                          }
-                                        }}
-                                      >
-                                        <td className="text-center">
-                                          <input
-                                            type="checkbox"
-                                            className="form-check-input"
-                                            checked={estaSeleccionado}
-                                            onChange={() => {}}
-                                            style={{ cursor: 'pointer', width: '18px', height: '18px' }}
-                                          />
-                                        </td>
-                                        <td>
-                                          <div className="fw-semibold">{prof.nombre}</div>
-                                          {prof.telefono && (
-                                            <small className="text-muted">
-                                              <i className="fas fa-phone me-1"></i>
-                                              {prof.telefono}
-                                            </small>
-                                          )}
-                                        </td>
-                                        <td>
-                                          <span className="badge bg-primary" style={{ fontSize: '0.75rem' }}>
-                                            {prof.tipoProfesional || 'Sin especificar'}
-                                          </span>
-                                        </td>
-                                        <td className="fw-semibold text-success">
-                                          ${prof.honorario_dia ? parseFloat(prof.honorario_dia).toFixed(2) : '0.00'}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        // TAB 2: Agregar manualmente
-                        <>
-                          <div className="alert alert-info border-0 mb-3" style={{ borderRadius: '10px' }}>
-                            <small className="d-flex align-items-center">
-                              <i className="fas fa-lightbulb me-2"></i>
-                              Puede crear profesionales temporales o guardarlos en el catálogo para uso futuro
-                            </small>
-                          </div>
-
-                          <div className="card" style={{ border: '2px dashed #e5e7eb', borderRadius: '10px' }}>
-                            <div className="card-body p-3">
-                              <div className="row">
-                                <div className="col-md-6 mb-3">
-                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                    <i className="fas fa-user me-1"></i>
-                                    Nombre Completo *
-                                  </label>
-                                  <input
-                                    type="text"
-                                    className="form-control"
-                                    value={profesionalAdhocForm.nombre}
-                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, nombre: e.target.value })}
-                                    placeholder="Ej: Juan Pérez"
-                                    style={{ borderRadius: '8px' }}
-                                  />
-                                </div>
-                                <div className="col-md-6 mb-3">
-                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                    <i className="fas fa-hard-hat me-1"></i>
-                                    Tipo/Especialidad *
-                                  </label>
-                                  <input
-                                    type="text"
-                                    className="form-control"
-                                    value={profesionalAdhocForm.tipoProfesional}
-                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, tipoProfesional: e.target.value })}
-                                    placeholder="Ej: Electricista, Plomero, etc."
-                                    style={{ borderRadius: '8px' }}
-                                  />
-                                </div>
-                                <div className="col-md-4 mb-3">
-                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                    <i className="fas fa-dollar-sign me-1"></i>
-                                    Honorario/Día
-                                  </label>
-                                  <input
-                                    type="number"
-                                    className="form-control"
-                                    value={profesionalAdhocForm.honorarioDia}
-                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, honorarioDia: e.target.value })}
-                                    placeholder="0.00"
-                                    step="0.01"
-                                    min="0"
-                                    style={{ borderRadius: '8px' }}
-                                  />
-                                </div>
-                                <div className="col-md-4 mb-3">
-                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                    <i className="fas fa-phone me-1"></i>
-                                    Teléfono
-                                  </label>
-                                  <input
-                                    type="tel"
-                                    className="form-control"
-                                    value={profesionalAdhocForm.telefono}
-                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, telefono: e.target.value })}
-                                    placeholder="Ej: +54 9 11 1234-5678"
-                                    style={{ borderRadius: '8px' }}
-                                  />
-                                </div>
-                                <div className="col-md-4 mb-3">
-                                  <label className="form-label fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                    <i className="fas fa-envelope me-1"></i>
-                                    Email
-                                  </label>
-                                  <input
-                                    type="email"
-                                    className="form-control"
-                                    value={profesionalAdhocForm.email}
-                                    onChange={(e) => setProfesionalAdhocForm({ ...profesionalAdhocForm, email: e.target.value })}
-                                    placeholder="ejemplo@correo.com"
-                                    style={{ borderRadius: '8px' }}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* 🆕 Checkbox para guardar en catálogo */}
-                              <div className="mt-3 mb-3">
-                                <div className="card bg-light border-primary">
-                                  <div className="card-body py-2">
-                                    <div className="form-check">
-                                      <input
-                                        type="checkbox"
-                                        className="form-check-input"
-                                        id="guardarEnCatalogoTA"
-                                        checked={guardarEnCatalogoTA}
-                                        onChange={(e) => setGuardarEnCatalogoTA(e.target.checked)}
-                                      />
-                                      <label className="form-check-label" htmlFor="guardarEnCatalogoTA">
-                                        <strong>
-                                          <i className="fas fa-save me-2 text-primary"></i>
-                                          Guardar en catálogo permanente
-                                        </strong>
-                                        <small className="d-block text-muted mt-1">
-                                          {guardarEnCatalogoTA
-                                            ? '✅ Este profesional se guardará como INDEPENDIENTE y estará disponible para futuras asignaciones'
-                                            : '⚠️ Solo se agregará temporalmente a este trabajo adicional (no se guardará en el catálogo)'}
-                                        </small>
-                                      </label>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                className="btn btn-primary w-100"
-                                disabled={guardandoProfesionalTA}
-                                onClick={async () => {
-                                  if (!profesionalAdhocForm.nombre || !profesionalAdhocForm.tipoProfesional) {
-                                    showNotification('Complete al menos el nombre y tipo de profesional', 'warning');
-                                    return;
-                                  }
-
-                                  setGuardandoProfesionalTA(true);
-
-                                  try {
-                                    let nuevoProfesional;
-
-                                    // Si está marcado "Guardar en catálogo", crear en la BD
-                                    if (guardarEnCatalogoTA) {
-                                      if (!empresaId) {
-                                        throw new Error('No se puede guardar: falta empresaId');
-                                      }
-
-                                      const dataProfesional = {
-                                        nombre: profesionalAdhocForm.nombre.trim(),
-                                        tipoProfesional: profesionalAdhocForm.tipoProfesional.trim(),
-                                        honorarioDia: profesionalAdhocForm.honorarioDia ? parseFloat(profesionalAdhocForm.honorarioDia) : 0,
-                                        telefono: profesionalAdhocForm.telefono.trim() || null,
-                                        email: profesionalAdhocForm.email.trim() || null,
-                                        empresaId: empresaId,
-                                        activo: true,
-                                        categoria: 'INDEPENDIENTE'
-                                      };
-
-                                      const response = await api.profesionales.create(dataProfesional);
-
-                                      // Manejar diferentes estructuras de respuesta del backend
-                                      const profesionalCreado = response?.data || response;
-
-                                      if (!profesionalCreado || !profesionalCreado.id) {
-                                        throw new Error('El backend no devolvió un profesional válido');
-                                      }
-
-                                      nuevoProfesional = {
-                                        id: profesionalCreado.id,
-                                        nombre: profesionalCreado.nombre || profesionalAdhocForm.nombre,
-                                        tipoProfesional: profesionalCreado.tipoProfesional || profesionalAdhocForm.tipoProfesional,
-                                        honorario_dia: profesionalCreado.honorarioDia || profesionalCreado.honorario_dia || profesionalAdhocForm.honorarioDia || 0,
-                                        telefono: profesionalCreado.telefono || profesionalAdhocForm.telefono,
-                                        email: profesionalCreado.email || profesionalAdhocForm.email,
-                                        activo: profesionalCreado.activo !== undefined ? profesionalCreado.activo : true,
-                                        categoria: profesionalCreado.categoria || 'INDEPENDIENTE',
-                                        _esGuardado: true
-                                      };
-
-                                      // Actualizar lista de profesionales disponibles
-                                      setProfesionalesDisponiblesTA(prev => [...prev, nuevoProfesional]);
-                                      showNotification('✅ Profesional guardado en catálogo permanente', 'success');
-                                    } else {
-                                      // Crear profesional temporal
-                                      nuevoProfesional = {
-                                        id: `adhoc_${Date.now()}`,
-                                        nombre: profesionalAdhocForm.nombre,
-                                        tipoProfesional: profesionalAdhocForm.tipoProfesional,
-                                        honorario_dia: profesionalAdhocForm.honorarioDia || '0',
-                                        telefono: profesionalAdhocForm.telefono,
-                                        email: profesionalAdhocForm.email,
-                                        _esAdhoc: true
-                                      };
-                                      showNotification('Profesional temporal agregado', 'success');
-                                    }
-
-                                    setProfesionalesAdhoc(prev => [...prev, nuevoProfesional]);
-                                    setProfesionalAdhocForm({
-                                      nombre: '',
-                                      tipoProfesional: '',
-                                      honorarioDia: '',
-                                      telefono: '',
-                                      email: ''
-                                    });
-                                    setGuardarEnCatalogoTA(false);
-
-                                  } catch (error) {
-                                    console.error('Error al agregar profesional:', error);
-                                    showNotification(
-                                      `❌ Error: ${error.response?.data?.message || error.message || 'No se pudo guardar el profesional'}`,
-                                      'error'
-                                    );
-                                  } finally {
-                                    setGuardandoProfesionalTA(false);
-                                  }
-                                }}
-                                style={{
-                                  borderRadius: '8px',
-                                  fontWeight: '600'
-                                }}
-                              >
-                                {guardandoProfesionalTA ? (
-                                  <>
-                                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                    Guardando...
-                                  </>
-                                ) : (
-                                  <>
-                                    <i className="fas fa-plus-circle me-2"></i>
-                                    {guardarEnCatalogoTA ? 'Guardar en Catálogo' : 'Agregar a Lista Temporal'}
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-
-                      {/* Resumen de profesionales seleccionados */}
-                      {(profesionalesSeleccionados.length > 0 || profesionalesAdhoc.length > 0) && (
-                        <div className="mt-4">
-                          <hr />
-                          <h6 className="fw-bold mb-3" style={{ color: '#374151' }}>
-                            <i className="fas fa-check-circle me-2 text-success"></i>
-                            Profesionales que se asignarán ({profesionalesSeleccionados.length + profesionalesAdhoc.length})
-                          </h6>
-
-                          <div className="row g-2">
-                            {profesionalesSeleccionados.map((prof) => (
-                              <div key={prof.id} className="col-md-6">
-                                <div className="card border-0" style={{
-                                  backgroundColor: '#fce7f3',
-                                  borderRadius: '8px'
-                                }}>
-                                  <div className="card-body p-2 d-flex justify-content-between align-items-center">
-                                    <div>
-                                      <div className="fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                        {prof.nombre}
-                                      </div>
-                                      <small className="text-muted">
-                                        <i className="fas fa-hard-hat me-1"></i>
-                                        {prof.tipoProfesional}
-                                      </small>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-danger"
-                                      onClick={() => setProfesionalesSeleccionados(prev => prev.filter(p => p.id !== prof.id))}
-                                      style={{ borderRadius: '6px' }}
-                                    >
-                                      <i className="fas fa-times"></i>
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                            {profesionalesAdhoc.map((prof) => (
-                              <div key={prof.id} className="col-md-6">
-                                <div className="card border-0" style={{
-                                  backgroundColor: prof._esGuardado ? '#d1fae5' : '#fef3c7',
-                                  borderRadius: '8px',
-                                  border: prof._esGuardado ? '2px solid #10b981' : '2px dashed #f59e0b'
-                                }}>
-                                  <div className="card-body p-2 d-flex justify-content-between align-items-center">
-                                    <div>
-                                      <div className="fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                        {prof.nombre}
-                                        {prof._esGuardado ? (
-                                          <span className="badge bg-success ms-2" style={{ fontSize: '0.65rem' }}>
-                                            <i className="fas fa-check-circle me-1"></i>
-                                            CATÁLOGO
-                                          </span>
-                                        ) : (
-                                          <span className="badge bg-warning text-dark ms-2" style={{ fontSize: '0.65rem' }}>
-                                            <i className="fas fa-clock me-1"></i>
-                                            TEMPORAL
-                                          </span>
-                                        )}
-                                      </div>
-                                      <small className="text-muted">
-                                        <i className="fas fa-hard-hat me-1"></i>
-                                        {prof.tipoProfesional}
-                                      </small>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-danger"
-                                      onClick={() => setProfesionalesAdhoc(prev => prev.filter(p => p.id !== prof.id))}
-                                      style={{ borderRadius: '6px' }}
-                                    >
-                                      <i className="fas fa-times"></i>
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Sección 3: Detalles y Observaciones */}
-                  <div className="card mb-0" style={{ border: 'none', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-                    <div className="card-header" style={{
-                      background: 'linear-gradient(90deg, #14b8a6 0%, #0d9488 100%)',
-                      color: 'white',
-                      borderRadius: '12px 12px 0 0',
-                      padding: '1rem 1.5rem'
-                    }}>
-                      <h6 className="mb-0" style={{ fontWeight: '600' }}>
-                        <i className="fas fa-file-alt me-2"></i>
-                        Detalles y Observaciones
-                      </h6>
-                    </div>
-                    <div className="card-body p-4">
-                      {/* Descripción */}
-                      <div className="mb-4">
-                        <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
-                          <i className="fas fa-align-left me-2 text-primary"></i>
-                          Descripción
-                        </label>
-                        <textarea
-                          name="descripcion"
-                          className="form-control"
-                          rows="4"
-                          placeholder="Describa los detalles del trabajo adicional..."
-                          defaultValue={trabajoAdicionalEditar?.descripcion || ''}
-                          style={{
-                            borderRadius: '10px',
-                            border: '2px solid #e5e7eb',
-                            padding: '1rem',
-                            fontSize: '0.95rem',
-                            resize: 'none'
-                          }}
-                        ></textarea>
-                      </div>
-
-                      {/* Observaciones */}
-                      <div className="mb-0">
-                        <label className="form-label" style={{ fontWeight: '600', color: '#374151', fontSize: '0.95rem' }}>
-                          <i className="fas fa-comment-dots me-2 text-warning"></i>
-                          Observaciones
-                        </label>
-                        <textarea
-                          name="observaciones"
-                          className="form-control"
-                          rows="3"
-                          placeholder="Notas adicionales, restricciones, etc..."
-                          defaultValue={trabajoAdicionalEditar?.observaciones || ''}
-                          style={{
-                            borderRadius: '10px',
-                            border: '2px solid #e5e7eb',
-                            padding: '1rem',
-                            fontSize: '0.95rem',
-                            resize: 'none'
-                          }}
-                        ></textarea>
-                      </div>
-                    </div>
-                  </div>
-                </form>
-              </div>
-
-              {/* Footer */}
-              <div className="modal-footer" style={{
-                padding: '1.5rem 2rem',
-                backgroundColor: '#f8f9fa',
-                borderTop: '2px solid #e5e7eb'
-              }}>
-                <button
-                  type="button"
-                  className="btn btn-light btn-lg"
-                  onClick={() => {
-                    setMostrarModalTrabajoAdicional(false);
-                    setTrabajoAdicionalEditar(null);
-                  }}
-                  style={{
-                    borderRadius: '10px',
-                    padding: '0.75rem 2rem',
-                    fontWeight: '600',
-                    border: '2px solid #d1d5db'
-                  }}
-                >
-                  <i className="fas fa-times me-2"></i>
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-lg text-white"
-                  onClick={async () => {
-                    // Validar campos requeridos
-                    const form = document.querySelector('#formTrabajoAdicional');
-                    if (!form.checkValidity()) {
-                      form.reportValidity();
-                      return;
-                    }
-
-                    // Recopilar datos del formulario
-                    const formData = new FormData(form);
-                    const todosLosProfesionales = [
-                      ...profesionalesSeleccionados.map(p => ({
-                        profesionalId: p.id,
-                        nombre: p.nombre,
-                        tipoProfesional: p.tipoProfesional,
-                        honorarioDia: p.honorario_dia,
-                        telefono: p.telefono,
-                        email: p.email,
-                        esRegistrado: true
-                      })),
-                      ...profesionalesAdhoc.map(p => ({
-                        profesionalId: null,
-                        nombre: p.nombre,
-                        tipoProfesional: p.tipoProfesional,
-                        honorarioDia: p.honorario_dia,
-                        telefono: p.telefono,
-                        email: p.email,
-                        esRegistrado: false
-                      }))
-                    ];
-
-                    console.log('🟡 Preparando datos antes de enviar:', {
-                      obraParaTrabajosAdicionales,
-                      esTrabajoExtra: obraParaTrabajosAdicionales._esTrabajoExtra,
-                      trabajoExtraId: obraParaTrabajosAdicionales._trabajoExtraId,
-                      obraId: obraParaTrabajosAdicionales.id
-                    });
-
-                    const datosTrabajoAdicional = {
-                      nombre: formData.get('nombre'),
-                      importe: parseFloat(formData.get('importe')),
-                      diasNecesarios: parseInt(formData.get('diasNecesarios')),
-                      fechaInicio: formData.get('fechaInicio'),
-                      descripcion: formData.get('descripcion') || null,
-                      observaciones: formData.get('observaciones') || null,
-                      // Desglose de importe - importes base
-                      importeJornales: usarDesglose ? (parseFloat(importeJornales) || null) : null,
-                      importeMateriales: usarDesglose ? (parseFloat(importeMateriales) || null) : null,
-                      importeGastosGenerales: usarDesglose ? (parseFloat(importeGastosGenerales) || null) : null,
-                      importeMayoresCostos: usarDesglose ? (parseFloat(importeMayoresCostos) || null) : null,
-                      // Honorarios individuales para cada categoría
-                      honorarioJornales: usarDesglose ? (parseFloat(honorarioJornales) || null) : null,
-                      tipoHonorarioJornales: usarDesglose ? tipoHonorarioJornales : null,
-                      honorarioMateriales: usarDesglose ? (parseFloat(honorarioMateriales) || null) : null,
-                      tipoHonorarioMateriales: usarDesglose ? tipoHonorarioMateriales : null,
-                      honorarioGastosGenerales: usarDesglose ? (parseFloat(honorarioGastosGenerales) || null) : null,
-                      tipoHonorarioGastosGenerales: usarDesglose ? tipoHonorarioGastosGenerales : null,
-                      honorarioMayoresCostos: usarDesglose ? (parseFloat(honorarioMayoresCostos) || null) : null,
-                      tipoHonorarioMayoresCostos: usarDesglose ? tipoHonorarioMayoresCostos : null,
-                      // Descuentos individuales para cada categoría
-                      descuentoJornales: usarDesglose ? (parseFloat(descuentoJornales) || null) : null,
-                      tipoDescuentoJornales: usarDesglose ? tipoDescuentoJornales : null,
-                      descuentoMateriales: usarDesglose ? (parseFloat(descuentoMateriales) || null) : null,
-                      tipoDescuentoMateriales: usarDesglose ? tipoDescuentoMateriales : null,
-                      descuentoGastosGenerales: usarDesglose ? (parseFloat(descuentoGastosGenerales) || null) : null,
-                      tipoDescuentoGastosGenerales: usarDesglose ? tipoDescuentoGastosGenerales : null,
-                      descuentoMayoresCostos: usarDesglose ? (parseFloat(descuentoMayoresCostos) || null) : null,
-                      tipoDescuentoMayoresCostos: usarDesglose ? tipoDescuentoMayoresCostos : null,
-                      // Descuentos específicos para honorarios
-                      descuentoHonorarioJornales: usarDesglose ? (parseFloat(descuentoHonorarioJornales) || null) : null,
-                      tipoDescuentoHonorarioJornales: usarDesglose ? tipoDescuentoHonorarioJornales : null,
-                      descuentoHonorarioMateriales: usarDesglose ? (parseFloat(descuentoHonorarioMateriales) || null) : null,
-                      tipoDescuentoHonorarioMateriales: usarDesglose ? tipoDescuentoHonorarioMateriales : null,
-                      descuentoHonorarioGastosGenerales: usarDesglose ? (parseFloat(descuentoHonorarioGastosGenerales) || null) : null,
-                      tipoDescuentoHonorarioGastosGenerales: usarDesglose ? tipoDescuentoHonorarioGastosGenerales : null,
-                      descuentoHonorarioMayoresCostos: usarDesglose ? (parseFloat(descuentoHonorarioMayoresCostos) || null) : null,
-                      tipoDescuentoHonorarioMayoresCostos: usarDesglose ? tipoDescuentoHonorarioMayoresCostos : null,
-                      profesionales: todosLosProfesionales,
-                      // Vinculación: SIEMPRE envía el ID de la obra padre
-                      obraId: obraParaTrabajosAdicionales.id, // ID de la obra padre (siempre presente)
-                      trabajoExtraId: obraParaTrabajosAdicionales._esTrabajoExtra ? obraParaTrabajosAdicionales._trabajoExtraId : null,
-                      empresaId: parseInt(empresaId)
-                    };
-
-                    console.log('📋 Datos del trabajo adicional:', datosTrabajoAdicional);
-
-                    try {
-                      let resultado;
-
-                      if (trabajoAdicionalEditar) {
-                        // Actualizar trabajo adicional existente
-                        showNotification('Actualizando trabajo adicional...', 'info');
-                        resultado = await trabajosAdicionalesService.actualizarTrabajoAdicional(
-                          trabajoAdicionalEditar.id,
-                          datosTrabajoAdicional
-                        );
-                        showNotification('✅ Trabajo adicional actualizado correctamente', 'success');
-                      } else {
-                        // Crear nuevo trabajo adicional
-                        showNotification('Guardando trabajo adicional...', 'info');
-                        resultado = await trabajosAdicionalesService.crearTrabajoAdicional(datosTrabajoAdicional);
-                        showNotification('✅ Trabajo adicional creado correctamente', 'success');
-                      }
-
-                      console.log('✅ Respuesta del servidor:', resultado);
-
-                      // Actualizar lista de trabajos adicionales
-                      const todosLosTrabajosAdicionales = await trabajosAdicionalesService.listarTrabajosAdicionales(empresaId);
-                      const trabajosArray = Array.isArray(todosLosTrabajosAdicionales) ? todosLosTrabajosAdicionales : [];
-                      setTrabajosAdicionales(trabajosArray);
-                      // Cerrar modal y limpiar
-                      setMostrarModalTrabajoAdicional(false);
-                      setTrabajoAdicionalEditar(null);
-
-                    } catch (error) {
-                      console.error('❌ Error al guardar trabajo adicional:', error);
-
-                      // Manejo de errores específicos
-                      if (error.response) {
-                        const status = error.response.status;
-                        const mensaje = error.response.data?.message || error.response.data?.error || 'Error desconocido';
-
-                        if (status === 400) {
-                          showNotification(`Error de validación: ${mensaje}`, 'error');
-                        } else if (status === 404) {
-                          showNotification(`No encontrado: ${mensaje}`, 'error');
-                        } else if (status === 409) {
-                          showNotification(`Conflicto: ${mensaje}`, 'error');
-                        } else {
-                          showNotification(`Error ${status}: ${mensaje}`, 'error');
-                        }
-                      } else {
-                        showNotification('Error al guardar trabajo adicional. Revise la consola.', 'error');
-                      }
-                    }
-                  }}
-                  style={{
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    border: 'none',
-                    borderRadius: '10px',
-                    padding: '0.75rem 2.5rem',
-                    fontWeight: '600',
-                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)'
-                  }}
-                >
-                  <i className="fas fa-save me-2"></i>
-                  {trabajoAdicionalEditar ? 'Actualizar' : 'Guardar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          onSave={handleGuardadoTrabajoDiario}
+          tituloPersonalizado="Nuevo Presupuesto para Trabajo Diario -- Nuevos Clientes"
+          initialData={{
+            idEmpresa: empresaSeleccionada?.id,
+            nombreEmpresa: empresaSeleccionada?.nombreEmpresa,
+            esPresupuestoTrabajoExtra: false,
+            estado: 'BORRADOR',
+            version: 1,
+            tipoPresupuesto: 'TRADICIONAL',
+            fechaEmision: new Date().toISOString().slice(0, 10),
+            vencimiento: new Date().toISOString().slice(0, 10),
+            calculoAutomaticoDiasHabiles: false
+          }}
+        />
       )}
+
+      {/* Modal Tarea Leve (vinculada a obra) */}
+      {mostrarModalTareaLeve && obraParaTareaLeve && (
+        <PresupuestoNoClienteModal
+          show={mostrarModalTareaLeve}
+          onClose={() => {
+            setMostrarModalTareaLeve(false);
+            setObraParaTareaLeve(null);
+          }}
+          onSave={handleGuardadoTareaLeve}
+          tituloPersonalizado={`Nueva Tarea Leve para: ${obraParaTareaLeve.nombre || obraParaTareaLeve.nombreObra || 'Obra'}`}
+          initialData={{
+            idEmpresa: empresaSeleccionada?.id,
+            nombreEmpresa: empresaSeleccionada?.nombreEmpresa,
+            esPresupuestoTrabajoExtra: false,
+            obraId: obraParaTareaLeve.id,
+            idObra: obraParaTareaLeve.id,
+            estado: 'BORRADOR',
+            version: 1,
+            tipoPresupuesto: 'TAREA_LEVE',
+            nombreObraManual: obraParaTareaLeve.nombre || obraParaTareaLeve.nombreObra || '',
+            fechaEmision: new Date().toISOString().slice(0, 10),
+            vencimiento: new Date().toISOString().slice(0, 10),
+            calculoAutomaticoDiasHabiles: false
+          }}
+        />
+      )}
+
+      {/* âœ… MODAL UNIFICADO DE PRESUPUESTOS */}
+      <ModalPresupuestoUnificado
+        mostrar={modalPresupuesto.mostrar}
+        tipoPresupuesto={modalPresupuesto.tipo}
+        contexto={modalPresupuesto.contexto}
+        datosIniciales={modalPresupuesto.datosIniciales}
+        onCerrar={cerrarModalPresupuesto}
+        onGuardar={handleGuardarPresupuesto}
+        profesionalesDisponibles={profesionalesDisponibles}
+        empresaId={empresaId}
+        showNotification={showNotification}
+        onRefrescarProfesionales={refrescarProfesionalesDisponibles}
+      />
 
       <style>{`
         .hover-row:hover {

@@ -12,7 +12,7 @@ import { useDetectarModoPresupuesto, BadgeModoPresupuesto } from '../hooks/useDe
 import { ROLES_PROFESIONALES, ROLES_ENUM, generarOpcionesRoles, getRolPorDefecto } from '../constants/rolesProfesionales';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 
-const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false, showDownloadPdfButton = false }) => {
+const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false, showDownloadPdfButton = false, tituloPersonalizado = null }) => {
 
   // 🔍 DEBUG: Ver qué props recibe el modal
   console.log('🎯 PresupuestoNoClienteModal - Props recibidos:', {
@@ -620,6 +620,20 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     setModoCargaGastos(modoGastos);
     console.log('🟢 Switches modoCarga inicializados:', { modoJornales, modoMateriales, modoGastos });
   }, [show, form.id]);
+
+  // 🔧 Sincronizar tipoPresupuesto para presupuestos NUEVOS (sin id) al abrir el modal
+  // useState solo inicializa una vez; si el modal se re-abre con distinto initialData.tipoPresupuesto, lo sincronizamos aquí
+  useEffect(() => {
+    if (show && !initialData?.id) {
+      const updates = {};
+      if (initialData?.tipoPresupuesto) updates.tipoPresupuesto = initialData.tipoPresupuesto;
+      if (initialData?.nombreObraManual) updates.nombreObraManual = initialData.nombreObraManual;
+      if (Object.keys(updates).length > 0) {
+        setForm(prev => ({ ...prev, ...updates }));
+        console.log('🔧 [nuevo-presupuesto-sync] Sincronizado:', updates);
+      }
+    }
+  }, [show]);
 
   // 🆕 NUEVOS ESTADOS: Selectores de Catálogo vs Entrada Manual
   const [modoEntradaMaterial, setModoEntradaMaterial] = useState('catalogo'); // 'catalogo' | 'manual'
@@ -1460,9 +1474,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // Solo para presupuestos nuevos (sin id)
     if (!form.id) {
-      if (form.tipoPresupuesto === 'TRABAJOS_SEMANALES' && form.estado === 'BORRADOR') {
-        setForm(prev => ({ ...prev, estado: 'OBRA_A_CONFIRMAR' }));
-      } else if (form.tipoPresupuesto === 'TRADICIONAL' && form.estado === 'OBRA_A_CONFIRMAR') {
+      if (form.tipoPresupuesto === 'TRADICIONAL' && form.estado === 'OBRA_A_CONFIRMAR') {
         setForm(prev => ({ ...prev, estado: 'BORRADOR' }));
       }
     }
@@ -6812,13 +6824,34 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     if (name === 'direccionObraBarrio' || name === 'direccionObraTorre') {
     }
 
-    // Si cambia el tipo de presupuesto a TRABAJOS_SEMANALES, establecer estado OBRA_A_CONFIRMAR
+    // Si cambia el tipo de presupuesto, aplicar lógica específica
     if (name === 'tipoPresupuesto') {
-      if (value === 'TRABAJOS_SEMANALES') {
-        setForm(prev => ({ ...prev, [name]: value, estado: 'OBRA_A_CONFIRMAR' }));
+      console.log('🔄 Cambiando tipo de presupuesto a:', value);
+
+      if (value === 'TRABAJO_DIARIO' || value === 'TAREA_LEVE') {
+        // Tipos con auto-aprobación (estado inicial APROBADO según backend)
+        setForm(prev => ({
+          ...prev,
+          [name]: value,
+          estado: 'APROBADO'
+        }));
+      } else if (value === 'TRABAJO_EXTRA' || value === 'TRADICIONAL') {
+        // Tipos que requieren aprobación manual (estado inicial BORRADOR)
+        setForm(prev => ({
+          ...prev,
+          [name]: value,
+          estado: 'BORRADOR'
+        }));
       } else {
         setForm(prev => ({ ...prev, [name]: value }));
       }
+
+      // Limpiar campos específicos según el tipo
+      if (value === 'TRABAJO_EXTRA' || value === 'TAREA_LEVE') {
+        // Para tipos vinculados a obra: limpiar cliente (se hereda de obra)
+        console.log('👥 Limpiando clienteId porque se hereda de la obra');
+      }
+      // TRADICIONAL/TRABAJO_DIARIO: Mantener obraId si existe (para vinculación)
     }
     // 🔄 Si cambia el estado del presupuesto, sincronizar con la obra si es trabajo extra
     else if (name === 'estado') {
@@ -7371,7 +7404,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       return;
     }
 
+    // Preparar datos (esto limpia automáticamente campos según tipo de presupuesto)
     const datosCompletos = prepararDatosParaEnvio();
+
+    // 🛡️ VALIDAR TIPO DE PRESUPUESTO DESPUÉS DE PREPARAR (usa datos ya limpiados)
+    const validacionPrevia = validarTipoPresupuesto(datosCompletos);
+    if (!validacionPrevia.valido) {
+      mostrarErrorValidacion(validacionPrevia);
+      return;
+    }
 
     // 🔍 DEBUG: Ver datos que se envían al backend
     console.log('📤 DATOS COMPLETOS A ENVIAR:');
@@ -7561,8 +7602,76 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     }
   };
 
+  // 🛡️ VALIDACIÓN DE TIPOS DE PRESUPUESTO
+  const validarTipoPresupuesto = (presupuesto) => {
+    const tipo = presupuesto.tipoPresupuesto || 'TRADICIONAL';
+    console.log('🔍 Validando presupuesto tipo:', tipo);
+
+    // VALIDACIÓN 1: Campos obligatorios para TRADICIONAL y TRABAJO_DIARIO (crean obra nueva)
+    if (tipo === 'TRADICIONAL' || tipo === 'TRABAJO_DIARIO') {
+      if (!presupuesto.nombreObraManual || presupuesto.nombreObraManual.trim() === '') {
+        return {
+          valido: false,
+          error: 'El campo "Nombre de Obra" es obligatorio para presupuestos que crean obra nueva.',
+          campo: 'nombreObraManual'
+        };
+      }
+
+      if (!presupuesto.direccionObraCalle || presupuesto.direccionObraCalle.trim() === '') {
+        return {
+          valido: false,
+          error: 'El campo "Calle" es obligatorio para presupuestos que crean obra nueva.',
+          campo: 'direccionObraCalle'
+        };
+      }
+
+      if (!presupuesto.direccionObraAltura || presupuesto.direccionObraAltura.toString().trim() === '') {
+        return {
+          valido: false,
+          error: 'El campo "Altura/Número" es obligatorio para presupuestos que crean obra nueva.',
+          campo: 'direccionObraAltura'
+        };
+      }
+    }
+
+    // VALIDACIÓN 2: TRABAJO_EXTRA y TAREA_LEVE requieren obraId
+    if (tipo === 'TRABAJO_EXTRA' || tipo === 'TAREA_LEVE') {
+      if (!presupuesto.obraId) {
+        return {
+          valido: false,
+          error: `Los presupuestos tipo ${tipo} requieren seleccionar una obra existente.`,
+          campo: 'obraId'
+        };
+      }
+    }
+
+    return { valido: true };
+  };
+
+  const mostrarErrorValidacion = (validacion) => {
+    alert(validacion.error);
+
+    // Intentar enfocar el campo problemático
+    const campo = document.querySelector(`[name="${validacion.campo}"]`);
+    if (campo) {
+      campo.focus();
+      campo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
   const prepararDatosParaEnvio = () => {
-    const payload = { ...form, idEmpresa: form.idEmpresa || empresaSeleccionada?.id || null };
+    // 🔧 Si modoTrabajoExtra está activo, forzar tipoPresupuesto a TRABAJO_EXTRA
+    // (puede estar mal inicializado como 'TRADICIONAL' desde initialData)
+    const tipoPresupuestoEfectivo =
+      modoTrabajoExtra && form.tipoPresupuesto !== 'TAREA_LEVE'
+        ? 'TRABAJO_EXTRA'
+        : (form.tipoPresupuesto || 'TRADICIONAL');
+
+    const payload = {
+      ...form,
+      tipoPresupuesto: tipoPresupuestoEfectivo,
+      idEmpresa: form.idEmpresa || empresaSeleccionada?.id || null
+    };
 
     // ✅ Normalizar tiempoEstimadoTerminacion según modo (manual/automático)
     if (form.calculoAutomaticoDiasHabiles === true) {
@@ -7602,21 +7711,41 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('ℹ️ idObra NO presente en form - se creará obra nueva al aprobar');
     }
 
-// 🔧 CRÍTICO: PRESERVAR esPresupuestoTrabajoExtra
+    // 🎯 CRÍTICO: Limpieza de clienteId/obraId según tipo de presupuesto
+    // DEBE hacerse ANTES de determinar esPresupuestoTrabajoExtra
+    if (payload.tipoPresupuesto === 'TRABAJO_EXTRA' || payload.tipoPresupuesto === 'TAREA_LEVE') {
+      // TRABAJO_EXTRA/TAREA_LEVE: NO enviar clienteId (se hereda de obra)
+      if (payload.clienteId || payload.idCliente) {
+        console.log('🧹 LIMPIEZA: Tipo ' + payload.tipoPresupuesto + ' → eliminando clienteId del payload');
+        delete payload.clienteId;
+        delete payload.idCliente;
+      }
+    } else if (payload.tipoPresupuesto === 'TRADICIONAL' || payload.tipoPresupuesto === 'TRABAJO_DIARIO') {
+      // TRADICIONAL/TRABAJO_DIARIO: Backend no permite obraId
+      // Si tiene obraId, guardarlo como idObraPadre para vinculación futura y limpiar obraId
+      if (payload.obraId || payload.idObra) {
+        console.log('🔗 VINCULACIÓN: Guardando obra padre en idObraPadre:', payload.obraId || payload.idObra);
+        payload.idObraPadre = payload.obraId || payload.idObra;
+        delete payload.obraId;
+        delete payload.idObra;
+        console.log('🧹 LIMPIEZA: Tipo ' + payload.tipoPresupuesto + ' → eliminando obraId del payload (backend no lo permite)');
+      }
+    }
+
+// 🔧 CRÍTICO: PRESERVAR esPresupuestoTrabajoExtra (después de limpiar campos)
     if (form.id) {
-      // Modo EDICIÓN: respetar SIEMPRE el valor original guardado en el backend,
-      // independientemente de si tiene obraId o no.
+      // Modo EDICIÓN: respetar SIEMPRE el valor original guardado en el backend
       const valorOriginal = initialData?.esPresupuestoTrabajoExtra;
       payload.esPresupuestoTrabajoExtra = valorOriginal === true || valorOriginal === 'V' || valorOriginal === 1;
       console.log('🔧 MODO EDICIÓN: Preservando esPresupuestoTrabajoExtra desde initialData:', payload.esPresupuestoTrabajoExtra);
-    } else if (modoTrabajoExtra || (payload.idObra || payload.obraId)) {
-      // Modo CREACIÓN: si viene de un contexto de trabajo extra o tiene obra padre → es trabajo extra
+    } else if (payload.tipoPresupuesto === 'TRABAJO_EXTRA' || payload.tipoPresupuesto === 'TAREA_LEVE') {
+      // Solo TRABAJO_EXTRA/TAREA_LEVE son trabajos extra
       payload.esPresupuestoTrabajoExtra = true;
-      console.log('🔧 NUEVO PRESUPUESTO: esPresupuestoTrabajoExtra = true (modoTrabajoExtra o tiene obraId)');
+      console.log('🔧 NUEVO PRESUPUESTO: esPresupuestoTrabajoExtra = true (tipo ' + payload.tipoPresupuesto + ')');
     } else {
-      // Nuevo presupuesto sin obra vinculada
-      payload.esPresupuestoTrabajoExtra = form.esPresupuestoTrabajoExtra || false;
-      console.log('🔧 esPresupuestoTrabajoExtra desde form:', payload.esPresupuestoTrabajoExtra);
+      // TRADICIONAL/TRABAJO_DIARIO: NUNCA son trabajos extra (aunque tengan obraId para vinculación)
+      payload.esPresupuestoTrabajoExtra = false;
+      console.log('🔧 esPresupuestoTrabajoExtra = false para tipo:', payload.tipoPresupuesto);
     }
 
     // 🔍 DEBUG COMPLETO: Mostrar datos de trabajo extra que se enviarán
@@ -7624,6 +7753,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       esPresupuestoTrabajoExtra: payload.esPresupuestoTrabajoExtra,
       idObra: payload.idObra,
       obraId: payload.obraId,
+      clienteId: payload.clienteId,
+      idCliente: payload.idCliente,
+      tipoPresupuesto: payload.tipoPresupuesto,
       'form.id': form.id,
       'initialData?.esPresupuestoTrabajoExtra': initialData?.esPresupuestoTrabajoExtra
     });
@@ -9124,15 +9256,60 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       return { ...prev, profesionales: profes };
     });
   };
+
+  // 🎨 Función para obtener el color de borde según el tipo de presupuesto
+  const getBorderColor = () => {
+    if (!tituloPersonalizado) return '#86b7fe'; // Color por defecto para modales sin título personalizado
+
+    if (tituloPersonalizado.includes('Trabajo Diario')) return '#ff8c42'; // Naranja
+    if (tituloPersonalizado.includes('Tarea Leve')) return '#28a745'; // Verde
+    if (tituloPersonalizado.includes('Adicional Obra')) return '#2563eb'; // Azul
+    if (tituloPersonalizado.includes('Obra Principal')) return '#000000'; // Negro
+
+    return '#86b7fe'; // Color por defecto
+  };
+
+  const inputStyle = {
+    marginTop: 4,
+    borderRadius: '8px',
+    padding: '10px 12px',
+    fontSize: '0.95rem',
+    border: `3px solid ${getBorderColor()}`,
+    transition: 'all 0.2s'
+  };
+
   return (
     <>
+      <style>{`
+        .campo-obligatorio::after {
+          content: ' *';
+          color: #dc3545;
+          font-weight: bold;
+        }
+        .campo-obligatorio input,
+        .campo-obligatorio select {
+          border-left: 3px solid #dc3545;
+        }
+      `}</style>
       <div className="modal show d-block" style={{ zIndex: 9999 }}>
       <div className="modal-dialog" style={{ marginTop: '150px', maxWidth: 'calc(100vw - 48px)', width: '100%' }}>
         <div className="modal-content" style={{ padding: '14px' }}>
           <div className="modal-header d-flex justify-content-between align-items-center">
               <div className="d-flex align-items-center gap-3 flex-grow-1">
-                <h5 className="modal-title mb-0">
-                  {modoTrabajoExtra ? (
+                <h5
+                  className="modal-title mb-0"
+                  style={tituloPersonalizado ? {
+                    fontSize: '2rem',
+                    color: tituloPersonalizado.includes('Trabajo Diario') ? '#ff8c42' :
+                           tituloPersonalizado.includes('Tarea Leve') ? '#28a745' :
+                           tituloPersonalizado.includes('Adicional Obra') ? '#2563eb' :
+                           tituloPersonalizado.includes('Obra Principal') ? '#000000' : '#000000',
+                    fontWeight: '700'
+                  } : {}}
+                >
+                  {tituloPersonalizado ? (
+                    tituloPersonalizado
+                  ) : modoTrabajoExtra ? (
                     'Adicional Obra'
                   ) : soloLectura ? (
                     <>
@@ -9202,20 +9379,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   <BadgeModoPresupuesto modo={modoPresupuestoDetectado} />
                 )}
 
-                {!soloLectura && !modoTrabajoExtra && (
-                  <div style={{minWidth: '200px'}}>
-                    <select
-                      name="tipoPresupuesto"
-                      className="form-select form-select-sm"
-                      value={form.tipoPresupuesto || 'TRADICIONAL'}
-                      onChange={handleChange}
-                      style={{fontSize: '0.9rem'}}
-                    >
-                      <option value="TRADICIONAL">🏗️ Tradicional</option>
-                      <option value="TRABAJOS_SEMANALES">📅 Semanal</option>
-                    </select>
-                  </div>
-                )}
+
               </div>
               <div className="d-flex gap-2">
                 <button
@@ -9279,67 +9443,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 <div className="col-12 mb-3">
                   <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 6}}>
                     Nombre de la obra
-                    {/* 🔧 CHECKBOX TRABAJO EXTRA - Visible y prominente */}
-                    {(form.obraId || form.obraSeleccionadaParaCopiar || form.esPresupuestoTrabajoExtra) && (() => {
-                      // 🔍 DEBUG: Ver el valor actual del checkbox en render
-                      console.log('🎯 [RENDER CHECKBOX] Estado actual:', {
-                        'form.esPresupuestoTrabajoExtra': form.esPresupuestoTrabajoExtra,
-                        'tipo': typeof form.esPresupuestoTrabajoExtra,
-                        'modoTrabajoExtra': modoTrabajoExtra,
-                        'form.obraId': form.obraId,
-                        'checked_será': form.esPresupuestoTrabajoExtra || false
-                      });
-                      return (
-                      <div className="d-inline-flex align-items-center gap-2 ms-3">
-                        <div className="form-check form-switch" style={{fontSize: '1.1rem'}}>
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="checkboxTrabajoExtra"
-                            checked={form.esPresupuestoTrabajoExtra || false}
-                            onChange={(e) => {
-                              console.log('� Checkbox Adicional Obra cambiado a:', e.target.checked);
-                              setForm(f => ({
-                                ...f,
-                                esPresupuestoTrabajoExtra: e.target.checked
-                              }));
-                            }}
-                            disabled={soloLectura}
-                            style={{
-                              width: '48px',
-                              height: '24px',
-                              cursor: soloLectura ? 'not-allowed' : 'pointer'
-                            }}
-                          />
-                          <label
-                            className="form-check-label fw-bold"
-                            htmlFor="checkboxTrabajoExtra"
-                            style={{
-                              color: form.esPresupuestoTrabajoExtra ? '#ff6b00' : '#6c757d',
-                              fontSize: '1rem',
-                              cursor: soloLectura ? 'not-allowed' : 'pointer'
-                            }}
-                          >
-                            � Adicional Obra
-                          </label>
-                        </div>
-                        {form.esPresupuestoTrabajoExtra && (
-                          <span
-                            className="badge bg-warning text-dark"
-                            style={{
-                              fontSize: '0.85rem',
-                              padding: '6px 12px',
-                              fontWeight: 'bold',
-                              animation: 'pulse 2s infinite'
-                            }}
-                          >
-                            <i className="fas fa-tools me-1"></i>
-                            ADICIONAL OBRA
-                          </span>
-                        )}
-                      </div>
-                      );
-                    })()}
                   </label>
                     <input
                       type="text"
@@ -9347,7 +9450,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                       className="form-control mt-1"
                       placeholder="Ingrese el nombre de la obra"
                       value={form.nombreObraManual || ''}
-                      style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
+                      style={inputStyle}
                       onChange={e => {
                         const nuevoValor = e.target.value;
                         // Proteger el valor inicial SOLO si NO es un presupuesto semanal
@@ -9465,20 +9568,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                           ) : (
                             /* Si es NUEVO presupuesto, mostrar selectores */
                             <>
-                              {!modoTrabajoExtra && (
-                              <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 8}}>
-                                Vincular a Cliente Existente
-                                {form.clienteId && (
-                                  <span className="badge bg-primary ms-2" style={{fontSize: '0.85rem'}}>
-                                    <i className="fas fa-user me-1"></i>Cliente Vinculado
-                                  </span>
-                                )}
-
-                                {/* Selector de Cliente */}
-                                <div className="mb-2">
-                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>
-                                    Cliente existente:
-                                  </label>
+                              {/* Selector de Cliente - Solo para PRESUPUESTO_PRINCIPAL y PRESUPUESTO_TRABAJO_DIARIO */}
+                              {!modoTrabajoExtra && initialData?.tipoPresupuesto !== 'TAREA_LEVE' && (form.tipoPresupuesto === 'TRADICIONAL' || form.tipoPresupuesto === 'TRABAJO_DIARIO' || !form.tipoPresupuesto) && (
+                              <div className="mb-2">
+                                <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>
+                                  Cliente existente:
+                                </label>
                                   <div className="d-flex gap-2 align-items-center">
                                     <ClienteSelector
                                   empresaId={form.idEmpresa}
@@ -9509,7 +9604,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     borderRadius: '8px',
                                     padding: '10px 12px',
                                     fontSize: '0.95rem',
-                                    border: '3px solid #86b7fe',
+                                    border: `3px solid ${getBorderColor()}`,
                                     transition: 'all 0.2s'
                                   }}
                                 />
@@ -9536,10 +9631,164 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 </small>
                               )}
                             </div>
+                            )}
 
-                            {/* Selector de Obra */}
+                            {/* Campos de dirección - Excepto modo trabajo extra */}
+                            {!modoTrabajoExtra && (
+                              <div className="row g-2 mb-2">
+                                <div className="col-md-2">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Calle *
+                                    <input
+                                      name="direccionObraCalle"
+                                      className={`form-control ${errors.direccionObraCalle ? 'is-invalid' : ''}`}
+                                      placeholder="Av. Libertador"
+                                      required
+                                      value={form.direccionObraCalle || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-2">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Altura *
+                                    <input
+                                      name="direccionObraAltura"
+                                      type="number"
+                                      className={`form-control ${errors.direccionObraAltura ? 'is-invalid' : ''}`}
+                                      placeholder="1234"
+                                      min="1"
+                                      step="1"
+                                      required
+                                      value={form.direccionObraAltura || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-2">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Barrio
+                                    <input
+                                      name="direccionObraBarrio"
+                                      className="form-control"
+                                      value={form.direccionObraBarrio || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-2">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Torre
+                                    <input
+                                      name="direccionObraTorre"
+                                      className="form-control"
+                                      value={form.direccionObraTorre || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-2">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Piso
+                                    <input
+                                      name="direccionObraPiso"
+                                      className="form-control"
+                                      value={form.direccionObraPiso || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-2">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Depto
+                                    <input
+                                      name="direccionObraDepartamento"
+                                      className="form-control"
+                                      value={form.direccionObraDepartamento || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Datos del solicitante - Excepto modo trabajo extra */}
+                            {!modoTrabajoExtra && (
+                              <div className="row g-2">
+                                <div className="col-md-3">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Nombre solicitante
+                                    <input
+                                      name="nombreSolicitante"
+                                      className="form-control"
+                                      value={form.nombreSolicitante || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-3">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Teléfono
+                                    <input
+                                      name="telefono"
+                                      className="form-control"
+                                      value={form.telefono || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-3">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Dirección particular
+                                    <input
+                                      name="direccionParticular"
+                                      className="form-control"
+                                      value={form.direccionParticular || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                                <div className="col-md-3">
+                                  <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Mail
+                                    <input
+                                      name="mail"
+                                      type="email"
+                                      className="form-control"
+                                      value={form.mail || ''}
+                                      onChange={handleChange}
+                                      disabled={soloLectura}
+                                      style={inputStyle}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Mensaje para tipos que heredan cliente de obra */}
+                            {(form.tipoPresupuesto === 'TRABAJO_EXTRA' || form.tipoPresupuesto === 'TAREA_LEVE') && (
+                              <div className="mb-2">
+                                <div className="alert alert-info py-2">
+                                  <small>
+                                    <i className="fas fa-info-circle me-1"></i>
+                                    El cliente se heredará automáticamente de la obra seleccionada.
+                                  </small>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Selector de Obra - Solo para TRABAJO_EXTRA y TAREA_LEVE */}
+                            {(form.tipoPresupuesto === 'TRABAJO_EXTRA' || form.tipoPresupuesto === 'TAREA_LEVE') && (
                             <div className="mb-2">
-                              <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>
+                              <label className="form-label fw-bold campo-obligatorio" style={{color: "#000", marginBottom: 6}}>
                                 Vincular a Obra Existente:
                               </label>
                               <div className="d-flex gap-2 align-items-center">
@@ -9575,7 +9824,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     borderRadius: '8px',
                                     padding: '10px 12px',
                                     fontSize: '0.95rem',
-                                    border: '3px solid #86b7fe',
+                                    border: `3px solid ${getBorderColor()}`,
                                     transition: 'all 0.2s'
                                   }}
                                 />
@@ -9612,125 +9861,28 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 </div>
                               )}
                             </div>
-                          </label>
-                              )}
-                          </>
+                            )}
+
+                            {/* Mensaje para tipos que crean obra nueva */}
+                            {(form.tipoPresupuesto === 'TRADICIONAL' || form.tipoPresupuesto === 'TRABAJO_DIARIO') && (
+                              <div className="mb-2">
+                                <div className="alert alert-success py-2">
+                                  <small>
+                                    <i className="fas fa-plus-circle me-1"></i>
+                                    {form.tipoPresupuesto === 'TRABAJO_DIARIO'
+                                      ? 'Se creará automáticamente una obra nueva al guardar el presupuesto.'
+                                      : 'Se creará una obra nueva cuando el presupuesto sea aprobado.'
+                                    }
+                                  </small>
+                                </div>
+                              </div>
+                            )}
+                            </>
                           )}
                     </div>
                   </div>
 
-                  {/* Segunda fila: Dirección completa de la obra (6 campos) */}
-                  {!modoTrabajoExtra && (
-                  <div className="row g-2 mb-2">
-                    <div className="col-md-2">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Calle *
-                        <input
-                          name="direccionObraCalle"
-                          className={`form-control ${errors.direccionObraCalle ? 'is-invalid' : ''}`}
-                          value={form.direccionObraCalle}
-                          onChange={handleChange}
-                          placeholder="Av. Libertador"
-                          required
-                          disabled={soloLectura}
-                          style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
-                        />
-                        {errors.direccionObraCalle && <div className="invalid-feedback">{errors.direccionObraCalle}</div>}
-                      </label>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Altura *
-                        <input
-                          name="direccionObraAltura"
-                          type="number"
-                          className={`form-control ${errors.direccionObraAltura ? 'is-invalid' : ''}`}
-                          value={form.direccionObraAltura}
-                          onChange={handleChange}
-                          placeholder="1234"
-                          min="1"
-                          step="1"
-                          required
-                          disabled={soloLectura}
-                          style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
-                        />
-                        {errors.direccionObraAltura && <div className="invalid-feedback">{errors.direccionObraAltura}</div>}
-                      </label>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Barrio
-                        <input
-                          name="direccionObraBarrio"
-                          className="form-control"
-                          value={form.direccionObraBarrio}
-                          onChange={handleChange}
-                          disabled={soloLectura}
-                          style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
-                        />
-                      </label>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Torre
-                        <input
-                          name="direccionObraTorre"
-                          className="form-control"
-                          value={form.direccionObraTorre}
-                          onChange={handleChange}
-                          disabled={soloLectura}
-                          style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
-                        />
-                      </label>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Piso
-                        <input
-                          name="direccionObraPiso"
-                          className="form-control"
-                          value={form.direccionObraPiso}
-                          onChange={handleChange}
-                          disabled={soloLectura}
-                          style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
-                        />
-                      </label>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Depto
-                        <input
-                          name="direccionObraDepartamento"
-                          className="form-control"
-                          value={form.direccionObraDepartamento || ''}
-                          onChange={handleChange}
-                          disabled={soloLectura}
-                          style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                  )}
-
-                  {/* Tercera fila: Datos del solicitante */}
-                  {!modoTrabajoExtra && (
-                  <div className="row g-2">
-                    <div className="col-md-3">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Nombre solicitante
-                        <input name="nombreSolicitante" className="form-control" value={form.nombreSolicitante} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}} />
-                      </label>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Teléfono
-                        <input name="telefono" className="form-control" value={form.telefono} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}} />
-                      </label>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Dirección particular
-                        <input name="direccionParticular" className="form-control" value={form.direccionParticular} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}} />
-                      </label>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Mail
-                        <input name="mail" type="email" className="form-control" value={form.mail} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}} />
-                      </label>
-                    </div>
-                  </div>
-                  )}
+                </div> {/* cierre del div className="col-12" de línea 9560 */}
 
                 {/* ...otras subsecciones y campos... */}
                 {/* ...sección de Items agregados... */}
@@ -9739,6 +9891,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               </div> {/* cierre del div.row g-2 principal */}
 
                 {/* Row adicional con fechas y estado (alineados) */}
+              <div className="row g-2">
                 <div className="col-12 mt-2">
                   <div className="row g-2 align-items-end" style={{marginBottom: '56px'}}>
                     <div className="col-md-2 d-flex flex-column justify-content-center align-items-center" style={{gap: '4px'}}>
@@ -9804,7 +9957,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                           }
                         }}
                         disabled={soloLectura}
-                        style={{marginTop: 0, backgroundColor: editarSoloFechas ? '#fff3cd' : 'white', fontWeight: editarSoloFechas ? 'bold' : 'normal', borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}}
+                        style={{marginTop: 0, backgroundColor: editarSoloFechas ? '#fff3cd' : 'white', fontWeight: editarSoloFechas ? 'bold' : 'normal', borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: `3px solid ${getBorderColor()}`, transition: 'all 0.2s'}}
                         title="La obra cambiará automáticamente a EN EJECUCION en esta fecha"
                       />
                       {obtenerAlertaInicio() && (
@@ -9815,7 +9968,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     </div>
                     <div className="col-md-2 d-flex flex-column justify-content-center align-items-center" style={{gap: '4px'}}>
                       <label className="form-label fw-bold w-100 text-center mb-1" style={{color: "#000"}}>Vencimiento de este presupuesto</label>
-                      <input name="vencimiento" className="form-control text-center" type="date" value={form.vencimiento || ''} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{marginTop: 0, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}} />
+                      <input name="vencimiento" className="form-control text-center" type="date" value={form.vencimiento || ''} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{...inputStyle, marginTop: 0}} />
                     </div>
                     {/* Fecha creación mudado al final del bloque */}
                     <div className="col-md-2 d-flex flex-column justify-content-center align-items-center" style={{gap: '4px'}}>
@@ -9825,7 +9978,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     </div>
                     <div className="col-md-1 d-flex flex-column justify-content-center align-items-center" style={{gap: '4px'}}>
                       <label className="form-label fw-bold w-100 text-center mb-1" style={{color: "#000", marginTop: '32px'}}>Versión</label>
-                      <input name="version" readOnly className="form-control form-control-sm text-center" style={{ width: '64px', marginTop: 0, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s' }} value={form.version ?? 1} />
+                      <input name="version" readOnly className="form-control form-control-sm text-center" style={{ width: '64px', ...inputStyle, marginTop: 0 }} value={form.version ?? 1} />
                     </div>
                     {form.tipoPresupuesto === 'TRABAJOS_SEMANALES' ? (
                       <div className="col-md-3 d-flex flex-column justify-content-center align-items-center" style={{gap: '4px'}}>
@@ -9843,7 +9996,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     ) : (
                       <div className="col-md-3 d-flex flex-column justify-content-center align-items-center" style={{gap: '4px'}}>
                         <label className="form-label fw-bold w-100 text-center mb-1" style={{color: "#000", marginTop: '32px'}}>Estado</label>
-                        <input name="estado" className="form-control text-center" type="text" value={form.estado || ''} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{marginTop: 0, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s'}} />
+                        <input name="estado" className="form-control text-center" type="text" value={form.estado || ''} onChange={handleChange} disabled={soloLectura || editarSoloFechas} style={{...inputStyle, marginTop: 0}} />
                       </div>
                     )}
                     <div className="col-md-2 d-flex flex-column justify-content-center align-items-center" style={{gap: '4px'}}>
@@ -10033,8 +10186,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                     </div>
                   </div>
                 </div>
+              </div> {/* cierre del row adicional con fechas */}
 
                 {/* Badge informativo sobre cambios automáticos de estado */}
+              <div className="row g-2">
                 {(form.estado === 'APROBADO' || form.estado === 'EN_EJECUCION') && form.fechaProbableInicio && (
                   <div className="col-12 mt-2">
                     <div className="alert alert-info py-2 mb-0" style={{fontSize: '0.9em'}}>
@@ -10058,18 +10213,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   <div className="row g-0">
                     <div className="col-12">
                       <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 6}}>Descripción
-                        <textarea name="descripcion" className="form-control w-100" value={form.descripcion} onChange={handleChange} rows={2} style={{ minHeight: '50px', marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s' }} disabled={soloLectura}></textarea>
+                        <textarea name="descripcion" className="form-control w-100" value={form.descripcion} onChange={handleChange} rows={2} style={{ minHeight: '50px', ...inputStyle }} disabled={soloLectura}></textarea>
                       </label>
                     </div>
                   </div>
                   <div className="row g-0 mt-2">
                     <div className="col-12">
                       <label className="form-label fw-bold w-100" style={{color: "#000", marginBottom: 6}}>Observaciones
-                        <textarea name="observaciones" className="form-control w-100" value={form.observaciones} onChange={handleChange} rows={2} style={{ minHeight: '50px', marginTop: 4, borderRadius: '8px', padding: '10px 12px', fontSize: '0.95rem', border: '3px solid #86b7fe', transition: 'all 0.2s' }} disabled={soloLectura}></textarea>
+                        <textarea name="observaciones" className="form-control w-100" value={form.observaciones} onChange={handleChange} rows={2} style={{ minHeight: '50px', ...inputStyle }} disabled={soloLectura}></textarea>
                       </label>
                     </div>
                   </div>
                 </div>
+              </div> {/* cierre row badge y descripciones */}
 
                 {/* Separador visual */}
                 <hr className="my-5" style={{border: '3px solid #6c757d'}} />
@@ -15136,9 +15292,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   </div>
                 </div>
               </div>
-              </div> {/* Cierre de div className="row g-2" de línea 1761 */}
-
-
 
               <div className="mt-3 d-flex justify-content-end gap-2">
                 <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>
