@@ -32,11 +32,20 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
     // NO AGRUPAR - los items ya vienen consolidados con sus totales calculados
     const items = presupuestoSeleccionado.itemsCalculadora.map(item => ({
       ...item,
-      // Asegurar que los totales estén calculados desde los arrays si no vienen del backend
-      subtotalJornales: item.subtotalJornales || (item.jornales || []).reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0),
-      subtotalManoObra: item.subtotalManoObra || (item.profesionales || []).reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0),
-      subtotalMateriales: item.subtotalMateriales || (item.materialesLista || []).reduce((sum, m) => sum + (Number(m.subtotal) || 0), 0),
-      subtotalGastosGenerales: item.subtotalGastosGenerales || (item.gastosGenerales || []).reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0),
+      // ✅ Calcular subtotales BASE SIEMPRE desde arrays cuando estén poblados.
+      // Nunca usar el campo del backend como primer valor — puede haber sido guardado con honorarios incluidos.
+      subtotalJornales: item.jornales?.length > 0
+        ? (item.jornales || []).reduce((sum, j) => sum + (Number(j.subtotal) || (Number(j.cantidadJornales||j.cantidad||0) * Number(j.importeJornal||j.valorUnitario||0)) || 0), 0)
+        : Number(item.subtotalJornales || 0),
+      subtotalManoObra: item.profesionales?.length > 0
+        ? (item.profesionales || []).reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0)
+        : Number(item.subtotalManoObra || 0),
+      subtotalMateriales: item.materialesLista?.length > 0
+        ? (item.materialesLista || []).reduce((sum, m) => sum + (Number(m.subtotal) || 0), 0)
+        : Number(item.subtotalMateriales || 0),
+      subtotalGastosGenerales: item.gastosGenerales?.length > 0
+        ? (item.gastosGenerales || []).reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0)
+        : Number(item.subtotalGastosGenerales || 0),
     }));
 
     console.log('✅ ITEMS SIN AGRUPAR:', items.length, 'items');
@@ -3113,28 +3122,28 @@ Saludos.`;
                                           {item.jornales && item.jornales.length > 0 && (
                                             <div className="mb-1">
                                               <div className="fw-semibold text-info">
-                                                <i className="fas fa-hard-hat me-2"></i>Jornales: ${(item.subtotalJornalesFinal || item.subtotalJornales || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                <i className="fas fa-hard-hat me-2"></i>Jornales: ${(item.subtotalJornales || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                               </div>
                                             </div>
                                           )}
                                           {item.profesionales && item.profesionales.length > 0 && (
                                             <div className="mb-1">
                                               <div className="fw-semibold text-primary">
-                                                <i className="fas fa-users me-2"></i>Mano de Obra: ${(item.subtotalManoObraFinal || item.subtotalManoObra || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                <i className="fas fa-users me-2"></i>Mano de Obra: ${(item.subtotalManoObra || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                               </div>
                                             </div>
                                           )}
                                           {((item.materialesLista && item.materialesLista.length > 0) || (item.materiales && item.materiales.length > 0)) && (
                                             <div className="mb-1">
                                               <div className="fw-semibold text-success">
-                                                <i className="fas fa-box me-2"></i>Materiales: ${(item.subtotalMaterialesFinal || item.subtotalMateriales || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                <i className="fas fa-box me-2"></i>Materiales: ${(item.subtotalMateriales || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                               </div>
                                             </div>
                                           )}
                                           {item.gastosGenerales && item.gastosGenerales.length > 0 && (
                                             <div className="mb-1">
                                               <div className="fw-semibold text-warning">
-                                                <i className="fas fa-receipt me-2"></i>Gastos Generales: ${(item.subtotalGastosGeneralesFinal || item.subtotalGastosGenerales || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                <i className="fas fa-receipt me-2"></i>Gastos Generales: ${(item.subtotalGastosGenerales || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                               </div>
                                             </div>
                                           )}

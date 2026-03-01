@@ -31,7 +31,7 @@ export const PRESUPUESTO_TRABAJO_DIARIO = TIPOS_PRESUPUESTO.TRABAJO_DIARIO;
 /** Adicional sobre obra existente. Estado inicial: BORRADOR. NO genera obra nueva. */
 export const PRESUPUESTO_ADICIONAL_OBRA = TIPOS_PRESUPUESTO.TRABAJO_EXTRA;
 
-/** Tarea leve sobre obra existente. Estado inicial: APROBADO (auto). NO genera obra nueva. */
+/** Tarea leve sobre obra existente. Estado inicial: BORRADOR. Crea su propia obra en BORRADOR. Flujo: BORRADOR → TERMINADO. */
 export const PRESUPUESTO_TAREA_LEVE     = TIPOS_PRESUPUESTO.TAREA_LEVE;
 
 // ==================== CONFIGURACIÓN VISUAL Y COMPORTAMIENTO ====================
@@ -155,26 +155,29 @@ export const PRESUPUESTO_CONFIG = {
     // Labels
     label: 'Tarea Leve',
     labelCorto: 'Tarea Leve',
-    descripcion: 'Tarea rápida vinculada a obra o trabajo extra',
+    descripcion: 'Tarea menor con obra propia. Flujo BORRADOR → TERMINADO. Vinculada a Obra Principal o Sub-Obra de TRABAJO_EXTRA.',
 
     // Comportamiento
-    autoAprobar: true,                   // Auto-aprobar al crear (ejecución inmediata)
-    requiereObraId: true,                // ← OBLIGATORIO: vinculado a obra
-    requiereClienteId: false,            // Cliente heredado
-    requiereTrabajoExtraId: false,       // OPCIONAL: si es nieta de trabajo extra
-    crearObraAlAprobar: false,           // NO genera obra
-    esHijo: true,                        // ES HIJO (de obra o trabajo extra)
+    // ⚡ v2.2: TAREA_LEVE ya NO auto-aprueba. Inicia en BORRADOR.
+    // Al crearse → crea su propia obra en BORRADOR (con obraOrigenId = obra padre).
+    // El usuario edita (si necesita) y luego la marca TERMINADO.
+    autoAprobar: false,                  // ← CAMBIADO: ya no auto-aprueba (inicia en BORRADOR)
+    requiereObraId: true,                // ← OBLIGATORIO: vinculado a obra padre
+    requiereClienteId: false,            // Cliente heredado de la obra padre
+    requiereTrabajoExtraId: false,       // OPCIONAL: si es hija de sub-obra de TRABAJO_EXTRA
+    crearObraAlAprobar: false,           // NO crea obra al aprobar
+    crearObraAlGuardar: true,            // ← Crea su propia obra en BORRADOR al guardarse
+    esHijo: true,                        // ES HIJO (de obra o sub-obra de TRABAJO_EXTRA)
     esPadre: false,                      // NO puede tener hijos
     puedeSerPadre: false,                // NO puede tener hijos
 
     // Estados permitidos
     estadosPermitidos: [
-      'APROBADO',                        // Se crea directamente aprobado
-      'EN_EJECUCION',
-      'TERMINADO',
+      'BORRADOR',                        // ← Estado inicial (usuario puede editar)
+      'TERMINADO',                       // Usuario finaliza → obra sincroniza a TERMINADO
       'CANCELADO'
     ],
-    estadoInicial: 'APROBADO'            // ← Auto-aprobado
+    estadoInicial: 'BORRADOR'            // ← CAMBIADO: inicia en BORRADOR (v2.2)
   }
 };
 

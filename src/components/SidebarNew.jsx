@@ -133,14 +133,16 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 </button>
               )}
 
-              {/* Botón para marcar BORRADOR como listo para enviar (solo TRADICIONAL) */}
-              {presupuestoControls.selectedPresupuesto?.estado === 'BORRADOR' &&
-               presupuestoControls.selectedPresupuesto?.tipoPresupuesto === 'TRADICIONAL' && (
+              {/* Botón para marcar BORRADOR como listo para enviar (TRADICIONAL o Trabajo Extra) */}
+              {presupuestoControls.selectedPresupuesto?.estado === 'BORRADOR' && (
+                presupuestoControls.selectedPresupuesto?.tipoPresupuesto === 'TRADICIONAL' ||
+                presupuestoControls.selectedPresupuesto?.esPresupuestoTrabajoExtra
+              ) && (
                 <button
                   className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
                   style={{ backgroundColor: '#17a2b8', border: 'none' }}
                   onClick={presupuestoControls.handleMarcarListoParaEnviar}
-                  title="Marcar este presupuesto tradicional como listo para enviar al cliente"
+                  title="Marcar este presupuesto como listo para enviar al cliente (cambia a estado A_ENVIAR)"
                 >
                   <i className="fas fa-check-circle me-2"></i>Marcar como Listo
                 </button>

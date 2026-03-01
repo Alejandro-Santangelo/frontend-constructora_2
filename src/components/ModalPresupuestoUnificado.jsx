@@ -49,8 +49,8 @@ const ModalPresupuestoUnificado = ({
     obraId: contexto.obraId || null,
     trabajoExtraId: contexto.trabajoExtraId || null,
 
-    // Datos básicos
-    nombreObra: '',
+    // Datos básicos - pre-poblar nombre desde contexto de obra/trabajo extra
+    nombreObra: esNieta ? (contexto.trabajoExtraNombre || contexto.obraNombre || '') : (contexto.obraNombre || ''),
     direccionObraCalle: '',
     direccionObraAltura: '',
     direccionObraBarrio: '',

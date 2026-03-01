@@ -1081,7 +1081,8 @@ export const apiService = {
     // Usar filtrado local en el frontend o solicitar nuevo endpoint con JOIN a tablas normalizadas
     create: (data, empresaId, idObra = null) => {
       const payload = idObra ? { ...data, idObra } : data;
-      return apiService.post('/api/v1/presupuestos-no-cliente', payload);
+      // ✅ URL correcta según backend v2.2: /api/presupuestos-no-cliente (sin /v1/)
+      return apiService.post('/api/presupuestos-no-cliente', payload);
     },
     update: (id, data, empresaId, idObra = null) => {
       const payload = idObra ? { ...data, idObra } : data;
@@ -1284,7 +1285,8 @@ export const apiService = {
         }
 
         console.log('   - params:', params);
-        const url = `/api/v1/presupuestos-no-cliente/${id}/aprobar-y-crear-obra`;
+        // ✅ URL correcta según backend v2.2: /api/presupuestos-no-cliente (sin /v1/)
+        const url = `/api/presupuestos-no-cliente/${id}/aprobar-y-crear-obra`;
         console.log('   - URL:', url);
 
         // Llamar al endpoint que hace todo automáticamente

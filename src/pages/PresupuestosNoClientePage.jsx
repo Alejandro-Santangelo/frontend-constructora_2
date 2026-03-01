@@ -162,6 +162,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const [forzarModoLectura, setForzarModoLectura] = useState(false);
   const [showDownloadPdfButton, setShowDownloadPdfButton] = useState(false); // 🔥 Nuevo: para mostrar botón descarga PDF
   const [mostrarModalSeleccionEnvio, setMostrarModalSeleccionEnvio] = useState(false);
+
+  // 🔧 Estados para gestión de trabajos extra desde tabla
+  const [mostrarModalSeleccionEnvioTrabajoExtra, setMostrarModalSeleccionEnvioTrabajoExtra] = useState(false);
+  const [trabajoExtraSeleccionado, setTrabajoExtraSeleccionado] = useState(null);
+
   // Estado para almacenar nombres de obras vinculadas a trabajos extra
   const [nombresObras, setNombresObras] = useState({});
   // Estado para almacenar relación obraId -> numeroPresupuesto padre
@@ -753,8 +758,12 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         if (filtros.numeroPresupuesto && presupuesto.numeroPresupuesto !== Number(filtros.numeroPresupuesto)) {
           return false;
         }
+        // 🔧 EXCEPCIÓN: No filtrar por estado si es TAREA_LEVE (deben mostrarse siempre)
         if (filtros.estado && presupuesto.estado !== filtros.estado) {
-          return false;
+          const esTareaLeve = presupuesto.tipoPresupuesto === 'TAREA_LEVE';
+          if (!esTareaLeve) {
+            return false;
+          }
         }
         if (filtros.numeroVersion && presupuesto.numeroVersion !== Number(filtros.numeroVersion)) {
           return false;
@@ -1066,6 +1075,44 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     }
   };
 
+  // 🔧 Confirmar envío de TRABAJO EXTRA desde tabla
+  const handleConfirmarEnvioTrabajoExtra = async (tipo) => {
+    setMostrarModalSeleccionEnvioTrabajoExtra(false);
+
+    if (!tipo || !trabajoExtraSeleccionado) return; // Cancelado
+
+    try {
+      // Cargar el trabajo extra completo
+      const trabajoCompleto = await api.presupuestosNoCliente.getById(trabajoExtraSeleccionado.id, empresaId);
+
+      // 🔧 Normalizar: Trabajos extra NO tienen clienteId
+      const trabajoNormalizado = {
+        ...trabajoCompleto,
+        obraId: trabajoCompleto.obraId || trabajoCompleto.idObra || null,
+        clienteId: null, // Trabajos extra SIEMPRE sin clienteId
+        esPresupuestoTrabajoExtra: true
+      };
+
+      setPresupuestoData(trabajoNormalizado);
+
+      if (tipo === 'whatsapp') {
+        // ✅ ACTIVAR FLAGS PARA WHATSAPP
+        setAutoGenerarPDF(true);
+        setAbrirWhatsAppDespuesDePDF(true);
+        setAbrirEmailDespuesDePDF(false);
+      } else if (tipo === 'email') {
+        // ✅ ACTIVAR FLAGS PARA EMAIL
+        setAutoGenerarPDF(true);
+        setAbrirWhatsAppDespuesDePDF(false);
+        setAbrirEmailDespuesDePDF(true);
+      }
+
+      setShowEditarModal(true); // ← Abrir modal de edición con scroll a PDF
+    } catch (error) {
+      showNotification && showNotification('Error al cargar el trabajo extra: ' + error.message, 'danger');
+    }
+  };
+
   const handleSelectPresupuestoFromBusqueda = async (presupuesto) => {
     try {
       // Cargar el presupuesto completo y abrir modal de edición
@@ -1254,6 +1301,52 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       const esTrabajoExtra = presupuestoActual.esPresupuestoTrabajoExtra === true ||
                              presupuestoActual.esPresupuestoTrabajoExtra === 'V' ||
                              presupuestoActual.esPresupuestoTrabajoExtra === 1;
+
+      // 🔧 ESCENARIO ESPECIAL: TAREA_LEVE
+      // Las tareas leves se finalizan directamente (BORRADOR → TERMINADO) y crean obra en estado FINALIZADA
+      const esTareaLeve = presupuestoActual.tipoPresupuesto === 'TAREA_LEVE';
+
+      if (esTareaLeve && tieneObraAsociada) {
+        const tieneNombreObra = presupuestoActual.nombreObra && presupuestoActual.nombreObra.trim() !== '';
+
+        if (!tieneNombreObra) {
+          showNotification && showNotification(
+            '⚠️ Error: La tarea leve debe tener un NOMBRE DE OBRA\n\n' +
+            'Ejemplo: "Reparación Baño", "Pintura Fachada", etc.\n\n' +
+            'Este nombre se usará para crear la obra.',
+            'warning'
+          );
+          return;
+        }
+
+        const confirmar = window.confirm(
+          `📋 FINALIZAR TAREA LEVE y CREAR OBRA\n\n` +
+          `Presupuesto: #${presupuestoActual.numeroPresupuesto} v${presupuestoActual.numeroVersion}\n` +
+          `Nombre de obra: "${presupuestoActual.nombreObra}"\n` +
+          `Obra padre: ID ${presupuestoActual.obraId}\n` +
+          `Monto: $${(presupuestoActual.totalFinal || presupuestoActual.montoTotal || 0).toLocaleString('es-AR')}\n\n` +
+          `Se creará una NUEVA OBRA con estado FINALIZADA.\n` +
+          `El presupuesto pasará a estado TERMINADO.\n\n` +
+          `¿Desea continuar?`
+        );
+
+        if (!confirmar) return;
+
+        // 🔧 Usar endpoint correcto que crea la obra automáticamente
+        await api.presupuestosNoCliente.aprobarYCrearObra(
+          selectedId,
+          null, // clienteReferenciaId - será tomado de la obra padre
+          presupuestoActual.obraId // obraReferenciaId - obra padre
+        );
+
+        showNotification && showNotification(
+          `✅ Tarea Leve finalizada\n🏗️ Obra "${presupuestoActual.nombreObra}" creada con estado FINALIZADA`,
+          'success'
+        );
+
+        loadList();
+        return;
+      }
 
       // 🔧 ESCENARIO ESPECIAL: TRABAJO EXTRA
       // Los trabajos extra SIEMPRE crean una nueva SUB-OBRA, incluso si ya tienen obraId (obra padre)
@@ -1716,7 +1809,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   };
 
   // Marcar presupuesto como listo para enviar (BORRADOR → A_ENVIAR)
-  // Solo para presupuestos TRADICIONALES
+  // Funciona para presupuestos TRADICIONALES y Trabajos Extra
   const handleMarcarListoParaEnviar = async () => {
     if (!selectedId) {
       showNotification && showNotification('Seleccione un presupuesto primero', 'warning');
@@ -1730,12 +1823,42 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       return;
     }
 
-    // Validar que sea presupuesto TRADICIONAL
-    if (presupuesto.tipoPresupuesto !== 'TRADICIONAL') {
+    if (presupuesto.estado !== 'BORRADOR') {
       showNotification && showNotification(
-        'Esta acción solo aplica a presupuestos TRADICIONALES',
+        `Este presupuesto ya está en estado ${presupuesto.estado}`,
         'warning'
       );
+      return;
+    }
+
+    try {
+      await api.presupuestosNoCliente.actualizarEstado(presupuesto.id, 'A_ENVIAR', empresaId);
+
+      const tipoTexto = presupuesto.esPresupuestoTrabajoExtra
+        ? 'Trabajo extra'
+        : 'Presupuesto';
+
+      showNotification && showNotification(
+        `✅ ${tipoTexto} marcado como "Listo para Enviar"`, 'success'
+      );
+      await loadList();
+    } catch (error) {
+      showNotification && showNotification(
+        'Error al marcar presupuesto: ' + error.message,
+        'error'
+      );
+    }
+  };
+
+  // ==========================================
+  // 🔧 FUNCIONES AUXILIARES PARA GESTIÓN DE ESTADOS DESDE TABLA
+  // ==========================================
+
+  // Terminar edición desde tabla (BORRADOR → A_ENVIAR)
+  // Funciona para TRADICIONALES y TRABAJOS EXTRA
+  const handleTerminarEdicionDesdeTabla = async (presupuesto) => {
+    if (!presupuesto || !presupuesto.id) {
+      showNotification && showNotification('Presupuesto no válido', 'warning');
       return;
     }
 
@@ -1759,6 +1882,229 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         'error'
       );
     }
+  };
+
+  // Enviar presupuesto/trabajo extra desde tabla
+  // Abre modal de selección (WhatsApp/Email)
+  const handleEnviarPresupuestoDesdeTabla = async (presupuesto) => {
+    if (!presupuesto || !presupuesto.id) {
+      showNotification && showNotification('Presupuesto no válido', 'warning');
+      return;
+    }
+
+    // Si es trabajo extra, usar modal específico de trabajos extra
+    if (presupuesto.esPresupuestoTrabajoExtra) {
+      setTrabajoExtraSeleccionado(presupuesto);
+      setMostrarModalSeleccionEnvioTrabajoExtra(true);
+    } else {
+      // Para presupuestos tradicionales, usar modal normal
+      setSelectedId(presupuesto.id);
+      setMostrarModalSeleccionEnvio(true);
+    }
+  };
+
+  // Cambiar estado genérico desde tabla
+  const handleCambiarEstadoPresupuesto = async (presupuesto, nuevoEstado) => {
+    if (!presupuesto || !presupuesto.id) {
+      showNotification && showNotification('Presupuesto no válido', 'warning');
+      return;
+    }
+
+    try {
+      // 🔧 Normalizar presupuesto para envío
+      const presupuestoNormalizado = {
+        ...presupuesto,
+        estado: nuevoEstado,
+        esPresupuestoTrabajoExtra: presupuesto.esPresupuestoTrabajoExtra || false
+      };
+
+      await api.presupuestosNoCliente.update(
+        presupuesto.id,
+        presupuestoNormalizado,
+        empresaId
+      );
+
+      showNotification && showNotification(
+        `✅ Estado actualizado a ${nuevoEstado}`,
+        'success'
+      );
+
+      await loadList();
+    } catch (error) {
+      console.error('❌ Error al cambiar estado:', error);
+      showNotification && showNotification(
+        `Error al cambiar estado: ${error.message}`,
+        'error'
+      );
+    }
+  };
+
+  // Aprobar y crear obra desde tabla
+  const handleAprobarYCrearObraDesdeTabla = async (presupuesto) => {
+    if (!presupuesto || !presupuesto.id || !empresaId) {
+      showNotification && showNotification('Presupuesto no válido', 'warning');
+      return;
+    }
+
+    // Validar que no esté ya aprobado
+    if (presupuesto.estado === 'APROBADO') {
+      showNotification && showNotification('Este presupuesto ya está aprobado', 'warning');
+      return;
+    }
+
+    // ✅ LÓGICA INTELIGENTE: Detectar escenario
+    const tieneObraAsociada = presupuesto.obraId !== null && presupuesto.obraId !== undefined;
+    const esTrabajoExtra = presupuesto.esPresupuestoTrabajoExtra === true ||
+                           presupuesto.esPresupuestoTrabajoExtra === 'V' ||
+                           presupuesto.esPresupuestoTrabajoExtra === 1;
+    const esTareaLeve = presupuesto.tipoPresupuesto === 'TAREA_LEVE';
+
+    // 🔧 ESCENARIO ESPECIAL: TAREA_LEVE
+    if (esTareaLeve && tieneObraAsociada) {
+      const tieneNombreObra = presupuesto.nombreObra && presupuesto.nombreObra.trim() !== '';
+
+      if (!tieneNombreObra) {
+        showNotification && showNotification(
+          '⚠️ Error: La tarea leve debe tener un NOMBRE DE OBRA\n\n' +
+          'Ejemplo: "Reparación Baño", "Pintura Fachada", etc.\n\n' +
+          'Este nombre se usará para crear la obra.',
+          'warning'
+        );
+        return;
+      }
+
+      const confirmar = window.confirm(
+        `📋 FINALIZAR TAREA LEVE y CREAR OBRA\n\n` +
+        `Presupuesto: #${presupuesto.numeroPresupuesto} v${presupuesto.numeroVersion}\n` +
+        `Nombre de obra: "${presupuesto.nombreObra}"\n` +
+        `Obra padre: ID ${presupuesto.obraId}\n` +
+        `Monto: $${(presupuesto.totalFinal || presupuesto.montoTotal || 0).toLocaleString('es-AR')}\n\n` +
+        `Se creará una NUEVA OBRA con estado FINALIZADA.\n` +
+        `El presupuesto pasará a estado TERMINADO.\n\n` +
+        `¿Desea continuar?`
+      );
+
+      if (!confirmar) return;
+
+      try {
+        // 🔧 Usar endpoint correcto que crea la obra automáticamente
+        await api.presupuestosNoCliente.aprobarYCrearObra(
+          presupuesto.id,
+          null, // clienteReferenciaId - será tomado de la obra padre
+          presupuesto.obraId // obraReferenciaId - obra padre
+        );
+
+        showNotification && showNotification(
+          `✅ Tarea Leve finalizada\n🏗️ Obra "${presupuesto.nombreObra}" creada con estado FINALIZADA`,
+          'success'
+        );
+
+        await loadList();
+      } catch (error) {
+        showNotification && showNotification(
+          'Error al finalizar tarea leve: ' + error.message,
+          'error'
+        );
+      }
+      return;
+    }
+
+    // 🔧 ESCENARIO ESPECIAL: TRABAJO EXTRA
+    if (esTrabajoExtra && tieneObraAsociada) {
+      const tieneNombreObra = presupuesto.nombreObra && presupuesto.nombreObra.trim() !== '';
+
+      if (!tieneNombreObra) {
+        showNotification && showNotification(
+          '⚠️ Error: El trabajo extra debe tener un NOMBRE DE OBRA\n\n' +
+          'Ejemplo: "Cabaña 1", "Cabaña 2", "Ampliación Norte", etc.\n\n' +
+          'Este nombre se usará para crear la sub-obra dentro de la obra padre.',
+          'warning'
+        );
+        return;
+      }
+
+      const confirmar = window.confirm(
+        `🔧 APROBAR TRABAJO EXTRA y CREAR SUB-OBRA\n\n` +
+        `Presupuesto: #${presupuesto.numeroPresupuesto} v${presupuesto.numeroVersion}\n` +
+        `Nombre de sub-obra: "${presupuesto.nombreObra}"\n` +
+        `Obra padre: ID ${presupuesto.obraId}\n` +
+        `Monto: $${(presupuesto.totalFinal || presupuesto.montoTotal || 0).toLocaleString('es-AR')}\n\n` +
+        `Se creará una NUEVA OBRA vinculada a la obra padre.\n` +
+        `¿Desea continuar?`
+      );
+
+      if (!confirmar) return;
+
+      try {
+        const response = await api.post(
+          `/api/v1/presupuestos-no-cliente/${presupuesto.id}/aprobar-y-crear-obra`,
+          {},
+          {
+            params: { empresaId },
+            headers: { 'X-Tenant-ID': empresaId, 'Content-Type': 'application/json' }
+          }
+        );
+
+        const respuestaData = response.data || response;
+        const nuevaObraId = respuestaData?.obraId || respuestaData?.id;
+        const mensaje = respuestaData?.mensaje || respuestaData?.message;
+
+        showNotification && showNotification(
+          mensaje || `✅ Trabajo Extra aprobado\n🏗️ Sub-obra "${presupuesto.nombreObra}" creada (ID: ${nuevaObraId})`,
+          'success'
+        );
+
+        await loadList();
+      } catch (error) {
+        showNotification && showNotification(
+          'Error al aprobar trabajo extra: ' + error.message,
+          'error'
+        );
+      }
+      return;
+    }
+
+    // ESCENARIO 1: Presupuesto CON obra ya asignada → Solo aprobar
+    if (tieneObraAsociada && !esTrabajoExtra) {
+      const confirmar = window.confirm(
+        `¿Aprobar presupuesto #${presupuesto.numeroPresupuesto} v${presupuesto.numeroVersion}?\n\n` +
+        `Obra asociada: ID ${presupuesto.obraId}\n` +
+        `Se cambiará el estado a APROBADO sin crear nueva obra.`
+      );
+
+      if (!confirmar) return;
+
+      try {
+        await api.post(
+          `/api/v1/presupuestos-no-cliente/${presupuesto.id}/aprobar-y-crear-obra`,
+          {},
+          {
+            params: { empresaId },
+            headers: { 'X-Tenant-ID': empresaId, 'Content-Type': 'application/json' }
+          }
+        );
+
+        showNotification && showNotification(
+          `✅ Presupuesto aprobado exitosamente (Obra ID: ${presupuesto.obraId})`,
+          'success'
+        );
+
+        await loadList();
+      } catch (error) {
+        showNotification && showNotification(
+          'Error al aprobar presupuesto: ' + error.message,
+          'error'
+        );
+      }
+      return;
+    }
+
+    // ESCENARIO 2: Presupuesto SIN obra asociada → Aprobar y crear obra/cliente
+    // Usar la función existente `handleAprobarYCrearObra` que ya tiene toda la lógica
+    setSelectedId(presupuesto.id);
+    setTimeout(() => {
+      handleAprobarYCrearObra();
+    }, 100);
   };
 
   // Ver presupuesto seleccionado en modo SOLO LECTURA
@@ -1963,6 +2309,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     <th style={{width: '80px'}} className="small">Tipo</th>
                     <th style={{width: '80px'}} className="small">Alertas</th>
                     <th style={{width: '110px'}} className="text-end small">Total</th>
+                    <th style={{width: '160px'}} className="text-center small">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2038,7 +2385,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       {/* Separador visual entre grupos */}
                       {index > 0 && (
                         <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
-                          <td colSpan="11" style={{
+                          <td colSpan="12" style={{
                             padding: 0,
                             height: '8px',
                             borderTop: '3px solid #212529',
@@ -2382,6 +2729,114 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                           </div>
                         </div>
                       </td>
+                      <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                        {/* 🔧 BOTONES DE GESTIÓN DE CICLO DE VIDA */}
+                        <div className="btn-group btn-group-sm" role="group">
+                          {/* BORRADOR → Botón para marcar como "Listo para Enviar" */}
+                          {(!row.estado || row.estado === 'BORRADOR') && (
+                            <button
+                              className="btn btn-success btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTerminarEdicionDesdeTabla(row);
+                              }}
+                              title="Marcar como listo para enviar"
+                              style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                            >
+                              <i className="fas fa-check me-1"></i>
+                              Terminar Edición
+                            </button>
+                          )}
+
+                          {/* A_ENVIAR → Botones para volver a borrador o enviar */}
+                          {row.estado === 'A_ENVIAR' && (
+                            <>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCambiarEstadoPresupuesto(row, 'BORRADOR');
+                                }}
+                                title="Volver a modo edición"
+                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                              >
+                                <i className="fas fa-undo me-1"></i>
+                                Volver
+                              </button>
+                              <button
+                                className="btn btn-primary btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEnviarPresupuestoDesdeTabla(row);
+                                }}
+                                title="Enviar a cliente por WhatsApp o Email"
+                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                              >
+                                <i className="fas fa-paper-plane me-1"></i>
+                                Enviar Cliente
+                              </button>
+                            </>
+                          )}
+
+                          {/* ENVIADO → Botones para cancelar envío o aprobar */}
+                          {row.estado === 'ENVIADO' && (
+                            <>
+                              <button
+                                className="btn btn-warning btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCambiarEstadoPresupuesto(row, 'A_ENVIAR');
+                                }}
+                                title="Cancelar envío y volver a estado anterior"
+                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                              >
+                                <i className="fas fa-undo me-1"></i>
+                                Cancelar
+                              </button>
+                              <button
+                                className="btn btn-success btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAprobarYCrearObraDesdeTabla(row);
+                                }}
+                                title="Aprobar presupuesto y crear obra"
+                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                              >
+                                <i className="fas fa-check-circle me-1"></i>
+                                Aprobar
+                              </button>
+                            </>
+                          )}
+
+                          {/* APROBADO → Ver obra */}
+                          {row.estado === 'APROBADO' && row.obraId && (
+                            <button
+                              className="btn btn-info btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Aquí podrías navegar a la obra o mostrar detalles
+                                showNotification && showNotification(
+                                  `Obra ID: ${row.obraId}\n(Implementar navegación a obra)`,
+                                  'info'
+                                );
+                              }}
+                              title={`Ver obra asociada (ID: ${row.obraId})`}
+                              style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                            >
+                              <i className="fas fa-eye me-1"></i>
+                              Ver Obra
+                            </button>
+                          )}
+
+                          {/* APROBADO sin obra → Indicador */}
+                          {row.estado === 'APROBADO' && !row.obraId && (
+                            <span className="badge bg-success" style={{ fontSize: '0.7em', padding: '4px 8px' }}>
+                              <i className="fas fa-check-circle me-1"></i>
+                              Aprobado
+                            </span>
+                          )}
+                        </div>
+                      </td>
                     </tr>
 
                     {/* ══════════════════════════════════════════════════
@@ -2401,7 +2856,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                 onClick={(e) => { e.stopPropagation(); setGruposColapsados(p => ({ ...p, [`adicionales_${row.id}`]: !p[`adicionales_${row.id}`] })); }}
                                 style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
                               >
-                                <td colSpan="11" className="py-1 px-3 small">
+                                <td colSpan="12" className="py-1 px-3 small">
                                   <span className="fw-bold text-primary">
                                     <i className={`fas fa-chevron-${colAd ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
                                     📋 Adicionales Obra
@@ -2450,6 +2905,94 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                       {adicTotal > 0
                                         ? `$${Number(adicTotal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
                                         : <span className="text-muted">—</span>}
+                                    </td>
+                                    <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                                      {/* 🔧 BOTONES DE GESTIÓN PARA ADICIONALES (Trabajos Extra) */}
+                                      <div className="btn-group btn-group-sm" role="group">
+                                        {/* BORRADOR → Botón para marcar como "Listo para Enviar" */}
+                                        {(!adic.estado || adic.estado === 'BORRADOR') && (
+                                          <button
+                                            className="btn btn-success btn-sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleTerminarEdicionDesdeTabla(adic);
+                                            }}
+                                            title="Marcar como listo para enviar"
+                                            style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                          >
+                                            <i className="fas fa-check me-1"></i>
+                                            Terminar
+                                          </button>
+                                        )}
+
+                                        {/* A_ENVIAR → Botones para volver a borrador o enviar */}
+                                        {adic.estado === 'A_ENVIAR' && (
+                                          <>
+                                            <button
+                                              className="btn btn-secondary btn-sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCambiarEstadoPresupuesto(adic, 'BORRADOR');
+                                              }}
+                                              title="Volver a modo edición"
+                                              style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                            >
+                                              <i className="fas fa-undo me-1"></i>
+                                              Volver
+                                            </button>
+                                            <button
+                                              className="btn btn-primary btn-sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEnviarPresupuestoDesdeTabla(adic);
+                                              }}
+                                              title="Enviar a cliente"
+                                              style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                            >
+                                              <i className="fas fa-paper-plane me-1"></i>
+                                              Enviar
+                                            </button>
+                                          </>
+                                        )}
+
+                                        {/* ENVIADO → Botones para cancelar envío o aprobar */}
+                                        {adic.estado === 'ENVIADO' && (
+                                          <>
+                                            <button
+                                              className="btn btn-warning btn-sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCambiarEstadoPresupuesto(adic, 'A_ENVIAR');
+                                              }}
+                                              title="Cancelar envío"
+                                              style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                            >
+                                              <i className="fas fa-undo me-1"></i>
+                                              Cancelar
+                                            </button>
+                                            <button
+                                              className="btn btn-success btn-sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleAprobarYCrearObraDesdeTabla(adic);
+                                              }}
+                                              title="Aprobar y crear obra"
+                                              style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                            >
+                                              <i className="fas fa-check-circle me-1"></i>
+                                              Aprobar
+                                            </button>
+                                          </>
+                                        )}
+
+                                        {/* APROBADO → Indicador */}
+                                        {adic.estado === 'APROBADO' && (
+                                          <span className="badge bg-success" style={{ fontSize: '0.65em', padding: '3px 6px' }}>
+                                            <i className="fas fa-check-circle me-1"></i>
+                                            Aprobado
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -2599,6 +3142,54 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                   <button
                     className="btn btn-secondary btn-lg"
                     onClick={() => setMostrarModalSeleccionEnvio(false)}
+                  >
+                    <i className="fas fa-times me-2"></i>Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔧 Modal Selección de Envío para TRABAJOS EXTRA */}
+      {mostrarModalSeleccionEnvioTrabajoExtra && (
+        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header bg-warning text-dark">
+                <h5 className="modal-title">
+                  <i className="fas fa-wrench me-2"></i>¿Cómo desea enviar el trabajo extra?
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setMostrarModalSeleccionEnvioTrabajoExtra(false)}
+                ></button>
+              </div>
+              <div className="modal-body text-center py-4">
+                {trabajoExtraSeleccionado && (
+                  <div className="alert alert-info mb-3">
+                    <strong>Trabajo Extra:</strong> {trabajoExtraSeleccionado.nombreObra || trabajoExtraSeleccionado.numeroPresupuesto || 'Sin nombre'}
+                  </div>
+                )}
+                <p className="mb-4">Seleccione el método de envío:</p>
+                <div className="d-grid gap-3">
+                  <button
+                    className="btn btn-success btn-lg"
+                    onClick={() => handleConfirmarEnvioTrabajoExtra('whatsapp')}
+                  >
+                    <i className="fab fa-whatsapp me-2"></i>Enviar por WhatsApp
+                  </button>
+                  <button
+                    className="btn btn-primary btn-lg"
+                    onClick={() => handleConfirmarEnvioTrabajoExtra('email')}
+                  >
+                    <i className="fas fa-envelope me-2"></i>Enviar por Email
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-lg"
+                    onClick={() => setMostrarModalSeleccionEnvioTrabajoExtra(false)}
                   >
                     <i className="fas fa-times me-2"></i>Cancelar
                   </button>

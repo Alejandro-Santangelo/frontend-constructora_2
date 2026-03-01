@@ -689,22 +689,38 @@ const ProfesionalesObrasPage = () => {
   };
 
   // Handler para cuando se selecciona un presupuesto del listado completo
-  const handleSeleccionarPresupuestoDelListado = (presupuesto) => {
-    console.log('✅ Presupuesto seleccionado del listado:', presupuesto);
-    console.log('🔴 Cerrando modal de listar...');
+  const handleSeleccionarPresupuestoDelListado = async (presupuesto) => {
+    console.log('✅ Presupuesto seleccionado del listado:', presupuesto?.id);
 
     // Cerrar el modal de listado primero
     setShowListarPresupuestosModal(false);
 
-    console.log('🟢 Modal de listar cerrado, esperando 100ms...');
+    // ✅ Siempre cargar datos frescos del backend (el objeto del listado tiene colecciones anidadas incompletas)
+    if (!presupuesto?.id) {
+      console.error('❌ Presupuesto sin ID, no se puede cargar');
+      return;
+    }
 
-    // Pequeño delay para asegurar que el modal anterior se cierre completamente
-    setTimeout(() => {
-      console.log('🟡 Abriendo modal de edición...');
-      setPresupuestoData(presupuesto);
-      setShowPresupuestoModal(true);
-      console.log('🟢 Modal de edición abierto');
-    }, 100);
+    try {
+      console.log('🔄 Cargando presupuesto completo desde backend ID:', presupuesto.id);
+      const presupuestoCompleto = await api.presupuestosNoCliente.getById(
+        presupuesto.id,
+        empresaSeleccionada?.id
+      );
+      const presupuestoNormalizado = {
+        ...presupuestoCompleto,
+        obraId: presupuestoCompleto.obraId || presupuestoCompleto.idObra || null,
+        clienteId: presupuestoCompleto.esPresupuestoTrabajoExtra ? null : (presupuestoCompleto.clienteId || presupuestoCompleto.idCliente || null)
+      };
+      // Pequeño delay para asegurar que el modal anterior se cierre completamente
+      setTimeout(() => {
+        console.log('🟡 Abriendo modal de edición con datos completos...');
+        setPresupuestoData(presupuestoNormalizado);
+        setShowPresupuestoModal(true);
+      }, 100);
+    } catch (error) {
+      console.error('❌ Error al cargar presupuesto completo:', error);
+    }
   };
 
   // Handler para cuando se selecciona una obra en el modal de selección

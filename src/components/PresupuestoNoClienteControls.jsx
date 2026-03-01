@@ -78,10 +78,11 @@ const PresupuestoNoClienteControls = ({ selectedId, onRefresh, showNotification,
 
       const esUltimaVersion = Number(encontrado.numeroVersion) === Number(versionMasReciente.numeroVersion);
 
-      // Agregar flag de solo lectura al objeto encontrado
-      encontrado._soloLectura = !esUltimaVersion;
+      // ✅ Siempre cargar datos completos desde el backend (el objeto del listado tiene colecciones incompletas)
+      const encontradoCompleto = await apiService.presupuestosNoCliente.getById(encontrado.id, empresaId);
+      encontradoCompleto._soloLectura = !esUltimaVersion;
 
-      setEditingData(encontrado);
+      setEditingData(encontradoCompleto);
       setShowModal(true);
 
       if (esUltimaVersion) {

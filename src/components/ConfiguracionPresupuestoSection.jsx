@@ -787,61 +787,41 @@ const ConfiguracionPresupuestoSection = ({
 
     // Sumar profesionales agregados individualmente
     profesionalesAgregados.forEach(prof => {
-      // Usar importeCalculado si existe, sino calcular
       if (prof.importeCalculado) {
         total += Number(prof.importeCalculado);
       } else {
-        if (prof.importeXHora && Number(prof.cantidadHoras || 0) > 0) {
+        if (prof.importeXHora && Number(prof.cantidadHoras || 0) > 0)
           total += Number(prof.importeXHora) * Number(prof.cantidadHoras);
-        }
-        if (prof.importeXDia && Number(prof.cantidadDias || 0) > 0) {
+        if (prof.importeXDia && Number(prof.cantidadDias || 0) > 0)
           total += Number(prof.importeXDia) * Number(prof.cantidadDias);
-        }
-        if (prof.importeXSemana && Number(prof.cantidadSemanas || 0) > 0) {
+        if (prof.importeXSemana && Number(prof.cantidadSemanas || 0) > 0)
           total += Number(prof.importeXSemana) * Number(prof.cantidadSemanas);
-        }
-        if (prof.importeXMes && Number(prof.cantidadMeses || 0) > 0) {
+        if (prof.importeXMes && Number(prof.cantidadMeses || 0) > 0)
           total += Number(prof.importeXMes) * Number(prof.cantidadMeses);
-        }
-        if (prof.importeXObra) {
+        if (prof.importeXObra)
           total += Number(prof.importeXObra);
-        }
       }
     });
 
-    // NUEVO: Sumar profesionales de los items de la calculadora
+    // ✅ Sumar desde array profesionales[] (base pura, sin honorarios)
     if (itemsCalculadora && Array.isArray(itemsCalculadora)) {
       itemsCalculadora.forEach(item => {
-        // Ignorar gastos generales (se cuentan en otrosCostos)
         const esGastoGeneral = item.esGastoGeneral === true ||
                               (item.tipoProfesional?.toLowerCase().includes('gasto') &&
                                item.tipoProfesional?.toLowerCase().includes('general'));
         if (esGastoGeneral) return;
 
-        // Usar subtotalManoObra si existe (es el total ya calculado de mano de obra)
-        if (item.subtotalManoObra !== undefined && item.subtotalManoObra !== null) {
+        if (item.profesionales && Array.isArray(item.profesionales) && item.profesionales.length > 0) {
+          // Leer desde el array: base pura
+          item.profesionales.forEach(prof => {
+            const cantidad = Number(prof.cantidadJornales || prof.cantidad || 0);
+            const importe = Number(prof.importeJornal || prof.valorUnitario || 0);
+            total += Number(prof.subtotal) || (cantidad * importe) || 0;
+          });
+        }
+        // Fallback solo si no hay array y no tiene jornales (evita doble conteo)
+        else if (!item.jornales?.length && item.subtotalManoObra) {
           total += Number(item.subtotalManoObra) || 0;
-        } else {
-          // Si no existe subtotalManoObra, calcular manualmente
-          // Opción 1: Tiene lista de profesionales desglosados
-          if (item.profesionales && Array.isArray(item.profesionales)) {
-            item.profesionales.forEach(prof => {
-              if (prof.subtotal !== undefined && prof.subtotal !== null) {
-                total += Number(prof.subtotal) || 0;
-              } else {
-                const cantidad = Number(prof.cantidadJornales) || 0;
-                const importe = Number(prof.importeJornal) || 0;
-                total += cantidad * importe;
-              }
-            });
-          }
-
-          // Opción 2: Tiene modo "Cantidad Jornales x Importe" (sin desglose)
-          if (item.cantidadJornales && item.importeJornal && !item.profesionales?.length) {
-            const cantidad = Number(item.cantidadJornales) || 0;
-            const importe = Number(item.importeJornal) || 0;
-            total += cantidad * importe;
-          }
         }
       });
     }
@@ -857,43 +837,30 @@ const ConfiguracionPresupuestoSection = ({
 
     // Sumar materiales agregados individualmente
     materialesAgregados.forEach(mat => {
-      // Usar cantidad * precioUnitario
       const cantidad = Number(mat.cantidad || 0);
       const precioUnitario = Number(mat.precioUnitario || 0);
       total += cantidad * precioUnitario;
     });
 
-    // NUEVO: Sumar materiales de los items de la calculadora
+    // ✅ Sumar desde array materialesLista[] (base pura, sin honorarios)
     if (itemsCalculadora && Array.isArray(itemsCalculadora)) {
       itemsCalculadora.forEach(item => {
-        // Ignorar gastos generales (se cuentan en otrosCostos)
         const esGastoGeneral = item.esGastoGeneral === true ||
                               (item.tipoProfesional?.toLowerCase().includes('gasto') &&
                                item.tipoProfesional?.toLowerCase().includes('general'));
         if (esGastoGeneral) return;
 
-        // Usar subtotalMateriales si existe (es el total ya calculado de materiales)
-        if (item.subtotalMateriales !== undefined && item.subtotalMateriales !== null) {
-          total += Number(item.subtotalMateriales) || 0;
-        } else {
-          // Si no existe subtotalMateriales, calcular manualmente
-          // Opción 1: Tiene lista de materiales desglosados
-          if (item.materialesLista && Array.isArray(item.materialesLista)) {
-            item.materialesLista.forEach(mat => {
-              if (mat.subtotal !== undefined && mat.subtotal !== null) {
-                total += Number(mat.subtotal) || 0;
-              } else {
-                const cantidad = Number(mat.cantidad) || 0;
-                const precioUnitario = Number(mat.precioUnitario) || 0;
-                total += cantidad * precioUnitario;
-              }
-            });
-          }
-
-          // Opción 2: Tiene un monto fijo de materiales (sin desglose)
-          if (item.materialesTotal && !item.materialesLista?.length) {
-            total += Number(item.materialesTotal) || 0;
-          }
+        if (item.materialesLista && Array.isArray(item.materialesLista) && item.materialesLista.length > 0) {
+          // Leer desde el array: base pura
+          item.materialesLista.forEach(mat => {
+            const cantidad = Number(mat.cantidad || 0);
+            const precio = Number(mat.precioUnitario || mat.precio || 0);
+            total += Number(mat.subtotal) || (cantidad * precio) || 0;
+          });
+        }
+        // Fallback solo si no hay array
+        else if (item.materialesTotal && !item.materialesLista?.length) {
+          total += Number(item.materialesTotal) || 0;
         }
       });
     }
@@ -909,27 +876,22 @@ const ConfiguracionPresupuestoSection = ({
 
     if (itemsCalculadora && Array.isArray(itemsCalculadora)) {
       itemsCalculadora.forEach(item => {
-        // Ignorar gastos generales
         const esGastoGeneral = item.esGastoGeneral === true ||
                               (item.tipoProfesional?.toLowerCase().includes('gasto') &&
                                item.tipoProfesional?.toLowerCase().includes('general'));
         if (esGastoGeneral) return;
 
-        // Sumar subtotalJornales si existe (este ya contiene la suma de todos los jornales)
-        if (item.subtotalJornales !== undefined && item.subtotalJornales !== null) {
-          total += Number(item.subtotalJornales) || 0;
-        }
-        // Si no existe subtotalJornales, calcular desde el array de jornales
-        else if (item.jornales && Array.isArray(item.jornales)) {
+        if (item.jornales && Array.isArray(item.jornales) && item.jornales.length > 0) {
+          // ✅ Leer desde el array: base pura (igual que badges)
           item.jornales.forEach(jornal => {
-            if (jornal.subtotal !== undefined && jornal.subtotal !== null) {
-              total += Number(jornal.subtotal) || 0;
-            } else {
-              const cantidad = Number(jornal.cantidadJornales) || 0;
-              const importe = Number(jornal.importeJornal) || 0;
-              total += cantidad * importe;
-            }
+            const cantidad = Number(jornal.cantidadJornales || jornal.cantidad || 0);
+            const importe = Number(jornal.importeJornal || jornal.valorUnitario || 0);
+            total += Number(jornal.subtotal) || (cantidad * importe) || 0;
           });
+        }
+        // Fallback solo si no hay array de jornales
+        else if (!item.jornales?.length && item.subtotalJornales) {
+          total += Number(item.subtotalJornales) || 0;
         }
       });
     }
@@ -3890,14 +3852,9 @@ const ConfiguracionPresupuestoSection = ({
                       <div className="alert alert-success mt-3 mb-0">
                         <strong>💰 Ganancia por sección:</strong>
                         <div className="row mt-2 small">
-                          {resumen.jornales.honorario > 0 && (
+                          {(resumen.jornales.honorario + resumen.profesionales.honorario) > 0 && (
                             <div className="col-md-3">
-                              🏗️ Jornales: <strong>${resumen.jornales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
-                            </div>
-                          )}
-                          {resumen.profesionales.honorario > 0 && (
-                            <div className="col-md-3">
-                              👷 Profesionales: <strong>${resumen.profesionales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                              🏗️ Jornales: <strong>${(resumen.jornales.honorario + resumen.profesionales.honorario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
                             </div>
                           )}
                           {resumen.materiales.honorario > 0 && (
@@ -5080,7 +5037,7 @@ const ConfiguracionPresupuestoSection = ({
                         <strong>💰 Mayores Costos por sección:</strong>
                         <div className="row mt-2 small">
                           {(() => {
-                            // Calcular mayor costo de jornales
+                            // Calcular mayor costo de jornales (incluye profesionales, son la misma categoría)
                             let mayorCostoJornales = 0;
                             if (mayoresCostosActual.jornales?.activo !== false) {
                               const base = resumen.jornales?.baseOriginal || 0;
@@ -5091,14 +5048,6 @@ const ConfiguracionPresupuestoSection = ({
                                 mayorCostoJornales = valor;
                               }
                             }
-                            return mayorCostoJornales > 0 && (
-                              <div className="col-md-3">
-                                🏗️ Jornales: <strong>${mayorCostoJornales.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
-                              </div>
-                            );
-                          })()}
-                          {(() => {
-                            // Calcular mayor costo de profesionales
                             let mayorCostoProf = 0;
                             if (mayoresCostosActual.profesionales?.activo !== false) {
                               const base = resumen.profesionales?.baseOriginal || 0;
@@ -5109,9 +5058,10 @@ const ConfiguracionPresupuestoSection = ({
                                 mayorCostoProf = valor;
                               }
                             }
-                            return mayorCostoProf > 0 && (
+                            const totalJornalesProf = mayorCostoJornales + mayorCostoProf;
+                            return totalJornalesProf > 0 && (
                               <div className="col-md-3">
-                                👷 Profesionales: <strong>${mayorCostoProf.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                                🏗️ Jornales: <strong>${totalJornalesProf.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
                               </div>
                             );
                           })()}

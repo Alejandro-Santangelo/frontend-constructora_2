@@ -692,12 +692,19 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
       const todasLasObras = extractData(response);
 
-      // Filtrar por estado APROBADO o EN_EJECUCION
+      // Filtrar por estado APROBADO, EN_EJECUCION o FINALIZADO (si es TAREA_LEVE)
       // ✅ AHORA INCLUYE OBRAS INDEPENDIENTES (sin presupuesto)
       const obrasFiltradas = todasLasObras.filter(obra => {
-        const tieneEstadoValido = obra.estado === 'APROBADO' || obra.estado === 'EN_EJECUCION';
-        // Ya no filtramos por presupuesto - obras independientes también se incluyen
-        return tieneEstadoValido;
+        // Incluir obras en APROBADO o EN_EJECUCION
+        if (obra.estado === 'APROBADO' || obra.estado === 'EN_EJECUCION') return true;
+
+        // Incluir obras FINALIZADO solo si son TAREA_LEVE
+        if (obra.estado === 'FINALIZADO') {
+          const esTareaLeve = obra.tipo_origen === 'TAREA_LEVE' || obra.tipoOrigen === 'TAREA_LEVE';
+          return esTareaLeve;
+        }
+
+        return false;
       });
 
       setPresupuestosAprobados(obrasFiltradas);
@@ -1022,10 +1029,19 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         const obrasResponse = await apiService.obras.getPorEmpresa(empresaSeleccionada.id);
         const todasLasObras = Array.isArray(obrasResponse) ? obrasResponse : (obrasResponse?.datos || obrasResponse?.content || []);
 
-        // Filtrar solo obras en estado APROBADO o EN_EJECUCION (sin CANCELADO)
-        const obrasActivas = todasLasObras.filter(o =>
-          (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') && o.estado !== 'CANCELADO'
-        );
+        // Filtrar obras activas: APROBADO, EN_EJECUCION o FINALIZADO (si es TAREA_LEVE)
+        const obrasActivas = todasLasObras.filter(o => {
+          if (o.estado === 'CANCELADO') return false;
+          if (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') return true;
+
+          // Incluir obras FINALIZADO solo si son TAREA_LEVE
+          if (o.estado === 'FINALIZADO') {
+            const esTareaLeve = o.tipo_origen === 'TAREA_LEVE' || o.tipoOrigen === 'TAREA_LEVE';
+            return esTareaLeve;
+          }
+
+          return false;
+        });
 
         console.log('✅ Obras activas cargadas:', obrasActivas.length);
 
@@ -1297,9 +1313,18 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
             const obrasResponse = await apiService.obras.getPorEmpresa(empresaSeleccionada.id);
             const todasLasObras = Array.isArray(obrasResponse) ? obrasResponse : (obrasResponse?.datos || obrasResponse?.content || []);
-            const obrasActivas = todasLasObras.filter(o =>
-              (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') && o.estado !== 'CANCELADO'
-            );
+            const obrasActivas = todasLasObras.filter(o => {
+              if (o.estado === 'CANCELADO') return false;
+              if (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') return true;
+
+              // Incluir obras FINALIZADO solo si son TAREA_LEVE
+              if (o.estado === 'FINALIZADO') {
+                const esTareaLeve = o.tipo_origen === 'TAREA_LEVE' || o.tipoOrigen === 'TAREA_LEVE';
+                return esTareaLeve;
+              }
+
+              return false;
+            });
 
             const response = await apiService.presupuestosNoCliente.getAll(empresaSeleccionada.id);
             const extractData = (response) => {
@@ -1591,7 +1616,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       return (
         <div className="alert alert-warning">
           <i className="bi bi-exclamation-triangle me-2"></i>
-          No hay obras en estado APROBADO o EN_EJECUCION
+          No hay obras activas (APROBADO, EN_EJECUCION o FINALIZADO de Tareas Leves)
         </div>
       );
     }
@@ -3256,11 +3281,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                 ) : presupuestosAprobados.length === 0 ? (
                   <div className="alert alert-warning">
                     <i className="bi bi-exclamation-triangle me-2"></i>
-                    No hay obras en estado APROBADO o EN_EJECUCION.
+                    No hay obras activas disponibles.
                     <br />
                     <small className="text-muted">
-                      Las obras deben estar en estado APROBADO o EN_EJECUCION para aparecer aquí.
-                      Ahora se incluyen tanto obras con presupuesto detallado como obras independientes.
+                      Las obras deben estar en estado APROBADO, EN_EJECUCION o FINALIZADO (Tareas Leves) para aparecer aquí.
+                      Se incluyen obras con presupuesto detallado, obras independientes y tareas leves finalizadas.
                     </small>
                   </div>
                 ) : (

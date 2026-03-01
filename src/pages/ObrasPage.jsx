@@ -26,8 +26,10 @@ import ModalPresupuestoUnificado from '../components/ModalPresupuestoUnificado';
 import api from '../services/api';
 import axios from 'axios';
 import { obtenerAsignacionesSemanalPorObra } from '../services/profesionalesObraService';
-// âœ… NUEVO: Servicio unificado de presupuestos (reemplaza trabajosAdicionalesService)
+// ✅ NUEVO: Servicio unificado de presupuestos (reemplaza trabajosAdicionalesService)
 import * as presupuestoService from '../services/presupuestoUnificadoService';
+// ⚠️ Todavía necesario: COLORES_ESTADO e ICONOS_ESTADO se usan en el JSX
+import trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import { TIPOS_PRESUPUESTO, getConfigPresupuesto, getNivelJerarquico } from '../constants/presupuestoTypes';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 import { calcularSemanasParaDiasHabiles, convertirDiasHabilesASemanasSimple, esDiaHabil } from '../utils/feriadosArgentina';
@@ -121,7 +123,7 @@ const ObrasPage = ({ showNotification }) => {
   // Estado local para controlar obra seleccionada desde tabla
   const [selectedObraId, setSelectedObraId] = React.useState(null);
 
-  // ðŸ”§ Estado para rastrear relación: obra padre -> obras de trabajo extra
+  // 🔧 Estado para rastrear relación: obra padre -> obras de trabajo extra
   const [mapObraPadre, setMapObraPadre] = React.useState({});
 
   // Estado para modal de presupuestos
@@ -193,6 +195,7 @@ const ObrasPage = ({ showNotification }) => {
   // Estados para Tarea Leve
   const [mostrarModalTareaLeve, setMostrarModalTareaLeve] = React.useState(false);
   const [obraParaTareaLeve, setObraParaTareaLeve] = React.useState(null);
+  const [tareaLeveEditando, setTareaLeveEditando] = React.useState(null); // Para editar tarea existente
   const [autoGenerarPDFTrabajoExtra, setAutoGenerarPDFTrabajoExtra] = React.useState(false);
   const [abrirWhatsAppTrabajoExtra, setAbrirWhatsAppTrabajoExtra] = React.useState(false);
   const [abrirEmailTrabajoExtra, setAbrirEmailTrabajoExtra] = React.useState(false);
@@ -755,7 +758,40 @@ const ObrasPage = ({ showNotification }) => {
           const todasLasTareas = await presupuestoService.listarPresupuestos(empresaId, {
             tipo: TIPOS_PRESUPUESTO.TAREA_LEVE
           });
-          setTrabajosAdicionales(todasLasTareas);
+
+          // Mapear campos de presupuesto a estructura esperada por el render
+          const tareasMapeadas = todasLasTareas.map(presup => {
+            // Construir dirección desde campos separados
+            const direccionCompleta = presup.direccionObraCalle && presup.direccionObraAltura
+              ? `${presup.direccionObraCalle} ${presup.direccionObraAltura}`.trim()
+              : presup.direccionObraCalle || presup.direccion || '—';
+
+            // Buscar la obra vinculada en el array de obras para obtener datos completos
+            const obraVinculada = presup.obraId
+              ? obras.find(o => o.id === presup.obraId) || presup.obra
+              : presup.obra;
+
+            const nombreClienteObra = obraVinculada?.nombreCliente || obraVinculada?.cliente?.nombre || '';
+            const direccionObra = obraVinculada?.direccion || '';
+            const telefonoObra = obraVinculada?.telefonoContacto || obraVinculada?.telefono || '';
+
+            return {
+              ...presup,
+              nombre: presup.nombreObra || presup.nombre || 'Sin nombre',
+              nombreCliente: presup.nombreSolicitante || nombreClienteObra || 'Sin especificar',
+              direccion: direccionCompleta !== '—' ? direccionCompleta : (direccionObra || '—'),
+              contacto: presup.telefono || telefonoObra || '—',
+              importe: presup.totalFinal || presup.importe || 0,
+              fechaInicio: presup.fechaProbableInicio || presup.fechaInicio,
+              fechaFin: presup.fechaFinalizacion || presup.fechaFin,
+              descripcion: presup.descripcion || '',
+              tipoPresupuesto: presup.modoPresupuesto === 'TRADICIONAL' ? 'GLOBAL' : 'DETALLADO',
+              fechaCreacion: presup.fechaCreacion || presup.createdAt,
+              version: presup.numeroVersion || presup.version || 1
+            };
+          });
+
+          setTrabajosAdicionales(tareasMapeadas);
         } catch (error) {
           console.error('âŒ Error al cargar trabajos adicionales:', error);
           setTrabajosAdicionales([]);
@@ -831,7 +867,7 @@ const ObrasPage = ({ showNotification }) => {
         }
         console.log('');
 
-        console.log('%cðŸ”§ DATOS COMPLETOS DEL OBJETO', 'color: #666; font-weight: bold');
+        console.log('%c🔧 DATOS COMPLETOS DEL OBJETO', 'color: #666; font-weight: bold');
         console.log(trabajo);
         console.log('');
       });
@@ -1232,7 +1268,7 @@ const ObrasPage = ({ showNotification }) => {
     inicializadoRef.current = false;
   }, [empresaId]);
 
-  // ðŸ”§ Construir mapa de relaciones obra padre -> obras trabajo extra
+  // 🔧 Construir mapa de relaciones obra padre -> obras trabajo extra
   useEffect(() => {
     if (!obras || obras.length === 0) {
       setMapObraPadre({});
@@ -1442,7 +1478,7 @@ const ObrasPage = ({ showNotification }) => {
         handleVerEstadisticasObraSeleccionada,
         handleVerEstadisticasTodasObras,
         esObraManual: !tienePresupuesto, // Nuevo: indica si es obra independiente (sin presupuesto)
-        handleEditar: () => {
+        handleEditar: async () => {
           if (selectedObraId) {
             // Verificar si es una tarea (ID comienza con "ta_")
             if (typeof selectedObraId === 'string' && selectedObraId.startsWith('ta_')) {
@@ -1471,7 +1507,10 @@ const ObrasPage = ({ showNotification }) => {
                   const obraPadre = obras.find(o => o.id === tarea.obraId);
 
                   if (obraPadre) {
-                    abrirModalTareaLeveHija(obraPadre, tarea);
+                    // ✅ Abrir modal correcto con datos existentes
+                    setObraParaTareaLeve(obraPadre);
+                    setTareaLeveEditando(tarea);
+                    setMostrarModalTareaLeve(true);
                   } else {
                     showNotification(' No se encontró la obra padre de esta tarea', 'warning');
                   }
@@ -1501,8 +1540,20 @@ const ObrasPage = ({ showNotification }) => {
               if (tienePresupuesto) {
                 // ðŸ”¥ OBRA CON PRESUPUESTO: Abrir modal de edición en la misma página (sin navegar)
                 console.log('ðŸ“„ Abriendo modal de edición para presupuesto ID:', presupuesto.id, 'de obra:', obra.nombre);
-                setPresupuestoParaEditar(presupuesto);
-                setMostrarModalEditarPresupuesto(true);
+                // ✅ Siempre cargar datos frescos del backend (nunca usar caché del listado)
+                try {
+                  const presupuestoCompleto = await api.presupuestosNoCliente.getById(presupuesto.id, empresaId);
+                  const presupuestoConContexto = {
+                    ...presupuestoCompleto,
+                    obraId: presupuestoCompleto.obraId || presupuestoCompleto.idObra || obra.id || null,
+                    clienteId: presupuestoCompleto.clienteId || presupuestoCompleto.idCliente || obra.clienteId || null
+                  };
+                  setPresupuestoParaEditar(presupuestoConContexto);
+                  setMostrarModalEditarPresupuesto(true);
+                } catch (error) {
+                  console.error('❌ Error al cargar presupuesto completo:', error);
+                  showNotification('Error al cargar el presupuesto: ' + (error.message || 'Error desconocido'), 'error');
+                }
                 return;
               }
 
@@ -2594,7 +2645,7 @@ _Válido por 30 días_
   // Enviar controles de trabajos extra al Sidebar
   useEffect(() => {
     if (activeTab === 'trabajos-extra' && setObrasControls) {
-      console.log('ðŸ”§ Configurando controles de trabajos extra, seleccionado:', trabajoExtraSeleccionado);
+      console.log('🔧 Configurando controles de trabajos extra, seleccionado:', trabajoExtraSeleccionado);
       setObrasControls({
         selectedId: trabajoExtraSeleccionado?.id,
         selectedPresupuesto: trabajoExtraSeleccionado,
@@ -2985,8 +3036,9 @@ _Válido por 30 días_
         nuevas.delete(obraId);
       } else {
         nuevas.add(obraId);
-        // Cargar contadores cuando se expande
-        if (estaExpandiendo) {
+        // 🔧 Solo cargar contadores para obras reales (no para tareas leves con id "ta_xxx")
+        const esTareaLeve = typeof obraId === 'string' && obraId.startsWith('ta_');
+        if (estaExpandiendo && !esTareaLeve) {
           cargarContadoresObra(obraId);
         }
       }
@@ -3487,15 +3539,36 @@ _Válido por 30 días_
 
   const handleEliminarObra = async (id) => {
     const obra = obras.find(o => o.id === id);
-    const confirmMessage = `Â¿está seguro de eliminar la obra "${obra?.nombre || id}"?\n\n` +
-      `Â Â ADVERTENCIA: Se eliminarán en cascada:\n` +
-      ` Todos los profesionales asignados\n` +
-      ` Todos los presupuestos asociados\n` +
-      ` Todos los cobros registrados\n` +
-      ` Todos los costos de obra\n` +
-      ` Todos los honorarios\n` +
-      ` Todos los pedidos de pago\n\n` +
-      `Esta acción NO se puede deshacer.`;
+
+    // Contar adicionales obra (trabajos extra) vinculados
+    const adicionalesVinculados = Array.isArray(trabajosExtra)
+      ? trabajosExtra.filter(te => te.obraId === id)
+      : [];
+
+    // Contar tareas leve: directas a la obra + vinculadas via adicionales
+    const adicionalesIds = adicionalesVinculados.map(te => te.id);
+    const tareasDirectas = Array.isArray(trabajosAdicionales)
+      ? trabajosAdicionales.filter(ta => ta.obraId === id && !ta.trabajoExtraId)
+      : [];
+    const tareasViaAdicionales = Array.isArray(trabajosAdicionales)
+      ? trabajosAdicionales.filter(ta => adicionalesIds.includes(ta.trabajoExtraId))
+      : [];
+    const totalTareas = tareasDirectas.length + tareasViaAdicionales.length;
+
+    let confirmMessage = `¿Está seguro de eliminar la obra "${obra?.nombre || id}"?\n\n`;
+    confirmMessage += `⚠️ ADVERTENCIA: Se eliminarán en cascada:\n`;
+    if (adicionalesVinculados.length > 0) {
+      confirmMessage += ` • ${adicionalesVinculados.length} adicional(es) de obra vinculado(s):\n`;
+      adicionalesVinculados.forEach(a => { confirmMessage += `     - "${a.nombreObra || a.nombre}"\n`; });
+    }
+    if (totalTareas > 0) {
+      confirmMessage += ` • ${totalTareas} tarea(s) leve vinculada(s)\n`;
+    }
+    confirmMessage += ` • Todos los profesionales asignados\n`;
+    confirmMessage += ` • Todos los presupuestos asociados\n`;
+    confirmMessage += ` • Todos los cobros registrados\n`;
+    confirmMessage += ` • Todos los costos de obra\n\n`;
+    confirmMessage += `Esta acción NO se puede deshacer.`;
 
     if (!window.confirm(confirmMessage)) return;
 
@@ -3777,19 +3850,31 @@ _Válido por 30 días_
       const presupuestoData = {
         ...datosPresupuesto,
         esPresupuestoTrabajoExtra: false,
-        obraId: obraParaTareaLeve?.id,
-        idObra: obraParaTareaLeve?.id,
+        obraId: obraParaTareaLeve?._esTrabajoExtra ? null : (obraParaTareaLeve?.id || null),
+        idObra: obraParaTareaLeve?._esTrabajoExtra ? null : (obraParaTareaLeve?.id || null),
+        trabajoExtraId: obraParaTareaLeve?._esTrabajoExtra ? obraParaTareaLeve._trabajoExtraId : null,
         idEmpresa: empresaSeleccionada?.id || datosPresupuesto.idEmpresa
       };
 
-      console.log('📤 Creando nueva tarea leve');
-      const response = await api.presupuestosNoCliente.create(presupuestoData, empresaSeleccionada.id);
-      console.log('✅ Tarea leve creada:', response);
-      showNotification('✅ Tarea leve creada exitosamente', 'success');
+      let response;
+      if (datosPresupuesto.id) {
+        // Editar tarea leve existente
+        console.log('📤 Actualizando tarea leve existente:', datosPresupuesto.id);
+        response = await api.presupuestosNoCliente.update(datosPresupuesto.id, presupuestoData, empresaSeleccionada.id);
+        console.log('✅ Tarea leve actualizada:', response);
+        showNotification('✅ Tarea leve actualizada exitosamente', 'success');
+      } else {
+        // Crear nueva tarea leve
+        console.log('📤 Creando nueva tarea leve');
+        response = await api.presupuestosNoCliente.create(presupuestoData, empresaSeleccionada.id);
+        console.log('✅ Tarea leve creada:', response);
+        showNotification('✅ Tarea leve creada exitosamente', 'success');
+      }
 
       // Cerrar modal
       setMostrarModalTareaLeve(false);
       setObraParaTareaLeve(null);
+      setTareaLeveEditando(null);
 
       // Recargar obras y trabajos adicionales
       await dispatch(fetchObrasPorEmpresa(empresaId));
@@ -3811,43 +3896,28 @@ _Válido por 30 días_
    */
   const abrirModalTareaLeveHija = (obra) => {
     console.log('ðŸŸ¢ Abriendo modal Tarea Leve HIJA para obra:', obra);
-    setObraParaTrabajosAdicionales(obra);
-    setModalPresupuesto({
-      mostrar: true,
-      tipo: TIPOS_PRESUPUESTO.TAREA_LEVE,
-      contexto: {
-        obraId: obra.id,
-        obraNombre: obra.nombre || obra.nombreObra,
-        trabajoExtraId: null // â† NULL = HIJA directa
-      },
-      datosIniciales: null
-    });
+    setObraParaTareaLeve(obra);
+    setTareaLeveEditando(null); // Nueva tarea, sin datos existentes
+    setMostrarModalTareaLeve(true);
   };
 
   /**
    * Abrir modal para Tarea Leve NIETA (de trabajo extra)
    * @param {Object} obra - Obra abuelo
    * @param {Object} trabajoExtra - Trabajo extra padre
+   * @param {Object} tareaExistente - Tarea existente para edición (opcional)
    */
-  const abrirModalTareaLeveNieta = (obra, trabajoExtra) => {
-    console.log('ðŸŸ¢ Abriendo modal Tarea Leve NIETA para trabajo extra:', trabajoExtra);
-    setObraParaTrabajosAdicionales({
+  const abrirModalTareaLeveNieta = (obra, trabajoExtra, tareaExistente = null) => {
+    console.log(' Abriendo modal Tarea Leve NIETA para trabajo extra:', trabajoExtra, tareaExistente ? '(Editar)' : '(Nueva)');
+    //  Usar PresupuestoNoClienteModal con contexto de trabajo extra
+    setObraParaTareaLeve({
       ...obra,
       _esTrabajoExtra: true,
       _trabajoExtraId: trabajoExtra.id,
       _trabajoExtraNombre: trabajoExtra.nombre || trabajoExtra.nombreObra
     });
-    setModalPresupuesto({
-      mostrar: true,
-      tipo: TIPOS_PRESUPUESTO.TAREA_LEVE,
-      contexto: {
-        obraId: obra.id,
-        obraNombre: obra.nombre || obra.nombreObra,
-        trabajoExtraId: trabajoExtra.id, // â† Padre directo
-        trabajoExtraNombre: trabajoExtra.nombre || trabajoExtra.nombreObra
-      },
-      datosIniciales: null
-    });
+    setTareaLeveEditando(tareaExistente);
+    setMostrarModalTareaLeve(true);
   };
 
   /**
@@ -3986,11 +4056,11 @@ _Válido por 30 días_
 
     try {
       setLoadingTrabajosExtra(true);
-      // ðŸ”§ Usar _obraOriginalId si estamos dentro de un trabajo extra, sino usar id directamente
+      // 🔧 Usar _obraOriginalId si estamos dentro de un trabajo extra, sino usar id directamente
       const obraIdParaAPI = obra._obraOriginalId || obra.id;
       const data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId: obraIdParaAPI, esPresupuestoTrabajoExtra: true });
 
-      // ðŸ”§ FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+      // 🔧 FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
       const soloTrabajosExtra = (Array.isArray(data) ? data : []).filter(p =>
         p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
       );
@@ -4031,7 +4101,7 @@ _Válido por 30 días_
         }
       }));
 
-      // ðŸ”§ FILTRAR: Si estamos dentro de un trabajo extra gestionando sus sub-trabajos extra,
+      // 🔧 FILTRAR: Si estamos dentro de un trabajo extra gestionando sus sub-trabajos extra,
       // excluir el trabajo extra actual de la lista para evitar que aparezca a sí mismo
       let trabajosFiltrados = trabajosEnriquecidos;
 
@@ -4089,7 +4159,26 @@ _Válido por 30 días_
   };
 
   const handleEliminarTrabajoExtra = async (trabajoId) => {
-    if (!window.confirm('Â¿Está seguro de eliminar este trabajo extra?')) {
+    const tareasVinculadas = Array.isArray(trabajosAdicionales)
+      ? trabajosAdicionales.filter(ta => ta.trabajoExtraId === trabajoId)
+      : [];
+
+    const trabajoExtra = Array.isArray(trabajosExtra)
+      ? trabajosExtra.find(te => te.id === trabajoId)
+      : null;
+    const nombreAdicional = trabajoExtra?.nombreObra || trabajoExtra?.nombre || `ID ${trabajoId}`;
+
+    let confirmMessage = `¿Está seguro de eliminar el adicional de obra "${nombreAdicional}"?`;
+    if (tareasVinculadas.length > 0) {
+      confirmMessage += `\n\n⚠️ ADVERTENCIA: Se eliminarán en cascada:\n`;
+      confirmMessage += ` • ${tareasVinculadas.length} tarea(s) leve vinculada(s):\n`;
+      tareasVinculadas.forEach(t => { confirmMessage += `     - "${t.nombre}"\n`; });
+      confirmMessage += `\nEsta acción NO se puede deshacer.`;
+    } else {
+      confirmMessage += `\n\nEsta acción NO se puede deshacer.`;
+    }
+
+    if (!window.confirm(confirmMessage)) {
       return;
     }
 
@@ -4117,7 +4206,7 @@ _Válido por 30 días_
       // El modal PresupuestoNoClienteModal ya envía los datos en el formato correcto
       const presupuestoData = {
         ...datosPresupuesto,
-        // ðŸ”§ CRÃTICO: Marcar como trabajo extra
+        // 🔧 CRÃTICO: Marcar como trabajo extra
         esPresupuestoTrabajoExtra: true,
         // Asegurar que tenga obraId
         obraId: obraParaTrabajosExtra?.id || datosPresupuesto.obraId,
@@ -4194,7 +4283,7 @@ _Válido por 30 días_
             idEmpresa: empresaId,
             clienteId: presupuestoData.clienteId || obraParaTrabajosExtra?.clienteId,
             estado: 'APROBADO', // Obra en estado aprobado, lista para ejecución
-            esTrabajoExtra: true, // ðŸ”§ Marcar como trabajo extra
+            esTrabajoExtra: true, // 🔧 Marcar como trabajo extra
             obraPadreId: obraParaTrabajosExtra?.id, // Referencia a la obra padre
             nombreSolicitante: presupuestoData.nombreSolicitante || '',
             telefono: presupuestoData.telefono || '',
@@ -4269,11 +4358,39 @@ _Válido por 30 días_
     }
   };
 
-  // âœ… Función para generar obra derivada desde trabajo extra aprobado
+  // ✅ Función para enviar trabajo extra desde la tabla (abre modal de selección WhatsApp/Email)
+  const handleEnviarTrabajoExtraDesdeTabla = (trabajo) => {
+    console.log('📤 Iniciando envío de trabajo extra desde tabla:', trabajo);
+
+    // Configurar el trabajo seleccionado
+    setTrabajoExtraSeleccionado(trabajo);
+
+    // Abrir modal de selección de envío
+    setMostrarModalSeleccionEnvioTrabajoExtra(true);
+  };
+
+  // ✅ Función para generar obra derivada desde trabajo extra aprobado
   const handleGenerarObraDesdeTrabajoExtra = async (trabajo) => {
     try {
-      if (!window.confirm('Â¿Desea generar una nueva OBRA a partir de este trabajo extra aprobado?')) return;
+      if (!window.confirm('¿Desea generar una nueva OBRA a partir de este trabajo extra?')) return;
 
+      // 1️⃣ Primero cambiar el estado a APROBADO
+      console.log('📝 Cambiando estado del trabajo extra a APROBADO...');
+      const trabajoNormalizado = {
+        ...normalizarTrabajoExtra(trabajo),
+        estado: 'APROBADO'
+      };
+
+      if (!trabajoNormalizado.nombre) trabajoNormalizado.nombre = trabajoNormalizado.nombreObra || 'Trabajo Extra';
+
+      await api.presupuestosNoCliente.update(trabajoNormalizado.id, {
+        ...trabajoNormalizado,
+        esPresupuestoTrabajoExtra: true
+      }, empresaId);
+
+      console.log('✅ Estado actualizado a APROBADO');
+
+      // 2️⃣ Luego crear la obra derivada
       const obraData = {
         nombre: trabajo.nombre || `Trabajo Extra #${trabajo.id} - ${obraParaTrabajosExtra?.nombre || 'Obra Padre'}`,
         direccion: trabajo.direccionObraCalle || obraParaTrabajosExtra?.direccion || 'Dirección de obra padre',
@@ -4286,14 +4403,17 @@ _Válido por 30 días_
       };
 
       await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
-      showNotification('Obra derivada creada exitosamente', 'success');
+      showNotification('✅ Obra creada exitosamente desde trabajo extra', 'success');
 
-      // Recargar lista de obras principales
+      // 3️⃣ Recargar listas
       dispatch(fetchObrasPorEmpresa(empresaId));
+      if (obraParaTrabajosExtra) {
+        cargarTrabajosExtra(obraParaTrabajosExtra);
+      }
 
     } catch (error) {
-       console.error('Error generando obra derivada:', error);
-       showNotification('Error al generar la obra derivada', 'error');
+       console.error('❌ Error generando obra derivada:', error);
+       showNotification('❌ Error al generar la obra derivada: ' + (error.message || 'Error desconocido'), 'error');
     }
   };
 
@@ -5336,8 +5456,39 @@ _Válido por 30 días_
     return [...tareasDirectas, ...tareasDeSubObras];
   };
 
+  // Obtener trabajos extra (sub-obras TRABAJO_EXTRA) para mostrar en subgrupo
+  const obtenerTrabajosExtraParaSubgrupo = (obra) => {
+    const esSubobra = obra.esTrabajoExtra || obra._grupoTipo === 'trabajoExtra';
+    if (esSubobra) return [];
+
+    const nombrePadre = (obra.nombre || '').trim();
+    const subObras = obras.filter(o => {
+      if (o.id === obra.id) return false;
+
+      // 🔧 CRITERIO 1 (DEFINITIVO): obra_origen_id / obraPadreId
+      const padreIdExplicito = o.obraPadreId || o.obra_padre_id || o.idObraPadre;
+      const origenId = o.obraOrigenId || o.obra_origen_id;
+
+      if (padreIdExplicito === obra.id || origenId === obra.id) {
+        return true; // ✅ Sub-obra confirmada por ID de padre/origen
+      }
+
+      // 🔧 CRITERIO 2 (FALLBACK): Detección por nombre + flag esTrabajoExtra
+      const nombreO = (o.nombre || '').trim();
+      if (nombrePadre && nombreO.startsWith(nombrePadre + ' ')) {
+        const esTrabajoExtra = o.esTrabajoExtra || o.esObraTrabajoExtra ||
+                               o.es_obra_trabajo_extra || o._esTrabajoExtra;
+        return esTrabajoExtra;
+      }
+
+      return false;
+    });
+
+    return subObras;
+  };
+
   const handleEliminarTrabajoAdicional = async (trabajoAdicionalId, nombre) => {
-    if (!window.confirm(`Â¿Está seguro de eliminar el trabajo adicional "${nombre}"?`)) {
+    if (!window.confirm(`¿Está seguro de eliminar la tarea leve "${nombre}"?\n\nEsta acción NO se puede deshacer.`)) {
       return;
     }
 
@@ -5350,7 +5501,38 @@ _Válido por 30 días_
       const todasLasTareas = await presupuestoService.listarPresupuestos(empresaId, {
         tipo: TIPOS_PRESUPUESTO.TAREA_LEVE
       });
-      setTrabajosAdicionales(todasLasTareas);
+
+      // Mapear campos de presupuesto a estructura esperada
+      const tareasMapeadas = todasLasTareas.map(presup => {
+        const direccionCompleta = presup.direccionObraCalle && presup.direccionObraAltura
+          ? `${presup.direccionObraCalle} ${presup.direccionObraAltura}`.trim()
+          : presup.direccionObraCalle || presup.direccion || '—';
+
+        const obraVinculada = presup.obraId
+          ? obras.find(o => o.id === presup.obraId) || presup.obra
+          : presup.obra;
+
+        const nombreClienteObra = obraVinculada?.nombreCliente || obraVinculada?.cliente?.nombre || '';
+        const direccionObra = obraVinculada?.direccion || '';
+        const telefonoObra = obraVinculada?.telefonoContacto || obraVinculada?.telefono || '';
+
+        return {
+          ...presup,
+          nombre: presup.nombreObra || presup.nombre || 'Sin nombre',
+          nombreCliente: presup.nombreSolicitante || nombreClienteObra || 'Sin especificar',
+          direccion: direccionCompleta !== '—' ? direccionCompleta : (direccionObra || '—'),
+          contacto: presup.telefono || telefonoObra || '—',
+          importe: presup.totalFinal || presup.importe || 0,
+          fechaInicio: presup.fechaProbableInicio || presup.fechaInicio,
+          fechaFin: presup.fechaFinalizacion || presup.fechaFin,
+          descripcion: presup.descripcion || '',
+          tipoPresupuesto: presup.modoPresupuesto === 'TRADICIONAL' ? 'GLOBAL' : 'DETALLADO',
+          fechaCreacion: presup.fechaCreacion || presup.createdAt,
+          version: presup.numeroVersion || presup.version || 1
+        };
+      });
+
+      setTrabajosAdicionales(tareasMapeadas);
 
       showNotification('âœ… Trabajo adicional eliminado correctamente', 'success');
     } catch (error) {
@@ -5369,7 +5551,38 @@ _Válido por 30 días_
       const todasLasTareas = await presupuestoService.listarPresupuestos(empresaId, {
         tipo: TIPOS_PRESUPUESTO.TAREA_LEVE
       });
-      setTrabajosAdicionales(todasLasTareas);
+
+      // Mapear campos de presupuesto a estructura esperada
+      const tareasMapeadas = todasLasTareas.map(presup => {
+        const direccionCompleta = presup.direccionObraCalle && presup.direccionObraAltura
+          ? `${presup.direccionObraCalle} ${presup.direccionObraAltura}`.trim()
+          : presup.direccionObraCalle || presup.direccion || '—';
+
+        const obraVinculada = presup.obraId
+          ? obras.find(o => o.id === presup.obraId) || presup.obra
+          : presup.obra;
+
+        const nombreClienteObra = obraVinculada?.nombreCliente || obraVinculada?.cliente?.nombre || '';
+        const direccionObra = obraVinculada?.direccion || '';
+        const telefonoObra = obraVinculada?.telefonoContacto || obraVinculada?.telefono || '';
+
+        return {
+          ...presup,
+          nombre: presup.nombreObra || presup.nombre || 'Sin nombre',
+          nombreCliente: presup.nombreSolicitante || nombreClienteObra || 'Sin especificar',
+          direccion: direccionCompleta !== '—' ? direccionCompleta : (direccionObra || '—'),
+          contacto: presup.telefono || telefonoObra || '—',
+          importe: presup.totalFinal || presup.importe || 0,
+          fechaInicio: presup.fechaProbableInicio || presup.fechaInicio,
+          fechaFin: presup.fechaFinalizacion || presup.fechaFin,
+          descripcion: presup.descripcion || '',
+          tipoPresupuesto: presup.modoPresupuesto === 'TRADICIONAL' ? 'GLOBAL' : 'DETALLADO',
+          fechaCreacion: presup.fechaCreacion || presup.createdAt,
+          version: presup.numeroVersion || presup.version || 1
+        };
+      });
+
+      setTrabajosAdicionales(tareasMapeadas);
 
       showNotification('âœ… Estado actualizado correctamente', 'success');
     } catch (error) {
@@ -5504,12 +5717,12 @@ _Válido por 30 días_
 
         // Trabajos Extra
         api.presupuestosNoCliente.getAll(empresaId, { obraId, esPresupuestoTrabajoExtra: true }).then(data => {
-          // ðŸ”§ FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+          // 🔧 FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
           let trabajosArray = (Array.isArray(data) ? data : []).filter(p =>
             p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
           );
 
-          // ðŸ”§ FILTRAR: Si estamos dentro de un trabajo extra (obraId es un trabajo extra),
+          // 🔧 FILTRAR: Si estamos dentro de un trabajo extra (obraId es un trabajo extra),
           // excluir ese trabajo extra de su propia lista
           const obraActual = obras.find(o => o.id === obraId);
           const esTrabajoExtra = obraActual?.esTrabajoExtra || obraActual?._esTrabajoExtra || obraActual?.esObraTrabajoExtra;
@@ -6443,7 +6656,7 @@ _Válido por 30 días_
                             <th style={{ width: '80px' }} className="small">Inicio</th>
                             <th style={{ width: '80px' }} className="small">Fin</th>
                             <th style={{ width: '90px' }} className="small">Cliente</th>
-                            <th style={{ width: '90px' }} className="small">Tipo</th>
+                            <th style={{ width: '110px' }} className="text-end small">Total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -6491,10 +6704,14 @@ _Válido por 30 días_
                             let grupoIndex = 2; // ðŸŽ¨ Sincronizar con índice de grupos de obra en página de Presupuestos
 
                             obrasNormales.forEach(obraPadre => {
-                              // Buscar trabajos extra de esta obra (por ID o por detección de nombre)
+                              // Buscar trabajos extra/sub-obras de esta obra
                               const trabajosExtraDeEstaObra = obrasTrabajoExtra.filter(te => {
-                                const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre || te._obraPadreDetectada;
-                                return obraPadreId === obraPadre.id;
+                                // Buscar por obra_origen_id, obraPadreId o detección
+                                const origenId = te.obraOrigenId || te.obra_origen_id;
+                                const padreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre;
+                                const padreDetectado = te._obraPadreDetectada;
+
+                                return origenId === obraPadre.id || padreId === obraPadre.id || padreDetectado === obraPadre.id;
                               });
 
                               const tieneSubObras = trabajosExtraDeEstaObra.length > 0;
@@ -6512,7 +6729,7 @@ _Válido por 30 días_
                               });
 
                               if (tieneSubObras) {
-                                // ðŸ”§ Ordenar trabajos extra por ID ASCENDENTE (del más antiguo al más nuevo)
+                                // 🔧 Ordenar trabajos extra por ID ASCENDENTE (del más antiguo al más nuevo)
                                 // Esto asegura que las sub-obras aparezcan DEBAJO de la obra padre
                                 trabajosExtraDeEstaObra.sort((a, b) => a.id - b.id);
 
@@ -6535,8 +6752,14 @@ _Válido por 30 días_
                               }
                             });
 
-                            // Agregar trabajos extra huérfanos (sin obra padre)
+                            // 🔧 Crear Set con IDs de obras ya agregadas para evitar duplicados
+                            const obrasYaAgregadas = new Set(listaOrdenada.map(o => o.id));
+
+                            // Agregar trabajos extra huérfanos (sin obra padre Y que no fueron agregados ya)
                             const trabajosExtraHuerfanos = obrasTrabajoExtra.filter(te => {
+                              // Si ya fue agregado en un grupo, excluir
+                              if (obrasYaAgregadas.has(te.id)) return false;
+
                               const obraPadreId = te.obraPadreId || te.obra_padre_id || te.idObraPadre || te._obraPadreDetectada;
                               return !obraPadreId || !obrasNormales.find(op => op.id === obraPadreId);
                             });
@@ -6570,7 +6793,14 @@ _Válido por 30 días_
                             });
 
                             return listaOrdenada;
-                          })().map((obra, index, array) => {
+                          })()
+                          .filter(obra => {
+                            // 🚫 EXCLUIR sub-obras que ya se renderizan en subgrupos colapsables
+                            // Solo excluir trabajos extra que pertenecen a un grupo (tienen obra padre)
+                            const esSubobraDeGrupo = obra._grupoTipo === 'trabajoExtra' && obra._grupoObra !== null;
+                            return !esSubobraDeGrupo;
+                          })
+                          .map((obra, index, array) => {
                             const obraId = obra.id;
                             const isSelected = selectedObraId && obraId && selectedObraId === obraId;
 
@@ -6886,24 +7116,51 @@ _Válido por 30 días_
                               <td>
                                 <small>{getClienteInfo(obra)}</small>
                               </td>
-                              <td>
+                              <td className="text-end">
                                 {(() => {
-                                  // Verificar si tiene presupuesto cargado (no null, sino objeto válido)
-                                  const tienePresupuesto = (presupuestosObras[obra.id] && typeof presupuestosObras[obra.id] === 'object') ||
-                                                          (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
+                                  // Obtener presupuesto vinculado
+                                  const presupuesto = presupuestosObras[obra.id] || obra.presupuestoNoCliente;
+                                  const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
                                   if (tienePresupuesto) {
+                                    // Obtener total del presupuesto
+                                    const total = presupuesto.totalFinal ||
+                                                 presupuesto.total_presupuesto_con_honorarios ||
+                                                 presupuesto.totalPresupuestoConHonorarios ||
+                                                 presupuesto.totalConDescuentos ||
+                                                 presupuesto.total_con_descuentos ||
+                                                 presupuesto.montoTotal ||
+                                                 presupuesto.totalGeneral ||
+                                                 0;
+
+                                    // Determinar tipo de presupuesto
+                                    const modoPresupuesto = presupuesto.modoPresupuesto || presupuesto.modo_presupuesto;
+                                    const esGlobal = modoPresupuesto === 'TRADICIONAL';
+                                    const tieneDescuentos = (presupuesto.totalFinal || presupuesto.totalConDescuentos) &&
+                                                           total < (presupuesto.totalPresupuestoConHonorarios || presupuesto.total_presupuesto_con_honorarios || total);
+
                                     return (
-                                      <span className="badge bg-success" title="Obra creada desde presupuesto aprobado">
-                                        <i className="fas fa-file-invoice me-1"></i>
-                                        Desde Presupuesto
-                                      </span>
+                                      <div>
+                                        <div className="fw-bold text-primary">
+                                          ${Number(total).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                          {tieneDescuentos && (
+                                            <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize: '0.85em', opacity: 0.65}}>
+                                              🏷️
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="mt-1">
+                                          <span className={`badge ${esGlobal ? 'bg-secondary' : 'bg-primary'} text-white`} style={{fontSize: '0.7em'}}>
+                                            <i className={`fas fa-${esGlobal ? 'globe' : 'list'} me-1`}></i>
+                                            {esGlobal ? 'Global' : 'Detallado'}
+                                          </span>
+                                        </div>
+                                      </div>
                                     );
                                   } else {
                                     return (
-                                      <span className="badge bg-info text-dark" title="Obra creada sin presupuesto detallado">
-                                        <i className="fas fa-hand-pointer me-1"></i>
-                                        Presupuesto Abreviado
+                                      <span className="badge bg-warning text-dark" style={{fontSize: '0.65em', padding: '3px 5px'}}>
+                                        <i className="fas fa-hand-paper me-1"></i>Presupuesto Abreviado
                                       </span>
                                     );
                                   }
@@ -7332,8 +7589,10 @@ _Válido por 30 días_
                                                         className="btn btn-outline-secondary"
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          // âœ… Editar tarea HIJA (directa de obra)
-                                                          abrirModalTareaLeveHija(obra, ta);
+                                                          // ✅ Abrir modal correcto con datos existentes
+                                                          setObraParaTareaLeve(obra);
+                                                          setTareaLeveEditando(ta);
+                                                          setMostrarModalTareaLeve(true);
                                                         }}
                                                         title="Editar"
                                                       >
@@ -7398,6 +7657,177 @@ _Válido por 30 días_
                               </tr>
                             )}
 
+                            {/* ═══════════════════════════════════════════════════
+                                SUBGRUPO: ADICIONALES OBRA (TRABAJO_EXTRA)
+                                ═══════════════════════════════════════════════ */}
+                            {(() => {
+                              const trabajosExtra = obtenerTrabajosExtraParaSubgrupo(obra);
+                              if (trabajosExtra.length === 0) return null;
+                              const colTrabajosExtra = !!gruposColapsadosObras[`trabajos_extra_${obra.id}`];
+                              return (
+                                <>
+                                  {/* Separador antes del subgrupo */}
+                                  <tr style={{ height: '6px', backgroundColor: '#dbeafe' }}>
+                                    <td colSpan="13" style={{
+                                      padding: 0,
+                                      height: '6px',
+                                      borderTop: '2px solid #3b82f6',
+                                      borderBottom: '2px solid #3b82f6',
+                                      backgroundColor: '#93c5fd'
+                                    }}></td>
+                                  </tr>
+                                  {/* Header subgrupo */}
+                                  <tr
+                                    onClick={(e) => { e.stopPropagation(); setGruposColapsadosObras(p => ({ ...p, [`trabajos_extra_${obra.id}`]: !p[`trabajos_extra_${obra.id}`] })); }}
+                                    style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                                  >
+                                    <td colSpan="13" className="py-1 px-3 small">
+                                      <span className="fw-bold text-primary">
+                                        <i className={`fas fa-chevron-${colTrabajosExtra ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
+                                        📋 Adicionales Obra
+                                        <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{trabajosExtra.length}</span>
+                                      </span>
+                                      <span className="text-muted ms-3 small">Clic para {colTrabajosExtra ? 'mostrar' : 'ocultar'}</span>
+                                    </td>
+                                  </tr>
+                                  {/* Filas de cada trabajo extra */}
+                                  {!colTrabajosExtra && trabajosExtra.map((trabajoExtra, teIndex) => {
+                                    const isSelected = selectedObraId === trabajoExtra.id;
+                                    return (
+                                      <React.Fragment key={trabajoExtra.id}>
+                                        {/* Separador entre trabajos extra */}
+                                        {teIndex > 0 && (
+                                          <tr style={{ height: '3px', backgroundColor: '#fef3c7' }}>
+                                            <td colSpan="13" style={{
+                                              padding: 0,
+                                              height: '3px',
+                                              borderTop: '1px solid #fbbf24',
+                                              backgroundColor: '#fef3c7'
+                                            }}></td>
+                                          </tr>
+                                        )}
+                                        {/* Fila del trabajo extra */}
+                                        <tr
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedObraId(isSelected ? null : trabajoExtra.id);
+                                          }}
+                                          style={{
+                                            backgroundColor: isSelected ? '#cfe2ff' : '#eff6ff',
+                                            borderLeft: '5px solid #f59e0b',
+                                            borderBottom: '1px solid rgba(253, 126, 20, 0.45)',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease'
+                                          }}
+                                          className="hover-row"
+                                        >
+                                          <td className="text-center">
+                                            <button
+                                              className="btn btn-sm btn-primary rounded-circle p-0"
+                                              onClick={(e) => toggleObraExpandida(trabajoExtra.id, e)}
+                                              style={{ width: '30px', height: '30px', transition: 'all 0.3s ease' }}
+                                              title={obrasExpandidas.has(trabajoExtra.id) ? 'Ocultar detalles' : 'Ver detalles'}
+                                            >
+                                              <i className={`fas fa-${obrasExpandidas.has(trabajoExtra.id) ? 'minus' : 'plus'} text-white`}></i>
+                                            </button>
+                                          </td>
+                                          <td>
+                                            {isSelected && <i className="fas fa-check-circle text-success me-1"></i>}
+                                            <span className="text-warning me-1" title="Trabajo extra de obra"><i className="fas fa-wrench" style={{fontSize:'0.8em'}}></i></span>
+                                            {trabajoExtra.id}
+                                          </td>
+                                          <td>
+                                            {trabajoExtra.nombre}
+                                            <div className="mt-1">
+                                              <span className="badge bg-warning text-dark" style={{fontSize:'0.7rem', padding:'3px 8px'}}>
+                                                <i className="fas fa-wrench me-1"></i>Adicional Obra
+                                              </span>
+                                            </div>
+                                          </td>
+                                          <td><small className="text-muted">{trabajoExtra.nombreCliente || '—'}</small></td>
+                                          <td><small className="text-muted">{trabajoExtra.direccion || '—'}</small></td>
+                                          <td>
+                                            <div className="d-flex flex-column" style={{minWidth:'150px'}}>
+                                              <small className="text-muted mb-1">
+                                                <i className="fas fa-user me-1"></i>{trabajoExtra.nombreCliente || '—'}
+                                              </small>
+                                            </div>
+                                          </td>
+                                          <td className="text-center"><small className="text-muted">-</small></td>
+                                          <td>
+                                            <span className={`badge ${getEstadoBadgeClass(trabajoExtra.estado) || 'bg-secondary'}`}>
+                                              {trabajoExtra.estado || '—'}
+                                            </span>
+                                          </td>
+                                          <td>
+                                            {trabajoExtra.profesionalesAsignados?.length > 0 ? (
+                                              <div className="badge bg-success d-inline-flex align-items-center gap-1">
+                                                <span>✓</span>
+                                                <span className="small">{trabajoExtra.profesionalesAsignados.length} asignados</span>
+                                              </div>
+                                            ) : (
+                                              <div className="badge bg-warning text-dark d-inline-flex align-items-center gap-1">
+                                                <span>⚠️</span>
+                                                <span className="small">Sin profesionales asignados</span>
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td><small>{trabajoExtra.fechaInicio || '—'}</small></td>
+                                          <td><small>{trabajoExtra.fechaFin || '—'}</small></td>
+                                          <td><small>{trabajoExtra.clienteId ? `Cliente ID: ${trabajoExtra.clienteId}` : '—'}</small></td>
+                                          <td className="text-end">
+                                            {(() => {
+                                              // Obtener presupuesto vinculado
+                                              const presupuesto = presupuestosObras[trabajoExtra.id] || trabajoExtra.presupuestoNoCliente;
+                                              const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
+
+                                              if (tienePresupuesto) {
+                                                // Obtener total del presupuesto
+                                                const total = presupuesto.totalFinal ||
+                                                             presupuesto.total_presupuesto_con_honorarios ||
+                                                             presupuesto.totalPresupuestoConHonorarios ||
+                                                             presupuesto.totalConDescuentos ||
+                                                             presupuesto.total_con_descuentos ||
+                                                             presupuesto.montoTotal ||
+                                                             presupuesto.totalGeneral ||
+                                                             0;
+
+                                                // Determinar tipo de presupuesto
+                                                const modoPresupuesto = presupuesto.modoPresupuesto || presupuesto.modo_presupuesto;
+                                                const esGlobal = modoPresupuesto === 'TRADICIONAL';
+
+                                                return (
+                                                  <div>
+                                                    <div className="fw-bold text-primary small">
+                                                      ${Number(total).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                    </div>
+                                                    <div className="mt-1">
+                                                      <span className={`badge ${esGlobal ? 'bg-secondary' : 'bg-primary'} text-white`} style={{fontSize: '0.65em'}}>
+                                                        <i className={`fas fa-${esGlobal ? 'globe' : 'list'} me-1`}></i>
+                                                        {esGlobal ? 'Global' : 'Detallado'}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              } else {
+                                                return (
+                                                  <span className="badge bg-warning text-dark" style={{fontSize: '0.6em'}}>
+                                                    <i className="fas fa-hand-paper me-1"></i>Abreviado
+                                                  </span>
+                                                );
+                                              }
+                                            })()}
+                                          </td>
+                                        </tr>
+                                        {/* Fila expandible para el trabajo extra (reutiliza la existente) */}
+                                        {obrasExpandidas.has(trabajoExtra.id) && renderFilaExpandidaObra(trabajoExtra)}
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </>
+                              );
+                            })()}
+
                             {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                                 SUBGRUPO: TAREAS LEVES / MANTENIMIENTO
                                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
@@ -7425,7 +7855,7 @@ _Válido por 30 días_
                                     <td colSpan="13" className="py-1 px-3 small">
                                       <span className="fw-bold text-primary">
                                         <i className={`fas fa-chevron-${colTareas ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
-                                        ðŸ”§ Tareas Leves / Mantenimiento
+                                        🔧 Tareas Leves / Mantenimiento
                                         <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{tareasObra.length}</span>
                                       </span>
                                       <span className="text-muted ms-3 small">Clic para {colTareas ? 'mostrar' : 'ocultar'}</span>
@@ -7488,30 +7918,62 @@ _Válido por 30 días_
                                         <i className="fas fa-tools text-warning me-1" style={{fontSize:'0.75em'}}></i>
                                         #{ta.id}
                                       </td>
-                                      <td className="small" colSpan="2">
-                                        <span className="fw-semibold">{ta.nombre || '—'}</span>
-                                        {obraOrigen && <span className="badge bg-secondary ms-2" style={{fontSize:'0.65em'}}>{obraOrigen.nombre}</span>}
+                                      <td className="small fw-bold text-dark">
+                                        {ta.nombre || 'Sin nombre'}
                                         <div className="mt-1">
                                           <span className="badge bg-info text-white" style={{fontSize:'0.65em', padding:'3px 5px'}}>
                                             <i className="fas fa-tasks me-1"></i>Tareas Leves
                                           </span>
                                         </div>
-                                        {ta.descripcion && <div className="text-muted" style={{fontSize:'0.75em'}}>{ta.descripcion}</div>}
                                       </td>
-                                      <td className="small text-muted" colSpan="2">—</td>
-                                      <td className="text-center">—</td>
-                                      <td className="text-center">
-                                        <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO?.[ta.estado] || 'secondary'}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
-                                          {ta.estado || '—'}
+                                      <td className="small fw-bold text-dark">
+                                        <span className={ta.nombreCliente === 'Sin especificar' ? 'text-muted fst-italic fw-normal' : ''}>
+                                          {ta.nombreCliente || 'Sin especificar'}
                                         </span>
                                       </td>
-                                      <td></td>
-                                      <td className="small text-muted">{ta.fechaInicio || '—'}</td>
-                                      <td className="small text-muted">{ta.fechaFin || '—'}</td>
-                                      <td className="small text-end text-primary fw-bold">
-                                        {ta.importe > 0 ? `$${Number(ta.importe).toLocaleString('es-AR', {minimumFractionDigits:2})}` : <span className="text-muted">—</span>}
+                                      <td className="small" style={{minWidth:'150px', maxWidth:'250px'}}>
+                                        {ta.direccion && ta.direccion !== '—' ? (
+                                          <div className="fw-bold text-primary" style={{lineHeight:'1.3', wordBreak:'break-word', fontSize:'0.9em'}}>
+                                            <i className="fas fa-map-marker-alt me-1"></i>{ta.direccion}
+                                          </div>
+                                        ) : (
+                                          <span className="text-muted">—</span>
+                                        )}
                                       </td>
-                                      <td></td>
+                                      <td className="small text-center">
+                                        {ta.contacto && ta.contacto !== '—' ? ta.contacto : <span className="text-muted">—</span>}
+                                      </td>
+                                      <td className="text-center"><span className="text-muted small">—</span></td>
+                                      <td className="text-center">
+                                        <span className={`badge bg-${trabajosAdicionalesService.COLORES_ESTADO?.[ta.estado] || 'secondary'}`} style={{fontSize:'0.7em', padding:'3px 5px'}}>
+                                          <i className="fas fa-lock me-1" title="Solo lectura"></i>{ta.estado || '—'}
+                                        </span>
+                                      </td>
+                                      <td className="small text-center"><span className="text-muted">—</span></td>
+                                      <td className="small text-center">{ta.fechaInicio || '—'}</td>
+                                      <td className="small text-center">{ta.fechaFin || '—'}</td>
+                                      <td className="small">
+                                        {ta.nombreCliente && ta.nombreCliente !== 'Sin especificar' ? (
+                                          <span className="badge bg-primary text-white" style={{fontSize:'0.7em'}}>
+                                            <i className="fas fa-user me-1"></i>{ta.nombreCliente}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted small">—</span>
+                                        )}
+                                      </td>
+                                      <td className="text-end">
+                                        <div>
+                                          <div className="fw-bold text-primary">
+                                            ${(ta.importe || 0).toLocaleString('es-AR', {minimumFractionDigits:2})}
+                                            <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
+                                          </div>
+                                          <div className="mt-1">
+                                            <span className="badge bg-secondary text-white" style={{fontSize:'0.7em'}}>
+                                              <i className="fas fa-globe me-1"></i>{ta.tipoPresupuesto === 'GLOBAL' ? 'Global' : 'Detallado'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </td>
                                     </tr>
                                     {/* Fila expandible con detalles de configuración de planificación */}
                                     {obrasExpandidas.has(tareaId) && (
@@ -7549,8 +8011,10 @@ _Válido por 30 días_
                                                   className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    // âœ… Editar presupuesto tarea HIJA
-                                                    abrirModalTareaLeveHija(obra, ta);
+                                                    // ✅ Abrir modal correcto (PresupuestoNoClienteModal) con datos existentes
+                                                    setObraParaTareaLeve(obra);
+                                                    setTareaLeveEditando(ta);
+                                                    setMostrarModalTareaLeve(true);
                                                   }}
                                                 >
                                                   <span>
@@ -9838,6 +10302,7 @@ _Válido por 30 días_
                         <th style={{width: '90px'}} className="small">Inicio</th>
                         <th style={{width: '90px'}} className="small">Fin</th>
                         <th style={{width: '110px'}} className="text-end small">Total</th>
+                        <th style={{width: '180px'}} className="text-center small">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -9906,7 +10371,7 @@ _Válido por 30 días_
                                 {row.nombreObra || row.nombre || <span className="text-muted fst-italic fw-normal">Sin especificar</span>}
                                 {row.esTrabajoExtra && (
                                   <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.65rem', padding: '2px 6px'}}>
-                                    ðŸ”§ EXTRA
+                                    🔧 EXTRA
                                   </span>
                                 )}
                               </td>
@@ -10127,10 +10592,14 @@ _Válido por 30 días_
                                         let totalJornales = 0;
 
                                         row.itemsCalculadora.forEach(item => {
+                                          const tieneJornales = item.jornales && item.jornales.length > 0;
+
                                           // 1. Profesionales
                                           if (item.profesionales && item.profesionales.length > 0) {
                                             item.profesionales.forEach(p => totalProf += Number(p.subtotal) || 0);
-                                          } else {
+                                          } else if (!tieneJornales) {
+                                            // 🔑 FIX: Si hay jornales, NO usar item.subtotalManoObra como fallback
+                                            // porque el backend lo calcula incluyendo jornales → doble conteo
                                             totalProf += Number(item.subtotalManoObra) || 0;
                                           }
 
@@ -10141,11 +10610,26 @@ _Válido por 30 días_
                                             totalMat += Number(item.subtotalMateriales) || 0;
                                           }
 
-                                          // 3. Jornales
-                                          if (item.jornales && item.jornales.length > 0) {
-                                            item.jornales.forEach(j => totalJornales += Number(j.subtotal) || 0);
+                                          // 3. Jornales - siempre recalcular desde cant × val (nunca usar j.subtotal contaminado)
+                                          if (tieneJornales) {
+                                            item.jornales.forEach(j => {
+                                              const cant = Number(j.cantidadJornales || j.cantidad || 0);
+                                              const val = Number(j.importeJornal || j.valorUnitario || 0);
+                                              totalJornales += (cant * val);
+                                            });
                                           } else {
-                                            totalJornales += Number(item.subtotalJornales) || 0;
+                                            // Solo si NO hay array de jornales, intentar deducir desde item.total
+                                            // (item.subtotalJornales del backend puede estar contaminado)
+                                            const totalBase = Number(item.total) || 0;
+                                            const subtotalProf = (item.profesionales && item.profesionales.length > 0)
+                                              ? item.profesionales.reduce((s, p) => s + (Number(p.subtotal) || 0), 0)
+                                              : (Number(item.subtotalManoObra) || 0);
+                                            const subtotalMat = (item.materialesLista && item.materialesLista.length > 0)
+                                              ? item.materialesLista.reduce((s, m) => s + (Number(m.subtotal) || 0), 0)
+                                              : (Number(item.subtotalMateriales) || 0);
+                                            const subtotalGastos = Number(item.subtotalGastosGenerales) || 0;
+                                            const deducido = totalBase - subtotalProf - subtotalMat - subtotalGastos;
+                                            totalJornales += Math.max(0, deducido);
                                           }
 
                                           // 4. Gastos Generales y otros
@@ -10236,6 +10720,106 @@ _Válido por 30 días_
                                       return <span className="text-muted">Sin datos</span>;
                                     })()}
                                   </div>
+                                </div>
+                              </td>
+                              <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                                {/* 🔧 BOTONES DE GESTIÓN DE CICLO DE VIDA */}
+                                <div className="btn-group btn-group-sm" role="group">
+                                  {/* BORRADOR → Botón para marcar como "Listo para Enviar" */}
+                                  {(!row.estado || row.estado === 'BORRADOR') && (
+                                    <button
+                                      className="btn btn-success btn-sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCambiarEstadoTrabajoExtra(row, 'A_ENVIAR');
+                                      }}
+                                      title="Marcar como listo para enviar"
+                                      style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                                    >
+                                      <i className="fas fa-check me-1"></i>
+                                      Terminar Edición
+                                    </button>
+                                  )}
+
+                                  {/* A_ENVIAR → Botones para volver a borrador o enviar */}
+                                  {row.estado === 'A_ENVIAR' && (
+                                    <>
+                                      <button
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCambiarEstadoTrabajoExtra(row, 'BORRADOR');
+                                        }}
+                                        title="Volver a modo edición"
+                                        style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                                      >
+                                        <i className="fas fa-undo me-1"></i>
+                                        Volver
+                                      </button>
+                                      <button
+                                        className="btn btn-primary btn-sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleEnviarTrabajoExtraDesdeTabla(row);
+                                        }}
+                                        title="Enviar a cliente por WhatsApp o Email"
+                                        style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                                      >
+                                        <i className="fas fa-paper-plane me-1"></i>
+                                        Enviar Cliente
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {/* ENVIADO → Botones para cancelar envío o aprobar */}
+                                  {row.estado === 'ENVIADO' && (
+                                    <>
+                                      <button
+                                        className="btn btn-warning btn-sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCambiarEstadoTrabajoExtra(row, 'A_ENVIAR');
+                                        }}
+                                        title="Cancelar envío y volver a estado anterior"
+                                        style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                                      >
+                                        <i className="fas fa-undo me-1"></i>
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        className="btn btn-success btn-sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleGenerarObraDesdeTrabajoExtra(row);
+                                        }}
+                                        title="Aprobar trabajo extra y crear obra derivada"
+                                        style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                                      >
+                                        <i className="fas fa-check-circle me-1"></i>
+                                        Aprobar
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {/* APROBADO → Ver obra derivada */}
+                                  {row.estado === 'APROBADO' && (
+                                    <button
+                                      className="btn btn-info btn-sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        // Aquí podrías navegar a la obra derivada o mostrar detalles
+                                        showNotification(
+                                          `Trabajo extra aprobado. Obra derivada creada.`,
+                                          'info'
+                                        );
+                                      }}
+                                      title="Trabajo extra aprobado - Obra creada"
+                                      style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                                    >
+                                      <i className="fas fa-check-circle me-1"></i>
+                                      Aprobado
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -10353,7 +10937,7 @@ _Válido por 30 días_
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             // Crear objeto de trabajo extra como si fuera una obra para gestionar sus sub-trabajos
-                                            // ðŸ”§ CRÃTICO: Obtener el ID numérico de la obra original (nunca usar IDs tipo "te_X")
+                                            // 🔧 CRÃTICO: Obtener el ID numérico de la obra original (nunca usar IDs tipo "te_X")
                                             const obraOriginalIdNumerico = obraParaTrabajosExtra._obraOriginalId ||
                                               (typeof obraParaTrabajosExtra.id === 'number' ? obraParaTrabajosExtra.id : null);
 
@@ -10363,7 +10947,7 @@ _Válido por 30 días_
                                               return;
                                             }
 
-                                            // ðŸ”§ CRÃTICO: Usar el ID correcto del trabajo extra (puede venir como id_trabajo_extra o id)
+                                            // 🔧 CRÃTICO: Usar el ID correcto del trabajo extra (puede venir como id_trabajo_extra o id)
                                             const trabajoExtraIdReal = row.id_trabajo_extra || row.presupuestoNoClienteId || row.id;
 
                                             const trabajoComoObra = {
@@ -10884,7 +11468,7 @@ Gestionar Tareas Leves
                                                                     className="btn btn-primary"
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
-                                                                        handleCambiarEstadoTrabajoExtra(row, 'ENVIADO');
+                                                                        handleEnviarTrabajoExtraDesdeTabla(row);
                                                                     }}
                                                                 >
                                                                     <i className="fas fa-paper-plane me-2"></i>Enviar Cliente
@@ -10907,10 +11491,10 @@ Gestionar Tareas Leves
                                                                     className="btn btn-success text-white"
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
-                                                                        handleCambiarEstadoTrabajoExtra(row, 'APROBADO');
+                                                                        handleGenerarObraDesdeTrabajoExtra(row);
                                                                     }}
                                                                 >
-                                                                    <i className="fas fa-check-double me-2"></i>Aprobar Presupuesto
+                                                                    <i className="fas fa-check-circle me-2"></i>Aprobar y Crear Obra
                                                                 </button>
                                                             </>
                                                         )}
@@ -12195,7 +12779,7 @@ Gestionar Tareas Leves
             setAbrirEmailTrabajoExtra(false);
           }}
           modoTrabajoExtra={true}
-          tituloPersonalizado={`${trabajoExtraEditar?.id ? 'Editar' : 'Nuevo'} Presupuesto para Adicional Obra -- ${obraParaTrabajosExtra.nombre || obraParaTrabajosExtra.nombreObra || 'Obra'}`}
+          tituloPersonalizado={`${trabajoExtraEditar?.id ? 'Editar' : 'Nuevo'} Presupuesto para Adicional Obra -- ${trabajoExtraEditar?.nombreObra || trabajoExtraEditar?.nombre || obraParaTrabajosExtra.nombre || obraParaTrabajosExtra.nombreObra || 'Obra'}`}
           autoGenerarPDF={autoGenerarPDFTrabajoExtra}
           abrirWhatsAppDespuesDePDF={abrirWhatsAppTrabajoExtra}
           abrirEmailDespuesDePDF={abrirEmailTrabajoExtra}
@@ -12223,8 +12807,10 @@ Gestionar Tareas Leves
             // âœ… Pasar TODOS los datos del trabajo extra (para incluir campos planos como los de honorarios)
             ...(trabajoExtraEditar || {}),
 
-            // Usar id_trabajo_extra del backend (si está editando) o null si es nuevo
-            id: trabajoExtraEditar?.id_trabajo_extra || trabajoExtraEditar?.id || null,
+            // Usar el id propio del PresupuestoNoCliente (id_trabajo_extra puede apuntar a un
+            // presupuesto distinto, como el de la obra principal, causando el bug de mostrar el
+            // presupuesto incorrecto)
+            id: trabajoExtraEditar?.id || null,
 
             // IDs y empresa
             // Si estamos dentro de un trabajo extra, usar el ID de la obra original
@@ -12234,7 +12820,7 @@ Gestionar Tareas Leves
             idEmpresa: empresaSeleccionada.id,
             nombreEmpresa: empresaSeleccionada.nombreEmpresa,
 
-            // ðŸ”§ CRÃTICO: Marcar como trabajo extra
+            // 🔧 CRÃTICO: Marcar como trabajo extra
             esPresupuestoTrabajoExtra: true,
 
             // ðŸ†• Si estamos creando un trabajo extra dentro de otro trabajo extra (subobra),
@@ -12242,8 +12828,8 @@ Gestionar Tareas Leves
             _trabajoExtraPadreId: obraParaTrabajosExtra._trabajoExtraId || null,
 
             // Si está editando, usar datos del trabajo extra; si no, usar datos de la obra
-            nombreObraManual: trabajoExtraEditar?.nombre || obraParaTrabajosExtra.nombre || '',
-            nombreObra: trabajoExtraEditar?.nombre || obraParaTrabajosExtra.nombre || '',
+            nombreObraManual: trabajoExtraEditar?.nombreObra || trabajoExtraEditar?.nombre || obraParaTrabajosExtra.nombre || '',
+            nombreObra: trabajoExtraEditar?.nombreObra || trabajoExtraEditar?.nombre || obraParaTrabajosExtra.nombre || '',
             descripcion: '',
             observaciones: trabajoExtraEditar?.observaciones || '',
 
@@ -12992,8 +13578,10 @@ Gestionar Tareas Leves
                                           const obraAbuelo = obras.find(o => o.id === obraParaTrabajosAdicionales.id);
                                           abrirModalTareaLeveNieta(obraAbuelo || obraParaTrabajosAdicionales, trabajoExtra, ta);
                                         } else {
-                                          // Es HIJA
-                                          abrirModalTareaLeveHija(obraParaTrabajosAdicionales, ta);
+                                          // Es HIJA - ✅ Abrir modal correcto con datos existentes
+                                          setObraParaTareaLeve(obraParaTrabajosAdicionales);
+                                          setTareaLeveEditando(ta);
+                                          setMostrarModalTareaLeve(true);
                                         }
                                       }}
                                       title="Editar"
@@ -13118,23 +13706,35 @@ Gestionar Tareas Leves
           onClose={() => {
             setMostrarModalTareaLeve(false);
             setObraParaTareaLeve(null);
+            setTareaLeveEditando(null);
           }}
           onSave={handleGuardadoTareaLeve}
-          tituloPersonalizado={`Nueva Tarea Leve para: ${obraParaTareaLeve.nombre || obraParaTareaLeve.nombreObra || 'Obra'}`}
-          initialData={{
-            idEmpresa: empresaSeleccionada?.id,
-            nombreEmpresa: empresaSeleccionada?.nombreEmpresa,
-            esPresupuestoTrabajoExtra: false,
-            obraId: obraParaTareaLeve.id,
-            idObra: obraParaTareaLeve.id,
-            estado: 'BORRADOR',
-            version: 1,
-            tipoPresupuesto: 'TAREA_LEVE',
-            nombreObraManual: obraParaTareaLeve.nombre || obraParaTareaLeve.nombreObra || '',
-            fechaEmision: new Date().toISOString().slice(0, 10),
-            vencimiento: new Date().toISOString().slice(0, 10),
-            calculoAutomaticoDiasHabiles: false
-          }}
+          tituloPersonalizado={
+            tareaLeveEditando
+              ? `Editar Tarea Leve: ${tareaLeveEditando.nombre || 'Sin nombre'}`
+              : obraParaTareaLeve?._esTrabajoExtra
+                ? `Nueva Tarea Leve para Trabajo Extra: ${obraParaTareaLeve._trabajoExtraNombre || 'Sin nombre'}`
+                : `Nueva Tarea Leve para: ${obraParaTareaLeve?.nombre || obraParaTareaLeve?.nombreObra || 'Obra'}`
+          }
+          initialData={
+            tareaLeveEditando || {
+              idEmpresa: empresaSeleccionada?.id,
+              nombreEmpresa: empresaSeleccionada?.nombreEmpresa,
+              esPresupuestoTrabajoExtra: false,
+              obraId: obraParaTareaLeve?._esTrabajoExtra ? null : (obraParaTareaLeve?.id || null),
+              idObra: obraParaTareaLeve?._esTrabajoExtra ? null : (obraParaTareaLeve?.id || null),
+              trabajoExtraId: obraParaTareaLeve?._esTrabajoExtra ? obraParaTareaLeve._trabajoExtraId : null,
+              estado: 'BORRADOR',
+              version: 1,
+              tipoPresupuesto: 'TAREA_LEVE',
+              nombreObraManual: obraParaTareaLeve?._esTrabajoExtra
+                ? obraParaTareaLeve._trabajoExtraNombre
+                : (obraParaTareaLeve?.nombre || obraParaTareaLeve?.nombreObra || ''),
+              fechaEmision: new Date().toISOString().slice(0, 10),
+              vencimiento: new Date().toISOString().slice(0, 10),
+              calculoAutomaticoDiasHabiles: false
+            }
+          }
         />
       )}
 

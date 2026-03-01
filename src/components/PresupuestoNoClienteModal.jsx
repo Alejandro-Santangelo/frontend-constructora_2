@@ -27,8 +27,29 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const { empresaSeleccionada } = useEmpresa();
   const modalContentRef = useRef(null);
   const guardarPDFButtonRef = useRef(null);
+  const autoClickExecutedRef = useRef(false); // 🔒 Evitar múltiples clicks automáticos
 
   const safeInitial = initialData || {};
+
+  // 🔑 FIX: Normalizar tipoPresupuesto y modoPresupuesto mal guardados en BD
+  // TAREA_LEVE guardadas como TRADICIONAL (bug pre-fix) → detectar y corregir
+  if (safeInitial.id && safeInitial.tipoPresupuesto === 'TRADICIONAL') {
+    const tieneObraId = safeInitial.obraId || safeInitial.obra_id;
+    const noTieneClienteDirecto = !safeInitial.clienteId && !safeInitial.cliente_id;
+    // Si tiene obra vinculada pero NO cliente directo → probablemente es TAREA_LEVE
+    if (tieneObraId && noTieneClienteDirecto) {
+      console.warn('🔧 [FIX] TAREA_LEVE detectada guardada como TRADICIONAL - corrigiendo:', {
+        id: safeInitial.id,
+        obraId: tieneObraId,
+        tipoBD: safeInitial.tipoPresupuesto,
+        modoBD: safeInitial.modoPresupuesto,
+        tipoCorregido: 'TAREA_LEVE',
+        modoCorregido: 'TAREA_LEVE'
+      });
+      safeInitial.tipoPresupuesto = 'TAREA_LEVE';
+      safeInitial.modoPresupuesto = 'TAREA_LEVE'; // 🔑 Corregir también modoPresupuesto
+    }
+  }
 
   // 🐛 DEBUG: Ver TODO el objeto que llega del backend
   if (safeInitial.id) {
@@ -891,9 +912,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             valor: safeData.honorariosConfiguracionPresupuestoValor || ''
           },
           jornales: {
-          activo: true, // ✅ SIEMPRE true por defecto - IGNORAR valor de BD para datos legacy
-            modoAplicacion: 'todos',
-            porRol: {}
+            activo: safeData.honorariosJornalesActivo !== false, // respetar si fue desactivado explícitamente
+            tipo: safeData.honorariosJornalesTipo || 'porcentaje',
+            valor: safeData.honorariosJornalesValor || '', // ✅ incluir valor guardado en BD
+            modoAplicacion: safeData.honorariosJornalesModoAplicacion || 'todos',
+            porRol: safeData.honorariosJornalesPorRol || {}
           }
         };
 
@@ -1649,7 +1672,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             incluirEnCalculoDias: incluirEnCalculo,
             esModoManual: j.esModoManual !== undefined ? j.esModoManual : false,
             tipoProfesional: j.tipoProfesional || j.rol || '',
-            total: j.total !== undefined ? j.total : (j.subtotal || 0),
+            // 🔑 FIX CRÍTICO: SIEMPRE recalcular subtotal/total desde cantidades base.
+            // El j.subtotal del backend puede venir con valores post-honorarios contaminados
+            // (guardados en una versión anterior del bug). Recalculamos desde cant × val.
+            subtotal: (() => {
+              const cant = Number(j.cantidad !== undefined ? j.cantidad : (j.cantidadJornales || 0));
+              const val = Number(j.valorUnitario !== undefined ? j.valorUnitario : (j.importeJornal || 0));
+              return cant * val;
+            })(),
+            total: (() => {
+              const cant = Number(j.cantidad !== undefined ? j.cantidad : (j.cantidadJornales || 0));
+              const val = Number(j.valorUnitario !== undefined ? j.valorUnitario : (j.importeJornal || 0));
+              return cant * val;
+            })(),
             empresaId: j.empresaId !== undefined ? j.empresaId : Number(empresaSeleccionada?.id || 3),
             presupuestoNoClienteId: j.presupuestoNoClienteId !== undefined ? j.presupuestoNoClienteId : (form.id || null),
             observaciones: j.observaciones !== undefined ? j.observaciones : null,
@@ -1659,15 +1694,24 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           };
         }) : [];
 
-        // 🛠️ FIX: Eliminar jornales duplicados por ID dentro de cada item
+        // 🛠️ FIX: Eliminar jornales duplicados por ID y/o por contenido (rol+cant+val)
+        // Necesario porque el backend puede acumular jornales con IDs distintos pero mismos datos
+        // cuando se envían jornales con id=null en cada guardado de TRABAJO_EXTRA.
         const idsJornalesVistos = new Set();
+        const contentJornalesVistos = new Set();
         const jornalesSinDuplicados = [];
         jornalesMigrados.forEach(j => {
-          if (!idsJornalesVistos.has(j.id)) {
-            idsJornalesVistos.add(j.id);
+          const cant = Number(j.cantidad !== undefined ? j.cantidad : (j.cantidadJornales || 0));
+          const val  = Number(j.valorUnitario !== undefined ? j.valorUnitario : (j.importeJornal || 0));
+          const contentKey = `${j.rol || ''}|${cant}|${val}`;
+          const idVisto = j.id != null && idsJornalesVistos.has(j.id);
+          const contentVisto = contentJornalesVistos.has(contentKey);
+          if (!idVisto && !contentVisto) {
+            if (j.id != null) idsJornalesVistos.add(j.id);
+            contentJornalesVistos.add(contentKey);
             jornalesSinDuplicados.push(j);
           } else {
-            console.warn(`🗑️ Eliminando jornal duplicado en item ${item.tipoProfesional}: ID=${j.id} rol="${j.rol}"`);
+            console.warn(`🗑️ [DEDUP] Eliminando jornal duplicado en item "${item.tipoProfesional}": ID=${j.id} rol="${j.rol}" cant=${cant} val=${val} (idVisto=${idVisto}, contentVisto=${contentVisto})`);
           }
         });
         const jornalesFinales = jornalesSinDuplicados;
@@ -1675,13 +1719,34 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         // Calcular subtotal de jornales si existen
         const subtotalJornales = jornalesFinales.reduce((sum, j) => sum + (j.subtotal || 0), 0);
 
+        // 🔑 FIX: Deduplicar materiales por contenido (nombre+cant+precio) ANTES de usar
+        const materialesRaw = item.materialesLista || [];
+        const idsMaterialesVistos = new Set();
+        const contentMaterialesVistos = new Set();
+        const materialesSinDuplicados = materialesRaw.filter(m => {
+          const cant = Number(m.cantidad || 0);
+          const precio = Number(m.precioUnitario || m.precio || 0);
+          const nombre = (m.nombre || m.descripcion || '').trim();
+          const contentKey = `${nombre}|${cant}|${precio}`;
+          const idVisto = m.id != null && idsMaterialesVistos.has(m.id);
+          const contentVisto = contentMaterialesVistos.has(contentKey);
+          if (!idVisto && !contentVisto) {
+            if (m.id != null) idsMaterialesVistos.add(m.id);
+            contentMaterialesVistos.add(contentKey);
+            return true;
+          } else {
+            console.warn(`🗑️ [DEDUP] Eliminando material duplicado en item "${item.tipoProfesional}": ID=${m.id} nombre="${nombre}" cant=${cant} precio=${precio}`);
+            return false;
+          }
+        });
+
         // ✅ UNIFICACIÓN DE GASTOS PREVIA (para recálculo correcto)
         const gastosRaw = (item.gastosGenerales && item.gastosGenerales.length > 0)
           ? item.gastosGenerales
           : (item.otrosCostos && item.otrosCostos.length > 0 ? item.otrosCostos : []);
 
         // 🔥 WORKAROUND: El backend NO guarda esGlobal, detectarlo por patrón de descripción
-        const gastosUnificados = gastosRaw.map(gasto => {
+        const gastosNormalizados = gastosRaw.map(gasto => {
           let esGlobalDetectado = false;
 
           // Si viene del backend (sin esGlobal), detectar por descripción
@@ -1703,6 +1768,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             esGlobal: esGlobalDetectado,
             unidad: esGlobalDetectado ? 'global' : (gasto.unidad || null)
           };
+        });
+
+        // 🔑 FIX: Deduplicar gastos por contenido (desc+cant+precio) DESPUÉS de normalizar
+        const idsGastosVistos = new Set();
+        const contentGastosVistos = new Set();
+        const gastosUnificados = gastosNormalizados.filter(g => {
+          const cant = Number(g.cantidad || 0);
+          const precio = Number(g.precioUnitario || g.precio || 0);
+          const desc = (g.descripcion || '').trim();
+          const contentKey = `${desc}|${cant}|${precio}`;
+          const idVisto = g.id != null && idsGastosVistos.has(g.id);
+          const contentVisto = contentGastosVistos.has(contentKey);
+          if (!idVisto && !contentVisto) {
+            if (g.id != null) idsGastosVistos.add(g.id);
+            contentGastosVistos.add(contentKey);
+            return true;
+          } else {
+            console.warn(`🗑️ [DEDUP] Eliminando gasto duplicado en item "${item.tipoProfesional}": ID=${g.id} desc="${desc}" cant=${cant} precio=${precio}`);
+            return false;
+          }
         });
 
         const subtotalGastosCalc = gastosUnificados.reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0);
@@ -1729,19 +1814,33 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           (item.total === 0 && subtotalJornales > 0);
 
         if (necesitaRecalculo) {
-          const totalCalculado = (item.subtotalManoObra || 0) +
-                                (item.subtotalMateriales || 0) +
+          // 🔑 FIX: Recalcular desde arrays puras, NO desde campos del backend que
+          // pueden estar contaminados con valores post-honorarios de guardados anteriores.
+          // 🔑 FIX CRÍTICO: Si hay jornales, ignorar item.subtotalManoObra (backend lo calcula
+          // desde jornales) → solo usar suma de profesionales array para evitar doble conteo.
+          const subtotalManoObraRecalc = (item.profesionales && item.profesionales.length > 0)
+            ? item.profesionales.reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0)
+            : (jornalesFinales.length > 0 ? 0 : (item.subtotalManoObra || 0));
+          // 🔑 FIX: Usar materialesSinDuplicados (ya deduplicado en línea ~1700)
+          const subtotalMaterialesRecalc = (materialesSinDuplicados && materialesSinDuplicados.length > 0)
+            ? materialesSinDuplicados.reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || (Number(m.cantidad||0) * Number(m.precioUnitario||0))), 0)
+            : (item.subtotalMateriales || 0);
+          const totalCalculado = subtotalManoObraRecalc +
+                                subtotalMaterialesRecalc +
                                 subtotalGastosFinal +
-                                (item.totalManual || 0) +
+                                (item.esModoManual === true ? (item.totalManual || 0) : 0) +
                                 subtotalJornales;
           const itemActualizado = {
             ...item,
             gastosGenerales: gastosUnificados, // ✅ Asegurar visualización
             otrosCostos: gastosUnificados,     // ✅ Asegurar persistencia legacy
+            materialesLista: materialesSinDuplicados, // ✅ Usar materiales sin duplicados
             subtotalGastosGenerales: subtotalGastosFinal,
             total: totalCalculado,
             jornales: jornalesFinales, // ✅ Usar jornales sin duplicados
-            subtotalJornales: subtotalJornales,
+            subtotalJornales: subtotalJornales,      // 🔑 Siempre recalculado desde arrays
+            subtotalManoObra: subtotalManoObraRecalc, // 🔑 Siempre recalculado desde arrays
+            subtotalMateriales: subtotalMaterialesRecalc, // 🔑 Siempre recalculado desde arrays
             incluirEnCalculoDias: item.incluirEnCalculoDias ?? true, // ✅ PRESERVAR o usar true por defecto
             trabajaEnParalelo: item.trabajaEnParalelo ?? true // ✅ PRESERVAR o usar true por defecto (ahora el backend lo guarda)
           };
@@ -1754,13 +1853,67 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           return itemActualizado;
         }
 
-        // Ya calculamos gastosUnificados arriba, simplemente los retornamos aquí si no hubo recálculo
+        // 🔑 FIX: Aunque item.total != null, el campo item.subtotalJornales del backend
+        // puede estar contaminado con valores post-honorarios de guardados anteriores.
+        // SIEMPRE sobreescribimos subtotalJornales con el valor recalculado desde arrays.
+
+        // 🔑 ORDEN IMPORTANTE: manoObra primero (no depende de materiales)
+        // FIX CRÍTICO: Si el item tiene jornales en su array, el backend calcula
+        // subtotalManoObra INCLUYENDO esos jornales → doble conteo.
+        // Si hay jornales, manoObra SOLO viene del array de profesionales (0 si está vacío).
+        const subtotalManoObraLimpio = (item.profesionales && item.profesionales.length > 0)
+          ? item.profesionales.reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0)
+          : (jornalesFinales.length > 0 ? 0 : (item.subtotalManoObra || 0));
+
+        // 🔑 FIX: Detectar item.subtotalMateriales contaminado con honorarios de guardados previos.
+        // item.total siempre se guarda como BASE PURA (sin honorarios) en prepararDatosParaEnvio.
+        // Si item.subtotalMateriales > item.total → definitivamente contaminado → deducir limpio.
+        const subtotalMaterialesLimpio = (() => {
+          // 🔑 FIX: Usar materialesSinDuplicados (ya deduplicado en línea ~1700)
+          if (materialesSinDuplicados && materialesSinDuplicados.length > 0) {
+            // materialesLista disponible → calcular desde cant × precio (siempre limpio)
+            return materialesSinDuplicados.reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || (Number(m.cantidad||0) * Number(m.precioUnitario||0))), 0);
+          }
+          const fromBackend = Number(item.subtotalMateriales || 0);
+          const totalBase = Number(item.total) || 0;
+          // Si fromBackend > totalBase y totalBase > 0 → contaminado con honorarios
+          if (fromBackend > totalBase && totalBase > 0) {
+            // Deducir: total_base - jornales_limpios - manoObra_limpia - gastos_limpios
+            // Usamos `subtotalJornales` (calculado desde jornalesFinales cant×val, siempre limpio)
+            const deducido = totalBase - subtotalJornales - subtotalManoObraLimpio - subtotalGastosFinal
+                           - (item.esModoManual === true ? Number(item.totalManual || 0) : 0);
+            console.warn(`🛠️ [FIX-materiales] "${item.tipoProfesional}": subtotalMateriales contaminado (${fromBackend}) > total_base (${totalBase}), valor deducido: ${Math.max(0, deducido)}`);
+            return Math.max(0, deducido);
+          }
+          return fromBackend;
+        })();
+
+        // 🔑 CLAVE: Para jornales, si el array está vacío (backend no devuelve jornales anidados)
+        // NUNCA usar item.subtotalJornales del backend (puede incluir honorarios por bug previo).
+        // En su lugar, deducir desde item.total (que SÍ se guarda como BASE pura sin honorarios).
+        // item.total = jornales_base + manoObra_base + materiales_base + gastos_base
+        const subtotalJornalesLimpio = jornalesFinales.length > 0
+          ? subtotalJornales          // Recalculado desde cant × val en jornalesFinales ← siempre correcto
+          : (() => {
+              // Inferir jornales desde: total - otros subtotales (todos en base pura)
+              const totalBase = Number(item.total) || 0;
+              const deducido = totalBase - subtotalManoObraLimpio - subtotalMaterialesLimpio - subtotalGastosFinal - (item.esModoManual === true ? Number(item.totalManual || 0) : 0);
+              return Math.max(0, deducido);
+            })();
+
+        const totalLimpio = subtotalJornalesLimpio + subtotalManoObraLimpio + subtotalMaterialesLimpio + subtotalGastosFinal + (item.esModoManual === true ? (item.totalManual || 0) : 0);
+
         return {
           ...item,
           gastosGenerales: gastosUnificados, // Asegurar visualización
           otrosCostos: gastosUnificados, // Asegurar persistencia legacy
+          materialesLista: materialesSinDuplicados, // ✅ Usar materiales sin duplicados
           subtotalGastosGenerales: subtotalGastosFinal,
           jornales: jornalesFinales, // ✅ Usar jornales sin duplicados
+          subtotalJornales: subtotalJornalesLimpio,    // 🔑 SIEMPRE recalculado desde arrays
+          subtotalMateriales: subtotalMaterialesLimpio, // 🔑 SIEMPRE recalculado desde arrays
+          subtotalManoObra: subtotalManoObraLimpio,      // 🔑 SIEMPRE recalculado desde arrays
+          total: totalLimpio,                            // 🔑 Recalculado desde base pura (sin honorarios)
           incluirEnCalculoDias: item.incluirEnCalculoDias ?? true, // ✅ PRESERVAR o usar true por defecto
           trabajaEnParalelo: item.trabajaEnParalelo ?? true // ✅ PRESERVAR o usar true por defecto (ahora el backend lo guarda)
         };
@@ -1859,43 +2012,108 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // useEffect para hacer scroll automático a la sección de exportación cuando viene desde "Enviar" (WhatsApp o Email)
   useEffect(() => {
-    console.log('🔍 useEffect de auto-envío ejecutado:', {
+    console.log('🔄 [AUTO-SCROLL] useEffect ejecutado:', {
       show,
       abrirWhatsAppDespuesDePDF,
       abrirEmailDespuesDePDF,
-      modoTrabajoExtra,
-      condicion: show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF)
+      autoClickExecuted: autoClickExecutedRef.current,
+      condicionCumplida: show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF) && !autoClickExecutedRef.current
     });
 
-    if (show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF)) {
-      console.log('✅ Condición cumplida - Iniciando proceso de auto-envío');
-      console.log('📜 Haciendo scroll a sección de exportación...', {
-        whatsapp: abrirWhatsAppDespuesDePDF,
-        email: abrirEmailDespuesDePDF,
-        refExiste: !!guardarPDFButtonRef.current
-      });
-      const timer = setTimeout(() => {
-        if (guardarPDFButtonRef.current) {
-          console.log('✅ Ejecutando scroll hacia la sección de exportación');
-          guardarPDFButtonRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // 🔒 IMPORTANTE: Solo ejecutar UNA VEZ por sesión del modal
+    if (show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF) && !autoClickExecutedRef.current) {
+      console.log('✅ [AUTO-SCROLL] Condición cumplida - iniciando proceso de auto-scroll');
 
-          // 🚀 AUTO-CLICK en el botón de PDF después del scroll
-          setTimeout(() => {
-            console.log('🚀 AUTO-GENERANDO PDF para envío por WhatsApp/Email...');
-            if (guardarPDFButtonRef.current) {
-              console.log('✅ Ref disponible, haciendo click en botón PDF...');
-              guardarPDFButtonRef.current.click();
-            } else {
-              console.warn('⚠️ No se pudo hacer auto-click, botón no disponible');
-            }
-          }, 800); // Esperar 800ms después del scroll
-        } else {
-          console.warn('⚠️ Ref guardarPDFButtonRef no está disponible todavía');
+      // 🎯 Función para ejecutar scroll DIRECTO
+      const ejecutarScrollDirecto = () => {
+        console.log('🎯 [AUTO-SCROLL] Intentando ejecutar scroll...');
+        const modalBodies = document.querySelectorAll('.modal-body');
+        const botonPDF = document.getElementById('guardar-pdf-button');
+
+        console.log(`📊 [AUTO-SCROLL] Modal-bodies: ${modalBodies.length}, Botón PDF: ${!!botonPDF}`);
+
+        if (!botonPDF) {
+          console.warn('⚠️ [AUTO-SCROLL] Botón PDF no encontrado');
+          return false;
         }
-      }, 1200); // Aumentado a 1200ms para asegurar que el modal esté completamente renderizado
-      return () => clearTimeout(timer);
-    } else {
-      console.log('❌ Condición NO cumplida - No se ejecutará auto-envío');
+
+        // Encontrar modal-body que contiene el botón
+        let modalBodyCorrecto = null;
+        for (let i = 0; i < modalBodies.length; i++) {
+          const mb = modalBodies[i];
+          if (mb.contains(botonPDF)) {
+            modalBodyCorrecto = mb;
+            console.log(`✅ [AUTO-SCROLL] Modal-body correcto encontrado (índice ${i})`);
+            break;
+          }
+        }
+
+        if (!modalBodyCorrecto) {
+          console.warn('⚠️ [AUTO-SCROLL] No se encontró modal-body que contenga el botón');
+          return false;
+        }
+
+        // Calcular y aplicar scroll
+        const btnRect = botonPDF.getBoundingClientRect();
+        const mbRect = modalBodyCorrecto.getBoundingClientRect();
+        const scrollActual = modalBodyCorrecto.scrollTop;
+        const scrollPos = Math.max(0, btnRect.top - mbRect.top + scrollActual - 250);
+
+        console.log(`📊 [AUTO-SCROLL] Scroll actual: ${scrollActual}px → Objetivo: ${scrollPos}px`);
+
+        // Aplicar scroll DIRECTAMENTE
+        modalBodyCorrecto.scrollTop = scrollPos;
+
+        // 🔒 MARCAR COMO EJECUTADO SOLO DESPUÉS DEL SCROLL EXITOSO
+        autoClickExecutedRef.current = true;
+        console.log('🔒 [AUTO-SCROLL] Flag marcado como ejecutado');
+
+        // Verificar y auto-click
+        setTimeout(() => {
+          const scrollDespues = modalBodyCorrecto.scrollTop;
+          console.log(`✅ [AUTO-SCROLL] Scroll ejecutado: ${scrollDespues}px`);
+          if (scrollDespues > 0) {
+            console.log('🖱️ [AUTO-SCROLL] Haciendo click en botón PDF...');
+            setTimeout(() => {
+              botonPDF.click();
+            }, 500);
+          }
+        }, 100);
+
+        return true;
+      };
+
+      // ⏳ ESPERAR 2.5 segundos (después del desbloqueo de useEffects a los 2s)
+      // Esto asegura que el modal esté COMPLETAMENTE renderizado
+      console.log('⏳ [AUTO-SCROLL] Esperando 2.5 segundos antes de iniciar intentos...');
+      let intervalo = null;
+      const delayInicial = setTimeout(() => {
+        console.log('🚀 [AUTO-SCROLL] Iniciando intentos de scroll...');
+        let intentos = 0;
+        intervalo = setInterval(() => {
+          intentos++;
+          console.log(`🔄 [AUTO-SCROLL] Intento ${intentos}/12`);
+          const exito = ejecutarScrollDirecto();
+          if (exito || intentos >= 12) {
+            if (intentos >= 12 && !exito) {
+              console.warn('⚠️ [AUTO-SCROLL] Se alcanzó el máximo de intentos (12)');
+            }
+            clearInterval(intervalo);
+          }
+        }, 400);
+      }, 2500);
+
+      // Cleanup completo
+      return () => {
+        console.log('🧹 [AUTO-SCROLL] Cleanup ejecutado');
+        clearTimeout(delayInicial);
+        if (intervalo) clearInterval(intervalo);
+      };
+
+    } else if (!show && autoClickExecutedRef.current) {
+      // 🔓 Resetear el flag cuando se cierra el modal
+      console.log('🔓 [AUTO-SCROLL] Reseteando flag - modal cerrado');
+      autoClickExecutedRef.current = false;
     }
   }, [show, abrirWhatsAppDespuesDePDF, abrirEmailDespuesDePDF]);
 
@@ -4532,6 +4750,24 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     const totalCompleto = subtotalProfesionales + subtotalMateriales + subtotalGG + totalManual;
 
+    // 🔑 FIX: Deduplicar jornalesCalc por contenido antes de guardar en itemsCalculadora
+    // Evita que jornales duplicados (por edición de item consolidado con duplicados del backend) se propaguen
+    const jornalesDeduplicados = (() => {
+      const seen = new Set();
+      return jornalesCalc.filter(j => {
+        const cant = Number(j.cantidadJornales || j.cantidad || 0);
+        const val  = Number(j.importeJornal || j.valorUnitario || 0);
+        const ck   = `${j.rol || ''}|${cant}|${val}`;
+        if (seen.has(ck)) {
+          console.warn(`🗑️ [guardarRubro] Dedup jornal al guardar: rol="${j.rol}" val=${val}`);
+          return false;
+        }
+        seen.add(ck);
+        return true;
+      });
+    })();
+    const subtotalJornalesDedup = jornalesDeduplicados.reduce((sum, j) => sum + (j.subtotal || 0), 0);
+
     const rubroCompleto = {
       id: itemEditandoId || `item_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       tipoProfesional: tipoProfesionalCalc.trim(),
@@ -4546,7 +4782,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       observacionesTotalManual: observacionesTotalManual?.trim() || null,
 
       profesionales: hayProfesionales ? [...profesionalesCalc] : [],
-      jornales: jornalesCalc.length > 0 ? [...jornalesCalc] : [], // ✅ GUARDAR JORNALES
+      jornales: jornalesDeduplicados.length > 0 ? jornalesDeduplicados : [], // ✅ GUARDAR JORNALES (sin duplicados)
       cantidadJornales: cantidadJornalesCalc || null,
       importeJornal: importeJornalCalc || null,
       subtotalManoObra: subtotalProfesionales,
@@ -4560,8 +4796,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       totalManual: totalManual || null,
       esModoManual: hayTotalManual,
+      subtotalJornales: subtotalJornalesDedup, // 🔑 FIX: subtotal jornales deduplicado
 
-      total: totalCompleto,
+      total: totalCompleto + subtotalJornalesDedup, // 🔑 FIX: incluir jornales en el total
 
       esRubroVacio: false,
       incluirEnCalculoDias: true // ✅ Por defecto incluir nuevos rubros en cálculo
@@ -4607,7 +4844,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
               // ✅ SIEMPRE REEMPLAZAR: Los arrays temporales son la fuente de verdad en modo edición
               profesionales: [...profesionalesCalc],
-              jornales: [...jornalesCalc],
+              jornales: jornalesDeduplicados,  // 🔑 FIX: usar version deduplicada
               materialesLista: [...materialesCalc],
               gastosGenerales: [...gastosGeneralesCalc],
 
@@ -4615,7 +4852,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               cantidadJornales: cantidadJornalesCalc || itemExistente.cantidadJornales,
               importeJornal: importeJornalCalc || itemExistente.importeJornal,
               subtotalManoObra: profesionalesCalc.reduce((sum, p) => sum + (p.subtotal || 0), 0),
-              subtotalJornales: jornalesCalc.reduce((sum, j) => sum + (j.subtotal || 0), 0),
+              subtotalJornales: subtotalJornalesDedup,  // 🔑 FIX: usar subtotal de version deduplicada
               subtotalMateriales: materialesCalc.reduce((sum, m) => sum + (m.subtotal || 0), 0),
               subtotalGastosGenerales: gastosGeneralesCalc.reduce((sum, g) => sum + (g.subtotal || 0), 0),
 
@@ -4625,7 +4862,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
               // Calcular total sumando todos los subtotales recalculados
               total: profesionalesCalc.reduce((sum, p) => sum + (p.subtotal || 0), 0) +
-                     jornalesCalc.reduce((sum, j) => sum + (j.subtotal || 0), 0) +
+                     subtotalJornalesDedup +  // 🔑 FIX: usar subtotal de version deduplicada
                      materialesCalc.reduce((sum, m) => sum + (m.subtotal || 0), 0) +
                      gastosGeneralesCalc.reduce((sum, g) => sum + (g.subtotal || 0), 0) +
                      (totalManual || 0),
@@ -4722,8 +4959,21 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     setProfesionalesCalc(profesionalesOriginales);
     // console.log('  ✅ Profesionales cargados en temporal:', profesionalesOriginales.length);
 
-    // Cargar jornales
-    const jornalesOriginales = item.jornales && item.jornales.length > 0 ? [...item.jornales] : [];
+    // Cargar jornales — deduplicar por contenido (rol+cant+val) para evitar que
+    // jornales acumulados por backend se propaguen al estado de edición
+    const jornalesOriginalesBrutos = item.jornales && item.jornales.length > 0 ? [...item.jornales] : [];
+    const seenJornalesEdit = new Set();
+    const jornalesOriginales = jornalesOriginalesBrutos.filter(j => {
+      const cant = Number(j.cantidadJornales || j.cantidad || 0);
+      const val  = Number(j.importeJornal || j.valorUnitario || 0);
+      const ck   = `${j.rol || ''}|${cant}|${val}`;
+      if (seenJornalesEdit.has(ck)) {
+        console.warn(`🗑️ [editarItem] Dedup jornal al editar: rol="${j.rol}" cant=${cant} val=${val}`);
+        return false;
+      }
+      seenJornalesEdit.add(ck);
+      return true;
+    });
     setJornalesCalc(jornalesOriginales);
     // console.log('  ✅ Jornales cargados en temporal:', jornalesOriginales.length);
 
@@ -5981,16 +6231,22 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       if (esGastoGeneral) {
         totalGastosGeneralesCalculadora += parseFloat(item.total) || 0;
       } else {
-        totalProfCalculadora += parseFloat(item.subtotalManoObra) || 0;
+        const tieneJornalesEnItem = item.jornales && item.jornales.length > 0;
+
+        // 🔑 FIX: Si el item tiene jornales en el array, NO sumar item.subtotalManoObra
+        // porque el backend calcula subtotalManoObra = suma de jornales → doble conteo
+        if (!tieneJornalesEnItem) {
+          totalProfCalculadora += parseFloat(item.subtotalManoObra) || 0;
+        }
         totalMatCalculadora += parseFloat(item.subtotalMateriales) || 0;
 
         // ✅ CALCULAR TOTAL DE JORNALES
-        if (item.jornales && item.jornales.length > 0) {
+        if (tieneJornalesEnItem) {
           const subtotalJornales = item.jornales.reduce((sum, j) => {
               const cant = Number(j.cantidadJornales || j.cantidad || 0);
               const val = Number(j.importeJornal || j.valorUnitario || 0);
-              const sub = Number(j.subtotal) || (cant * val);
-              return sum + sub;
+              // 🔑 FIX: Siempre cant × val, nunca j.subtotal (puede estar contaminado)
+              return sum + (cant * val);
           }, 0);
           totalJornalesCalculadora += subtotalJornales;
         } else if (item.subtotalJornales && item.subtotalJornales > 0) {
@@ -6014,7 +6270,12 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // ✅ AGREGAR JORNALES DEL FORM DIRECTOS (si existen)
     if (form.jornales && form.jornales.length > 0) {
-      const subtotalJornalesDirectos = form.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || 0), 0);
+      // 🔑 FIX: Siempre cant × val, nunca j.subtotal (puede estar contaminado del backend)
+      const subtotalJornalesDirectos = form.jornales.reduce((sum, j) => {
+        const cant = Number(j.cantidadJornales || j.cantidad || 0);
+        const val = Number(j.importeJornal || j.valorUnitario || 0);
+        return sum + (cant * val);
+      }, 0);
       totalJornalesCalculadora += subtotalJornalesDirectos;
     }
 
@@ -6432,21 +6693,58 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           };
         }
         acc[key].profesionales = acc[key].profesionales.concat(item.profesionales || []);
-        acc[key].jornales = acc[key].jornales.concat(item.jornales || []);
+        // 🔑 FIX: Deduplicar jornales por contenido (rol+cant+val) ANTES de concatenar
+        // Previene doble conteo cuando backend acumula jornales con id=null entre guardados
+        const jornalesItemDeduplicados = (() => {
+          if (!item.jornales || item.jornales.length === 0) return [];
+          const seenContent = new Set();
+          return item.jornales.filter(j => {
+            const cant = Number(j.cantidadJornales || j.cantidad || 0);
+            const val  = Number(j.importeJornal || j.valorUnitario || 0);
+            const ck   = `${j.rol || ''}|${cant}|${val}`;
+            if (seenContent.has(ck)) {
+              console.warn(`⚠️ [useMemo] Jornal duplicado filtrado en "${key}": rol="${j.rol}" cant=${cant} val=${val}`);
+              return false;
+            }
+            seenContent.add(ck);
+            return true;
+          });
+        })();
+        acc[key].jornales = acc[key].jornales.concat(jornalesItemDeduplicados);
         acc[key].materialesLista = acc[key].materialesLista.concat(item.materialesLista || []);
         acc[key].gastosGenerales = acc[key].gastosGenerales.concat(item.gastosGenerales || []);
 
         // Calcular subtotales desde los arrays si no vienen del backend
-        const subtotalJornalesCalculado = item.jornales ? item.jornales.reduce((sum, j) => sum + (Number(j.subtotal) || (Number(j.cantidadJornales || j.cantidad || 0) * Number(j.importeJornal || j.valorUnitario || 0)) || 0), 0) : 0;
+        // 🔑 FIX: Usar jornalesItemDeduplicados (sin duplicados) y SIEMPRE cant × val (nunca j.subtotal contaminado)
+        const subtotalJornalesCalculado = jornalesItemDeduplicados.reduce((sum, j) => {
+          const cant = Number(j.cantidadJornales || j.cantidad || 0);
+          const val  = Number(j.importeJornal || j.valorUnitario || 0);
+          return sum + (cant * val);
+        }, 0);
         const subtotalProfesionalesCalculado = item.profesionales ? item.profesionales.reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0) : 0;
         const subtotalMaterialesCalculado = item.materialesLista ? item.materialesLista.reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || (Number(m.cantidad || 0) * Number(m.precio || 0)) || 0), 0) : 0;
         const subtotalGastosGeneralesCalculado = item.gastosGenerales ? item.gastosGenerales.reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0) : 0;
 
-        // ✅ CORREGIDO: Usar siempre los valores calculados desde los arrays
-        acc[key].subtotalJornales += subtotalJornalesCalculado || Number(item.subtotalJornales || 0);
-        acc[key].subtotalManoObra += subtotalProfesionalesCalculado || Number(item.subtotalManoObra || 0);
-        acc[key].subtotalMateriales += subtotalMaterialesCalculado || Number(item.subtotalMateriales || 0);
-        acc[key].subtotalGastosGenerales += subtotalGastosGeneralesCalculado || Number(item.subtotalGastosGenerales || 0);
+        // ✅ Variables efectivas: si el array está poblado, usar SIEMPRE el valor calculado (aunque sea 0).
+        // Solo usar el campo del backend como ÚLTIMO RECURSO si el array está vacío,
+        // para evitar doble-aplicación de honorarios cuando el backend guardó valores ya inflados.
+        const jornalesEfectivo = item.jornales?.length > 0 ? subtotalJornalesCalculado : Number(item.subtotalJornales || 0);
+        // 🔑 FIX CRÍTICO: Si el item tiene jornales en su array, NO usar item.subtotalManoObra
+        // como fallback — el backend lo calculó incluyendo los jornales, causando doble conteo.
+        // Si no hay profesionales Y hay jornales → profesionalesEfectivo = 0.
+        const profesionalesEfectivo = item.profesionales?.length > 0
+          ? subtotalProfesionalesCalculado
+          : (item.jornales?.length > 0 ? 0 : Number(item.subtotalManoObra || 0));
+        const materialesEfectivo = item.materialesLista?.length > 0 ? subtotalMaterialesCalculado : Number(item.subtotalMateriales || 0);
+        const gastosEfectivo = item.gastosGenerales?.length > 0 ? subtotalGastosGeneralesCalculado : Number(item.subtotalGastosGenerales || 0);
+        // ✅ totalManual solo se suma cuando el item fue guardado en modo manual (esModoManual=true)
+        // Si esModoManual=false y existe un totalManual residual de ediciones previas, se ignora para evitar doble conteo
+        const manualEfectivo = item.esModoManual === true ? Number(item.totalManual || 0) : 0;
+
+        acc[key].subtotalJornales += jornalesEfectivo;
+        acc[key].subtotalManoObra += profesionalesEfectivo;
+        acc[key].subtotalMateriales += materialesEfectivo;
+        acc[key].subtotalGastosGenerales += gastosEfectivo;
 
         if (item.descripcion && item.descripcion.trim()) {
           acc[key].descripcion = item.descripcion;
@@ -6493,17 +6791,17 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           acc[key].observacionesTotalManual = item.observacionesTotalManual;
         }
 
-        // Calcular el total base incluyendo totalManual
-        // ✅ CORREGIDO: Usar valores calculados desde arrays, NO desde campos del backend
-        const baseItem = subtotalJornalesCalculado +
-                        subtotalProfesionalesCalculado +
-                        subtotalMaterialesCalculado +
-                        subtotalGastosGeneralesCalculado +
-                        Number(item.totalManual || 0);
+        // Calcular el total base usando los mismos valores efectivos que los subtotales mostrados
+        // ✅ totalManual solo se incluye cuando esModoManual=true para evitar doble conteo
+        const baseItem = jornalesEfectivo +
+                        profesionalesEfectivo +
+                        materialesEfectivo +
+                        gastosEfectivo +
+                        manualEfectivo;
         acc[key].total += baseItem;
 
-        // Acumular totalManual también
-        if (item.totalManual && Number(item.totalManual) > 0) {
+        // Acumular totalManual solo si aplica (modo manual)
+        if (item.esModoManual === true && item.totalManual && Number(item.totalManual) > 0) {
           acc[key].totalManual = (acc[key].totalManual || 0) + Number(item.totalManual);
         }
 
@@ -6515,7 +6813,39 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     );
 
 
-    if (form.honorarios) {
+    // ✅ Normalizar config honorarios: acepta objeto anidado (form.honorarios) O campos planos del backend
+    const honorariosConfig = form.honorarios || (() => {
+      const tieneHonorarioPlano =
+        form.honorariosJornalesActivo || form.honorariosJornalesValor ||
+        form.honorariosMaterialesActivo || form.honorariosMaterialesValor ||
+        form.honorariosGastosActivo || form.honorariosGastosValor ||
+        form.honorariosProfesionalesActivo || form.honorariosProfesionalesValor;
+      if (!tieneHonorarioPlano) return null;
+      return {
+        jornales: (form.honorariosJornalesActivo || form.honorariosJornalesValor) ? {
+          activo: !!form.honorariosJornalesActivo,
+          valor: form.honorariosJornalesValor,
+          tipo: form.honorariosJornalesTipo || 'porcentaje'
+        } : null,
+        profesionales: (form.honorariosProfesionalesActivo || form.honorariosProfesionalesValor) ? {
+          activo: !!form.honorariosProfesionalesActivo,
+          valor: form.honorariosProfesionalesValor,
+          tipo: form.honorariosProfesionalesTipo || 'porcentaje'
+        } : null,
+        materiales: (form.honorariosMaterialesActivo || form.honorariosMaterialesValor) ? {
+          activo: !!form.honorariosMaterialesActivo,
+          valor: form.honorariosMaterialesValor,
+          tipo: form.honorariosMaterialesTipo || 'porcentaje'
+        } : null,
+        otrosCostos: (form.honorariosGastosActivo || form.honorariosGastosValor) ? {
+          activo: !!form.honorariosGastosActivo,
+          valor: form.honorariosGastosValor,
+          tipo: form.honorariosGastosTipo || 'porcentaje'
+        } : null,
+      };
+    })();
+
+    if (honorariosConfig) {
       agrupados.forEach(rubro => {
         let honorariosRubro = 0;
         let honorariosJornales = 0;
@@ -6524,9 +6854,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         let honorariosGastosGenerales = 0;
         let honorariosTotalManual = 0;
 
-        if (form.honorarios.aplicarATodos && form.honorarios.valorGeneral) {
-          const valor = Number(form.honorarios.valorGeneral);
-          if (form.honorarios.tipoGeneral === 'porcentaje') {
+        if (honorariosConfig.aplicarATodos && honorariosConfig.valorGeneral) {
+          const valor = Number(honorariosConfig.valorGeneral);
+          if (honorariosConfig.tipoGeneral === 'porcentaje') {
             honorariosJornales = (rubro.subtotalJornales * valor) / 100;
             honorariosManoObra = (rubro.subtotalManoObra * valor) / 100;
             honorariosMateriales = (rubro.subtotalMateriales * valor) / 100;
@@ -6539,8 +6869,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           }
         } else {
           // 🔄 HONORARIOS DE JORNALES - Considerar modo de aplicación
-          if (form.honorarios.jornales?.activo) {
-            const configJornales = form.honorarios.jornales;
+          if (honorariosConfig.jornales?.activo) {
+            const configJornales = honorariosConfig.jornales;
 
             // Modo "porRol" - calcular honorarios por cada jornal según su rol
             if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol && rubro.jornales) {
@@ -6578,25 +6908,25 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             }
           }
 
-          if (form.honorarios.profesionales?.activo && form.honorarios.profesionales?.valor) {
-            const valor = Number(form.honorarios.profesionales.valor);
-            if (form.honorarios.profesionales.tipo === 'porcentaje') {
+          if (honorariosConfig.profesionales?.activo && honorariosConfig.profesionales?.valor) {
+            const valor = Number(honorariosConfig.profesionales.valor);
+            if (honorariosConfig.profesionales.tipo === 'porcentaje') {
               honorariosManoObra = (rubro.subtotalManoObra * valor) / 100;
               honorariosRubro += honorariosManoObra;
             }
           }
 
-          if (form.honorarios.materiales?.activo && form.honorarios.materiales?.valor) {
-            const valor = Number(form.honorarios.materiales.valor);
-            if (form.honorarios.materiales.tipo === 'porcentaje') {
+          if (honorariosConfig.materiales?.activo && honorariosConfig.materiales?.valor) {
+            const valor = Number(honorariosConfig.materiales.valor);
+            if (honorariosConfig.materiales.tipo === 'porcentaje') {
               honorariosMateriales = (rubro.subtotalMateriales * valor) / 100;
               honorariosRubro += honorariosMateriales;
             }
           }
 
-          if (form.honorarios.otrosCostos?.activo && form.honorarios.otrosCostos?.valor) {
-            const valor = Number(form.honorarios.otrosCostos.valor);
-            if (form.honorarios.otrosCostos.tipo === 'porcentaje') {
+          if (honorariosConfig.otrosCostos?.activo && honorariosConfig.otrosCostos?.valor) {
+            const valor = Number(honorariosConfig.otrosCostos.valor);
+            if (honorariosConfig.otrosCostos.tipo === 'porcentaje') {
               honorariosGastosGenerales = (rubro.subtotalGastosGenerales * valor) / 100;
               honorariosRubro += honorariosGastosGenerales;
             }
@@ -6604,10 +6934,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
           // Aplicar honorarios de "configuracionPresupuesto" al Total Manual
           if (rubro.totalManual && rubro.totalManual > 0 &&
-              form.honorarios.configuracionPresupuesto?.activo &&
-              form.honorarios.configuracionPresupuesto?.valor) {
-            const valor = Number(form.honorarios.configuracionPresupuesto.valor);
-            if (form.honorarios.configuracionPresupuesto.tipo === 'porcentaje') {
+              honorariosConfig.configuracionPresupuesto?.activo &&
+              honorariosConfig.configuracionPresupuesto?.valor) {
+            const valor = Number(honorariosConfig.configuracionPresupuesto.valor);
+            if (honorariosConfig.configuracionPresupuesto.tipo === 'porcentaje') {
               honorariosTotalManual = (rubro.totalManual * valor) / 100;
               honorariosRubro += honorariosTotalManual;
             }
@@ -6775,6 +7105,100 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       });
     }
 
+    // ✅ Garantizar que los campos "Final" siempre estén definidos para el display.
+    // Estos campos solo se asignan dentro del bloque if (form.mayoresCostos), pero si no hay
+    // mayores costos configurados quedan undefined. En ese caso usar el valor "ConHonorarios"
+    // (base + honorarios) como fallback, y si tampoco existe, usar el base puro.
+    agrupados.forEach(rubro => {
+      if (rubro.subtotalJornalesFinal === undefined || isNaN(rubro.subtotalJornalesFinal)) {
+        rubro.subtotalJornalesFinal =
+          (rubro.subtotalJornalesConHonorarios !== undefined && !isNaN(rubro.subtotalJornalesConHonorarios))
+            ? rubro.subtotalJornalesConHonorarios
+            : (rubro.subtotalJornales || 0);
+      }
+      if (rubro.subtotalManoObraFinal === undefined || isNaN(rubro.subtotalManoObraFinal)) {
+        rubro.subtotalManoObraFinal =
+          (rubro.subtotalManoObraConHonorarios !== undefined && !isNaN(rubro.subtotalManoObraConHonorarios))
+            ? rubro.subtotalManoObraConHonorarios
+            : (rubro.subtotalManoObra || 0);
+      }
+      if (rubro.subtotalMaterialesFinal === undefined || isNaN(rubro.subtotalMaterialesFinal)) {
+        rubro.subtotalMaterialesFinal =
+          (rubro.subtotalMaterialesConHonorarios !== undefined && !isNaN(rubro.subtotalMaterialesConHonorarios))
+            ? rubro.subtotalMaterialesConHonorarios
+            : (rubro.subtotalMateriales || 0);
+      }
+      if (rubro.subtotalGastosGeneralesFinal === undefined || isNaN(rubro.subtotalGastosGeneralesFinal)) {
+        rubro.subtotalGastosGeneralesFinal =
+          (rubro.subtotalGastosGeneralesConHonorarios !== undefined && !isNaN(rubro.subtotalGastosGeneralesConHonorarios))
+            ? rubro.subtotalGastosGeneralesConHonorarios
+            : (rubro.subtotalGastosGenerales || 0);
+      }
+    });
+
+    // 💸 APLICAR DESCUENTOS y calcular campos display por categoría
+    // displayJornales = jornalesBase+honorarios+mayoresCostos - descJornalesBase - descHonJornales
+    // displayManoObra = manoObraBase+honorarios+mayoresCostos - descHonProfesionales  (fusionado con Jornales en la UI)
+    // displayMateriales = materialesBase+honorarios+mayoresCostos - descMaterialesBase - descHonMateriales
+    // displayGastosGenerales = gastosBase+honorarios+mayoresCostos - descHonGastos
+    agrupados.forEach(rubro => {
+      const d = form.descuentos;
+      let descJornalesBase = 0, descManoObraBase = 0, descMaterialesBase = 0, descGastosBase = 0;
+      let descHonJornales = 0, descHonManoObra = 0, descHonMateriales = 0, descHonGastos = 0;
+
+      if (d) {
+        // Descuentos sobre base jornales + sus mayores costos
+        if (d.jornales?.activo && d.jornales?.valor) {
+          const val = Number(d.jornales.valor);
+          const base = (rubro.subtotalJornales || 0) + (rubro.mayoresCostosJornales || 0);
+          descJornalesBase = d.jornales.tipo === 'porcentaje' ? (base * val) / 100 : val;
+        }
+        // Descuentos sobre base materiales + sus mayores costos
+        if (d.materiales?.activo && d.materiales?.valor) {
+          const val = Number(d.materiales.valor);
+          const base = (rubro.subtotalMateriales || 0) + (rubro.mayoresCostosMateriales || 0);
+          descMaterialesBase = d.materiales.tipo === 'porcentaje' ? (base * val) / 100 : val;
+        }
+        // Descuentos sobre honorarios de jornales
+        if (d.honorariosJornales?.activo && d.honorariosJornales?.valor) {
+          const val = Number(d.honorariosJornales.valor);
+          const base = rubro.honorariosJornales || 0;
+          descHonJornales = d.honorariosJornales.tipo === 'porcentaje' ? (base * val) / 100 : val;
+        }
+        // Descuentos sobre honorarios de profesionales/mano obra
+        if (d.honorariosProfesionales?.activo && d.honorariosProfesionales?.valor) {
+          const val = Number(d.honorariosProfesionales.valor);
+          const base = rubro.honorariosManoObra || 0;
+          descHonManoObra = d.honorariosProfesionales.tipo === 'porcentaje' ? (base * val) / 100 : val;
+        }
+        // Descuentos sobre honorarios de materiales
+        if (d.honorariosMateriales?.activo && d.honorariosMateriales?.valor) {
+          const val = Number(d.honorariosMateriales.valor);
+          const base = rubro.honorariosMateriales || 0;
+          descHonMateriales = d.honorariosMateriales.tipo === 'porcentaje' ? (base * val) / 100 : val;
+        }
+        // Descuentos sobre honorarios de gastos generales
+        if (d.honorariosGastosGenerales?.activo && d.honorariosGastosGenerales?.valor) {
+          const val = Number(d.honorariosGastosGenerales.valor);
+          const base = rubro.honorariosGastosGenerales || 0;
+          descHonGastos = d.honorariosGastosGenerales.tipo === 'porcentaje' ? (base * val) / 100 : val;
+        }
+      }
+
+      // Campos display: base + honorarios + mayores costos - descuentos
+      rubro.displayJornales = (rubro.subtotalJornalesFinal || 0) - descJornalesBase - descHonJornales;
+      rubro.displayManoObra = (rubro.subtotalManoObraFinal || 0) - descManoObraBase - descHonManoObra;
+      rubro.displayMateriales = (rubro.subtotalMaterialesFinal || 0) - descMaterialesBase - descHonMateriales;
+      rubro.displayGastosGenerales = (rubro.subtotalGastosGeneralesFinal || 0) - descGastosBase - descHonGastos;
+
+      const totalDescuentos = descJornalesBase + descManoObraBase + descMaterialesBase + descGastosBase +
+                               descHonJornales + descHonManoObra + descHonMateriales + descHonGastos;
+      if (totalDescuentos > 0) {
+        rubro.total -= totalDescuentos;
+        rubro.descuentosAplicados = totalDescuentos;
+      }
+    });
+
     const totalConsolidado = agrupados.reduce((sum, r) => sum + r.total, 0);
 
     // 🐞 DEBUG CRÍTICO: Verificar valores DESPUÉS de consolidar
@@ -6798,7 +7222,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   }, [
     itemsCalculadora,
     form.honorarios,
-    form.mayoresCostos
+    form.mayoresCostos,
+    // Campos planos de honorarios (backend)
+    form.honorariosJornalesActivo, form.honorariosJornalesValor, form.honorariosJornalesTipo,
+    form.honorariosProfesionalesActivo, form.honorariosProfesionalesValor, form.honorariosProfesionalesTipo,
+    form.honorariosMaterialesActivo, form.honorariosMaterialesValor, form.honorariosMaterialesTipo,
+    form.honorariosGastosActivo, form.honorariosGastosValor, form.honorariosGastosTipo,
+    form.descuentos,
   ]);
 
   // 🎯 Modo de presupuesto detectado con hook reutilizable (ver línea ~237)
@@ -6828,15 +7258,16 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     if (name === 'tipoPresupuesto') {
       console.log('🔄 Cambiando tipo de presupuesto a:', value);
 
-      if (value === 'TRABAJO_DIARIO' || value === 'TAREA_LEVE') {
-        // Tipos con auto-aprobación (estado inicial APROBADO según backend)
+      if (value === 'TRABAJO_DIARIO') {
+        // TRABAJO_DIARIO: se aprueba automáticamente al crearse (estado APROBADO inmediato)
         setForm(prev => ({
           ...prev,
           [name]: value,
           estado: 'APROBADO'
         }));
-      } else if (value === 'TRABAJO_EXTRA' || value === 'TRADICIONAL') {
-        // Tipos que requieren aprobación manual (estado inicial BORRADOR)
+      } else if (value === 'TRABAJO_EXTRA' || value === 'TRADICIONAL' || value === 'TAREA_LEVE') {
+        // TRADICIONAL/TRABAJO_EXTRA: requieren aprobación manual → estado BORRADOR
+        // TAREA_LEVE (v2.2): ya NO auto-aprueba. Inicia en BORRADOR. Flujo: BORRADOR → TERMINADO
         setForm(prev => ({
           ...prev,
           [name]: value,
@@ -7660,12 +8091,30 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   };
 
   const prepararDatosParaEnvio = () => {
-    // 🔧 Si modoTrabajoExtra está activo, forzar tipoPresupuesto a TRABAJO_EXTRA
-    // (puede estar mal inicializado como 'TRADICIONAL' desde initialData)
-    const tipoPresupuestoEfectivo =
-      modoTrabajoExtra && form.tipoPresupuesto !== 'TAREA_LEVE'
-        ? 'TRABAJO_EXTRA'
-        : (form.tipoPresupuesto || 'TRADICIONAL');
+    // 🔧 Determinar tipoPresupuesto efectivo con prioridad correcta:
+    // 1. Si modoTrabajoExtra y NO es TAREA_LEVE → forzar TRABAJO_EXTRA
+    // 2. Si form.tipoPresupuesto existe → usarlo (preserva TAREA_LEVE, TRABAJO_EXTRA, etc.)
+    // 3. Si initialData.tipoPresupuesto existe → usarlo
+    // 4. Solo si todo falla → usar 'TRADICIONAL' por defecto
+    const tipoPresupuestoEfectivo = (() => {
+      if (modoTrabajoExtra && form.tipoPresupuesto !== 'TAREA_LEVE') {
+        return 'TRABAJO_EXTRA';
+      }
+      if (form.tipoPresupuesto) {
+        return form.tipoPresupuesto;
+      }
+      if (initialData?.tipoPresupuesto) {
+        return initialData.tipoPresupuesto;
+      }
+      return 'TRADICIONAL';
+    })();
+
+    console.log('🔍 [TIPO PRESUPUESTO] Determinado:', {
+      tipoPresupuestoEfectivo,
+      'form.tipoPresupuesto': form.tipoPresupuesto,
+      'initialData.tipoPresupuesto': initialData?.tipoPresupuesto,
+      modoTrabajoExtra
+    });
 
     const payload = {
       ...form,
@@ -7883,7 +8332,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     }
 
     payload.tipoProfesionalPresupuesto = valoresPresupuesto.tipoProfesional || null;
-    payload.modoPresupuesto = valoresPresupuesto.modoSeleccionado || null;
+    // 🔧 CRÍTICO: modoPresupuesto es NOT NULL en la BD.
+    // Debe ser igual al tipoPresupuesto (ej: 'TRADICIONAL', 'TRABAJO_EXTRA', 'TAREA_LEVE').
+    // valoresPresupuesto.modoSeleccionado guarda el modo de cobro profesional (hora/dia/...)
+    // que va en otros campos (importeHora, importeDia...) y NO en modoPresupuesto.
+    payload.modoPresupuesto = tipoPresupuestoEfectivo;
     payload.importeHora = valoresPresupuesto.importeHora ? Number(valoresPresupuesto.importeHora) : null;
     payload.importeDia = valoresPresupuesto.importeDia ? Number(valoresPresupuesto.importeDia) : null;
     payload.importeSemana = valoresPresupuesto.importeSemana ? Number(valoresPresupuesto.importeSemana) : null;
@@ -8506,8 +8959,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         }
 
         return {
-          // ✅ CRÍTICO: Al editar trabajos extra, NO enviar ID del rubro (causaría error 409)
-          id: esTrabajoExtra && payload.id ? null : (item.id || null),
+          // 🔑 FIX: Enviar el ID real del item para que el backend haga UPDATE (no DELETE+INSERT).
+          // Al hacer UPDATE del item, el backend reemplaza correctamente los jornales anidados,
+          // igual que ocurre con materialesLista. Enviar null causaba acumulación de jornales
+          // porque el backend creaba un item nuevo sin borrar los jornales del item viejo.
+          id: item.id && String(item.id).length < 15 ? item.id : null,
           tipoProfesional: item.tipoProfesional || '',
           descripcion: item.descripcion || null,
           observaciones: item.observaciones || null,
@@ -8529,8 +8985,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           subtotalJornales: (item.jornales || []).reduce((sum, j) => {
               const cant = Number(j.cantidadJornales || j.cantidad || 0);
               const val = Number(j.importeJornal || j.valorUnitario || 0);
-              const sub = Number(j.subtotal) || (cant * val);
-              return sum + sub;
+              // 🔑 FIX: Siempre recalcular desde cant × val para evitar contaminar DB
+              return sum + (cant * val);
           }, 0),
           subtotalManoObra: (item.profesionales || []).reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0),
           materiales: Number(materialesParaBackend ?? 0),
@@ -8542,8 +8998,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             const subtotalJornales = (item.jornales || []).reduce((sum, j) => {
                 const cant = Number(j.cantidadJornales || j.cantidad || 0);
                 const val = Number(j.importeJornal || j.valorUnitario || 0);
-                const sub = Number(j.subtotal) || (cant * val);
-                return sum + sub;
+                // 🔑 FIX: Siempre cant × val, nunca j.subtotal (puede estar contaminado)
+                return sum + (cant * val);
             }, 0);
             const subtotalProfesionales = (item.profesionales || []).reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0);
             const subtotalMateriales = (item.materialesLista || []).reduce((sum, m) => sum + (Number(m.subtotal) || Number(m.total) || 0), 0);
@@ -8579,7 +9035,22 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             sinCantidad: Boolean(prof.sinCantidad || false), // Boolean para casos sin cantidad
             sinImporte: Boolean(prof.sinImporte || false) // Boolean para casos sin importe
           })),
-          jornales: (item.jornales || []).map(jornal => {
+          jornales: (() => {
+            // 🔑 FIX: Deduplicar jornales por contenido antes de enviar al backend
+            // Corta el ciclo de acumulación: si el backend retornó duplicados, no los re-enviamos
+            const seenJornalesPayload = new Set();
+            const jornalesDeduplicadosPayload = (item.jornales || []).filter(j => {
+              const cant = Number(j.cantidadJornales || j.cantidad || 0);
+              const val  = Number(j.importeJornal || j.valorUnitario || 0);
+              const ck   = `${j.rol || ''}|${cant}|${val}`;
+              if (seenJornalesPayload.has(ck)) {
+                console.warn(`🗑️ [payload] Dedup jornal descartado: rol="${j.rol}" val=${val}`);
+                return false;
+              }
+              seenJornalesPayload.add(ck);
+              return true;
+            });
+            return jornalesDeduplicadosPayload.map(jornal => {
             console.log(`📤 ENVIANDO JORNAL de "${item.tipoProfesional}":`, {
               rol: jornal.rol,
               incluirOriginal: jornal.incluirEnCalculoDias,
@@ -8598,24 +9069,28 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             });
 
             return {
-              // ✅ CRÍTICO: Al editar trabajos extra, NO enviar IDs (causaría error 409 por duplicación)
-              // El backend eliminará los jornales viejos y creará nuevos
-              id: esTrabajoExtra && payload.id ? null : (jornal.id && jornal.id < 1000000 ? jornal.id : null),
+              // 🔑 FIX: Enviar el ID real del jornal para que el backend haga UPDATE.
+              // Al enviar null, el backend insertaba jornales nuevos sin borrar los viejos → acumulación.
+              // Mismo comportamiento que materialesLista (que no duplica).
+              id: jornal.id && jornal.id < 1000000 ? jornal.id : null,
               rol: jornal.rol || '',
               cantidad: Number(jornal.cantidadJornales || jornal.cantidad || 0),
               valorUnitario: Number(jornal.importeJornal || jornal.valorUnitario || 0),
-              subtotal: Number(jornal.subtotal || 0),
+              // 🔑 FIX CRÍTICO: Recalcular subtotal desde cant × val en lugar de usar
+              // el valor guardado, que puede venir contaminado con honorarios
+              subtotal: Number(jornal.cantidadJornales || jornal.cantidad || 0) * Number(jornal.importeJornal || jornal.valorUnitario || 0),
               observaciones: jornal.observaciones || null,
               incluirEnCalculoDias: valorFinalIncluir, // ✅ CHECKBOX - usar valor calculado
               // ✅ CAMPOS OBLIGATORIOS FALTANTES:
               esModoManual: jornal.esModoManual || false,
               tipoProfesional: jornal.tipoProfesional || jornal.rol || '',
-              total: Number(jornal.subtotal || (jornal.cantidad || jornal.cantidadJornales || 0) * (jornal.valorUnitario || jornal.importeJornal || 0)),
+              total: Number(jornal.cantidadJornales || jornal.cantidad || 0) * Number(jornal.importeJornal || jornal.valorUnitario || 0),
               empresaId: Number(payload.idEmpresa || empresaSeleccionada?.id || 3),
               // ✅ CRÍTICO: En trabajos extra, NO enviar presupuestoNoClienteId (causaría error 409)
               presupuestoNoClienteId: esTrabajoExtra ? null : (payload.id || null)
             };
-          }),
+          });
+          })(),
           materialesLista: (item.materialesLista || []).map(material => {
             // 🔍 Detectar material global por flag o patrón de descripción
             let esGlobalDetectado = false;
@@ -8634,8 +9109,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             }
 
             return {
-              // ✅ Al editar trabajos extra, NO enviar IDs para evitar conflictos 409
-              id: esTrabajoExtra && payload.id ? null : (material.id && material.id < 1000000 ? material.id : null),
+              // 🔑 FIX: Enviar el ID real del material para que el backend haga UPDATE.
+              // Al enviar null, el backend insertaba materiales nuevos sin borrar los viejos → acumulación.
+              // Mismo comportamiento que jornales (que ya no duplica).
+              id: material.id && material.id < 1000000 ? material.id : null,
               nombre: material.nombre || material.descripcion || 'Material sin nombre', // ✅ CRÍTICO: campo obligatorio en BD
               descripcion: material.descripcion || material.nombre,
               cantidad: Number(material.cantidad ?? 0),
@@ -8676,8 +9153,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             });
 
             return {
-              // ✅ Al editar trabajos extra, NO enviar IDs para evitar conflictos 409
-              id: esTrabajoExtra && payload.id ? null : (gasto.id && gasto.id < 1000000 ? gasto.id : null),
+              // 🔑 FIX: Enviar el ID real del gasto para que el backend haga UPDATE.
+              // Al enviar null, el backend insertaba gastos nuevos sin borrar los viejos → acumulación.
+              // Mismo comportamiento que jornales (que ya no duplica).
+              id: gasto.id && gasto.id < 1000000 ? gasto.id : null,
               descripcion: gasto.descripcion,
               cantidad: Number(gasto.cantidad ?? 0),
               precioUnitario: Number(gasto.precioUnitario ?? 0),
@@ -9518,7 +9997,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 Presupuesto Vinculado
                                 {form.esPresupuestoTrabajoExtra && (
                                   <span className="badge bg-warning text-dark ms-2" style={{fontSize: '0.8rem', padding: '4px 10px'}}>
-                                    🔧 TRABAJO EXTRA
+                                    🔧 ADICIONAL OBRA
                                   </span>
                                 )}
                               </h6>
@@ -9557,7 +10036,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               {form.esPresupuestoTrabajoExtra && (
                                 <div className="alert alert-warning d-flex align-items-center gap-2 mt-2 mb-0" style={{padding: '8px 12px', fontSize: '0.9rem', borderRadius: '8px', backgroundColor: '#fff3cd'}}>
                                   <span style={{fontSize: '1.2rem'}}>🔧</span>
-                                  <strong>TRABAJO EXTRA:</strong> Este presupuesto está marcado como trabajo extra de la obra vinculada
+                                  <strong>ADICIONAL OBRA:</strong> Este presupuesto está marcado como adicional de la obra vinculada
                                 </div>
                               )}
                               <small className="text-muted d-block mt-2">
@@ -9633,8 +10112,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             </div>
                             )}
 
-                            {/* Campos de dirección - Excepto modo trabajo extra */}
-                            {!modoTrabajoExtra && (
+                            {/* Campos de dirección - Excepto modo trabajo extra y TAREA_LEVE (usa datos de la obra) */}
+                            {!modoTrabajoExtra && form.tipoPresupuesto !== 'TAREA_LEVE' && initialData?.tipoPresupuesto !== 'TAREA_LEVE' && (
                               <div className="row g-2 mb-2">
                                 <div className="col-md-2">
                                   <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Calle *
@@ -9718,8 +10197,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               </div>
                             )}
 
-                            {/* Datos del solicitante - Excepto modo trabajo extra */}
-                            {!modoTrabajoExtra && (
+                            {/* Datos del solicitante - Excepto modo trabajo extra y TAREA_LEVE (usa datos de la obra) */}
+                            {!modoTrabajoExtra && form.tipoPresupuesto !== 'TAREA_LEVE' && initialData?.tipoPresupuesto !== 'TAREA_LEVE' && (
                               <div className="row g-2">
                                 <div className="col-md-3">
                                   <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>Nombre solicitante
@@ -12737,41 +13216,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                           <span>
                                             <i className="fas fa-box me-1"></i>
                                             {(() => {
+                                              // ✅ Mostrar precio BASE (sin honorarios/mayores costos)
+                                              // Los honorarios se ven en el Total de la fila, no aquí
                                               const subtotalBase = Number(mat.subtotal || 0);
-                                              let subtotalFinal = subtotalBase;
-                                              let honorarios = 0;
-                                              let mayoresCostosBase = 0;
-                                              let mayoresCostosHonorarios = 0;
-
-                                              // Calcular honorarios
-                                              if (form.honorarios?.materiales?.activo && form.honorarios?.materiales?.valor) {
-                                                const valorHonorario = Number(form.honorarios.materiales.valor);
-                                                if (form.honorarios.materiales.tipo === 'porcentaje') {
-                                                  honorarios = (subtotalBase * valorHonorario) / 100;
-                                                }
-                                              }
-
-                                              // Calcular mayores costos sobre la base
-                                              if (form.mayoresCostos?.materiales?.activo && form.mayoresCostos?.materiales?.valor) {
-                                                const valorMayorCosto = Number(form.mayoresCostos.materiales.valor);
-                                                if (form.mayoresCostos.materiales.tipo === 'porcentaje') {
-                                                  mayoresCostosBase = (subtotalBase * valorMayorCosto) / 100;
-                                                }
-                                              }
-
-                                              // Calcular mayores costos sobre honorarios
-                                              if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
-                                                const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
-                                                if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
-                                                  mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
-                                                }
-                                              }
-
-                                              subtotalFinal = subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
-                                              const precioUnitarioFinal = mat.cantidad > 0 ? subtotalFinal / Number(mat.cantidad) : 0;
-                                              const precioDisplay = precioUnitarioFinal.toLocaleString('es-AR');
-
-                                              return `${mat.descripcion}: ${mat.cantidad} × $${precioDisplay} = $${subtotalFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}`;
+                                              const cantidad = Number(mat.cantidad || 1);
+                                              // Usar precio unitario almacenado; si no existe, derivar del subtotal base
+                                              const precioUnitario = Number(mat.precioUnitario || mat.precio || 0) || (cantidad > 0 ? subtotalBase / cantidad : 0);
+                                              return `${mat.descripcion}: ${cantidad} × $${precioUnitario.toLocaleString('es-AR')} = $${subtotalBase.toLocaleString('es-AR', {minimumFractionDigits: 2})}`;
                                             })()}
                                           </span>
                                           <div style={{display: 'flex', gap: '4px'}}>
@@ -12911,16 +13362,17 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     <div className="mt-1">
                                       <div className="small fw-bold text-primary">Jornales:</div>
                                       {item.jornales.map((jornal) => {
+                                        // ✅ SOLO BASE: precio y subtotal sin honorarios/mayores costos
                                         const cantidad = Number(jornal.cantidadJornales || jornal.cantidad || 0);
                                         const valorUnitarioBase = Number(jornal.importeJornal || jornal.valorUnitario || 0);
                                         const subtotalBase = Number(jornal.subtotal || (cantidad * valorUnitarioBase));
 
+                                        // Ignorar honorarios y mayores costos — se muestran solo en Total
                                         let honorarios = 0;
                                         let mayoresCostosBase = 0;
                                         let mayoresCostosHonorarios = 0;
 
-                                        // Calcular honorarios para jornales
-                                        if (form.honorarios?.jornales?.activo) {
+                                        if (false && form.honorarios?.jornales?.activo) {
                                           const configJornales = form.honorarios.jornales;
                                           // Modo porRol
                                           if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
@@ -12977,9 +13429,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                           }
                                         }
 
-                                        const subtotalFinal = subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
-                                        const valorUnitarioFinal = cantidad > 0 ? subtotalFinal / cantidad : 0;
-                                        const subtotal = subtotalFinal;
+                                        // Mostrar siempre la base (ignorar subtotalFinal inflado)
+                                        const subtotalFinal = subtotalBase; // BASE únicamente
+                                        const valorUnitarioFinal = valorUnitarioBase || (cantidad > 0 ? subtotalBase / cantidad : 0);
+                                        const subtotal = subtotalBase;
 
                                         // ✨ Los checkboxes SIEMPRE empiezan destildados, el usuario debe tildarlos explícitamente
                                         const esModoManual = form.calculoAutomaticoDiasHabiles === false;
@@ -13201,146 +13654,27 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       {(item.profesionales && item.profesionales.length > 0) || (item.materialesLista && item.materialesLista.length > 0) || (item.gastosGenerales && item.gastosGenerales.length > 0) || (item.jornales && item.jornales.length > 0) ? (
                                         <div>
                                           {(() => {
-                                            // ✅ CALCULAR BADGES CON LA MISMA LÓGICA QUE LA COLUMNA DE DETALLES
-                                            let materialesFinal = 0;
-                                            let gastosGeneralesFinal = 0;
-                                            let jornalesFinal = 0;
-
-                                            // MATERIALES - Calcular individualmente cada material
-                                            if (item.materialesLista && item.materialesLista.length > 0) {
-                                              item.materialesLista.forEach(mat => {
-                                                const subtotalBase = Number(mat.subtotal || 0);
-                                                let honorarios = 0;
-                                                let mayoresCostosBase = 0;
-                                                let mayoresCostosHonorarios = 0;
-
-                                                if (form.honorarios?.materiales?.activo && form.honorarios?.materiales?.valor) {
-                                                  const valorHonorario = Number(form.honorarios.materiales.valor);
-                                                  if (form.honorarios.materiales.tipo === 'porcentaje') {
-                                                    honorarios = (subtotalBase * valorHonorario) / 100;
-                                                  }
-                                                }
-
-                                                if (form.mayoresCostos?.materiales?.activo && form.mayoresCostos?.materiales?.valor) {
-                                                  const valorMayorCosto = Number(form.mayoresCostos.materiales.valor);
-                                                  if (form.mayoresCostos.materiales.tipo === 'porcentaje') {
-                                                    mayoresCostosBase = (subtotalBase * valorMayorCosto) / 100;
-                                                  }
-                                                }
-
-                                                if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
-                                                  const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
-                                                  if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
-                                                    mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
-                                                  }
-                                                }
-
-                                                materialesFinal += subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
-                                              });
-                                            }
-
-                                            // GASTOS GENERALES - Calcular individualmente cada gasto
-                                            if (item.gastosGenerales && item.gastosGenerales.length > 0) {
-                                              item.gastosGenerales.forEach(gasto => {
-                                                const subtotalBase = Number(gasto.subtotal || 0);
-                                                let honorarios = 0;
-                                                let mayoresCostosBase = 0;
-                                                let mayoresCostosHonorarios = 0;
-
-                                                if (form.honorarios?.otrosCostos?.activo && form.honorarios?.otrosCostos?.valor) {
-                                                  const valorHonorario = Number(form.honorarios.otrosCostos.valor);
-                                                  if (form.honorarios.otrosCostos.tipo === 'porcentaje') {
-                                                    honorarios = (subtotalBase * valorHonorario) / 100;
-                                                  }
-                                                }
-
-                                                if (form.mayoresCostos?.otrosCostos?.activo && form.mayoresCostos?.otrosCostos?.valor) {
-                                                  const valorMayorCosto = Number(form.mayoresCostos.otrosCostos.valor);
-                                                  if (form.mayoresCostos.otrosCostos.tipo === 'porcentaje') {
-                                                    mayoresCostosBase = (subtotalBase * valorMayorCosto) / 100;
-                                                  }
-                                                }
-
-                                                if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
-                                                  const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
-                                                  if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
-                                                    mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
-                                                  }
-                                                }
-
-                                                gastosGeneralesFinal += subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
-                                              });
-                                            }
-
-                                            // JORNALES - Calcular individualmente cada jornal
-                                            if (item.jornales && item.jornales.length > 0) {
-                                              item.jornales.forEach(jornal => {
-                                                const cantidad = Number(jornal.cantidadJornales || jornal.cantidad || 0);
-                                                const valorUnitarioBase = Number(jornal.importeJornal || jornal.valorUnitario || 0);
-                                                const subtotalBase = Number(jornal.subtotal || (cantidad * valorUnitarioBase));
-
-                                                let honorarios = 0;
-                                                let mayoresCostosBase = 0;
-                                                let mayoresCostosHonorarios = 0;
-
-                                                if (form.honorarios?.jornales?.activo) {
-                                                  const configJornales = form.honorarios.jornales;
-                                                  if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
-                                                    const configRol = configJornales.porRol[jornal.rol];
-                                                    if (configRol) {
-                                                      if (configRol.tipo === 'porcentaje') {
-                                                        honorarios = (subtotalBase * Number(configRol.valor)) / 100;
-                                                      } else {
-                                                        honorarios = Number(configRol.valor);
-                                                      }
-                                                    }
-                                                  } else if (configJornales.modoAplicacion === 'todos' && configJornales.valor) {
-                                                    const valor = Number(configJornales.valor);
-                                                    if (configJornales.tipo === 'porcentaje') {
-                                                      honorarios = (subtotalBase * valor) / 100;
-                                                    } else {
-                                                      honorarios = valor;
-                                                    }
-                                                  }
-                                                }
-
-                                                if (form.mayoresCostos?.jornales?.activo) {
-                                                  const configJornales = form.mayoresCostos.jornales;
-                                                  if (configJornales.modoAplicacion === 'porRol' && configJornales.porRol) {
-                                                    const configRol = configJornales.porRol[jornal.rol];
-                                                    if (configRol) {
-                                                      if (configRol.tipo === 'porcentaje') {
-                                                        mayoresCostosBase = (subtotalBase * Number(configRol.valor)) / 100;
-                                                      } else {
-                                                        mayoresCostosBase = Number(configRol.valor);
-                                                      }
-                                                    }
-                                                  } else if (configJornales.modoAplicacion === 'todos' && configJornales.valor) {
-                                                    const valor = Number(configJornales.valor);
-                                                    if (configJornales.tipo === 'porcentaje') {
-                                                      mayoresCostosBase = (subtotalBase * valor) / 100;
-                                                    } else {
-                                                      mayoresCostosBase = valor;
-                                                    }
-                                                  }
-                                                }
-
-                                                if (honorarios > 0 && form.mayoresCostos?.honorarios?.activo && form.mayoresCostos?.honorarios?.valor) {
-                                                  const valorMCHon = Number(form.mayoresCostos.honorarios.valor);
-                                                  if (form.mayoresCostos.honorarios.tipo === 'porcentaje') {
-                                                    mayoresCostosHonorarios = (honorarios * valorMCHon) / 100;
-                                                  }
-                                                }
-
-                                                jornalesFinal += subtotalBase + honorarios + mayoresCostosBase + mayoresCostosHonorarios;
-                                              });
-                                            }
+                                            // ✅ BADGES: calcular SIEMPRE desde arrays del propio item (base, sin honorarios)
+                                            const jorBase = [
+                                              ...(item.jornales || []),
+                                              ...(item.profesionales || [])
+                                            ].reduce((sum, j) => {
+                                              const cant = Number(j.cantidadJornales || j.cantidad || 0);
+                                              const precio = Number(j.importeJornal || j.valorUnitario || 0);
+                                              return sum + (Number(j.subtotal) || cant * precio || 0);
+                                            }, 0);
+                                            const matBase = item.materialesLista?.length > 0
+                                              ? (item.materialesLista || []).reduce((sum, m) => sum + (Number(m.subtotal) || (Number(m.cantidad||0) * Number(m.precio||0)) || 0), 0)
+                                              : 0;
+                                            const ggBase  = item.gastosGenerales?.length > 0
+                                              ? (item.gastosGenerales || []).reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0)
+                                              : 0;
 
                                             return (
                                               <>
-                                                {materialesFinal > 0 && <><br/><span className="badge bg-success mt-1">Mat: ${materialesFinal.toLocaleString('es-AR')}</span></>}
-                                                {gastosGeneralesFinal > 0 && <><br/><span className="badge bg-warning text-dark mt-1">G.G.: ${gastosGeneralesFinal.toLocaleString('es-AR')}</span></>}
-                                                {jornalesFinal > 0 && <><br/><span className="badge bg-primary mt-1">Jornales: ${jornalesFinal.toLocaleString('es-AR')}</span></>}
+                                                {matBase > 0 && <><br/><span className="badge bg-success mt-1">Mat: ${matBase.toLocaleString('es-AR')}</span></>}
+                                                {ggBase  > 0 && <><br/><span className="badge bg-warning text-dark mt-1">G.G.: ${ggBase.toLocaleString('es-AR')}</span></>}
+                                                {jorBase > 0 && <><br/><span className="badge bg-primary mt-1">Jornales: ${jorBase.toLocaleString('es-AR')}</span></>}
                                               </>
                                             );
                                           })()}
@@ -13520,21 +13854,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   </div>
                                 </td>
 
-                                {/* Columna del Total */}
+                                {/* Columna del Total - Solo base (suma directa desde arrays, igual que badges) */}
                                 <td className="text-end">
                                   {(() => {
-                                    // ✅ USAR EL MISMO itemsCalculadoraConsolidados PARA GARANTIZAR CONSISTENCIA
-                                    const itemConsolidado = itemsCalculadoraConsolidados.find(
-                                      ic => ic.tipoProfesional?.toLowerCase() === item.tipoProfesional?.toLowerCase()
+                                    const ic = itemsCalculadoraConsolidados.find(
+                                      c => c.tipoProfesional?.toLowerCase() === item.tipoProfesional?.toLowerCase()
                                     );
+                                    const src = ic || item;
 
-                                    if (itemConsolidado && itemConsolidado.total) {
-                                      return <strong>${Number(itemConsolidado.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>;
-                                    }
+                                    // Sumar desde los arrays individuales (mismo criterio que badges)
+                                    const jorBase = [...(src.jornales || []), ...(src.profesionales || [])].reduce((sum, j) => {
+                                      const cant = Number(j.cantidadJornales || j.cantidad || 0);
+                                      const precio = Number(j.importeJornal || j.valorUnitario || 0);
+                                      return sum + (Number(j.subtotal) || cant * precio || 0);
+                                    }, 0);
+                                    const matBase = (src.materialesLista || []).reduce((sum, m) => sum + (Number(m.subtotal) || 0), 0);
+                                    const ggBase  = (src.gastosGenerales || []).reduce((sum, g) => sum + (Number(g.subtotal) || 0), 0);
+                                    const manBase = (src.esModoManual === true) ? Number(src.totalManual || 0) : 0;
 
-                                    // FALLBACK: Si no se encuentra en consolidados, usar el total del item directo
-                                    const totalFallback = Number(item.total || 0);
-                                    return <strong>${totalFallback.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>;
+                                    const totalBase = jorBase + matBase + ggBase + manBase;
+                                    return <strong>${totalBase.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>;
                                   })()}
                                 </td>
                                 <td className="text-center">
@@ -13624,9 +13963,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               <td></td>
                               <td className="text-end fw-bold">
                                 {(() => {
-                                  // Suma el campo total de cada rubro consolidado
-                                  const totalFinal = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
-                                  return `$${totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                                  // Suma desde arrays individuales (igual que badges y Total por fila)
+                                  const totalBase = itemsCalculadoraConsolidados.reduce((acc, ic) => {
+                                    const jorBase = [...(ic.jornales || []), ...(ic.profesionales || [])].reduce((s, j) => {
+                                      const c = Number(j.cantidadJornales || j.cantidad || 0);
+                                      const p = Number(j.importeJornal || j.valorUnitario || 0);
+                                      return s + (Number(j.subtotal) || c * p || 0);
+                                    }, 0);
+                                    const matBase = (ic.materialesLista || []).reduce((s, m) => s + (Number(m.subtotal) || 0), 0);
+                                    const ggBase  = (ic.gastosGenerales || []).reduce((s, g) => s + (Number(g.subtotal) || 0), 0);
+                                    const manBase = (ic.esModoManual === true) ? Number(ic.totalManual || 0) : 0;
+                                    return acc + jorBase + matBase + ggBase + manBase;
+                                  }, 0);
+                                  return `$${totalBase.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
                                 })()}
                               </td>
                               <td></td>
@@ -14506,12 +14855,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               ? `/api/v1/trabajos-extra/${form.id}/pdf`
                               : `/api/v1/presupuestos-no-cliente/${form.id}/pdf`;
 
+                            // 🔒 Asegurar que empresaId sea un número limpio
+                            const empresaId = Number(empresaSeleccionada?.id || 1);
+                            console.log('🔑 EmpresaId para PDF:', {
+                              original: empresaSeleccionada?.id,
+                              limpio: empresaId,
+                              tipo: typeof empresaId
+                            });
+
                             const response = await apiService.post(
                               endpoint,
                               formData,
-                              modoTrabajoExtra
-                                ? { headers: { empresaId: empresaSeleccionada.id } }
-                                : { params: { empresaId: empresaSeleccionada.id } }
+                              { params: { empresaId } }
                             );
 
                             if (response.data && response.data.id) {
@@ -14602,10 +14957,25 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                           }
 
                         } catch (error) {
+                          console.error('❌ Error completo al generar PDF:', {
+                            mensaje: error.message,
+                            response: error.response,
+                            responseData: error.response?.data,
+                            status: error.response?.status,
+                            config: {
+                              url: error.config?.url,
+                              method: error.config?.method,
+                              params: error.config?.params
+                            }
+                          });
+
                           if (error.response) {
-                            alert(`❌ Error del servidor: ${error.response.data?.message || error.message}`);
+                            const errorMsg = error.response.data?.message || error.response.data?.error || error.message;
+                            alert(`❌ Error del servidor (${error.response.status}):\n\n${errorMsg}`);
+                          } else if (error.request) {
+                            alert(`❌ No se recibió respuesta del servidor.\n\nVerifica tu conexión.`);
                           } else {
-                            alert('❌ Error al generar el PDF: ' + error.message);
+                            alert('❌ Error al generar el PDF:\n\n' + error.message);
                           }
                         }
                       }}
@@ -14880,7 +15250,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       Grupos de Tareas ({itemsCalculadora.length})
                                     </span>
                                     <span className="fw-bold text-info">
-                                      {`$${itemsCalculadoraConsolidados.reduce((sum, item) => sum + (item.total || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                      {`$${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                                     </span>
                                   </div>
 
@@ -14897,43 +15267,34 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                                   <span className="text-muted fw-normal"> - {item.descripcion}</span>
                                                 )}
                                               </div>
-                                              {/* Subtotales por categoría */}
-                                              <div className="small text-muted">
-                                                {item.jornales && item.jornales.length > 0 && (
-                                                  <div className="mb-1">
-                                                    <div className="fw-semibold text-info">
-                                                      <i className="fas fa-hard-hat me-2"></i>Jornales: ${(item.subtotalJornalesFinal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                    </div>
+                                              {/* Subtotales FINALES por categoría (base + honorarios + mayores costos - descuentos) */}
+                                              {(() => {
+                                                // displayJornales y displayManoObra se suman (labor total)
+                                                const laborFinal = (item.displayJornales || 0) + (item.displayManoObra || 0);
+                                                const matFinal   = item.displayMateriales || 0;
+                                                const ggFinal    = item.displayGastosGenerales || 0;
+                                                const mnFinal    = item.esModoManual === true ? Number(item.totalManual||0) : 0;
+                                                return (
+                                                  <div className="small text-muted">
+                                                    {laborFinal > 0 && (
+                                                      <div className="mb-1"><div className="fw-semibold text-info"><i className="fas fa-hard-hat me-2"></i>Jornales: ${laborFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
+                                                    )}
+                                                    {matFinal > 0 && (
+                                                      <div className="mb-1"><div className="fw-semibold text-success"><i className="fas fa-box me-2"></i>Materiales: ${matFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
+                                                    )}
+                                                    {ggFinal > 0 && (
+                                                      <div className="mb-1"><div className="fw-semibold text-warning"><i className="fas fa-receipt me-2"></i>Gastos Generales: ${ggFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
+                                                    )}
+                                                    {item.esModoManual === true && mnFinal > 0 && (
+                                                      <div className="mb-1"><div className="fw-semibold text-dark"><i className="fas fa-hand-holding-usd me-2"></i>Manual: ${mnFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
+                                                    )}
                                                   </div>
-                                                )}
-                                                {item.profesionales && item.profesionales.length > 0 && (
-                                                  <div className="mb-1">
-                                                    <div className="fw-semibold text-primary">
-                                                      <i className="fas fa-users me-2"></i>Mano de Obra: ${(item.subtotalManoObraFinal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                    </div>
-                                                  </div>
-                                                )}
-                                                {((item.materialesLista && item.materialesLista.length > 0) || (item.materiales && item.materiales.length > 0)) && (
-                                                  <div className="mb-1">
-                                                    <div className="fw-semibold text-success">
-                                                      <i className="fas fa-box me-2"></i>Materiales: ${(item.subtotalMaterialesFinal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                    </div>
-                                                  </div>
-                                                )}
-                                                {item.gastosGenerales && item.gastosGenerales.length > 0 && (
-                                                  <div className="mb-1">
-                                                    <div className="fw-semibold text-warning">
-                                                      <i className="fas fa-receipt me-2"></i>Gastos Generales: ${(item.subtotalGastosGeneralesFinal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                    </div>
-                                                  </div>
-                                                )}
-                                              </div>
+                                                );
+                                              })()}
                                             </div>
-                                            {/* Mostrar total del grupo: SOLO el campo total consolidado, sin recalcular ni sumar mayores costos nuevamente */}
+                                            {/* Total FINAL del grupo (base + honorarios + mayores costos - descuentos) */}
                                             <div className="ms-3 text-end">
-                                              <span className="fw-bold text-dark">
-                                                ${Number(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                              </span>
+                                              <span className="fw-bold text-dark">${(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
                                             </div>
                                           </div>
                                           {/* ✨ MOSTRAR DESCRIPCIÓN Y OBSERVACIONES DEL RUBRO SI EXISTEN */}
@@ -15084,7 +15445,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       {!['Jornales','Profesionales','Materiales','Honorarios','Mayores Costos'].includes(item.tipoProfesional) && <span className="text-secondary"><i className="fas fa-cube me-2"></i>{item.tipoProfesional}</span>}
                                     </span>
                                     <span className="fw-bold">
-                                      ${Number(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                      {`$${(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                                     </span>
                                   </div>
                                 ))}
@@ -15101,188 +15462,23 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               )}
                             </div>
 
-                            {/* 💰 TOTAL FINAL - Destacado (honorarios ya incluidos en subtotales) */}
+                            {/* 💰 TOTAL FINAL - base + honorarios + mayores costos - descuentos */}
                             <div className="pt-3 border-top border-2 border-success">
                               <div className="bg-success bg-opacity-10 rounded p-3">
-                                {(() => {
-                                  // Calcular total sin descuento
-                                  const totalSinDescuento = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
-
-                                  // Calcular descuentos aplicados con detalle por categoría
-                                  let totalDescuentos = 0;
-                                  const detalleDescuentos = []; // { label, importe }
-
-                                  // 🔧 VERIFICAR que form.descuentos exista y tenga valores
-                                  const descuentosConfig = form.descuentos || {};
-
-                                  if (descuentosConfig && Object.keys(descuentosConfig).length > 0) {
-                                    // Sumar las bases de TODAS las categorías de TODOS los rubros
-                                    const totalJornalesBase = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.subtotalJornales) || 0), 0);
-                                    const totalMaterialesBase = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.subtotalMateriales) || 0), 0);
-                                    const totalHonorarios = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.honorariosAplicados) || 0), 0);
-                                    const totalMayoresCostos = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (Number(item.mayoresCostosAplicados) || 0), 0);
-
-                                    // Calcular descuento de Jornales
-                                    if (descuentosConfig.jornales?.activo !== false && totalJornalesBase > 0) {
-                                      const valor = Number(descuentosConfig.jornales.valor || 0);
-                                      if (valor > 0) {
-                                        const imp = descuentosConfig.jornales.tipo === 'porcentaje'
-                                          ? (totalJornalesBase * valor) / 100
-                                          : valor;
-                                        totalDescuentos += imp;
-                                        detalleDescuentos.push({ label: 'Descuento en Jornales', importe: imp });
-                                      }
-                                    }
-
-                                    // Calcular descuento de Materiales
-                                    if (descuentosConfig.materiales?.activo !== false && totalMaterialesBase > 0) {
-                                      const valor = Number(descuentosConfig.materiales.valor || 0);
-                                      if (valor > 0) {
-                                        const imp = descuentosConfig.materiales.tipo === 'porcentaje'
-                                          ? (totalMaterialesBase * valor) / 100
-                                          : valor;
-                                        totalDescuentos += imp;
-                                        detalleDescuentos.push({ label: 'Descuento en Materiales', importe: imp });
-                                      }
-                                    }
-
-                                    // Calcular descuento de Honorarios (desglosado por sub-tipo usando bases correctas)
-                                    const honorariosDesglosados = calcularHonorarios();
-                                    const tieneDescuentosHonDesglosados = [
-                                      'honorariosJornales', 'honorariosProfesionales', 'honorariosMateriales',
-                                      'honorariosOtros', 'honorariosGastosGenerales', 'honorariosConfiguracion'
-                                    ].some(k => Number(descuentosConfig[k]?.valor || 0) > 0);
-
-                                    if (tieneDescuentosHonDesglosados) {
-                                      let totalDescHonorarios = 0;
-                                      // Nota: honorariosOtros y honorariosGastosGenerales son sinónimos
-                                      // (ambos usan la misma base otrosCostos). Solo se aplica el que tenga valor.
-                                      const baseOtrosCostos = honorariosDesglosados.otrosCostos || 0;
-                                      const usaGastosGenerales = Number(descuentosConfig.honorariosGastosGenerales?.valor || 0) > 0;
-                                      [
-                                        { key: 'honorariosJornales', base: honorariosDesglosados.jornales || 0 },
-                                        { key: 'honorariosProfesionales', base: honorariosDesglosados.profesionales || 0 },
-                                        { key: 'honorariosMateriales', base: honorariosDesglosados.materiales || 0 },
-                                        // Si hay descuento en gastos generales, no aplicar también el de otrosCostos (son lo mismo)
-                                        { key: 'honorariosOtros', base: usaGastosGenerales ? 0 : baseOtrosCostos },
-                                        { key: 'honorariosGastosGenerales', base: baseOtrosCostos },
-                                        { key: 'honorariosConfiguracion', base: honorariosDesglosados.configuracionPresupuesto || 0 }
-                                      ].forEach(({ key, base }) => {
-                                        const cfg = descuentosConfig[key];
-                                        if (cfg?.activo !== false && base > 0) {
-                                          const valor = Number(cfg?.valor || 0);
-                                          if (valor > 0) {
-                                            const imp = cfg.tipo === 'porcentaje' ? (base * valor) / 100 : valor;
-                                            totalDescuentos += imp;
-                                            totalDescHonorarios += imp;
-                                          }
-                                        }
-                                      });
-                                      if (totalDescHonorarios > 0) {
-                                        detalleDescuentos.push({ label: 'Descuento en Honorarios de Direccion de Obra', importe: totalDescHonorarios });
-                                      }
-                                    } else if (descuentosConfig.honorarios?.activo !== false && totalHonorarios > 0) {
-                                      const valor = Number(descuentosConfig.honorarios.valor || 0);
-                                      if (valor > 0) {
-                                        const imp = descuentosConfig.honorarios.tipo === 'porcentaje'
-                                          ? (totalHonorarios * valor) / 100
-                                          : valor;
-                                        totalDescuentos += imp;
-                                        detalleDescuentos.push({ label: 'Descuento en Honorarios de Direccion de Obra', importe: imp });
-                                      }
-                                    }
-
-                                    // Calcular descuento de Mayores Costos
-                                    if (descuentosConfig.mayoresCostos?.activo !== false && totalMayoresCostos > 0) {
-                                      const valor = Number(descuentosConfig.mayoresCostos.valor || 0);
-                                      if (valor > 0) {
-                                        const imp = descuentosConfig.mayoresCostos.tipo === 'porcentaje'
-                                          ? (totalMayoresCostos * valor) / 100
-                                          : valor;
-                                        totalDescuentos += imp;
-                                        detalleDescuentos.push({ label: 'Descuento en Mayores Costos', importe: imp });
-                                      }
-                                    }
-                                  }
-
-                                  const totalFinal = totalSinDescuento - totalDescuentos;
-                                  const hayDescuentos = totalDescuentos > 0;
-
-                                  return (
-                                    <>
-                                      {/* Si hay descuentos, mostrar desglose */}
-                                      {hayDescuentos ? (
-                                        <>
-                                          {/* Total sin descuento */}
-                                          <div className="d-flex justify-content-between align-items-center pb-2 border-bottom">
-                                            <span className="fw-bold text-success">Total sin descuento:</span>
-                                            <span className="fw-bold text-success">
-                                              ${totalSinDescuento.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                            </span>
-                                          </div>
-
-                                          {/* Descuentos aplicados - detalle por ítem */}
-                                          <div className="mt-2 pb-2 border-bottom">
-                                            {detalleDescuentos.map((d, idx) => (
-                                              <div key={idx} className="d-flex justify-content-between align-items-center py-1">
-                                                <span className="small text-danger">💸 {d.label}:</span>
-                                                <span className="small fw-bold text-danger">
-                                                  - ${d.importe.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                                </span>
-                                              </div>
-                                            ))}
-                                            {detalleDescuentos.length > 1 && (
-                                              <div className="d-flex justify-content-between align-items-center pt-1 border-top fw-bold">
-                                                <span className="text-danger">Total Descuentos:</span>
-                                                <span className="text-danger">
-                                                  - ${totalDescuentos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                                </span>
-                                              </div>
-                                            )}
-                                          </div>
-
-                                          {/* Total Final */}
-                                          <div className="d-flex justify-content-between align-items-center mt-2">
-                                            <div>
-                                              <h5 className="mb-0 fw-bold text-success">
-                                                <i className="fas fa-money-bill-wave me-2"></i>
-                                                TOTAL FINAL
-                                              </h5>
-                                            </div>
-                                            <h3 className="mb-0 fw-bold text-success">
-                                              ${totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                            </h3>
-                                          </div>
-                                          <div className="mt-2">
-                                            <small className="text-muted">
-                                              Total después de aplicar descuentos.
-                                            </small>
-                                          </div>
-                                        </>
-                                      ) : (
-                                        <>
-                                          {/* Sin descuentos - mostrar formato original */}
-                                          <div className="d-flex justify-content-between align-items-center">
-                                            <div>
-                                              <h5 className="mb-0 fw-bold text-success">
-                                                <i className="fas fa-money-bill-wave me-2"></i>
-                                                TOTAL FINAL
-                                              </h5>
-                                            </div>
-                                            <h3 className="mb-0 fw-bold text-success">
-                                              ${totalSinDescuento.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                            </h3>
-                                          </div>
-                                          <div className="mt-2">
-                                            <small className="text-muted">
-                                              Incluye todos los rubros: mano de obra, materiales, jornales, honorarios.
-                                            </small>
-                                          </div>
-                                        </>
-                                      )}
-                                    </>
-                                  );
-                                })()}
+                                <div className="d-flex justify-content-between align-items-center">
+                                  <div>
+                                    <h5 className="mb-0 fw-bold text-success">
+                                      <i className="fas fa-money-bill-wave me-2"></i>
+                                      TOTAL FINAL
+                                    </h5>
+                                  </div>
+                                  <h3 className="mb-0 fw-bold text-success">
+                                    ${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                  </h3>
+                                </div>
+                                <div className="mt-2">
+                                  <small className="text-muted">Incluye todos los rubros: mano de obra, materiales, jornales, honorarios y mayores costos menos descuentos.</small>
+                                </div>
                               </div>
                             </div>
                           </>
@@ -15307,6 +15503,32 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   >
                     <i className="fas fa-file-pdf me-2"></i>
                     Descargar PDF
+                  </button>
+                )}
+                {/* 📋 TAREA_LEVE v2.2: Botón "Finalizar Tarea" — flujo BORRADOR → TERMINADO */}
+                {/* Solo se muestra cuando la tarea ya está guardada (tiene id) y está en BORRADOR */}
+                {!soloLectura && form.tipoPresupuesto === 'TAREA_LEVE' && form.id && form.estado === 'BORRADOR' && (
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    disabled={saving}
+                    title="Marcar esta tarea como finalizada. La obra asociada también cambiará a TERMINADO."
+                    onClick={async () => {
+                      if (!window.confirm('¿Confirmar que la tarea está finalizada?\n\nEsto cambiará el estado a TERMINADO y sincronizará la obra asociada.')) return;
+                      try {
+                        const empresaId = form.idEmpresa || empresaSeleccionada?.id;
+                        await apiService.presupuestosNoCliente.actualizarEstado(form.id, 'TERMINADO', empresaId);
+                        alert('✅ Tarea finalizada. La obra asociada fue sincronizada a TERMINADO.');
+                        onClose();
+                        if (onSave) onSave({ ...form, estado: 'TERMINADO' });
+                      } catch (err) {
+                        console.error('❌ Error al finalizar tarea:', err);
+                        alert('Error al finalizar la tarea: ' + (err?.message || 'Error desconocido'));
+                      }
+                    }}
+                  >
+                    <i className="fas fa-check-circle me-2"></i>
+                    Finalizar Tarea
                   </button>
                 )}
                 {!soloLectura && (
