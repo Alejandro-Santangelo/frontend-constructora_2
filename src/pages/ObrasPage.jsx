@@ -3856,6 +3856,15 @@ _Válido por 30 días_
         idEmpresa: empresaSeleccionada?.id || datosPresupuesto.idEmpresa
       };
 
+      // 🔍 DEBUG: Verificar si los campos de dirección están presentes
+      console.log('🏠 Datos de dirección en TAREA_LEVE:', {
+        direccionObraCalle: presupuestoData.direccionObraCalle,
+        direccionObraAltura: presupuestoData.direccionObraAltura,
+        direccionObraBarrio: presupuestoData.direccionObraBarrio,
+        nombreObra: presupuestoData.nombreObra || presupuestoData.nombreObraManual,
+        obraId: presupuestoData.obraId || presupuestoData.idObra
+      });
+
       let response;
       if (datosPresupuesto.id) {
         // Editar tarea leve existente
@@ -5470,7 +5479,12 @@ _Válido por 30 días_
       const origenId = o.obraOrigenId || o.obra_origen_id;
 
       if (padreIdExplicito === obra.id || origenId === obra.id) {
-        return true; // ✅ Sub-obra confirmada por ID de padre/origen
+        // ✅ Sub-obra confirmada por ID de padre/origen
+        // Filtrar solo trabajos extra (NO tareas leves)
+        const presupuesto = presupuestosObras[o.id];
+        const esTareaLeve = presupuesto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                           presupuesto?.tipoPresupuesto === 'TAREA_LEVE';
+        return !esTareaLeve;
       }
 
       // 🔧 CRITERIO 2 (FALLBACK): Detección por nombre + flag esTrabajoExtra
@@ -5478,13 +5492,51 @@ _Válido por 30 días_
       if (nombrePadre && nombreO.startsWith(nombrePadre + ' ')) {
         const esTrabajoExtra = o.esTrabajoExtra || o.esObraTrabajoExtra ||
                                o.es_obra_trabajo_extra || o._esTrabajoExtra;
-        return esTrabajoExtra;
+        // Filtrar solo trabajos extra (NO tareas leves)
+        const presupuesto = presupuestosObras[o.id];
+        const esTareaLeve = presupuesto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                           presupuesto?.tipoPresupuesto === 'TAREA_LEVE';
+        return esTrabajoExtra && !esTareaLeve;
       }
 
       return false;
     });
 
     return subObras;
+  };
+
+  const obtenerTareasLevesParaSubgrupo = (obra) => {
+    const esSubobra = obra.esTrabajoExtra || obra._grupoTipo === 'trabajoExtra';
+    if (esSubobra) return [];
+
+    const nombrePadre = (obra.nombre || '').trim();
+    const tareasLeves = obras.filter(o => {
+      if (o.id === obra.id) return false;
+
+      // 🔧 CRITERIO 1 (DEFINITIVO): obra_origen_id / obraPadreId
+      const padreIdExplicito = o.obraPadreId || o.obra_padre_id || o.idObraPadre;
+      const origenId = o.obraOrigenId || o.obra_origen_id;
+
+      const presupuesto = presupuestosObras[o.id];
+      const esTareaLeve = presupuesto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                         presupuesto?.tipoPresupuesto === 'TAREA_LEVE';
+
+      if (padreIdExplicito === obra.id || origenId === obra.id) {
+        // ✅ Sub-obra confirmada por ID de padre/origen
+        // Filtrar solo tareas leves
+        return esTareaLeve;
+      }
+
+      // 🔧 CRITERIO 2 (FALLBACK): Detección por nombre
+      const nombreO = (o.nombre || '').trim();
+      if (nombrePadre && nombreO.startsWith(nombrePadre + ' ')) {
+        return esTareaLeve;
+      }
+
+      return false;
+    });
+
+    return tareasLeves;
   };
 
   const handleEliminarTrabajoAdicional = async (trabajoAdicionalId, nombre) => {
@@ -6979,7 +7031,18 @@ _Válido por 30 días_
                                                           presupuesto.esPresupuestoTrabajoExtra === true ||
                                                           presupuesto.esPresupuestoTrabajoExtra === 'V';
 
-                                    if (esTrabajoExtra) {
+                                    const esTareaLeve = presupuesto.tipo_presupuesto === 'TAREA_LEVE' ||
+                                                       presupuesto.tipoPresupuesto === 'TAREA_LEVE';
+
+                                    if (esTareaLeve) {
+                                      return (
+                                        <div className="mt-1">
+                                          <span className="badge bg-info text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
+                                            <i className="fas fa-bolt me-1"></i>Tarea Leve
+                                          </span>
+                                        </div>
+                                      );
+                                    } else if (esTrabajoExtra) {
                                       return (
                                         <div className="mt-1">
                                           <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem', padding: '3px 8px'}}>
@@ -7662,36 +7725,47 @@ _Válido por 30 días_
                                 ═══════════════════════════════════════════════ */}
                             {(() => {
                               const trabajosExtra = obtenerTrabajosExtraParaSubgrupo(obra);
-                              if (trabajosExtra.length === 0) return null;
-                              const colTrabajosExtra = !!gruposColapsadosObras[`trabajos_extra_${obra.id}`];
+                              const tareasLeves = obtenerTareasLevesParaSubgrupo(obra);
+                              if (trabajosExtra.length === 0 && tareasLeves.length === 0) return null;
+                              // Por defecto colapsado (true)
+                              const colTrabajosExtra = gruposColapsadosObras[`trabajos_extra_${obra.id}`] ?? true;
+                              const colTareasLeves = gruposColapsadosObras[`tareas_leves_${obra.id}`] ?? true;
                               return (
                                 <>
-                                  {/* Separador antes del subgrupo */}
-                                  <tr style={{ height: '6px', backgroundColor: '#dbeafe' }}>
-                                    <td colSpan="13" style={{
-                                      padding: 0,
-                                      height: '6px',
-                                      borderTop: '2px solid #3b82f6',
-                                      borderBottom: '2px solid #3b82f6',
-                                      backgroundColor: '#93c5fd'
-                                    }}></td>
-                                  </tr>
-                                  {/* Header subgrupo */}
-                                  <tr
-                                    onClick={(e) => { e.stopPropagation(); setGruposColapsadosObras(p => ({ ...p, [`trabajos_extra_${obra.id}`]: !p[`trabajos_extra_${obra.id}`] })); }}
-                                    style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
-                                  >
-                                    <td colSpan="13" className="py-1 px-3 small">
-                                      <span className="fw-bold text-primary">
-                                        <i className={`fas fa-chevron-${colTrabajosExtra ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
-                                        📋 Adicionales Obra
-                                        <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{trabajosExtra.length}</span>
-                                      </span>
-                                      <span className="text-muted ms-3 small">Clic para {colTrabajosExtra ? 'mostrar' : 'ocultar'}</span>
-                                    </td>
-                                  </tr>
-                                  {/* Filas de cada trabajo extra */}
-                                  {!colTrabajosExtra && trabajosExtra.map((trabajoExtra, teIndex) => {
+                                  {/* ── Subgrupo: Adicionales Obra (Trabajos Extra) ── */}
+                                  {trabajosExtra.length > 0 && (
+                                    <>
+                                      {/* Separador antes del subgrupo */}
+                                      <tr style={{ height: '6px', backgroundColor: '#dbeafe' }}>
+                                        <td colSpan="13" style={{
+                                          padding: 0,
+                                          height: '6px',
+                                          borderTop: '2px solid #3b82f6',
+                                          borderBottom: '2px solid #3b82f6',
+                                          backgroundColor: '#93c5fd'
+                                        }}></td>
+                                      </tr>
+                                      {/* Header subgrupo */}
+                                      <tr
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const key = `trabajos_extra_${obra.id}`;
+                                          const currentValue = gruposColapsadosObras[key] ?? true;
+                                          setGruposColapsadosObras(p => ({ ...p, [key]: !currentValue }));
+                                        }}
+                                        style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
+                                      >
+                                        <td colSpan="13" className="py-1 px-3 small">
+                                          <span className="fw-bold text-primary">
+                                            <i className={`fas fa-chevron-${colTrabajosExtra ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
+                                            📋 Adicionales Obra
+                                            <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{trabajosExtra.length}</span>
+                                          </span>
+                                          <span className="text-muted ms-3 small">Clic para {colTrabajosExtra ? 'mostrar' : 'ocultar'}</span>
+                                        </td>
+                                      </tr>
+                                      {/* Filas de cada trabajo extra */}
+                                      {!colTrabajosExtra && trabajosExtra.map((trabajoExtra, teIndex) => {
                                     const isSelected = selectedObraId === trabajoExtra.id;
                                     return (
                                       <React.Fragment key={trabajoExtra.id}>
@@ -7738,11 +7812,29 @@ _Válido por 30 días_
                                           </td>
                                           <td>
                                             {trabajoExtra.nombre}
-                                            <div className="mt-1">
-                                              <span className="badge bg-warning text-dark" style={{fontSize:'0.7rem', padding:'3px 8px'}}>
-                                                <i className="fas fa-wrench me-1"></i>Adicional Obra
-                                              </span>
-                                            </div>
+                                            {(() => {
+                                              const presupuesto = presupuestosObras[trabajoExtra.id];
+                                              const esTareaLeve = presupuesto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                                                                 presupuesto?.tipoPresupuesto === 'TAREA_LEVE';
+
+                                              if (esTareaLeve) {
+                                                return (
+                                                  <div className="mt-1">
+                                                    <span className="badge bg-info text-dark" style={{fontSize:'0.7rem', padding:'3px 8px'}}>
+                                                      <i className="fas fa-bolt me-1"></i>Tarea Leve
+                                                    </span>
+                                                  </div>
+                                                );
+                                              } else {
+                                                return (
+                                                  <div className="mt-1">
+                                                    <span className="badge bg-warning text-dark" style={{fontSize:'0.7rem', padding:'3px 8px'}}>
+                                                      <i className="fas fa-wrench me-1"></i>Adicional Obra
+                                                    </span>
+                                                  </div>
+                                                );
+                                              }
+                                            })()}
                                           </td>
                                           <td><small className="text-muted">{trabajoExtra.nombreCliente || '—'}</small></td>
                                           <td><small className="text-muted">{trabajoExtra.direccion || '—'}</small></td>
@@ -7824,6 +7916,191 @@ _Válido por 30 días_
                                       </React.Fragment>
                                     );
                                   })}
+                                    </>
+                                  )}
+
+                                  {/* ── Subgrupo: Tareas Leves ── */}
+                                  {tareasLeves.length > 0 && (
+                                    <>
+                                      {/* Separador antes del subgrupo */}
+                                      <tr style={{ height: '6px', backgroundColor: '#e0f2fe' }}>
+                                        <td colSpan="13" style={{
+                                          padding: 0,
+                                          height: '6px',
+                                          borderTop: '2px solid #0ea5e9',
+                                          borderBottom: '2px solid #0ea5e9',
+                                          backgroundColor: '#bae6fd'
+                                        }}></td>
+                                      </tr>
+                                      {/* Header subgrupo */}
+                                      <tr
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const key = `tareas_leves_${obra.id}`;
+                                          const currentValue = gruposColapsadosObras[key] ?? true;
+                                          setGruposColapsadosObras(p => ({ ...p, [key]: !currentValue }));
+                                        }}
+                                        style={{ backgroundColor: '#e0f2fe', cursor: 'pointer', borderLeft: '5px solid #0ea5e9', borderBottom: '1px solid rgba(14, 165, 233, 0.45)' }}
+                                      >
+                                        <td colSpan="13" className="py-1 px-3 small">
+                                          <span className="fw-bold text-info">
+                                            <i className={`fas fa-chevron-${colTareasLeves ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
+                                            ⚡ Tareas Leves
+                                            <span className="badge bg-info ms-2" style={{fontSize:'0.7em'}}>{tareasLeves.length}</span>
+                                          </span>
+                                          <span className="text-muted ms-3 small">Clic para {colTareasLeves ? 'mostrar' : 'ocultar'}</span>
+                                        </td>
+                                      </tr>
+                                      {/* Filas de cada tarea leve */}
+                                      {!colTareasLeves && tareasLeves.map((tareaLeve, tlIndex) => {
+                                        const isSelected = selectedObraId === tareaLeve.id;
+                                        return (
+                                          <React.Fragment key={tareaLeve.id}>
+                                            {/* Separador entre tareas */}
+                                            {tlIndex > 0 && (
+                                              <tr style={{ height: '3px', backgroundColor: '#bfdbfe' }}>
+                                                <td colSpan="13" style={{
+                                                  padding: 0,
+                                                  height: '3px',
+                                                  borderTop: '1px solid #60a5fa',
+                                                  backgroundColor: '#bfdbfe'
+                                                }}></td>
+                                              </tr>
+                                            )}
+                                            {/* Fila de la tarea leve */}
+                                            <tr
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedObraId(isSelected ? null : tareaLeve.id);
+                                              }}
+                                              style={{
+                                                backgroundColor: isSelected ? '#cfe2ff' : '#f0f9ff',
+                                                borderLeft: '5px solid #0ea5e9',
+                                                borderBottom: '1px solid rgba(14, 165, 233, 0.45)',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s ease'
+                                              }}
+                                              className="hover-row"
+                                            >
+                                              <td className="text-center">
+                                                <button
+                                                  className="btn btn-sm btn-info rounded-circle p-0"
+                                                  onClick={(e) => toggleObraExpandida(tareaLeve.id, e)}
+                                                  style={{ width: '30px', height: '30px', transition: 'all 0.3s ease' }}
+                                                  title={obrasExpandidas.has(tareaLeve.id) ? 'Ocultar detalles' : 'Ver detalles'}
+                                                >
+                                                  <i className={`fas fa-${obrasExpandidas.has(tareaLeve.id) ? 'minus' : 'plus'} text-white`}></i>
+                                                </button>
+                                              </td>
+                                              <td>
+                                                {isSelected && <i className="fas fa-check-circle text-success me-1"></i>}
+                                                <span className="text-info me-1" title="Tarea leve"><i className="fas fa-bolt" style={{fontSize:'0.8em'}}></i></span>
+                                                {tareaLeve.id}
+                                              </td>
+                                              <td>
+                                                {tareaLeve.nombre}
+                                                {(() => {
+                                                  const presupuesto = presupuestosObras[tareaLeve.id];
+                                                  const esTareaLeve = presupuesto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                                                                     presupuesto?.tipoPresupuesto === 'TAREA_LEVE';
+
+                                                  if (esTareaLeve) {
+                                                    return (
+                                                      <div className="mt-1">
+                                                        <span className="badge bg-info text-dark" style={{fontSize:'0.7rem', padding:'3px 8px'}}>
+                                                          <i className="fas fa-bolt me-1"></i>Tarea Leve
+                                                        </span>
+                                                      </div>
+                                                    );
+                                                  } else {
+                                                    return (
+                                                      <div className="mt-1">
+                                                        <span className="badge bg-warning text-dark" style={{fontSize:'0.7rem', padding:'3px 8px'}}>
+                                                          <i className="fas fa-wrench me-1"></i>Adicional Obra
+                                                        </span>
+                                                      </div>
+                                                    );
+                                                  }
+                                                })()}
+                                              </td>
+                                              <td><small className="text-muted">{tareaLeve.nombreCliente || '—'}</small></td>
+                                              <td><small className="text-muted">{tareaLeve.direccion || '—'}</small></td>
+                                              <td>
+                                                <div className="d-flex flex-column" style={{minWidth:'150px'}}>
+                                                  <small className="text-muted mb-1">
+                                                    <i className="fas fa-user me-1"></i>{tareaLeve.nombreCliente || '—'}
+                                                  </small>
+                                                </div>
+                                              </td>
+                                              <td className="text-center"><small className="text-muted">-</small></td>
+                                              <td>
+                                                <span className={`badge ${getEstadoBadgeClass(tareaLeve.estado) || 'bg-secondary'}`}>
+                                                  {tareaLeve.estado || '—'}
+                                                </span>
+                                              </td>
+                                              <td>
+                                                {tareaLeve.profesionalesAsignados?.length > 0 ? (
+                                                  <div className="badge bg-success d-inline-flex align-items-center gap-1">
+                                                    <span>✓</span>
+                                                    <span className="small">{tareaLeve.profesionalesAsignados.length} asignados</span>
+                                                  </div>
+                                                ) : (
+                                                  <div className="badge bg-warning text-dark d-inline-flex align-items-center gap-1">
+                                                    <span>⚠</span>
+                                                    <span className="small">Sin asignar</span>
+                                                  </div>
+                                                )}
+                                              </td>
+                                              <td className="text-center">
+                                                <div className="d-flex justify-content-center gap-1">
+                                                  {tareaLeve.materialAsignado ? (
+                                                    <span className="badge bg-success" style={{fontSize:'0.6em'}}>
+                                                      <i className="fas fa-check-circle me-1"></i>Asignado
+                                                    </span>
+                                                  ) : (
+                                                    <span className="badge bg-secondary" style={{fontSize:'0.6em'}}>
+                                                      <i className="fas fa-minus-circle me-1"></i>Sin asignar
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </td>
+                                              <td className="text-center">
+                                                {/* Similar a trabajos extra, mostrar icono de caja chica */}
+                                                <span className="text-muted">—</span>
+                                              </td>
+                                              <td className="text-center">
+                                                {(() => {
+                                                  const presupuestoTL = presupuestosObras[tareaLeve.id];
+                                                  if (presupuestoTL) {
+                                                    const tipoPresu = presupuestoTL.modo_presupuesto || presupuestoTL.modoPresupuesto || '';
+                                                    if (tipoPresu === 'TRADICIONAL' || tipoPresu === 'GLOBAL') {
+                                                      return (
+                                                        <div className="d-flex flex-column align-items-center" style={{minWidth:'70px'}}>
+                                                          <span className="badge bg-primary text-white" style={{fontSize: '0.6em'}}>
+                                                            <i className="fas fa-list me-1"></i>Global
+                                                          </span>
+                                                        </div>
+                                                      );
+                                                    } else {
+                                                      return (
+                                                        <span className="badge bg-warning text-dark" style={{fontSize: '0.6em'}}>
+                                                          <i className="fas fa-hand-paper me-1"></i>Abreviado
+                                                        </span>
+                                                      );
+                                                    }
+                                                  } else {
+                                                    return <span className="text-muted">—</span>;
+                                                  }
+                                                })()}
+                                              </td>
+                                            </tr>
+                                            {/* Fila expandible para la tarea leve */}
+                                            {obrasExpandidas.has(tareaLeve.id) && renderFilaExpandidaObra(tareaLeve)}
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </>
+                                  )}
                                 </>
                               );
                             })()}
@@ -7834,7 +8111,8 @@ _Válido por 30 días_
                             {(() => {
                               const tareasObra = obtenerTareasParaSubgrupo(obra);
                               if (tareasObra.length === 0) return null;
-                              const colTareas = !!gruposColapsadosObras[`tareas_${obra.id}`];
+                              // Por defecto colapsado (true)
+                              const colTareas = gruposColapsadosObras[`tareas_${obra.id}`] ?? true;
                               return (
                                 <>
                                   {/* Separador antes del subgrupo de Tareas Leves */}
@@ -7849,7 +8127,7 @@ _Válido por 30 días_
                                   </tr>
                                   {/* Header subgrupo */}
                                   <tr
-                                    onClick={(e) => { e.stopPropagation(); setGruposColapsadosObras(p => ({ ...p, [`tareas_${obra.id}`]: !p[`tareas_${obra.id}`] })); }}
+                                    onClick={(e) => { e.stopPropagation(); setGruposColapsadosObras(p => ({ ...p, [`tareas_${obra.id}`]: !(p[`tareas_${obra.id}`] ?? true) })); }}
                                     style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
                                   >
                                     <td colSpan="13" className="py-1 px-3 small">
@@ -10046,7 +10324,18 @@ _Válido por 30 días_
                                                             presupuesto.esPresupuestoTrabajoExtra === true ||
                                                             presupuesto.esPresupuestoTrabajoExtra === 'V';
 
-                                      if (esTrabajoExtra) {
+                                      const esTareaLeve = presupuesto.tipo_presupuesto === 'TAREA_LEVE' ||
+                                                         presupuesto.tipoPresupuesto === 'TAREA_LEVE';
+
+                                      if (esTareaLeve) {
+                                        return (
+                                          <div className="mt-1">
+                                            <span className="badge bg-info text-dark" style={{fontSize: '0.7rem'}}>
+                                              <i className="fas fa-bolt me-1"></i>Tarea Leve
+                                            </span>
+                                          </div>
+                                        );
+                                      } else if (esTrabajoExtra) {
                                         return (
                                           <div className="mt-1">
                                             <span className="badge bg-warning text-dark" style={{fontSize: '0.7rem'}}>
@@ -13730,6 +14019,16 @@ Gestionar Tareas Leves
               nombreObraManual: obraParaTareaLeve?._esTrabajoExtra
                 ? obraParaTareaLeve._trabajoExtraNombre
                 : (obraParaTareaLeve?.nombre || obraParaTareaLeve?.nombreObra || ''),
+              // 🔧 HEREDAR DIRECCIÓN DE LA OBRA PADRE (campos obligatorios para crear obra)
+              direccionObraCalle: obraParaTareaLeve?.direccionObraCalle || obraParaTareaLeve?.direccion || '',
+              direccionObraAltura: obraParaTareaLeve?.direccionObraAltura || '',
+              direccionObraBarrio: obraParaTareaLeve?.direccionObraBarrio || obraParaTareaLeve?.barrio || '',
+              direccionObraPiso: obraParaTareaLeve?.direccionObraPiso || obraParaTareaLeve?.piso || '',
+              direccionObraDepartamento: obraParaTareaLeve?.direccionObraDepartamento || obraParaTareaLeve?.departamento || '',
+              direccionObraTorre: obraParaTareaLeve?.direccionObraTorre || '',
+              direccionObraLocalidad: obraParaTareaLeve?.direccionObraLocalidad || obraParaTareaLeve?.localidad || '',
+              direccionObraProvincia: obraParaTareaLeve?.direccionObraProvincia || obraParaTareaLeve?.provincia || '',
+              direccionObraCodigoPostal: obraParaTareaLeve?.direccionObraCodigoPostal || obraParaTareaLeve?.codigoPostal || '',
               fechaEmision: new Date().toISOString().slice(0, 10),
               vencimiento: new Date().toISOString().slice(0, 10),
               calculoAutomaticoDiasHabiles: false

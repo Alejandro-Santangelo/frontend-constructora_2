@@ -235,8 +235,9 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const [filtros, setFiltros] = useState(filtrosIniciales);
   const [tieneFiltrosPorDefecto, setTieneFiltrosPorDefecto] = useState(!!cargarFiltrosPorDefecto());
 
-  // Mapa: presupuestoId (principal) -> { adicionalesObra }
-  // Adicionales Obra = presupuestosNoCliente con esPresupuestoTrabajoExtra=true
+  // Mapa: presupuestoId (principal) -> { adicionalesObra, tareasLeves }
+  // Adicionales Obra = presupuestosNoCliente con esPresupuestoTrabajoExtra=true && tipoPresupuesto !== 'TAREA_LEVE'
+  // Tareas Leves = presupuestosNoCliente con tipoPresupuesto === 'TAREA_LEVE'
   // Vinculo en orden de prioridad:
   //   1) mismo obraId directo
   //   2) obraOrigenIdMap[extra.obraId] == principal.obraId  (campo backend si está disponible)
@@ -245,8 +246,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const { gruposMap, extrasEnSubgrupoIds } = React.useMemo(() => {
     const map = {};
     const cubiertos = new Set();
-    const extras = list.filter(p => p.esPresupuestoTrabajoExtra);
-    const principals = list.filter(p => !p.esPresupuestoTrabajoExtra);
+    const extras = list.filter(p => p.esPresupuestoTrabajoExtra || p.tipoPresupuesto === 'TAREA_LEVE');
+    const principals = list.filter(p => !p.esPresupuestoTrabajoExtra && p.tipoPresupuesto !== 'TAREA_LEVE');
 
     principals.forEach(principal => {
       // 1. Match directo por obraId (mismo presupuesto aprobó la misma obra)
@@ -286,7 +287,12 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         : [];
       porClienteId.forEach(e => cubiertos.add(e.id));
 
-      map[principal.id] = { adicionalesObra: [...porObraDirecta, ...porObraOrigen, ...porNombre, ...porClienteId] };
+      // Separar en dos grupos: Trabajos Extra y Tareas Leves
+      const todosLosExtras = [...porObraDirecta, ...porObraOrigen, ...porNombre, ...porClienteId];
+      const adicionalesObra = todosLosExtras.filter(e => e.tipoPresupuesto !== 'TAREA_LEVE');
+      const tareasLeves = todosLosExtras.filter(e => e.tipoPresupuesto === 'TAREA_LEVE');
+
+      map[principal.id] = { adicionalesObra, tareasLeves };
     });
     return { gruposMap: map, extrasEnSubgrupoIds: cubiertos };
   }, [list, obraOrigenIdMap]);
@@ -408,6 +414,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             // Transformar campos planos en objetos anidados
             const presupuestoConObjetos = {
               ...completo,
+              // 🔧 CRÍTICO: Extraer obraOrigenId de la obra para agrupación
+              obraOrigenId: completo.obra?.obraOrigenId || completo.obra?.obra_origen_id || completo.obraOrigenId || null,
               honorarios: {
                 materiales: {
                   activo: completo.honorariosMaterialesActivo,
@@ -469,10 +477,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       console.table(presupuestosCompletos.map(p => ({
         ID: p.id,
         Numero: p.numeroPresupuesto,
+        Tipo: p.tipoPresupuesto || 'TRADICIONAL',
         Nombre: p.nombreObra,
         TrabajoExtra: p.esPresupuestoTrabajoExtra ? 'SÍ' : 'NO',
         ObraId: p.obraId,
-        ObraOrigenId: p.obraOrigenId || p.obra_origen_id || null,
+        ObraOrigenId: p.obraOrigenId || null,
         ClienteId: p.clienteId
       })));
 
@@ -481,16 +490,30 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       const gruposPorObra = {}; // 🆕 Para agrupar por obra (presupuestos aprobados + trabajos extra)
       const presupuestosSinCliente = [];
 
-      // � Agrupar presupuestos
       // 🔧 Agrupar presupuestos - VERSIÓN CORREGIDA
       presupuestosCompletos.forEach(p => {
+        // 🔧 TAREA_LEVE: Agrupar por obra PADRE (obraOrigenId), no por su propia obra
+        // Después de aprobar, TAREA_LEVE tiene obraId = nueva obra creada
+        // Pero debe agruparse con la obra padre (obraOrigenId)
+        const esTareaLeve = p.tipoPresupuesto === 'TAREA_LEVE';
+
         // 🔧 Si tiene obraId (presupuesto aprobado que creó la obra, NO trabajo extra)
         if (p.obraId && !p.esPresupuestoTrabajoExtra) {
-          const keyObra = `obra_${p.obraId}`;
+          // Para TAREA_LEVE, usar obraOrigenId si existe (obra padre)
+          // De lo contrario, usar obraId
+          const obraParaAgrupar = esTareaLeve && p.obraOrigenId
+            ? p.obraOrigenId
+            : p.obraId;
+
+          if (esTareaLeve && p.obraOrigenId) {
+            console.log(`📌 TAREA_LEVE ID ${p.id}: Agrupando con obra PADRE ${p.obraOrigenId} (propia obra: ${p.obraId})`);
+          }
+
+          const keyObra = `obra_${obraParaAgrupar}`;
           if (!gruposPorObra[keyObra]) {
             gruposPorObra[keyObra] = {
               tipo: 'obra',
-              obraId: p.obraId,
+              obraId: obraParaAgrupar,
               presupuestos: []
             };
           }
@@ -604,16 +627,28 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       }
 
       // 2. Ordenar presupuestos dentro de cada grupo
-      // IMPORTANTE: Presupuesto padre (NO trabajo extra) arriba, trabajos extra abajo
+      // IMPORTANTE: Orden jerárquico dentro del grupo
       Object.values(gruposPorCliente).forEach(grupo => {
         grupo.presupuestos.sort((a, b) => b.numeroPresupuesto - a.numeroPresupuesto);
       });
       Object.values(gruposPorObra).forEach(grupo => {
         grupo.presupuestos.sort((a, b) => {
-          // Prioridad 1: Presupuestos padre (NO trabajo extra) primero
-          if (!a.esPresupuestoTrabajoExtra && b.esPresupuestoTrabajoExtra) return -1;
-          if (a.esPresupuestoTrabajoExtra && !b.esPresupuestoTrabajoExtra) return 1;
-          // Prioridad 2: Si ambos son del mismo tipo, ordenar por número descendente
+          // Determinar prioridad de cada presupuesto
+          const getPrioridad = (p) => {
+            if (p.tipoPresupuesto === 'TAREA_LEVE') return 3; // 3️⃣ Último: Tareas Leves
+            if (p.esPresupuestoTrabajoExtra) return 2;          // 2️⃣ Medio: Trabajos Extra
+            return 1;                                           // 1️⃣ Primero: Obra Principal (TRADICIONAL/TRABAJO_DIARIO)
+          };
+
+          const prioridadA = getPrioridad(a);
+          const prioridadB = getPrioridad(b);
+
+          // Ordenar por prioridad (menor número = primero en la lista)
+          if (prioridadA !== prioridadB) {
+            return prioridadA - prioridadB;
+          }
+
+          // Si tienen la misma prioridad, ordenar por número de presupuesto descendente (más nuevo primero)
           return b.numeroPresupuesto - a.numeroPresupuesto;
         });
       });
@@ -1303,7 +1338,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                              presupuestoActual.esPresupuestoTrabajoExtra === 1;
 
       // 🔧 ESCENARIO ESPECIAL: TAREA_LEVE
-      // Las tareas leves se finalizan directamente (BORRADOR → TERMINADO) y crean obra en estado FINALIZADA
+      // Las tareas leves se finalizan directamente (BORRADOR → TERMINADO) y crean obra automáticamente
       const esTareaLeve = presupuestoActual.tipoPresupuesto === 'TAREA_LEVE';
 
       if (esTareaLeve && tieneObraAsociada) {
@@ -1322,27 +1357,84 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         const confirmar = window.confirm(
           `📋 FINALIZAR TAREA LEVE y CREAR OBRA\n\n` +
           `Presupuesto: #${presupuestoActual.numeroPresupuesto} v${presupuestoActual.numeroVersion}\n` +
+          `Estado actual: ${presupuestoActual.estado}\n` +
           `Nombre de obra: "${presupuestoActual.nombreObra}"\n` +
           `Obra padre: ID ${presupuestoActual.obraId}\n` +
           `Monto: $${(presupuestoActual.totalFinal || presupuestoActual.montoTotal || 0).toLocaleString('es-AR')}\n\n` +
-          `Se creará una NUEVA OBRA con estado FINALIZADA.\n` +
+          `Se creará una NUEVA OBRA en la base de datos.\n` +
           `El presupuesto pasará a estado TERMINADO.\n\n` +
           `¿Desea continuar?`
         );
 
         if (!confirmar) return;
 
-        // 🔧 Usar endpoint correcto que crea la obra automáticamente
-        await api.presupuestosNoCliente.aprobarYCrearObra(
+        // � DEBUG COMPLETO: Mostrar TODOS los datos del presupuesto antes de enviar
+        console.log('📦 DATOS COMPLETOS DEL PRESUPUESTO TAREA_LEVE:', {
+          id: presupuestoActual.id,
+          numeroPresupuesto: presupuestoActual.numeroPresupuesto,
+          estado: presupuestoActual.estado,
+          tipoPresupuesto: presupuestoActual.tipoPresupuesto,
+          obraId: presupuestoActual.obraId,
+          nombreObra: presupuestoActual.nombreObra,
+          direccionCompleta: {
+            calle: presupuestoActual.direccionObraCalle,
+            altura: presupuestoActual.direccionObraAltura,
+            barrio: presupuestoActual.direccionObraBarrio,
+            piso: presupuestoActual.direccionObraPiso,
+            depto: presupuestoActual.direccionObraDepartamento
+          }
+        });
+
+        // 🔧 CRÍTICO: Según informe del backend, cambiar estado a TERMINADO dispara crearObraAutomaticamente()
+        // PATCH /api/v1/presupuestos-no-cliente/{id}/estado con { estado: "TERMINADO" }
+        console.log('🚀 Cambiando estado a TERMINADO para TAREA_LEVE ID:', selectedId);
+
+        const response = await api.presupuestosNoCliente.actualizarEstado(
           selectedId,
-          null, // clienteReferenciaId - será tomado de la obra padre
-          presupuestoActual.obraId // obraReferenciaId - obra padre
+          'TERMINADO',
+          empresaId
         );
 
-        showNotification && showNotification(
-          `✅ Tarea Leve finalizada\n🏗️ Obra "${presupuestoActual.nombreObra}" creada con estado FINALIZADA`,
-          'success'
-        );
+        console.log('✅ Respuesta del backend (actualizarEstado):', response);
+
+        // Recargar el presupuesto para verificar la nueva obra creada
+        const presupuestoActualizado = await api.presupuestosNoCliente.getById(selectedId, empresaId);
+        console.log('🔄 Presupuesto recargado después de cambiar estado:', presupuestoActualizado);
+
+        const obraCreada = presupuestoActualizado?.obra?.id || presupuestoActualizado?.obraId;
+        const obraOrigenId = presupuestoActualizado?.obra?.obraOrigenId;
+
+        console.log('✅ Verificación final - Obra ID:', obraCreada);
+        console.log('🔗 Obra padre (obraOrigenId):', obraOrigenId);
+
+        // Verificar si es una NUEVA obra creada (diferente de la obra padre original)
+        const esNuevaObra = obraCreada && obraCreada !== presupuestoActual.obraId;
+
+        if (esNuevaObra) {
+          console.log('🎉 NUEVA OBRA CREADA - ID:', obraCreada, '(Padre:', presupuestoActual.obraId, ')');
+          showNotification && showNotification(
+            `✅ Tarea Leve finalizada (TERMINADO)\n🏗️ Nueva Obra "${presupuestoActual.nombreObra}" creada\n\n` +
+            `📋 Obra nueva ID: ${obraCreada}\n` +
+            `🔗 Vinculada a obra padre ID: ${presupuestoActual.obraId}`,
+            'success'
+          );
+        } else if (obraCreada === presupuestoActual.obraId) {
+          // ⚠️ Advertencia: sigue con la misma obra padre (bug del backend no corregido)
+          console.warn('⚠️ ADVERTENCIA: El presupuesto sigue vinculado a la misma obra padre');
+          console.warn('Obra esperada: NUEVA | Obra recibida:', obraCreada, '(misma que antes)');
+          showNotification && showNotification(
+            '⚠️ El presupuesto cambió a TERMINADO pero NO se creó una nueva obra.\n\n' +
+            `Sigue vinculado a la obra padre (ID: ${obraCreada}).\n\n` +
+            'Verifique que el backend tenga el fix aplicado.',
+            'warning'
+          );
+        } else {
+          console.error('❌ ERROR: No se pudo determinar el ID de la obra');
+          showNotification && showNotification(
+            '❌ Error: No se pudo verificar la creación de la obra.\n\nRevise la consola (F12) para más detalles.',
+            'danger'
+          );
+        }
 
         loadList();
         return;
@@ -1976,10 +2068,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       const confirmar = window.confirm(
         `📋 FINALIZAR TAREA LEVE y CREAR OBRA\n\n` +
         `Presupuesto: #${presupuesto.numeroPresupuesto} v${presupuesto.numeroVersion}\n` +
+        `Estado actual: ${presupuesto.estado}\n` +
         `Nombre de obra: "${presupuesto.nombreObra}"\n` +
         `Obra padre: ID ${presupuesto.obraId}\n` +
         `Monto: $${(presupuesto.totalFinal || presupuesto.montoTotal || 0).toLocaleString('es-AR')}\n\n` +
-        `Se creará una NUEVA OBRA con estado FINALIZADA.\n` +
+        `Se creará una NUEVA OBRA en la base de datos.\n` +
         `El presupuesto pasará a estado TERMINADO.\n\n` +
         `¿Desea continuar?`
       );
@@ -1987,22 +2080,77 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       if (!confirmar) return;
 
       try {
-        // 🔧 Usar endpoint correcto que crea la obra automáticamente
-        await api.presupuestosNoCliente.aprobarYCrearObra(
+        // � DEBUG COMPLETO: Mostrar TODOS los datos del presupuesto antes de enviar
+        console.log('📦 DATOS COMPLETOS DEL PRESUPUESTO TAREA_LEVE:', {
+          id: presupuesto.id,
+          numeroPresupuesto: presupuesto.numeroPresupuesto,
+          estado: presupuesto.estado,
+          tipoPresupuesto: presupuesto.tipoPresupuesto,
+          obraId: presupuesto.obraId,
+          nombreObra: presupuesto.nombreObra,
+          direccionCompleta: {
+            calle: presupuesto.direccionObraCalle,
+            altura: presupuesto.direccionObraAltura,
+            barrio: presupuesto.direccionObraBarrio,
+            piso: presupuesto.direccionObraPiso,
+            depto: presupuesto.direccionObraDepartamento
+          }
+        });
+
+        // 🔧 CRÍTICO: Cambiar estado a TERMINADO dispara crearObraAutomaticamente()
+        console.log('🚀 Cambiando estado a TERMINADO para TAREA_LEVE ID:', presupuesto.id);
+
+        const response = await api.presupuestosNoCliente.actualizarEstado(
           presupuesto.id,
-          null, // clienteReferenciaId - será tomado de la obra padre
-          presupuesto.obraId // obraReferenciaId - obra padre
+          'TERMINADO',
+          empresaId
         );
 
-        showNotification && showNotification(
-          `✅ Tarea Leve finalizada\n🏗️ Obra "${presupuesto.nombreObra}" creada con estado FINALIZADA`,
-          'success'
-        );
+        console.log('✅ Respuesta del backend (actualizarEstado):', response);
+
+        // Recargar el presupuesto para verificar la nueva obra creada
+        const presupuestoActualizado = await api.presupuestosNoCliente.getById(presupuesto.id, empresaId);
+        console.log('🔄 Presupuesto recargado después de cambiar estado:', presupuestoActualizado);
+
+        const obraCreada = presupuestoActualizado?.obra?.id || presupuestoActualizado?.obraId;
+        const obraOrigenId = presupuestoActualizado?.obra?.obraOrigenId;
+
+        console.log('✅ Verificación final - Obra ID:', obraCreada);
+        console.log('🔗 Obra padre (obraOrigenId):', obraOrigenId);
+
+        // Verificar si es una NUEVA obra creada (diferente de la obra padre original)
+        const esNuevaObra = obraCreada && obraCreada !== presupuesto.obraId;
+
+        if (esNuevaObra) {
+          console.log('🎉 NUEVA OBRA CREADA - ID:', obraCreada, '(Padre:', presupuesto.obraId, ')');
+          showNotification && showNotification(
+            `✅ Tarea Leve finalizada (TERMINADO)\n🏗️ Nueva Obra "${presupuesto.nombreObra}" creada\n\n` +
+            `📋 Obra nueva ID: ${obraCreada}\n` +
+            `🔗 Vinculada a obra padre ID: ${presupuesto.obraId}`,
+            'success'
+          );
+        } else if (obraCreada === presupuesto.obraId) {
+          console.warn('⚠️ ADVERTENCIA: El presupuesto sigue vinculado a la misma obra padre');
+          console.warn('Obra esperada: NUEVA | Obra recibida:', obraCreada, '(misma que antes)');
+          showNotification && showNotification(
+            '⚠️ El presupuesto cambió a TERMINADO pero NO se creó una nueva obra.\n\n' +
+            `Sigue vinculado a la obra padre (ID: ${obraCreada}).\n\n` +
+            'Verifique que el backend tenga el fix aplicado.',
+            'warning'
+          );
+        } else {
+          console.error('❌ ERROR: No se pudo determinar el ID de la obra');
+          showNotification && showNotification(
+            '❌ Error: No se pudo verificar la creación de la obra.\n\nRevise la consola (F12) para más detalles.',
+            'danger'
+          );
+        }
 
         await loadList();
       } catch (error) {
+        console.error('❌ Error al finalizar tarea leve:', error);
         showNotification && showNotification(
-          'Error al finalizar tarea leve: ' + error.message,
+          'Error al finalizar tarea leve: ' + (error.response?.data?.mensaje || error.message),
           'error'
         );
       }
@@ -2313,7 +2461,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.filter(row => !row.esPresupuestoTrabajoExtra || !extrasEnSubgrupoIds.has(row.id)).map((row, index) => {
+                  {list.filter(row => !extrasEnSubgrupoIds.has(row.id)).map((row, index) => {
                     const esEditable = esPresupuestoEditable(row);
                     const esSemanal = row.tipoPresupuesto === 'TRABAJOS_SEMANALES';
                     const alertaInicio = obtenerAlertaInicio(row);
@@ -2382,8 +2530,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
                     return (
                     <React.Fragment key={rowId}>
-                      {/* Separador visual entre grupos */}
-                      {index > 0 && (
+                      {/* Separador visual entre grupos - solo cuando cambia el grupo */}
+                      {index > 0 && list[index - 1]._grupoIndex !== row._grupoIndex && (
                         <tr style={{ height: '8px', backgroundColor: '#343a40' }}>
                           <td colSpan="12" style={{
                             padding: 0,
@@ -2462,6 +2610,20 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         {row.numeroPresupuesto || '-'}
                         {row.tipoPresupuesto === 'TRABAJOS_SEMANALES' && <span className="badge bg-success ms-1" style={{fontSize: '0.7em', padding: '3px 5px'}} title="Trabajos Semanales">📅 Semanal</span>}
                         {row.tipoPresupuesto === 'TRADICIONAL' && <span className="badge bg-primary ms-1" style={{fontSize: '0.7em', padding: '3px 5px'}} title="Presupuesto Tradicional">🏗️ Tradicional</span>}
+                        {row.tipoPresupuesto === 'TAREA_LEVE' && (
+                          <div className="mt-1">
+                            <span className="badge bg-info text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
+                              ⚡ TAREA LEVE
+                            </span>
+                          </div>
+                        )}
+                        {row.esPresupuestoTrabajoExtra && row.tipoPresupuesto !== 'TAREA_LEVE' && (
+                          <div className="mt-1">
+                            <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
+                              🔧 TRABAJO EXTRA
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="small text-center">{row.numeroVersion || '-'}</td>
                       <td className="small">{row.fechaEmision}</td>
@@ -2496,31 +2658,6 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                               <i className="fas fa-building me-1"></i>
                               OBRA: {nombresObras[row.obraId] || `ID ${row.obraId}`} ({totalEnGrupo} presupuesto{totalEnGrupo > 1 ? 's' : ''})
                             </span>
-                          </div>
-                        )}
-                        {row.esPresupuestoTrabajoExtra && (
-                          <div className="mt-1">
-                            {tipoRelacion === 'obra' && presupuestoRelacionado && (
-                              <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
-                                🔧 TRABAJO EXTRA de #{presupuestoRelacionado.numeroPresupuesto}
-                              </span>
-                            )}
-                            {tipoRelacion === 'cliente' && presupuestoRelacionado && (
-                              <span className="badge bg-info text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
-                                🔧 TRABAJO EXTRA (mismo cliente)
-                              </span>
-                            )}
-                            {!tipoRelacion && (
-                              <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
-                                🔧 TRABAJO EXTRA
-                              </span>
-                            )}
-                            {row.obraId && (
-                              <div className="text-muted mt-1" style={{fontSize: '0.75em'}}>
-                                <i className="fas fa-link me-1"></i>
-                                Obra: {nombresObras[row.obraId] || `ID ${row.obraId}`}
-                              </div>
-                            )}
                           </div>
                         )}
                       </td>
@@ -2843,17 +2980,24 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         SUBGRUPOS DEL PRESUPUESTO PRINCIPAL
                         ══════════════════════════════════════════════════ */}
                     {(() => {
-                      const { adicionalesObra = [] } = gruposMap[row.id] || {};
-                      if (adicionalesObra.length === 0) return null;
-                      const colAd = !!gruposColapsados[`adicionales_${row.id}`];
+                      const { adicionalesObra = [], tareasLeves = [] } = gruposMap[row.id] || {};
+                      if (adicionalesObra.length === 0 && tareasLeves.length === 0) return null;
+                      // Por defecto colapsado (true), se expande cuando se hace clic (false)
+                      const colAd = gruposColapsados[`adicionales_${row.id}`] ?? true;
+                      const colTL = gruposColapsados[`tareas_leves_${row.id}`] ?? true;
                       return (
                         <>
-                          {/* ── Subgrupo: Adicionales Obra ── */}
+                          {/* ── Subgrupo: Adicionales Obra (Trabajos Extra) ── */}
                           {adicionalesObra.length > 0 && (
                             <>
                               {/* Header subgrupo Adicionales */}
                               <tr
-                                onClick={(e) => { e.stopPropagation(); setGruposColapsados(p => ({ ...p, [`adicionales_${row.id}`]: !p[`adicionales_${row.id}`] })); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const key = `adicionales_${row.id}`;
+                                  const currentValue = gruposColapsados[key] ?? true; // Por defecto colapsado
+                                  setGruposColapsados(p => ({ ...p, [key]: !currentValue }));
+                                }}
                                 style={{ backgroundColor: '#dbeafe', cursor: 'pointer', borderLeft: '5px solid #1d4ed8', borderBottom: '1px solid rgba(253, 126, 20, 0.45)' }}
                               >
                                 <td colSpan="12" className="py-1 px-3 small">
@@ -2878,11 +3022,21 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                     style={{ backgroundColor: adicSel ? '#cfe2ff' : '#eff6ff', borderLeft: '5px solid #ffc107', borderBottom: '1px solid rgba(253, 126, 20, 0.45)', cursor: 'pointer' }}
                                   >
                                     <td className="small ps-4">
-                                      {adicSel
-                                        ? <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>
-                                        : <i className="fas fa-wrench text-warning me-1" style={{fontSize:'0.75em'}}></i>
-                                      }
+                                      {adicSel && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
                                       {adic.numeroPresupuesto || '-'}
+                                      {adic.tipoPresupuesto === 'TAREA_LEVE' ? (
+                                        <div className="mt-1">
+                                          <span className="badge bg-info text-dark" style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                            ⚡ Tarea Leve
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="mt-1">
+                                          <span className="badge bg-warning text-dark" style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                            🔧 Adicional
+                                          </span>
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="small text-center">{adic.numeroVersion || '-'}</td>
                                     <td className="small">{adic.fechaEmision || '—'}</td>
@@ -2895,11 +3049,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                         {adic.estado || '—'}
                                       </span>
                                     </td>
-                                    <td>
-                                      <span className="badge bg-warning text-dark" style={{fontSize:'0.65em', padding:'3px 5px'}}>
-                                        🔧 Adicional
-                                      </span>
-                                    </td>
+                                    <td></td>
                                     <td></td>
                                     <td className="text-end fw-bold text-primary small">
                                       {adicTotal > 0
@@ -2987,6 +3137,117 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
                                         {/* APROBADO → Indicador */}
                                         {adic.estado === 'APROBADO' && (
+                                          <span className="badge bg-success" style={{ fontSize: '0.65em', padding: '3px 6px' }}>
+                                            <i className="fas fa-check-circle me-1"></i>
+                                            Aprobado
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </>
+                          )}
+
+                          {/* ── Subgrupo: Tareas Leves ── */}
+                          {tareasLeves.length > 0 && (
+                            <>
+                              {/* Header subgrupo Tareas Leves */}
+                              <tr
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const key = `tareas_leves_${row.id}`;
+                                  const currentValue = gruposColapsados[key] ?? true;
+                                  setGruposColapsados(p => ({ ...p, [key]: !currentValue }));
+                                }}
+                                style={{ backgroundColor: '#e0f2fe', cursor: 'pointer', borderLeft: '5px solid #0ea5e9', borderBottom: '1px solid rgba(14, 165, 233, 0.45)' }}
+                              >
+                                <td colSpan="12" className="py-1 px-3 small">
+                                  <span className="fw-bold text-info">
+                                    <i className={`fas fa-chevron-${colTL ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
+                                    ⚡ Tareas Leves
+                                    <span className="badge bg-info ms-2" style={{fontSize:'0.7em'}}>{tareasLeves.length}</span>
+                                  </span>
+                                  <span className="text-muted ms-3 small">Clic para {colTL ? 'mostrar' : 'ocultar'}</span>
+                                </td>
+                              </tr>
+                              {!colTL && tareasLeves.map(tarea => {
+                                const tareaSel = selectedId === tarea.id;
+                                const tareaTotal = tarea.totalConDescuentos || tarea.totalPresupuestoConHonorarios || tarea.totalGeneral || tarea.montoTotal || tarea.totalFinal || 0;
+                                const tareaDir = [tarea.direccionObraCalle, tarea.direccionObraAltura].filter(Boolean).join(' ');
+                                return (
+                                  <tr
+                                    key={`tarea_${tarea.id}`}
+                                    onClick={(e) => { e.stopPropagation(); setSelectedId(tareaSel ? null : tarea.id); }}
+                                    onDoubleClick={(e) => { e.stopPropagation(); handleAbrirAdicionalObra(tarea.id); }}
+                                    title="Clic para seleccionar • Doble clic para abrir"
+                                    style={{ backgroundColor: tareaSel ? '#cfe2ff' : '#f0f9ff', borderLeft: '5px solid #0ea5e9', borderBottom: '1px solid rgba(14, 165, 233, 0.45)', cursor: 'pointer' }}
+                                  >
+                                    <td className="small ps-4">
+                                      {tareaSel && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
+                                      {tarea.numeroPresupuesto || '-'}
+                                      <div className="mt-1">
+                                        <span className="badge bg-info text-dark" style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                          ⚡ Tarea Leve
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="small text-center">{tarea.numeroVersion || '-'}</td>
+                                    <td className="small">{tarea.fechaEmision || '—'}</td>
+                                    <td className="small">{tarea.nombreSolicitante || '—'}</td>
+                                    <td className="small">{tarea.nombreObra || '—'}</td>
+                                    <td className="small">{tareaDir || '—'}</td>
+                                    <td className="small">{tarea.fechaProbableInicio || '—'}</td>
+                                    <td>
+                                      <span className={`badge ${getEstadoBadgeClass(tarea.estado)}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                        {tarea.estado || '—'}
+                                      </span>
+                                    </td>
+                                    <td></td>
+                                    <td></td>
+                                    <td className="text-end fw-bold text-primary small">
+                                      {tareaTotal > 0
+                                        ? `$${Number(tareaTotal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                                        : <span className="text-muted">—</span>}
+                                    </td>
+                                    <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                                      {/* 🔧 BOTONES DE GESTIÓN PARA TAREAS LEVES */}
+                                      <div className="btn-group btn-group-sm" role="group">
+                                        {/* BORRADOR → Botón para marcar como "Listo para Enviar" */}
+                                        {(!tarea.estado || tarea.estado === 'BORRADOR') && (
+                                          <button
+                                            className="btn btn-success btn-sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleTerminarEdicionDesdeTabla(tarea);
+                                            }}
+                                            title="Marcar como listo para enviar"
+                                            style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                          >
+                                            <i className="fas fa-check me-1"></i>
+                                            Terminar
+                                          </button>
+                                        )}
+
+                                        {/* TERMINADO → Botón para aprobar */}
+                                        {tarea.estado === 'TERMINADO' && (
+                                          <button
+                                            className="btn btn-success btn-sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleAprobarYCrearObraDesdeTabla(tarea);
+                                            }}
+                                            title="Aprobar y crear obra"
+                                            style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                          >
+                                            <i className="fas fa-check-circle me-1"></i>
+                                            Aprobar
+                                          </button>
+                                        )}
+
+                                        {/* APROBADO → Indicador */}
+                                        {tarea.estado === 'APROBADO' && (
                                           <span className="badge bg-success" style={{ fontSize: '0.65em', padding: '3px 6px' }}>
                                             <i className="fas fa-check-circle me-1"></i>
                                             Aprobado
