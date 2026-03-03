@@ -122,7 +122,7 @@ export const listarTrabajosAdicionales = async (empresaId = null) => {
 };
 
 /**
- * Obtener trabajo adicional por ID
+ * Obtener trabajo adicional por ID (incluye presupuestosTareasLeves)
  * @param {number} id - ID del trabajo adicional
  * @returns {Promise} - TrabajoAdicionalResponseDTO
  */
@@ -133,6 +133,21 @@ export const obtenerTrabajoAdicionalPorId = async (id) => {
   } catch (error) {
     console.error(`❌ Error al obtener trabajo adicional ${id}:`, error);
     throw error;
+  }
+};
+
+/**
+ * Obtener trabajos adicionales de una obra específica
+ * @param {number} obraId - ID de la obra
+ * @returns {Promise<Array>} - Array de TrabajoAdicionalResponseDTO (incluye presupuestosTareasLeves)
+ */
+export const obtenerTrabajosAdicionalesPorObra = async (obraId) => {
+  try {
+    const response = await apiClient.get(`${BASE_URL}/obra/${obraId}`);
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (error) {
+    console.error(`❌ Error al obtener trabajos adicionales de obra ${obraId}:`, error);
+    return [];
   }
 };
 
@@ -234,6 +249,7 @@ export default {
   listarBorradoresTrabajoAdicional,
   listarTrabajosAdicionales,
   obtenerTrabajoAdicionalPorId,
+  obtenerTrabajosAdicionalesPorObra,
   actualizarTrabajoAdicional,
   eliminarTrabajoAdicional,
   actualizarEstadoTrabajoAdicional,

@@ -19,7 +19,7 @@ import {
 /**
  * Crear presupuesto (cualquier tipo)
  * @param {Object} datos - Datos del presupuesto
- * @param {string} datos.tipoPresupuesto - 'TRADICIONAL' | 'TRABAJO_DIARIO' | 'TRABAJO_EXTRA' | 'TAREA_LEVE'
+ * @param {string} datos.tipoPresupuesto - 'PRINCIPAL' | 'TRABAJO_DIARIO' | 'TRABAJO_EXTRA' | 'TAREA_LEVE'
  * @param {number} empresaId - ID de la empresa
  * @returns {Promise<Object>} Presupuesto creado
  */
@@ -65,7 +65,7 @@ export const crearPresupuesto = async (datos, empresaId) => {
  * @param {string} filtros.tipo - Filtrar por tipo específico
  * @param {number} filtros.obraId - Filtrar por obra
  * @param {number} filtros.trabajoExtraId - Filtrar por trabajo extra (nietos)
- * @param {boolean} filtros.soloRaices - Solo presupuestos padre (TRADICIONAL, TRABAJO_DIARIO)
+ * @param {boolean} filtros.soloRaices - Solo presupuestos padre (PRINCIPAL, TRABAJO_DIARIO)
  * @param {boolean} filtros.soloHijos - Solo hijos de obras (TRABAJO_EXTRA, TAREA_LEVE)
  * @returns {Promise<Array>} Lista de presupuestos
  */
@@ -73,7 +73,7 @@ export const listarPresupuestos = async (empresaId, filtros = {}) => {
   try {
     const params = { ...filtros };
 
-    // Si pide solo raíces, filtrar TRADICIONAL y TRABAJO_DIARIO
+    // Si pide solo raíces, filtrar PRINCIPAL y TRABAJO_DIARIO
     if (filtros.soloRaices) {
       delete params.soloRaices;
       // Backend debería soportar este filtro, pero por ahora lo hacemos en frontend
@@ -87,7 +87,7 @@ export const listarPresupuestos = async (empresaId, filtros = {}) => {
 
     if (filtros.soloRaices) {
       listaFiltrada = lista.filter(p =>
-        p.tipoPresupuesto === TIPOS_PRESUPUESTO.TRADICIONAL ||
+        p.tipoPresupuesto === TIPOS_PRESUPUESTO.PRINCIPAL ||
         p.tipoPresupuesto === TIPOS_PRESUPUESTO.TRABAJO_DIARIO ||
         (!p.tipoPresupuesto && !p.esPresupuestoTrabajoExtra) // Fallback para datos sin tipo
       );

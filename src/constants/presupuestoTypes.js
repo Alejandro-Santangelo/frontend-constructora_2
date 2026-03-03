@@ -6,7 +6,7 @@
 // ==================== TIPOS DE PRESUPUESTO ====================
 // Valores exactos que acepta el backend (NO modificar sin coordinar con backend)
 export const TIPOS_PRESUPUESTO = {
-  TRADICIONAL: 'TRADICIONAL',           // Obra nueva - Presupuesto formal
+  PRINCIPAL: 'PRINCIPAL',               // Obra nueva - Presupuesto formal (antes TRADICIONAL)
   TRABAJO_DIARIO: 'TRABAJO_DIARIO',     // Obra rápida - Cliente auto-generado
   TRABAJO_EXTRA: 'TRABAJO_EXTRA',       // Trabajo adicional vinculado a obra
   TAREA_LEVE: 'TAREA_LEVE'             // Tarea rápida vinculada a obra o trabajo extra
@@ -17,13 +17,13 @@ export const TIPOS_PRESUPUESTO = {
 // Sus valores corresponden 1:1 con los de TIPOS_PRESUPUESTO.
 // El backend debe declarar el mismo enum con estos mismos valores de string.
 //
-//   PRESUPUESTO_PRINCIPAL       → "TRADICIONAL"
+//   PRESUPUESTO_PRINCIPAL       → "PRINCIPAL"
 //   PRESUPUESTO_TRABAJO_DIARIO  → "TRABAJO_DIARIO"
 //   PRESUPUESTO_ADICIONAL_OBRA  → "TRABAJO_EXTRA"
 //   PRESUPUESTO_TAREA_LEVE      → "TAREA_LEVE"
 
 /** Presupuesto principal para obra nueva. Estado inicial: BORRADOR. Genera obra al aprobar. */
-export const PRESUPUESTO_PRINCIPAL      = TIPOS_PRESUPUESTO.TRADICIONAL;
+export const PRESUPUESTO_PRINCIPAL      = TIPOS_PRESUPUESTO.PRINCIPAL;
 
 /** Trabajo diario – obra rápida. Estado inicial: APROBADO (auto). Genera obra inmediatamente. */
 export const PRESUPUESTO_TRABAJO_DIARIO = TIPOS_PRESUPUESTO.TRABAJO_DIARIO;
@@ -36,7 +36,7 @@ export const PRESUPUESTO_TAREA_LEVE     = TIPOS_PRESUPUESTO.TAREA_LEVE;
 
 // ==================== CONFIGURACIÓN VISUAL Y COMPORTAMIENTO ====================
 export const PRESUPUESTO_CONFIG = {
-  TRADICIONAL: {
+  PRINCIPAL: {
     // Estilos visuales
     color: '#2196f3',
     gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -85,27 +85,29 @@ export const PRESUPUESTO_CONFIG = {
     // Labels
     label: 'Trabajo Diario - Nuevo Cliente',
     labelCorto: 'Trabajo Diario - Nuevo Cliente',
-    descripcion: 'Obra rápida con cliente auto-generado desde dirección',
+    descripcion: 'Obra rápida con flujo simplificado: BORRADOR → TERMINADO → APROBADO',
 
     // Comportamiento
-    autoAprobar: true,                   // Auto-aprobar al crear
+    // ⚡ CAMBIO BACKEND 2026-03-03: Flujo simplificado (2 pasos)
+    // Ya NO se auto-aprueba. Inicia en BORRADOR → usuario carga datos → TERMINADO → Aprobar → APROBADO + obra
+    autoAprobar: false,                  // ✅ CAMBIADO: Ya no auto-aprueba (inicia en BORRADOR)
     requiereObraId: false,               // NO está vinculado a obra
     requiereClienteId: false,            // Cliente se crea automáticamente
     requiereTrabajoExtraId: false,       // NO es hijo de trabajo extra
-    crearObraAlAprobar: true,            // Genera obra al aprobar (automático)
+    crearObraAlAprobar: true,            // Genera obra al aprobar (manual)
     esHijo: false,                       // ES PADRE
     esPadre: true,
     puedeSerPadre: true,                 // Puede tener hijos
 
-    // Estados permitidos
+    // Estados permitidos (flujo simplificado - sin estados de negociación)
+    // NO usa: A_ENVIAR, ENVIADO, MODIFICADO, OBRA_A_CONFIRMAR
     estadosPermitidos: [
-      'APROBADO',                        // Se crea directamente aprobado
-      'EN_EJECUCION',
-      'SUSPENDIDA',
-      'TERMINADO',
-      'CANCELADO'
+      'BORRADOR',                        // ✅ Estado inicial (usuario carga datos)
+      'TERMINADO',                       // ✅ Usuario termina de cargar → listo para aprobar
+      'APROBADO',                        // ✅ Aprobado → crea obra
+      'CANCELADO'                        // Puede cancelarse en cualquier momento
     ],
-    estadoInicial: 'APROBADO'            // ← Auto-aprobado
+    estadoInicial: 'BORRADOR'            // ✅ CAMBIADO: Inicia en BORRADOR (flujo simplificado)
   },
 
   TRABAJO_EXTRA: {
@@ -189,7 +191,7 @@ export const PRESUPUESTO_CONFIG = {
  * @returns {Object} Configuración del tipo
  */
 export const getConfigPresupuesto = (tipo) => {
-  return PRESUPUESTO_CONFIG[tipo] || PRESUPUESTO_CONFIG.TRADICIONAL;
+  return PRESUPUESTO_CONFIG[tipo] || PRESUPUESTO_CONFIG.PRINCIPAL;
 };
 
 /**
@@ -200,8 +202,8 @@ export const getConfigPresupuesto = (tipo) => {
 export const getNivelJerarquico = (presupuesto) => {
   const { tipoPresupuesto, obraId, trabajoExtraId } = presupuesto;
 
-  // PADRE: TRADICIONAL o TRABAJO_DIARIO (no tienen obraId hasta que aprueban)
-  if (tipoPresupuesto === TIPOS_PRESUPUESTO.TRADICIONAL ||
+  // PADRE: PRINCIPAL o TRABAJO_DIARIO (no tienen obraId hasta que aprueban)
+  if (tipoPresupuesto === TIPOS_PRESUPUESTO.PRINCIPAL ||
       tipoPresupuesto === TIPOS_PRESUPUESTO.TRABAJO_DIARIO) {
     return 'PADRE';
   }
@@ -297,7 +299,7 @@ export const puedeSerPadre = (tipo) => {
  * @returns {string[]} Array de tipos permitidos como hijos
  */
 export const getTiposHijosPermitidos = (tipoPadre) => {
-  if (tipoPadre === TIPOS_PRESUPUESTO.TRADICIONAL ||
+  if (tipoPadre === TIPOS_PRESUPUESTO.PRINCIPAL ||
       tipoPadre === TIPOS_PRESUPUESTO.TRABAJO_DIARIO) {
     // Los padres pueden tener trabajos extra y tareas leves
     return [TIPOS_PRESUPUESTO.TRABAJO_EXTRA, TIPOS_PRESUPUESTO.TAREA_LEVE];

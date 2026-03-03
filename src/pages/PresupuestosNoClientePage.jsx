@@ -477,7 +477,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       console.table(presupuestosCompletos.map(p => ({
         ID: p.id,
         Numero: p.numeroPresupuesto,
-        Tipo: p.tipoPresupuesto || 'TRADICIONAL',
+        Tipo: p.tipoPresupuesto || 'PRINCIPAL',
         Nombre: p.nombreObra,
         TrabajoExtra: p.esPresupuestoTrabajoExtra ? 'SÍ' : 'NO',
         ObraId: p.obraId,
@@ -637,7 +637,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           const getPrioridad = (p) => {
             if (p.tipoPresupuesto === 'TAREA_LEVE') return 3; // 3️⃣ Último: Tareas Leves
             if (p.esPresupuestoTrabajoExtra) return 2;          // 2️⃣ Medio: Trabajos Extra
-            return 1;                                           // 1️⃣ Primero: Obra Principal (TRADICIONAL/TRABAJO_DIARIO)
+            return 1;                                           // 1️⃣ Primero: Obra Principal (PRINCIPAL/TRABAJO_DIARIO)
           };
 
           const prioridadA = getPrioridad(a);
@@ -1794,9 +1794,9 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         // Asegurar que no tenga ID (por si viene del modal con algún valor residual)
         delete presupuesto.id;
 
-        // Asegurar que tenga tipoPresupuesto (por defecto TRADICIONAL)
+        // Asegurar que tenga tipoPresupuesto (por defecto PRINCIPAL)
         if (!presupuesto.tipoPresupuesto) {
-          presupuesto.tipoPresupuesto = 'TRADICIONAL';
+          presupuesto.tipoPresupuesto = 'PRINCIPAL';
         }
 
         presupuesto.version = 1;
@@ -1841,7 +1841,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           );
         } else {
           showNotification && showNotification(
-            `Presupuesto tradicional creado correctamente (${presupuesto.estado})`,
+            `Presupuesto principal creado correctamente (${presupuesto.estado})`,
             'success'
           );
         }
@@ -1901,7 +1901,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   };
 
   // Marcar presupuesto como listo para enviar (BORRADOR → A_ENVIAR)
-  // Funciona para presupuestos TRADICIONALES y Trabajos Extra
+  // Funciona para presupuestos PRINCIPALES y Trabajos Extra
   const handleMarcarListoParaEnviar = async () => {
     if (!selectedId) {
       showNotification && showNotification('Seleccione un presupuesto primero', 'warning');
@@ -1912,6 +1912,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
     if (!presupuesto) {
       showNotification && showNotification('Presupuesto no encontrado', 'error');
+      return;
+    }
+
+    // ⚠️ TRABAJO_DIARIO usa flujo simplificado → no pasa por A_ENVIAR
+    if (presupuesto.tipoPresupuesto === 'TRABAJO_DIARIO') {
+      showNotification && showNotification(
+        'Los presupuestos TRABAJO_DIARIO usan el botón "Marcar como Terminado" (flujo simplificado)',
+        'warning'
+      );
       return;
     }
 
@@ -1942,12 +1951,57 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     }
   };
 
+  // ⚡ Marcar TRABAJO_DIARIO como TERMINADO (flujo simplificado: BORRADOR → TERMINADO → APROBADO)
+  const handleMarcarTrabajoDiarioTerminado = async () => {
+    if (!selectedId) {
+      showNotification && showNotification('Seleccione un presupuesto primero', 'warning');
+      return;
+    }
+
+    const presupuesto = list.find(p => p.id === selectedId);
+
+    if (!presupuesto) {
+      showNotification && showNotification('Presupuesto no encontrado', 'error');
+      return;
+    }
+
+    if (presupuesto.tipoPresupuesto !== 'TRABAJO_DIARIO') {
+      showNotification && showNotification(
+        'Esta acción solo aplica a presupuestos TRABAJO_DIARIO',
+        'warning'
+      );
+      return;
+    }
+
+    if (presupuesto.estado !== 'BORRADOR') {
+      showNotification && showNotification(
+        `Este presupuesto ya está en estado ${presupuesto.estado}. Solo se puede marcar como terminado desde BORRADOR.`,
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      await api.presupuestosNoCliente.actualizarEstado(presupuesto.id, 'TERMINADO', empresaId);
+      showNotification && showNotification(
+        '✅ Presupuesto marcado como "Terminado" - Ahora puede aprobar y crear la obra',
+        'success'
+      );
+      await loadList();
+    } catch (error) {
+      showNotification && showNotification(
+        'Error al marcar presupuesto como terminado: ' + error.message,
+        'error'
+      );
+    }
+  };
+
   // ==========================================
   // 🔧 FUNCIONES AUXILIARES PARA GESTIÓN DE ESTADOS DESDE TABLA
   // ==========================================
 
   // Terminar edición desde tabla (BORRADOR → A_ENVIAR)
-  // Funciona para TRADICIONALES y TRABAJOS EXTRA
+  // Funciona para PRINCIPALES y TRABAJOS EXTRA (flujo completo)
   const handleTerminarEdicionDesdeTabla = async (presupuesto) => {
     if (!presupuesto || !presupuesto.id) {
       showNotification && showNotification('Presupuesto no válido', 'warning');
@@ -1972,6 +2026,31 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       showNotification && showNotification(
         'Error al marcar presupuesto: ' + error.message,
         'error'
+      );
+    }
+  };
+
+  // ⚡ Marcar TRABAJO_DIARIO como TERMINADO desde tabla (flujo simplificado)
+  const handleMarcarTrabajoDiarioTerminadoDesdeTabla = async (presupuesto) => {
+    if (!presupuesto || !presupuesto.id) {
+      showNotification && showNotification('Presupuesto no válido', 'warning');
+      return;
+    }
+    if (presupuesto.estado !== 'BORRADOR') {
+      showNotification && showNotification(
+        `Solo se puede marcar como terminado desde BORRADOR (estado actual: ${presupuesto.estado})`, 'warning'
+      );
+      return;
+    }
+    try {
+      await api.presupuestosNoCliente.actualizarEstado(presupuesto.id, 'TERMINADO', empresaId);
+      showNotification && showNotification(
+        '✅ Trabajo Diario marcado como "Terminado" - Ahora puede aprobar y crear la obra', 'success'
+      );
+      await loadList();
+    } catch (error) {
+      showNotification && showNotification(
+        'Error al marcar como terminado: ' + error.message, 'error'
       );
     }
   };
@@ -2365,6 +2444,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         handleAprobarYCrearObra,
         handleDuplicar,
         handleMarcarListoParaEnviar,
+        handleMarcarTrabajoDiarioTerminado,
         handleVerPresupuestoSeleccionado,
         handleEditarSoloFechas
       });
@@ -2609,7 +2689,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         {isSelected && <i className="fas fa-check-circle text-success me-1" title="Seleccionado"></i>}
                         {row.numeroPresupuesto || '-'}
                         {row.tipoPresupuesto === 'TRABAJOS_SEMANALES' && <span className="badge bg-success ms-1" style={{fontSize: '0.7em', padding: '3px 5px'}} title="Trabajos Semanales">📅 Semanal</span>}
-                        {row.tipoPresupuesto === 'TRADICIONAL' && <span className="badge bg-primary ms-1" style={{fontSize: '0.7em', padding: '3px 5px'}} title="Presupuesto Tradicional">🏗️ Tradicional</span>}
+                        {row.tipoPresupuesto === 'PRINCIPAL' && <span className="badge bg-primary ms-1" style={{fontSize: '0.7em', padding: '3px 5px'}} title="Presupuesto Principal">🏗️ Principal</span>}
                         {row.tipoPresupuesto === 'TAREA_LEVE' && (
                           <div className="mt-1">
                             <span className="badge bg-info text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
@@ -2869,8 +2949,24 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       <td className="text-center" onClick={(e) => e.stopPropagation()}>
                         {/* 🔧 BOTONES DE GESTIÓN DE CICLO DE VIDA */}
                         <div className="btn-group btn-group-sm" role="group">
-                          {/* BORRADOR → Botón para marcar como "Listo para Enviar" */}
-                          {(!row.estado || row.estado === 'BORRADOR') && (
+                          {/* BORRADOR → TRABAJO_DIARIO: flujo simplificado */}
+                          {(!row.estado || row.estado === 'BORRADOR') && row.tipoPresupuesto === 'TRABAJO_DIARIO' && (
+                            <button
+                              className="btn btn-success btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarcarTrabajoDiarioTerminadoDesdeTabla(row);
+                              }}
+                              title="Marcar como terminado (flujo simplificado: BORRADOR → TERMINADO → APROBADO)"
+                              style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                            >
+                              <i className="fas fa-flag-checkered me-1"></i>
+                              Terminado
+                            </button>
+                          )}
+
+                          {/* BORRADOR → OTROS TIPOS: flujo completo (A_ENVIAR) */}
+                          {(!row.estado || row.estado === 'BORRADOR') && row.tipoPresupuesto !== 'TRABAJO_DIARIO' && (
                             <button
                               className="btn btn-success btn-sm"
                               onClick={(e) => {
@@ -2937,6 +3033,36 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                   handleAprobarYCrearObraDesdeTabla(row);
                                 }}
                                 title="Aprobar presupuesto y crear obra"
+                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                              >
+                                <i className="fas fa-check-circle me-1"></i>
+                                Aprobar
+                              </button>
+                            </>
+                          )}
+
+                          {/* ⚡ TERMINADO → Para TRABAJO_DIARIO: botón Aprobar directo */}
+                          {row.estado === 'TERMINADO' && row.tipoPresupuesto === 'TRABAJO_DIARIO' && (
+                            <>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCambiarEstadoPresupuesto(row, 'BORRADOR');
+                                }}
+                                title="Volver a modo edición"
+                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                              >
+                                <i className="fas fa-undo me-1"></i>
+                                Volver
+                              </button>
+                              <button
+                                className="btn btn-success btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAprobarYCrearObraDesdeTabla(row);
+                                }}
+                                title="Aprobar y crear obra (flujo simplificado TRABAJO_DIARIO)"
                                 style={{ fontSize: '0.75em', padding: '4px 8px' }}
                               >
                                 <i className="fas fa-check-circle me-1"></i>

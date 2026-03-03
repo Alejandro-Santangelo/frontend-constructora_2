@@ -7,6 +7,28 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080
  */
 
 /**
+ * Obtener todos los materiales del catálogo
+ */
+export const obtenerMateriales = async (empresaId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/materiales?empresaId=${empresaId}`, {
+      headers: {
+        'empresaId': empresaId.toString()
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Error al obtener materiales');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error obteniendo materiales:', error);
+    return [];
+  }
+};
+
+/**
  * Buscar material por nombre exacto
  */
 export const buscarMaterialPorNombre = async (nombre, empresaId) => {

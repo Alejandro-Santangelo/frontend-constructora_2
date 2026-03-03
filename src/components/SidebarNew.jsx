@@ -133,9 +133,9 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                 </button>
               )}
 
-              {/* Botón para marcar BORRADOR como listo para enviar (TRADICIONAL o Trabajo Extra) */}
+              {/* Botón para marcar BORRADOR como listo para enviar (PRINCIPAL o Trabajo Extra - flujo completo) */}
               {presupuestoControls.selectedPresupuesto?.estado === 'BORRADOR' && (
-                presupuestoControls.selectedPresupuesto?.tipoPresupuesto === 'TRADICIONAL' ||
+                presupuestoControls.selectedPresupuesto?.tipoPresupuesto === 'PRINCIPAL' ||
                 presupuestoControls.selectedPresupuesto?.esPresupuestoTrabajoExtra
               ) && (
                 <button
@@ -145,6 +145,19 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
                   title="Marcar este presupuesto como listo para enviar al cliente (cambia a estado A_ENVIAR)"
                 >
                   <i className="fas fa-check-circle me-2"></i>Marcar como Listo
+                </button>
+              )}
+
+              {/* ⚡ Botón para TRABAJO_DIARIO: BORRADOR → TERMINADO (flujo simplificado) */}
+              {presupuestoControls.selectedPresupuesto?.estado === 'BORRADOR' &&
+                presupuestoControls.selectedPresupuesto?.tipoPresupuesto === 'TRABAJO_DIARIO' && (
+                <button
+                  className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                  style={{ backgroundColor: '#4caf50', border: 'none' }}
+                  onClick={presupuestoControls.handleMarcarTrabajoDiarioTerminado}
+                  title="Marcar presupuesto como terminado - siguiente paso: Aprobar y crear obra"
+                >
+                  <i className="fas fa-flag-checkered me-2"></i>Marcar como Terminado
                 </button>
               )}
 

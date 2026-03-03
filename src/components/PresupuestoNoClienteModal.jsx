@@ -32,13 +32,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const safeInitial = initialData || {};
 
   // 🔑 FIX: Normalizar tipoPresupuesto y modoPresupuesto mal guardados en BD
-  // TAREA_LEVE guardadas como TRADICIONAL (bug pre-fix) → detectar y corregir
-  if (safeInitial.id && safeInitial.tipoPresupuesto === 'TRADICIONAL') {
+  // TAREA_LEVE guardadas como PRINCIPAL (bug pre-fix) → detectar y corregir
+  if (safeInitial.id && safeInitial.tipoPresupuesto === 'PRINCIPAL') {
     const tieneObraId = safeInitial.obraId || safeInitial.obra_id;
     const noTieneClienteDirecto = !safeInitial.clienteId && !safeInitial.cliente_id;
     // Si tiene obra vinculada pero NO cliente directo → probablemente es TAREA_LEVE
     if (tieneObraId && noTieneClienteDirecto) {
-      console.warn('🔧 [FIX] TAREA_LEVE detectada guardada como TRADICIONAL - corrigiendo:', {
+      console.warn('🔧 [FIX] TAREA_LEVE detectada guardada como PRINCIPAL - corrigiendo:', {
         id: safeInitial.id,
         obraId: tieneObraId,
         tipoBD: safeInitial.tipoPresupuesto,
@@ -136,7 +136,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     version: safeInitial.version || safeInitial.numeroVersion || 1,
     numeroPresupuesto: safeInitial.numeroPresupuesto ?? null,
     estado: safeInitial.estado ?? 'BORRADOR',
-    tipoPresupuesto: safeInitial.tipoPresupuesto || 'TRADICIONAL',
+    tipoPresupuesto: safeInitial.tipoPresupuesto || 'PRINCIPAL',
 
     honorarioSeleccion: safeInitial.honorarioSeleccion || '',
     honorarioDireccionValorFijo: safeInitial.honorarioDireccionValorFijo ?? '',
@@ -827,7 +827,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       version: safeData.version || safeData.numeroVersion || 1,
       numeroPresupuesto: safeData.numeroPresupuesto ?? null,
       estado: safeData.estado ?? 'BORRADOR',
-      tipoPresupuesto: safeData.tipoPresupuesto || 'TRADICIONAL',
+      tipoPresupuesto: safeData.tipoPresupuesto || 'PRINCIPAL',
       honorarioSeleccion: safeData.honorarioSeleccion || '',
       honorarioDireccionValorFijo: safeData.honorarioDireccionValorFijo ?? '',
       honorarioDireccionPorcentaje: safeData.honorarioDireccionPorcentaje ?? '',
@@ -1497,7 +1497,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // Solo para presupuestos nuevos (sin id)
     if (!form.id) {
-      if (form.tipoPresupuesto === 'TRADICIONAL' && form.estado === 'OBRA_A_CONFIRMAR') {
+      if (form.tipoPresupuesto === 'PRINCIPAL' && form.estado === 'OBRA_A_CONFIRMAR') {
         setForm(prev => ({ ...prev, estado: 'BORRADOR' }));
       }
     }
@@ -1552,12 +1552,17 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         clienteId: f.id && f.clienteId ? f.clienteId : (clienteIdDeObra || null),
         obraSeleccionadaParaCopiar: f.id ? null : obraId, // Solo marcar si es nuevo
         esPresupuestoTrabajoExtra: !f.id ? true : f.esPresupuestoTrabajoExtra, // 🔧 Marcar automáticamente como trabajo extra si es nuevo
+        // 📍 Dirección de la obra
         direccionObraCalle: obraSeleccionada.direccion_obra_calle || obraSeleccionada.direccionObraCalle || obraSeleccionada.calle || f.direccionObraCalle,
         direccionObraAltura: obraSeleccionada.direccion_obra_altura || obraSeleccionada.direccionObraAltura || obraSeleccionada.altura || f.direccionObraAltura,
         direccionObraBarrio: obraSeleccionada.direccion_obra_barrio || obraSeleccionada.direccionObraBarrio || obraSeleccionada.barrio || f.direccionObraBarrio,
         direccionObraTorre: obraSeleccionada.direccion_obra_torre || obraSeleccionada.direccionObraTorre || obraSeleccionada.torre || f.direccionObraTorre,
         direccionObraPiso: obraSeleccionada.direccion_obra_piso || obraSeleccionada.direccionObraPiso || obraSeleccionada.piso || f.direccionObraPiso,
         direccionObraDepartamento: obraSeleccionada.direccion_obra_departamento || obraSeleccionada.direccionObraDepartamento || obraSeleccionada.departamento || obraSeleccionada.depto || f.direccionObraDepartamento,
+        // 👤 Datos de contacto de la obra padre
+        nombreSolicitante: obraSeleccionada.nombreSolicitante || obraSeleccionada.nombre_solicitante || f.nombreSolicitante,
+        telefono: obraSeleccionada.telefono || obraSeleccionada.telefonoContacto || obraSeleccionada.telefono_contacto || f.telefono,
+        mail: obraSeleccionada.mail || obraSeleccionada.email || f.mail,
         // También cargar nombre de obra si existe (como referencia)
         nombreObraManual: nombreObraParaProteger
       }));
@@ -1565,7 +1570,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       // Actualizar el valor protegido
       setNombreObraProtegido(nombreObraParaProteger);
 
-      console.log('✅ Dirección y clienteId cargados automáticamente desde la obra');
+      console.log('✅ Dirección, clienteId y datos de contacto cargados automáticamente desde la obra');
       console.log('ℹ️ obraId NO asignado - se creará obra nueva al aprobar');
     }
   };
@@ -7258,16 +7263,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     if (name === 'tipoPresupuesto') {
       console.log('🔄 Cambiando tipo de presupuesto a:', value);
 
-      if (value === 'TRABAJO_DIARIO') {
-        // TRABAJO_DIARIO: se aprueba automáticamente al crearse (estado APROBADO inmediato)
-        setForm(prev => ({
-          ...prev,
-          [name]: value,
-          estado: 'APROBADO'
-        }));
-      } else if (value === 'TRABAJO_EXTRA' || value === 'TRADICIONAL' || value === 'TAREA_LEVE') {
-        // TRADICIONAL/TRABAJO_EXTRA: requieren aprobación manual → estado BORRADOR
-        // TAREA_LEVE (v2.2): ya NO auto-aprueba. Inicia en BORRADOR. Flujo: BORRADOR → TERMINADO
+      // ✅ CAMBIO BACKEND 2026-03-03: TRABAJO_DIARIO ya NO auto-aprueba
+      // Flujo simplificado: BORRADOR → TERMINADO → APROBADO (sin A_ENVIAR, ENVIADO)
+      // Todos los tipos inician en BORRADOR
+      if (value === 'TRABAJO_DIARIO' || value === 'TRABAJO_EXTRA' || value === 'PRINCIPAL' || value === 'TAREA_LEVE') {
+        // Todos requieren aprobación manual → estado BORRADOR
+        // PRINCIPAL: BORRADOR → A_ENVIAR → ENVIADO → APROBADO
+        // TRABAJO_DIARIO: BORRADOR → TERMINADO → APROBADO (flujo simplificado)
+        // TRABAJO_EXTRA: BORRADOR → A_ENVIAR → ENVIADO → APROBADO
+        // TAREA_LEVE: BORRADOR → TERMINADO
         setForm(prev => ({
           ...prev,
           [name]: value,
@@ -7282,7 +7286,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         // Para tipos vinculados a obra: limpiar cliente (se hereda de obra)
         console.log('👥 Limpiando clienteId porque se hereda de la obra');
       }
-      // TRADICIONAL/TRABAJO_DIARIO: Mantener obraId si existe (para vinculación)
+      // PRINCIPAL/TRABAJO_DIARIO: Mantener obraId si existe (para vinculación)
     }
     // 🔄 Si cambia el estado del presupuesto, sincronizar con la obra si es trabajo extra
     else if (name === 'estado') {
@@ -8035,11 +8039,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   // 🛡️ VALIDACIÓN DE TIPOS DE PRESUPUESTO
   const validarTipoPresupuesto = (presupuesto) => {
-    const tipo = presupuesto.tipoPresupuesto || 'TRADICIONAL';
+    const tipo = presupuesto.tipoPresupuesto || 'PRINCIPAL';
     console.log('🔍 Validando presupuesto tipo:', tipo);
 
-    // VALIDACIÓN 1: Campos obligatorios para TRADICIONAL y TRABAJO_DIARIO (crean obra nueva)
-    if (tipo === 'TRADICIONAL' || tipo === 'TRABAJO_DIARIO') {
+    // VALIDACIÓN 1: Campos obligatorios para PRINCIPAL y TRABAJO_DIARIO (crean obra nueva)
+    if (tipo === 'PRINCIPAL' || tipo === 'TRABAJO_DIARIO') {
       if (!presupuesto.nombreObraManual || presupuesto.nombreObraManual.trim() === '') {
         return {
           valido: false,
@@ -8095,7 +8099,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     // 1. Si modoTrabajoExtra y NO es TAREA_LEVE → forzar TRABAJO_EXTRA
     // 2. Si form.tipoPresupuesto existe → usarlo (preserva TAREA_LEVE, TRABAJO_EXTRA, etc.)
     // 3. Si initialData.tipoPresupuesto existe → usarlo
-    // 4. Solo si todo falla → usar 'TRADICIONAL' por defecto
+    // 4. Solo si todo falla → usar 'PRINCIPAL' por defecto
     const tipoPresupuestoEfectivo = (() => {
       if (modoTrabajoExtra && form.tipoPresupuesto !== 'TAREA_LEVE') {
         return 'TRABAJO_EXTRA';
@@ -8106,7 +8110,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       if (initialData?.tipoPresupuesto) {
         return initialData.tipoPresupuesto;
       }
-      return 'TRADICIONAL';
+      return 'PRINCIPAL';
     })();
 
     console.log('🔍 [TIPO PRESUPUESTO] Determinado:', {
@@ -8169,8 +8173,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         delete payload.clienteId;
         delete payload.idCliente;
       }
-    } else if (payload.tipoPresupuesto === 'TRADICIONAL' || payload.tipoPresupuesto === 'TRABAJO_DIARIO') {
-      // TRADICIONAL/TRABAJO_DIARIO: Backend no permite obraId
+    } else if (payload.tipoPresupuesto === 'PRINCIPAL' || payload.tipoPresupuesto === 'TRABAJO_DIARIO') {
+      // PRINCIPAL/TRABAJO_DIARIO: Backend no permite obraId
       // Si tiene obraId, guardarlo como idObraPadre para vinculación futura y limpiar obraId
       if (payload.obraId || payload.idObra) {
         console.log('🔗 VINCULACIÓN: Guardando obra padre en idObraPadre:', payload.obraId || payload.idObra);
@@ -8192,7 +8196,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       payload.esPresupuestoTrabajoExtra = true;
       console.log('🔧 NUEVO PRESUPUESTO: esPresupuestoTrabajoExtra = true (tipo ' + payload.tipoPresupuesto + ')');
     } else {
-      // TRADICIONAL/TRABAJO_DIARIO: NUNCA son trabajos extra (aunque tengan obraId para vinculación)
+      // PRINCIPAL/TRABAJO_DIARIO: NUNCA son trabajos extra (aunque tengan obraId para vinculación)
       payload.esPresupuestoTrabajoExtra = false;
       console.log('🔧 esPresupuestoTrabajoExtra = false para tipo:', payload.tipoPresupuesto);
     }
@@ -8333,7 +8337,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     payload.tipoProfesionalPresupuesto = valoresPresupuesto.tipoProfesional || null;
     // 🔧 CRÍTICO: modoPresupuesto es NOT NULL en la BD.
-    // Debe ser igual al tipoPresupuesto (ej: 'TRADICIONAL', 'TRABAJO_EXTRA', 'TAREA_LEVE').
+    // Debe ser igual al tipoPresupuesto (ej: 'PRINCIPAL', 'TRABAJO_EXTRA', 'TAREA_LEVE').
     // valoresPresupuesto.modoSeleccionado guarda el modo de cobro profesional (hora/dia/...)
     // que va en otros campos (importeHora, importeDia...) y NO en modoPresupuesto.
     payload.modoPresupuesto = tipoPresupuestoEfectivo;
@@ -9842,14 +9846,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   </span>
                 )}
 
-                {!modoTrabajoExtra && form.tipoPresupuesto === 'TRADICIONAL' && (
+                {!modoTrabajoExtra && form.tipoPresupuesto === 'PRINCIPAL' && (
                   <span
-                    className="badge bg-success"
+                    className="badge bg-primary"
                     style={{ fontSize: '0.85rem', padding: '6px 10px' }}
-                    title="Presupuesto tradicional completo"
+                    title="Presupuesto Principal"
                   >
                     <i className="fas fa-building me-1"></i>
-                    TRADICIONAL
+                    PRINCIPAL
                   </span>
                 )}
 
@@ -10048,7 +10052,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             /* Si es NUEVO presupuesto, mostrar selectores */
                             <>
                               {/* Selector de Cliente - Solo para PRESUPUESTO_PRINCIPAL y PRESUPUESTO_TRABAJO_DIARIO */}
-                              {!modoTrabajoExtra && initialData?.tipoPresupuesto !== 'TAREA_LEVE' && (form.tipoPresupuesto === 'TRADICIONAL' || form.tipoPresupuesto === 'TRABAJO_DIARIO' || !form.tipoPresupuesto) && (
+                              {!modoTrabajoExtra && initialData?.tipoPresupuesto !== 'TAREA_LEVE' && (form.tipoPresupuesto === 'PRINCIPAL' || form.tipoPresupuesto === 'TRABAJO_DIARIO' || !form.tipoPresupuesto) && (
                               <div className="mb-2">
                                 <label className="form-label fw-bold" style={{color: "#000", marginBottom: 6}}>
                                   Cliente existente:
@@ -10343,13 +10347,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             )}
 
                             {/* Mensaje para tipos que crean obra nueva */}
-                            {(form.tipoPresupuesto === 'TRADICIONAL' || form.tipoPresupuesto === 'TRABAJO_DIARIO') && (
+                            {(form.tipoPresupuesto === 'PRINCIPAL' || form.tipoPresupuesto === 'TRABAJO_DIARIO') && (
                               <div className="mb-2">
                                 <div className="alert alert-success py-2">
                                   <small>
                                     <i className="fas fa-plus-circle me-1"></i>
                                     {form.tipoPresupuesto === 'TRABAJO_DIARIO'
-                                      ? 'Se creará automáticamente una obra nueva al guardar el presupuesto.'
+                                      ? 'Se creará una obra nueva cuando el presupuesto sea aprobado (flujo simplificado: BORRADOR → TERMINADO → APROBADO).'
                                       : 'Se creará una obra nueva cuando el presupuesto sea aprobado.'
                                     }
                                   </small>

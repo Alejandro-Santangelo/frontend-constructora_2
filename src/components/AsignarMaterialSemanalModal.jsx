@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import { obtenerMateriales, obtenerOCrearMaterial } from '../services/catalogoMaterialesService';
 
 const AsignarMaterialSemanalModal = ({
   show,
@@ -22,6 +23,7 @@ const AsignarMaterialSemanalModal = ({
   const [cantidadTotal, setCantidadTotal] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [procesando, setProcesando] = useState(false);
+  const [materialesCatalogo, setMaterialesCatalogo] = useState([]);
 
   const tieneItemsDetallados = (materialesDisponibles?.length || 0) > 0;
   // ⚠️ NOTA: Backend aún no soporta materiales manuales (solo presupuesto)
@@ -44,6 +46,38 @@ const AsignarMaterialSemanalModal = ({
       setMaterialSeleccionadoId('');
     }
   }, [show, tieneItemsDetallados, tipoAsignacion, modoPresupuesto, permiteManual]);
+
+  // 🔥 Cargar materiales del catálogo de BD
+  useEffect(() => {
+    const cargarMaterialesCatalogo = async () => {
+      if (show && empresaSeleccionada?.id) {
+        try {
+          const materiales = await obtenerMateriales(empresaSeleccionada.id);
+          setMaterialesCatalogo(materiales || []);
+          console.log(`✅ ${materiales?.length || 0} materiales cargados del catálogo (semanal)`);
+        } catch (error) {
+          console.error('❌ Error cargando materiales del catálogo (semanal):', error);
+        }
+      }
+    };
+    cargarMaterialesCatalogo();
+  }, [show, empresaSeleccionada?.id]);
+
+  // 🔥 Cargar materiales del catálogo de BD
+  useEffect(() => {
+    const cargarMaterialesCatalogo = async () => {
+      if (show && empresaSeleccionada?.id) {
+        try {
+          const materiales = await obtenerMateriales(empresaSeleccionada.id);
+          setMaterialesCatalogo(materiales || []);
+          console.log(`✅ ${materiales?.length || 0} materiales cargados del catálogo (semanal)`);
+        } catch (error) {
+          console.error('❌ Error cargando materiales del catálogo (semanal):', error);
+        }
+      }
+    };
+    cargarMaterialesCatalogo();
+  }, [show, empresaSeleccionada?.id]);
 
   // Estado para creación rápida de material manual
   const [nuevoMaterialManual, setNuevoMaterialManual] = useState({
@@ -89,8 +123,12 @@ const AsignarMaterialSemanalModal = ({
 
   const materialSeleccionado = useMemo(() => {
     if (!materialSeleccionadoId) return null;
+    // Buscar en el catálogo de materiales
+    const materialCatalogo = materialesCatalogo.find(m => m.id.toString() === materialSeleccionadoId.toString());
+    if (materialCatalogo) return materialCatalogo;
+    // Fallback a materialesDisponibles si no se encuentra en el catálogo
     return materialesDisponibles.find(m => m.id.toString() === materialSeleccionadoId.toString()) || null;
-  }, [materialSeleccionadoId, materialesDisponibles]);
+  }, [materialSeleccionadoId, materialesCatalogo, materialesDisponibles]);
 
   const handleConfirmar = async () => {
     if (procesando) {
@@ -128,9 +166,25 @@ const AsignarMaterialSemanalModal = ({
         setProcesando(false);
         return;
       }
+
+      // 🔥 Crear/Obtener material del catálogo de BD
+      try {
+        const materialCatalogo = await obtenerOCrearMaterial(
+          nuevoMaterialManual.nombre,
+          obtenerUnidadFinal(),
+          precioNum,
+          empresaSeleccionada.id
+        );
+        console.log('✅ Material verificado/creado en catálogo (semanal):', materialCatalogo);
+      } catch (error) {
+        console.error('❌ Error creando/verificando material en catálogo:', error);
+        alert(`❌ Error al guardar el material: ${error.message}`);
+        setProcesando(false);
+        return;
+      }
     } else {
       if (!materialSeleccionadoId) {
-        alert('⚠️ Por favor seleccione un material del presupuesto');
+        alert('⚠️ Por favor seleccione un material del catálogo');
         setProcesando(false);
         return;
       }
@@ -151,33 +205,21 @@ const AsignarMaterialSemanalModal = ({
 
     const unidadMedida = tipoAsignacion === 'CANTIDAD_GLOBAL'
       ? obtenerUnidadFinal()
-      : (materialSeleccionado?.unidad || '');
+      : (materialSeleccionado?.unidadMedida || materialSeleccionado?.unidad || '');
 
-    if (tipoAsignacion === 'ELEMENTO_DETALLADO') {
-      const disponibleReal = calcularStockDisponible(materialSeleccionado?.id);
-      const estadoReal = getEstadoStockActualizado(materialSeleccionado?.id);
+    // Para materiales del catálogo (ELEMENTO_DETALLADO), no validar stock ya que no lo manejamos
+    // El stock se valida en las asignaciones de obra, no en el catálogo
 
-      if (estadoReal === 'AGOTADO') {
-        alert('No se puede asignar material agotado');
-        setProcesando(false);
-        return;
-      }
-
-      if (cantidadNum > disponibleReal) {
-        alert(`Stock insuficiente. Disponible: ${disponibleReal}, Solicitado: ${cantidadNum}`);
-        setProcesando(false);
-        return;
-      }
-    }
+    const precioUnitario = tipoAsignacion === 'CANTIDAD_GLOBAL'
+      ? (parseFloat(nuevoMaterialManual.precioUnitario) || 0)
+      : (materialSeleccionado?.precioUnitario || parseFloat(nuevoMaterialManual.precioUnitario) || 0);
 
     const asignacionSemanal = {
       materialId: idMaterial,
       nombreMaterial,
       unidadMedida,
       cantidad: cantidadNum,
-      precioUnitario: tipoAsignacion === 'CANTIDAD_GLOBAL'
-        ? (parseFloat(nuevoMaterialManual.precioUnitario) || 0)
-        : (materialSeleccionado?.precioUnitario || 0),
+      precioUnitario: precioUnitario,
       numeroSemana,
       observaciones: observaciones + (tipoAsignacion === 'CANTIDAD_GLOBAL' ? ' [Para toda la Semana]' : ' [Material Semanal Detallado]'),
       esManual: tipoAsignacion === 'CANTIDAD_GLOBAL',
@@ -258,10 +300,10 @@ const AsignarMaterialSemanalModal = ({
                           checked={tipoAsignacion === 'CANTIDAD_GLOBAL'}
                           onChange={() => setTipoAsignacion('CANTIDAD_GLOBAL')}
                         />
-                        <label className="form-check-label fw-bold">Cantidad Global</label>
+                        <label className="form-check-label fw-bold">➕ Crear Nuevo Material</label>
                       </div>
                       <small className="d-block mt-1 text-muted">
-                        Crear material sin estar en el presupuesto
+                        Crear un nuevo material en el catálogo
                         {(modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && ` ($ ${cantidadGlobalDisponible.toLocaleString('es-AR')} disponibles)`}
                       </small>
                     </div>
@@ -279,9 +321,9 @@ const AsignarMaterialSemanalModal = ({
                           checked={tipoAsignacion === 'ELEMENTO_DETALLADO'}
                           onChange={() => setTipoAsignacion('ELEMENTO_DETALLADO')}
                         />
-                        <label className="form-check-label fw-bold">Elemento Detallado</label>
+                        <label className="form-check-label fw-bold">Material del Catálogo</label>
                       </div>
-                      <small className="d-block mt-1 text-muted">Seleccionar material específico del presupuesto</small>
+                      <small className="d-block mt-1 text-muted">Seleccionar material existente del catálogo</small>
                     </div>
                   )}
                 </div>
@@ -330,44 +372,44 @@ const AsignarMaterialSemanalModal = ({
                 </>
               ) : (
                 <div className="col-md-12">
-                  <label className="form-label fw-bold">Seleccionar Material del Presupuesto *</label>
+                  <label className="form-label fw-bold">Material del Catálogo *</label>
                   <select
                     className="form-select form-select-lg"
                     value={materialSeleccionadoId}
-                    onChange={(e) => setMaterialSeleccionadoId(e.target.value)}
+                    onChange={(e) => {
+                      const valorSeleccionado = e.target.value;
+                      setMaterialSeleccionadoId(valorSeleccionado);
+
+                      // Auto-completar precio unitario del catálogo
+                      if (valorSeleccionado) {
+                        const materialCatalogo = materialesCatalogo.find(m => m.id.toString() === valorSeleccionado);
+                        if (materialCatalogo && materialCatalogo.precioUnitario) {
+                          setNuevoMaterialManual({
+                            ...nuevoMaterialManual,
+                            precioUnitario: materialCatalogo.precioUnitario.toString(),
+                            nombre: materialCatalogo.nombre,
+                            unidad: materialCatalogo.unidadMedida || 'un'
+                          });
+                        }
+                      }
+                    }}
                   >
-                    <option value="">-- Seleccionar Material --</option>
-                    {materialesDisponibles.map(material => {
-                      const disponibleReal = calcularStockDisponible(material.id);
-                      const stockOriginal = material.cantidadDisponible || 0;
-                      const estadoReal = getEstadoStockActualizado(material.id);
-                      const icono = {
-                        'DISPONIBLE': '🟢',
-                        'STOCK_BAJO': '🟡',
-                        'AGOTADO': '🔴',
-                        'SIN_STOCK': '⚪'
-                      }[estadoReal];
-
-                      const infoStock = disponibleReal !== stockOriginal
-                        ? `${disponibleReal}/${stockOriginal}`
-                        : `${disponibleReal}`;
-
-                      return (
-                        <option
-                          key={material.id}
-                          value={material.id}
-                          disabled={estadoReal === 'AGOTADO'}
-                          style={{ color: estadoReal === 'AGOTADO' ? '#dc3545' : '#000' }}
-                        >
-                          {icono} {material.nombre} - {infoStock} disponibles ({material.unidad})
-                        </option>
-                      );
-                    })}
+                    <option value="">Seleccionar material del catálogo...</option>
+                    {materialesCatalogo.length === 0 && (
+                      <option disabled style={{ color: '#6c757d', fontStyle: 'italic' }}>
+                        Cargando materiales...
+                      </option>
+                    )}
+                    {materialesCatalogo.map(material => (
+                      <option key={material.id} value={material.id}>
+                        {material.nombre} {material.unidadMedida ? `(${material.unidadMedida})` : ''} - ${Number(material.precioUnitario || 0).toLocaleString('es-AR')}
+                      </option>
+                    ))}
                   </select>
-                  {!tieneItemsDetallados && (
-                    <div className="alert alert-warning mt-3 mb-0">
-                      <i className="fas fa-exclamation-triangle me-2"></i>
-                      No hay materiales detallados disponibles. Usá “Cantidad Global” para cargarlos manualmente.
+                  {materialesCatalogo.length === 0 && (
+                    <div className="alert alert-info mt-3 mb-0">
+                      <i className="fas fa-info-circle me-2"></i>
+                      Cargando materiales del catálogo...
                     </div>
                   )}
                 </div>
@@ -386,34 +428,33 @@ const AsignarMaterialSemanalModal = ({
                     onChange={(e) => setCantidadTotal(e.target.value)}
                   />
                   <span className="input-group-text">
-                    {tipoAsignacion === 'CANTIDAD_GLOBAL' ? obtenerUnidadFinal() : (materialSeleccionado?.unidad || 'un')}
+                    {tipoAsignacion === 'CANTIDAD_GLOBAL' ? obtenerUnidadFinal() : (materialSeleccionado?.unidadMedida || materialSeleccionado?.unidad || 'un')}
                   </span>
                 </div>
               </div>
 
-              {/* 🔥 NUEVO: Campo Precio Unitario para materiales globales */}
-              {tipoAsignacion === 'CANTIDAD_GLOBAL' && (
-                <div className="col-md-6">
-                  <label className="form-label fw-bold">Precio Unitario *</label>
-                  <div className="input-group input-group-lg">
-                    <span className="input-group-text">$</span>
-                    <input
-                      type="number"
-                      className="form-control"
-                      step="0.01"
-                      min="0"
-                      placeholder="0.00"
-                      value={nuevoMaterialManual.precioUnitario}
-                      onChange={(e) => setNuevoMaterialManual({...nuevoMaterialManual, precioUnitario: e.target.value})}
-                    />
-                  </div>
-                  {nuevoMaterialManual.precioUnitario && cantidadTotal && (
-                    <small className="text-muted mt-1 d-block">
-                      Total: ${(Number(nuevoMaterialManual.precioUnitario) * Number(cantidadTotal)).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                    </small>
-                  )}
+              {/* 🔥 Campo Precio Unitario (siempre visible) */}
+              <div className="col-md-6">
+                <label className="form-label fw-bold">Precio Unitario *</label>
+                <div className="input-group input-group-lg">
+                  <span className="input-group-text">$</span>
+                  <input
+                    type="number"
+                    className="form-control"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={nuevoMaterialManual.precioUnitario}
+                    onChange={(e) => setNuevoMaterialManual({...nuevoMaterialManual, precioUnitario: e.target.value})}
+                    disabled={tipoAsignacion === 'ELEMENTO_DETALLADO' && materialSeleccionadoId}
+                  />
                 </div>
-              )}
+                {nuevoMaterialManual.precioUnitario && cantidadTotal && (
+                  <small className="text-muted mt-1 d-block">
+                    Total: ${(Number(nuevoMaterialManual.precioUnitario) * Number(cantidadTotal)).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                  </small>
+                )}
+              </div>
             </div>
 
             {/* Observaciones */}

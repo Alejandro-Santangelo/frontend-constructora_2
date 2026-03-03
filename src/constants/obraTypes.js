@@ -7,7 +7,7 @@
  *
  * Relación presupuesto → obra:
  *
- *   PRESUPUESTO_PRINCIPAL       (TRADICIONAL)    → OBRA_PRINCIPAL
+ *   PRESUPUESTO_PRINCIPAL       (PRINCIPAL)    → OBRA_PRINCIPAL
  *   PRESUPUESTO_TRABAJO_DIARIO  (TRABAJO_DIARIO)  → OBRA_TRABAJO_DIARIO
  *   PRESUPUESTO_ADICIONAL_OBRA  (TRABAJO_EXTRA)   → OBRA_ADICIONAL
  *   PRESUPUESTO_TAREA_LEVE      (TAREA_LEVE)      → OBRA_TAREA_LEVE
@@ -16,10 +16,10 @@
 
 // ==================== TIPOS DE OBRA (valores backend) ====================
 export const TIPOS_OBRA = {
-  /** Obra generada al aprobar un presupuesto TRADICIONAL */
+  /** Obra generada al aprobar un presupuesto PRINCIPAL */
   OBRA_PRINCIPAL:      'OBRA_PRINCIPAL',
 
-  /** Obra generada automáticamente desde un presupuesto TRABAJO_DIARIO */
+  /** Obra generada al aprobar un presupuesto TRABAJO_DIARIO (flujo simplificado: BORRADOR → TERMINADO → APROBADO) */
   OBRA_TRABAJO_DIARIO: 'OBRA_TRABAJO_DIARIO',
 
   /** Trabajo adicional sobre obra existente (desde presupuesto TRABAJO_EXTRA) */
@@ -36,7 +36,7 @@ export const TIPOS_OBRA = {
 // Se usan en lugar de strings literales para evitar typos y
 // para dejar claro el contrato con el backend.
 
-/** Obra formal generada al aprobar un presupuesto principal (TRADICIONAL). */
+/** Obra formal generada al aprobar un presupuesto principal (PRINCIPAL). */
 export const OBRA_PRINCIPAL      = TIPOS_OBRA.OBRA_PRINCIPAL;      // 'OBRA_PRINCIPAL'
 
 /** Obra rápida generada automáticamente desde un presupuesto de trabajo diario. */
@@ -62,7 +62,8 @@ export const OBRA_INDEPENDIENTE  = TIPOS_OBRA.OBRA_INDEPENDIENTE;  // 'OBRA_INDE
  */
 export const tipoObraDesdePresupuesto = (tipoPresupuesto) => {
   const mapa = {
-    TRADICIONAL:    TIPOS_OBRA.OBRA_PRINCIPAL,
+    PRINCIPAL:      TIPOS_OBRA.OBRA_PRINCIPAL,      // ✅ Nuevo valor del backend
+    TRADICIONAL:    TIPOS_OBRA.OBRA_PRINCIPAL,      // ⚠️ Backward compatibility (deprecated)
     TRABAJO_DIARIO: TIPOS_OBRA.OBRA_TRABAJO_DIARIO,
     TRABAJO_EXTRA:  TIPOS_OBRA.OBRA_ADICIONAL,
     TAREA_LEVE:     TIPOS_OBRA.OBRA_TAREA_LEVE,

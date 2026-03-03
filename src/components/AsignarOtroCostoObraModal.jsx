@@ -750,6 +750,14 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
       console.log(`\n✅ TOTAL CALCULADO: $${presupuestoGlobal.toLocaleString('es-AR')} (${totalGastosEncontrados} items)`);
 
+      // 🎯 Si no hay gastos en itemsCalculadora, usar importeGastosGeneralesObra de la obra
+      if (presupuestoGlobal === 0 && totalGastosEncontrados === 0) {
+        if (obra.importeGastosGeneralesObra && Number(obra.importeGastosGeneralesObra) > 0) {
+          presupuestoGlobal = Number(obra.importeGastosGeneralesObra);
+          console.log(`✅ Usando importeGastosGeneralesObra de la obra: $${presupuestoGlobal.toLocaleString('es-AR')}`);
+        }
+      }
+
       // 🔍 DEBUG ADICIONAL para trabajos extra
       if (obra._esTrabajoExtra) {
         console.log('🔍 [TRABAJO EXTRA] Verificación de cálculo de presupuesto global:', {

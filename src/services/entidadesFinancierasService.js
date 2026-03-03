@@ -3,7 +3,7 @@
 // Backend endpoint base: /api/v1/entidades-financieras
 //
 // Tipos de entidad (ver src/constants/obraTypes.js):
-//   OBRA_PRINCIPAL     ('OBRA_PRINCIPAL')    - Obra generada desde presupuesto TRADICIONAL
+//   OBRA_PRINCIPAL     ('OBRA_PRINCIPAL')    - Obra generada desde presupuesto PRINCIPAL
 //   OBRA_TRABAJO_DIARIO('OBRA_TRABAJO_DIARIO')- Obra generada desde presupuesto TRABAJO_DIARIO
 //   OBRA_ADICIONAL     ('TRABAJO_EXTRA')     - Adicional vinculado a obra (presupuesto TRABAJO_EXTRA)
 //   OBRA_TAREA_LEVE    ('TRABAJO_ADICIONAL') - Tarea leve vinculada a obra (presupuesto TAREA_LEVE)

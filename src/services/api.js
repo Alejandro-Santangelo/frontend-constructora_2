@@ -789,6 +789,27 @@ export const apiService = {
     updateBorrador: (id, data) => apiService.put(`/api/obras/borrador/${id}`, data),
     confirmarBorrador: (id) => apiService.post(`/api/obras/borrador/${id}/confirmar`),
     getBorradores: (empresaId) => apiService.get('/api/obras/borradores', { empresaId }),
+
+    // ✅ MATERIALES DE OBRA - Asignar materiales del catálogo a obras
+    // POST /api/obras/{obraId}/materiales
+    asignarMaterial: (obraId, data, empresaId) =>
+      apiService.post(`/api/obras/${obraId}/materiales`, data, { headers: { empresaId } }),
+
+    // GET /api/obras/{obraId}/materiales
+    getMateriales: (obraId, empresaId) =>
+      apiService.get(`/api/obras/${obraId}/materiales`, {}, { headers: { empresaId } }),
+
+    // GET /api/obras/{obraId}/materiales/{id}
+    getMaterialById: (obraId, materialId, empresaId) =>
+      apiService.get(`/api/obras/${obraId}/materiales/${materialId}`, {}, { headers: { empresaId } }),
+
+    // PUT /api/obras/{obraId}/materiales/{id}
+    actualizarMaterial: (obraId, materialId, data, empresaId) =>
+      apiService.put(`/api/obras/${obraId}/materiales/${materialId}`, data, { headers: { empresaId } }),
+
+    // DELETE /api/obras/{obraId}/materiales/{id}
+    eliminarMaterial: (obraId, materialId, empresaId) =>
+      apiService.delete(`/api/obras/${obraId}/materiales/${materialId}`, { headers: { empresaId } }),
   },
 
   // ==================== TRABAJOS EXTRA ====================

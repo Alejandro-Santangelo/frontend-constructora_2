@@ -14,7 +14,7 @@ import SeleccionarProfesionalesModal from './SeleccionarProfesionalesModal';
  * @param {boolean} props.mostrar - Mostrar/ocultar modal
  * @param {Function} props.onCerrar - Callback al cerrar
  * @param {Function} props.onGuardar - Callback al guardar (datos) => Promise
- * @param {string} props.tipoPresupuesto - 'TRADICIONAL' | 'TRABAJO_DIARIO' | 'TRABAJO_EXTRA' | 'TAREA_LEVE'
+ * @param {string} props.tipoPresupuesto - 'PRINCIPAL' | 'TRABAJO_DIARIO' | 'TRABAJO_EXTRA' | 'TAREA_LEVE'
  * @param {Object} props.contexto - Contexto de creación
  * @param {number} props.contexto.obraId - ID de obra (si aplica)
  * @param {string} props.contexto.obraNombre - Nombre de obra (para mostrar)
@@ -648,8 +648,8 @@ const ModalPresupuestoUnificado = ({
           </div>
         </div>
 
-        {/* Cliente (solo para TRADICIONAL) */}
-        {tipoPresupuesto === TIPOS_PRESUPUESTO.TRADICIONAL && (
+        {/* Cliente (solo para PRINCIPAL) */}
+        {tipoPresupuesto === TIPOS_PRESUPUESTO.PRINCIPAL && (
           <div className="mb-4">
             <label className="form-label fw-bold">Datos del Cliente</label>
             <div className="row g-2">

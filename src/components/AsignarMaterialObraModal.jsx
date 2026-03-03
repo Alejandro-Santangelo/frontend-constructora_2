@@ -4,6 +4,7 @@ import DetalleSemanalMaterialesModal from './DetalleSemanalMaterialesModal';
 import AsignarMaterialSemanalModal from './AsignarMaterialSemanalModal';
 import api from '../services/api';
 import { calcularSemanasParaDiasHabiles, esDiaHabil } from '../utils/feriadosArgentina';
+import { obtenerMateriales, crearMaterial, obtenerOCrearMaterial } from '../services/catalogoMaterialesService';
 
 /**
  * Modal para asignar MATERIALES del presupuestoNoCliente a una obra específica
@@ -30,6 +31,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
   // Estados
   const [presupuesto, setPresupuesto] = useState(null);
   const [materialesDisponibles, setOtrosCostosDisponibles] = useState([]);
+  const [materialesCatalogo, setMaterialesCatalogo] = useState([]); // 🆕 Materiales de la BD
   const [asignaciones, setAsignaciones] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingPresupuesto, setLoadingPresupuesto] = useState(false);
@@ -65,6 +67,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     descripcion: '',
     categoria: 'General',
     categoriaCustom: '',
+    unidad: 'unidades',
     cantidadAsignada: '',
     importeUnitario: '',
     observaciones: ''
@@ -115,17 +118,10 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     return 'DISPONIBLE';
   };
 
-  // ✅ Helper para obtener el ID REAL de la obra (diferencia entre trabajo extra y obra normal)
+  // ✅ Helper para obtener el ID REAL de la obra
   const getObraId = () => {
     if (!obra) return null;
-    // 🔥 CRÍTICO: Un trabajo extra SIEMPRE debe usar su propio ID
-    // NO usar _obraId (eso es la obra principal)
-    if (obra._esTrabajoExtra) {
-      console.log('🔥 TRABAJO EXTRA: Usando ID del trabajo extra:', obra.id);
-      return obra.id; // ← USAR EL ID DEL TRABAJO EXTRA DIRECTAMENTE
-    }
-    // Si es una obra normal, usar el ID directo
-    console.log('📋 OBRA NORMAL: Usando ID de la obra:', obra.id);
+    console.log('📋 Usando ID de la obra:', obra.id);
     return obra.id;
   };
 
@@ -219,6 +215,24 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       setDebugDeteccionPresupuesto(null);
     }
   }, [show, obra, configuracionObra?.presupuestoSeleccionado?.id]);
+
+  // 🆕 Cargar materiales del catálogo de la BD
+  useEffect(() => {
+    const cargarMaterialesCatalogo = async () => {
+      if (show && empresaSeleccionada?.id) {
+        try {
+          console.log('📦 Cargando materiales del catálogo...');
+          const materiales = await obtenerMateriales(empresaSeleccionada.id);
+          setMaterialesCatalogo(materiales || []);
+          console.log(`✅ ${materiales?.length || 0} materiales cargados del catálogo`);
+        } catch (error) {
+          console.error('❌ Error cargando materiales del catálogo:', error);
+          setMaterialesCatalogo([]);
+        }
+      }
+    };
+    cargarMaterialesCatalogo();
+  }, [show, empresaSeleccionada?.id]);
 
   // 🆕 useEffect para recalcular disponible del presupuesto global cuando cambian asignaciones
   useEffect(() => {
@@ -1138,77 +1152,41 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
   const cargarAsignacionesActuales = async (presupuestoCargado = null) => {
     try {
-      console.log('🔍 Cargando asignaciones actuales de otros costos...');
-
-      // 🔥 BIFURCACIÓN: Trabajos extra vs Obras normales
-      if (obra._esTrabajoExtra) {
-        console.log('📦 TRABAJO EXTRA: Extrayendo gastos desde itemsCalculadora');
-
-        // Los gastos están en el presupuesto ya cargado o pasado como parámetro
-        const presupuestoParaUsar = presupuestoCargado || presupuesto;
-        if (presupuestoParaUsar) {
-          const asignacionesExtraidas = extraerAsignacionesDesdeTrabajoExtra(presupuestoParaUsar);
-          setAsignaciones(asignacionesExtraidas);
-
-          // Calcular disponible del presupuesto global
-          if (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') {
-            const totalAsignado = asignacionesExtraidas.reduce((sum, asig) => {
-              return sum + (parseFloat(asig.importeAsignado) || 0);
-            }, 0);
-
-            const disponibleRestante = presupuestoGlobalTotal - totalAsignado;
-            setPresupuestoGlobalDisponible(Math.max(0, disponibleRestante));
-
-            console.log(`💰 Presupuesto Global - Total: $${presupuestoGlobalTotal.toLocaleString('es-AR')}, Asignado: $${totalAsignado.toLocaleString('es-AR')}, Disponible: $${disponibleRestante.toLocaleString('es-AR')}`);
-          }
-        } else {
-          console.warn('⚠️ Presupuesto aún no cargado, esperando...');
-          setAsignaciones([]);
-        }
-        return; // ← Salir temprano para trabajos extra
-      }
+      console.log('🔍 Cargando asignaciones actuales de materiales (TODOS LOS TIPOS DE OBRA)...');
 
       // ════════════════════════════════════════════════════════════
-      // OBRA NORMAL: Cargar asignaciones guardadas EN BD
+      // LÓGICA UNIFICADA: Cargar asignaciones guardadas EN BD
       // ════════════════════════════════════════════════════════════
-      console.log('📦 OBRA NORMAL: Cargando asignaciones guardadas en BD');
+      console.log('📦 Cargando asignaciones guardadas en BD (endpoint unificado)');
 
       const obraIdParaCargar = getObraId();
       let asignacionesDesdebd = [];
 
       try {
-        const response = await fetch(`/api/obras/${obraIdParaCargar}/materiales`, {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString()
-          }
-        });
+        // 🔥 Usar el nuevo servicio de API
+        const data = await api.obras.getMateriales(obraIdParaCargar, empresaSeleccionada.id);
+        console.log('✅ Materiales cargados desde BD:', data);
 
-        if (response.ok) {
-          const data = await response.json();
-          console.log('✅ Asignaciones cargadas desde BD:', data);
+        // Convertir formato BD a formato UI
+        asignacionesDesdebd = Array.isArray(data) ? data.map((mat, idx) => ({
+          id: `asign_${mat.id || idx}`,
+          materialObraId: mat.id, // ID de la asignación en BD
+          descripcion: mat.descripcion || mat.nombreMaterial,
+          nombreOtroCosto: mat.descripcion || mat.nombreMaterial,
+          categoria: mat.categoria || mat.unidadMedida || 'Materiales',
+          importeAsignado: mat.totalCalculado || (mat.cantidadAsignada * mat.precioUnitario),
+          cantidadAsignada: mat.cantidadAsignada,
+          importeUnitario: mat.precioUnitario || 0,
+          unidadMedida: mat.unidadMedida,
+          fechaAsignacion: mat.fechaAsignacion || null,
+          semana: mat.semana,
+          observaciones: mat.observaciones,
+          esManual: mat.esGlobal
+        })) : [];
 
-          // Convertir formato BD a formato UI
-          asignacionesDesdebd = Array.isArray(data) ? data.map((mat, idx) => ({
-            id: `asign_${mat.id || idx}`,
-            descripcion: mat.descripcion,
-            nombreOtroCosto: mat.descripcion,
-            categoria: mat.unidadMedida || 'Materiales',
-            importeAsignado: mat.precioUnitario ? (mat.cantidadAsignada * mat.precioUnitario) : 0,
-            cantidadAsignada: mat.cantidadAsignada,
-            importeUnitario: mat.precioUnitario || 0,
-            fechaAsignacion: null,
-            semana: mat.semana,
-            observaciones: mat.observaciones,
-            esManual: mat.esGlobal
-          })) : [];
-
-          console.log(`✅ ${asignacionesDesdebd.length} asignaciones convertidas al formato UI`);
-        } else if (response.status === 404) {
-          console.log('ℹ️ Sin asignaciones previas (404)');
-          asignacionesDesdebd = [];
-        }
+        console.log(`✅ ${asignacionesDesdebd.length} materiales convertidos al formato UI`);
       } catch (error) {
-        console.error('⚠️ Error cargando from BD:', error);
+        console.error('⚠️ Error cargando materiales desde BD:', error);
         asignacionesDesdebd = [];
       }
 
@@ -1293,178 +1271,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     console.log('📊 [DEBUG MATERIALES] Estado completo nuevaAsignacion:', nuevaAsignacion);
     console.log('📅 [DEBUG MATERIALES] Fecha que se va a procesar:', nuevaAsignacion.fechaAsignacion);
 
-    // 🔥 TRABAJO EXTRA: Guardado especial con PUT a /api/v1/trabajos-extra/{id}
-    if (obra._esTrabajoExtra) {
-      console.log('🔥 [TRABAJO EXTRA] Iniciando guardado de material...');
-
-      // Validar que haya material seleccionado
-      if (!nuevaAsignacion.materialId || nuevaAsignacion.materialId === 'CREAR_NUEVO') {
-        alert('⚠️ Debes seleccionar un material');
-        return;
-      }
-
-      setLoading(true);
-      try {
-        // 1. Obtener el trabajo extra completo actual
-        console.log('📥 Obteniendo trabajo extra completo...');
-        const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
-        console.log('✅ Trabajo extra obtenido:', trabajoExtra);
-
-        // 2. Validar que tenga itemsCalculadora con al menos un item
-        if (!trabajoExtra.itemsCalculadora || trabajoExtra.itemsCalculadora.length === 0) {
-          alert('❌ Error: El trabajo extra no tiene rubros (itemsCalculadora vacío)');
-          setLoading(false);
-          return;
-        }
-
-        const primerItem = trabajoExtra.itemsCalculadora[0];
-        if (!primerItem.id) {
-          alert('❌ Error: El rubro del trabajo extra no tiene ID');
-          setLoading(false);
-          return;
-        }
-
-        console.log('📋 Rubro a actualizar:', { id: primerItem.id, tipo: primerItem.tipoProfesional });
-
-        // 3. Obtener info del material seleccionado
-        const materialSeleccionado = materialesDisponibles.find(
-          m => m.id.toString() === nuevaAsignacion.materialId
-        );
-
-        if (!materialSeleccionado) {
-          alert('❌ Error: Material no encontrado');
-          setLoading(false);
-          return;
-        }
-
-        const cantidad = parseFloat(nuevaAsignacion.cantidadAsignada) || 0;
-        const precio = parseFloat(nuevaAsignacion.importeUnitario) || 0;
-        const subtotal = cantidad * precio;
-
-        if (cantidad <= 0) {
-          alert('⚠️ Debe ingresar una cantidad válida');
-          setLoading(false);
-          return;
-        }
-
-        if (precio <= 0) {
-          alert('⚠️ Debe ingresar un precio válido');
-          setLoading(false);
-          return;
-        }
-
-        // 4. Construir objeto de material según especificación del backend
-        const nuevoMaterial = {
-          nombre: materialSeleccionado.nombre || materialSeleccionado.descripcion,
-          unidad: materialSeleccionado.unidad || 'unidad',
-          cantidad: cantidad,
-          precio: precio,
-          subtotal: subtotal,
-          descripcion: materialSeleccionado.descripcion || '',
-          observaciones: nuevaAsignacion.observaciones || ''
-        };
-
-        console.log('📦 Material a agregar:', nuevoMaterial);
-
-        // 5. Agregar el nuevo material a la lista existente (o crear nueva lista)
-        const materialesActualizados = [...(primerItem.materialesLista || []), nuevoMaterial];
-
-        // 6. Calcular totales actualizados
-        const subtotalMateriales = materialesActualizados.reduce((sum, m) => sum + (m.subtotal || 0), 0);
-        const subtotalManoObra = primerItem.subtotalManoObra || 0;
-        const subtotalGastos = (primerItem.gastosGenerales || []).reduce((sum, g) => sum + (g.subtotal || 0), 0);
-        const totalItem = subtotalManoObra + subtotalMateriales - subtotalGastos;
-
-        // 7. Construir payload según especificación del backend
-        const payload = {
-          obraId: trabajoExtra.obraId,
-          nombre: trabajoExtra.nombre,
-          descripcion: trabajoExtra.descripcion,
-          fechaProbableInicio: trabajoExtra.fechaProbableInicio,
-          vencimiento: trabajoExtra.vencimiento,
-          tiempoEstimadoTerminacion: trabajoExtra.tiempoEstimadoTerminacion,
-          itemsCalculadora: [
-            {
-              id: primerItem.id,
-              tipoProfesional: primerItem.tipoProfesional || 'Material',
-              descripcion: primerItem.descripcion || 'Trabajo adicional',
-
-              // ⚠️ CAMPOS OBLIGATORIOS DEL ITEM
-              esModoManual: primerItem.esModoManual ?? false,
-              esRubroVacio: primerItem.esRubroVacio ?? false,
-              esGastoGeneral: primerItem.esGastoGeneral ?? false,
-              incluirEnCalculoDias: primerItem.incluirEnCalculoDias ?? true,
-              trabajaEnParalelo: primerItem.trabajaEnParalelo ?? true,
-
-              // Cálculos actualizados
-              cantidadJornales: primerItem.cantidadJornales || 0,
-              importeJornal: primerItem.importeJornal || 0,
-              subtotalManoObra: subtotalManoObra,
-              total: totalItem,
-
-              // Arrays de datos
-              profesionales: primerItem.profesionales || [],
-              materialesLista: materialesActualizados,
-              gastosGenerales: primerItem.gastosGenerales || [],
-              jornales: primerItem.jornales || []
-            }
-          ],
-          dias: trabajoExtra.dias || []
-        };
-
-        console.log('📦 Payload completo a enviar:', JSON.stringify(payload, null, 2));
-
-        // 8. Enviar PUT al backend
-        console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${obra.id}`);
-        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${obra.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'empresaId': empresaSeleccionada.id.toString()
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.text();
-          console.error('❌ Error del backend:', errorData);
-          throw new Error(`Error ${response.status}: ${errorData}`);
-        }
-
-        const resultado = await response.json();
-        console.log('✅ Respuesta del backend:', resultado);
-
-        // 9. Success feedback
-        alert(`✅ Material "${materialSeleccionado.nombre}" asignado correctamente al trabajo extra`);
-
-        // 10. Limpiar formulario
-        setNuevaAsignacion({
-          materialId: '',
-          cantidadAsignada: '',
-          importeUnitario: '',
-          importeAsignado: '',
-          fechaAsignacion: '',
-          observaciones: ''
-        });
-
-        // 11. Actualizar UI
-        await cargarAsignacionesActuales();
-        if (onAsignacionExitosa) {
-          onAsignacionExitosa();
-        }
-
-        setLoading(false);
-        return; // ✅ Salir aquí, no continuar con lógica de obras normales
-
-      } catch (error) {
-        console.error('❌ Error asignando material a trabajo extra:', error);
-        alert(`❌ Error al guardar: ${error.message}`);
-        setLoading(false);
-        return;
-      }
-    }
-
-    // 🔵 OBRA NORMAL: Lógica original para obras normales
+    // � LÓGICA UNIFICADA PARA TODOS LOS TIPOS DE OBRA
     // ✅ CASO 1: Asignación desde IMPORTE GLOBAL
     if (nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL') {
       if (!nuevoGastoManual.descripcion.trim()) {
@@ -1477,35 +1284,39 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         return;
       }
 
-      const importeAsignado = parseFloat(nuevaAsignacion.importeAsignado) || 0;
+      if (!nuevoGastoManual.descripcion.trim()) {
+        alert('⚠️ Debe ingresar el nombre del material');
+        return;
+      }
 
-      if (importeAsignado <= 0) {
-        alert('⚠️ El importe debe ser mayor a cero');
+      const cantidad = parseFloat(nuevoGastoManual.cantidadAsignada) || 0;
+      const importeUnitarioGlobal = parseFloat(nuevoGastoManual.importeUnitario) || 0;
+      const importeAsignado = cantidad * importeUnitarioGlobal;
+
+      if (cantidad <= 0) {
+        alert('⚠️ Debe ingresar una cantidad mayor a cero');
+        return;
+      }
+
+      if (importeUnitarioGlobal <= 0) {
+        alert('⚠️ Debe ingresar el precio unitario');
         return;
       }
 
       if (importeAsignado > presupuestoGlobalDisponible) {
-        alert(`⚠️ El importe ($${importeAsignado.toLocaleString('es-AR')}) excede el disponible ($${presupuestoGlobalDisponible.toLocaleString('es-AR')})`);
+        alert(`⚠️ El total ($${importeAsignado.toLocaleString('es-AR')}) excede el disponible ($${presupuestoGlobalDisponible.toLocaleString('es-AR')})`);
         return;
       }
 
-      // 🔥 DESHABILITADO: Backend tiene CORS bloqueado para /api/gastos-generales
-      // console.log('📝 Verificando/creando gasto en catálogo...');
-      // const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
-      // const gastoCatalogo = await obtenerOCrearGasto(
-      //   nuevoGastoManual.descripcion,
-      //   importeAsignado,
-      //   empresaSeleccionada.id
-      // );
-      // console.log('✅ Gasto en catálogo:', gastoCatalogo);
-
-      // Crear gasto manual (backend lo creará automáticamente)
+      // Crear material manual
       const categoriaFinal = obtenerRubroFinal();
       const gastoManual = {
-        // id: gastoCatalogo.id, // Backend asignará ID
         nombre: nuevoGastoManual.descripcion,
         descripcion: nuevoGastoManual.descripcion,
         categoria: categoriaFinal,
+        unidad: nuevoGastoManual.unidad || 'unidades',
+        cantidadDisponible: cantidad,
+        precioUnitario: importeUnitarioGlobal,
         importe: importeAsignado,
         esDelStock: false,
         esManual: true
@@ -1515,6 +1326,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       setNuevaAsignacion({
         ...nuevaAsignacion,
         materialId: gastoManual.id,
+        cantidadAsignada: cantidad.toString(),
+        importeUnitario: importeUnitarioGlobal.toString(),
         importeAsignado: importeAsignado.toString(),
         esManual: true
       });
@@ -1545,8 +1358,9 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     setError(null);
 
     try {
-      const costoSeleccionado = materialesDisponibles.find(
-        c => c.id.toString() === nuevaAsignacion.materialId
+      // 🔥 Buscar el material seleccionado en el catálogo
+      const materialCatalogo = materialesCatalogo.find(
+        m => m.id.toString() === nuevaAsignacion.materialId
       );
 
       // 🔥 Calcular número de semana desde fecha de asignación
@@ -1560,86 +1374,63 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         console.log(`📅 Semana calculada: ${numeroSemana} (fecha: ${nuevaAsignacion.fechaAsignacion}, inicio: ${configuracionObraActualizada.fechaInicio})`);
       }
 
-      // Preparar datos según el tipo de recurso
-      const esManual = Boolean(nuevaAsignacion.esManual || nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL');
+      // Obtener cantidad e importe unitario
+      const cantidad = parseFloat(nuevaAsignacion.cantidadAsignada) || 0;
+      const importeUnitario = parseFloat(nuevaAsignacion.importeUnitario) || 0;
 
-      const datos = {
-        gastoGeneralId: nuevaAsignacion.materialId,
-        fechaAsignacion: nuevaAsignacion.fechaAsignacion,
+      if (cantidad <= 0) {
+        alert('⚠️ Debe ingresar una cantidad válida');
+        setLoading(false);
+        return;
+      }
+
+      if (importeUnitario <= 0) {
+        alert('⚠️ Debe ingresar un precio unitario válido');
+        setLoading(false);
+        return;
+      }
+
+      // 🔥 Preparar payload según especificación del backend
+      const payload = {
+        obraId: obra.id,
+        materialCatalogoId: materialCatalogo ? parseInt(materialCatalogo.id) : null,
+        descripcion: materialCatalogo?.nombre || nuevoGastoManual.descripcion || '',
+        unidadMedida: materialCatalogo?.unidadMedida || nuevoGastoManual.unidad || 'unidades',
+        precioUnitario: importeUnitario,
+        cantidadAsignada: cantidad,
         semana: numeroSemana,
-        observaciones: nuevaAsignacion.observaciones || null,
-        esGlobal: Boolean(nuevaAsignacion.esManual),
-        esManual: esManual
+        esGlobal: true, // Siempre true para materiales del catálogo
+        observaciones: nuevaAsignacion.observaciones || null
       };
 
-      // Si es manual, agregar descripción y categoría del gasto
-      if (esManual && costoSeleccionado) {
-        datos.descripcion = costoSeleccionado.descripcion || costoSeleccionado.nombre;
-        datos.categoria = costoSeleccionado.categoria || 'General';
-        datos.nombre = costoSeleccionado.nombre || costoSeleccionado.descripcion;
-      }
+      console.log('📤 Payload para asignar material:', payload);
+      console.log('🏗️ Obra ID:', obra.id);
+      console.log('🏢 Empresa ID:', empresaSeleccionada.id);
 
-      console.log('🔍 DEBUG - Estado completo:');
-      console.log('   nuevaAsignacion:', nuevaAsignacion);
-      console.log('   costoSeleccionado:', costoSeleccionado);
-      console.log('   materialesDisponibles:', materialesDisponibles);
+      // 🔥 Llamar al nuevo endpoint de materiales
+      const resultado = await api.obras.asignarMaterial(obra.id, payload, empresaSeleccionada.id);
+      console.log('✅ Material asignado exitosamente:', resultado);
 
-      if (costoSeleccionado?.esDelStock) {
-        // Para recursos físicos: usuario ingresa cantidad e importe unitario
-        const cantidad = parseInt(nuevaAsignacion.cantidadAsignada) || 0;
-        const importeUnitario = parseFloat(nuevaAsignacion.importeUnitario) || 0;
-        const importeTotal = cantidad * importeUnitario;
-
-        console.log('🔍 DEBUG - Cálculo de importe:');
-        console.log('   cantidad asignada:', cantidad);
-        console.log('   importe unitario:', importeUnitario);
-        console.log('   importe total:', importeTotal);
-
-        if (cantidad <= 0) {
-          alert('⚠️ Debe ingresar una cantidad válida');
-          setLoading(false);
-          return;
-        }
-
-        if (importeUnitario <= 0) {
-          alert('⚠️ Debe ingresar un importe unitario válido');
-          setLoading(false);
-          return;
-        }
-
-        datos.cantidadAsignada = cantidad;
-        datos.importeAsignado = importeTotal;
-
-        console.log(`📊 RESULTADO - Enviando al backend:`, datos);
-      } else {
-        // Para importes monetarios: solo el importe
-        datos.importeAsignado = parseFloat(nuevaAsignacion.importeAsignado) || 0;
-
-        console.log(`💰 Importe directo: $${datos.importeAsignado}`);
-      }
-
-      console.log('📤 Datos preparados para el backend:', datos);
-      console.log('📋 Costo seleccionado:', costoSeleccionado);
-      console.log('🔍 Estado formulario:', nuevaAsignacion);
-      console.log(`🔥🔥🔥 POST OTRO COSTO INDIVIDUAL - Payload:`, datos);
-
-      const obraIdParaAsignacion = getObraId(); // ✅ Usa ID real de la obra
-      const resultado = await asignarOtroCostoAObra(obraIdParaAsignacion, empresaSeleccionada.id, datos);
-      console.log('✅ Costo asignado exitosamente:', resultado);
-
-      // 🧹 Limpiar localStorage después de guardado exitoso en BD
-      const obraIdParaKey = getObraId(); // ✅ Usa ID real de la obra
-      const locKey = `asignaciones_locales_costos_${obraIdParaKey}`;
-      localStorage.removeItem(locKey);
-      console.log('🧹 localStorage limpiado después de guardado exitoso en BD');
+      alert('✅ Material asignado correctamente');
 
       // Limpiar formulario completamente
       setNuevaAsignacion({
         materialId: '',
         cantidadAsignada: '',
-        importeUnitario: '', // 🔥 Agregar campo nuevo
+        importeUnitario: '',
         importeAsignado: '',
-        fechaAsignacion: '', // Vacío, no fecha actual
+        fechaAsignacion: '',
+        observaciones: '',
+        tipoAsignacion: ''
+      });
+
+      setNuevoGastoManual({
+        descripcion: '',
+        categoria: 'General',
+        categoriaCustom: '',
+        unidad: 'unidades',
+        cantidadAsignada: '',
+        importeUnitario: '',
         observaciones: ''
       });
 
@@ -1649,9 +1440,13 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       if (onAsignacionExitosa) {
         onAsignacionExitosa();
       }
+
+      // Cerrar formulario tras éxito
+      setMostrarFormularioIndividual(false);
+
     } catch (error) {
-      console.error('❌ Error asignando costo:', error);
-      alert(`Error al asignar costo: ${error.message}\n\nLos datos NO fueron guardados. Verifique la conexión con el backend.`);
+      console.error('❌ Error asignando material:', error);
+      alert(`Error al asignar material: ${error.message}\n\nLos datos NO fueron guardados. Verifique la conexión con el backend.`);
     } finally {
       setLoading(false);
     }
@@ -1684,63 +1479,81 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       return;
     }
 
-    // 🔥 DESHABILITADO: Backend tiene CORS bloqueado para /api/gastos-generales
-    // console.log('📝 Verificando/creando gasto en catálogo...');
-    // const { obtenerOCrearGasto } = await import('../services/catalogoGastosService');
-    // const gastoCatalogo = await obtenerOCrearGasto(
-    //   nuevoGastoManual.descripcion,
-    //   importeUnitario,
-    //   empresaSeleccionada.id
-    // );
-    // console.log('✅ Gasto en catálogo:', gastoCatalogo);
+    try {
+      // 🔥 Verificar/crear material en catálogo de BD
+      console.log('📝 Verificando/creando material en catálogo de BD...');
+      const materialCatalogo = await obtenerOCrearMaterial(
+        nuevoGastoManual.descripcion,
+        nuevoGastoManual.unidad || 'unidades',
+        importeUnitario,
+        empresaSeleccionada.id
+      );
+      console.log('✅ Material en catálogo de BD:', materialCatalogo);
 
-    // Crear gasto manual (backend lo creará automáticamente)
-    const categoriaFinal = obtenerRubroFinal();
-    const gastoManual = {
-      // id: gastoCatalogo.id, // Backend asignará ID
-      nombre: nuevoGastoManual.descripcion,
-      descripcion: nuevoGastoManual.descripcion,
-      categoria: categoriaFinal,
-      cantidadDisponible: cantidad,
-      precioUnitario: importeUnitario,
-      importe: importeTotal,
-      esDelStock: false,
-      esManual: true
-    };
+      // Crear gasto manual con el ID del catálogo
+      const categoriaFinal = obtenerRubroFinal();
+      const gastoManual = {
+        id: materialCatalogo.id, // ID del catálogo de BD
+        nombre: materialCatalogo.nombre,
+        descripcion: materialCatalogo.descripcion || materialCatalogo.nombre,
+        categoria: categoriaFinal,
+        unidadMedida: materialCatalogo.unidadMedida,
+        cantidadDisponible: cantidad,
+        precioUnitario: materialCatalogo.precioUnitario,
+        importe: importeTotal,
+        esDelStock: false,
+        esManual: true
+      };
 
-    // Agregar a la lista de gastos disponibles
-    setOtrosCostosDisponibles(prev => [...prev, gastoManual]);
-    setGastosCreados(prev => [...prev, gastoManual]);
+      // Agregar a la lista de gastos disponibles
+      setOtrosCostosDisponibles(prev => [...prev, gastoManual]);
+      setGastosCreados(prev => [...prev, gastoManual]);
 
-    // Pre-seleccionar el gasto recién creado en el formulario
-    setNuevaAsignacion({
-      ...nuevaAsignacion,
-      materialId: gastoManual.id,
-      cantidadAsignada: cantidad.toString(),
-      importeUnitario: importeUnitario.toString(),
-      importeAsignado: importeTotal.toString(),
-      esManual: true
-    });
+      // Actualizar catálogo local para que aparezca en el dropdown
+      setMaterialesCatalogo(prev => {
+        // Verificar si ya existe en el catálogo local
+        const existe = prev.some(m => m.id === materialCatalogo.id);
+        if (existe) {
+          return prev; // Ya existe, no duplicar
+        }
+        return [...prev, materialCatalogo]; // Agregar al catálogo local
+      });
 
-    // Limpiar formulario de creación
-    setNuevoGastoManual({
-      descripcion: '',
-      categoria: 'General',
-      categoriaCustom: '',
-      cantidadAsignada: '',
-      importeUnitario: '',
-      observaciones: ''
-    });
+      // Pre-seleccionar el gasto recién creado en el formulario
+      setNuevaAsignacion({
+        ...nuevaAsignacion,
+        materialId: gastoManual.id.toString(),
+        cantidadAsignada: cantidad.toString(),
+        importeUnitario: importeUnitario.toString(),
+        importeAsignado: importeTotal.toString(),
+        esManual: true
+      });
 
-    // Cerrar modal si se llama desde allí
-    if (cerrarModal) {
-      setMostrarCrearGastoManual(false);
+      // Limpiar formulario de creación
+      setNuevoGastoManual({
+        descripcion: '',
+        categoria: 'General',
+        categoriaCustom: '',
+        unidad: 'unidades',
+        cantidadAsignada: '',
+        importeUnitario: '',
+        observaciones: ''
+      });
+
+      // Cerrar modal si se llama desde allí
+      if (cerrarModal) {
+        setMostrarCrearGastoManual(false);
+      }
+
+      console.log('✅ Material creado/obtenido del catálogo y agregado a disponibles:', gastoManual);
+      console.log(`💰 Disponible actualizado: $${presupuestoGlobalDisponible.toLocaleString('es-AR')} → Se asignará $${importeTotal.toLocaleString('es-AR')}`);
+
+      return gastoManual;
+    } catch (error) {
+      console.error('❌ Error creando/obteniendo material del catálogo:', error);
+      alert(`❌ Error al guardar el material: ${error.message}`);
+      return null;
     }
-
-    console.log('✅ Gasto manual creado:', gastoManual);
-    console.log(`💰 Disponible actualizado: $${presupuestoGlobalDisponible.toLocaleString('es-AR')} → Se asignará $${importeTotal.toLocaleString('es-AR')}`);
-
-    return gastoManual;
   };
 
   // Nueva función: manejar asignaciones semanales múltiples de costos
@@ -1754,126 +1567,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       return;
     }
 
-    // 🔥 TRABAJO EXTRA: Guardado especial con PUT a /api/v1/trabajos-extra/{id}
-    if (obra._esTrabajoExtra) {
-      console.log('🔥 [TRABAJO EXTRA] Iniciando guardado de múltiples materiales...');
-      setLoading(true);
-
-      try {
-        // 1. Obtener el trabajo extra completo actual
-        console.log('📥 Obteniendo trabajo extra completo...');
-        const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
-        console.log('✅ Trabajo extra obtenido:', trabajoExtra);
-
-        // 2. Validar que tenga itemsCalculadora
-        if (!trabajoExtra.itemsCalculadora || trabajoExtra.itemsCalculadora.length === 0) {
-          alert('❌ Error: El trabajo extra no tiene rubros (itemsCalculadora vacío)');
-          setLoading(false);
-          return;
-        }
-
-        const primerItem = trabajoExtra.itemsCalculadora[0];
-        if (!primerItem.id) {
-          alert('❌ Error: El rubro del trabajo extra no tiene ID');
-          setLoading(false);
-          return;
-        }
-
-        // 3. Convertir asignaciones a formato de materiales
-        const nuevosMateriales = asignacionesSemana.map(asig => ({
-          nombre: asig.nombreMaterial || asig.descripcion,
-          unidad: asig.unidadMedida || 'unidad',
-          cantidad: Number(asig.cantidad) || 0,
-          precio: Number(asig.precioUnitario) || 0,
-          subtotal: (Number(asig.cantidad) || 0) * (Number(asig.precioUnitario) || 0),
-          descripcion: asig.nombreMaterial || '',
-          observaciones: asig.observaciones || ''
-        }));
-
-        console.log('📦 Nuevos materiales a agregar:', nuevosMateriales);
-
-        // 4. Agregar a la lista existente
-        const materialesActualizados = [...(primerItem.materialesLista || []), ...nuevosMateriales];
-
-        // 5. Calcular totales
-        const subtotalMateriales = materialesActualizados.reduce((sum, m) => sum + (m.subtotal || 0), 0);
-        const subtotalManoObra = primerItem.subtotalManoObra || 0;
-        const subtotalGastos = (primerItem.gastosGenerales || []).reduce((sum, g) => sum + (g.subtotal || 0), 0);
-        const totalItem = subtotalManoObra + subtotalMateriales - subtotalGastos;
-
-        // 6. Construir payload
-        const payload = {
-          obraId: trabajoExtra.obraId,
-          nombre: trabajoExtra.nombre,
-          descripcion: trabajoExtra.descripcion,
-          fechaProbableInicio: trabajoExtra.fechaProbableInicio,
-          vencimiento: trabajoExtra.vencimiento,
-          tiempoEstimadoTerminacion: trabajoExtra.tiempoEstimadoTerminacion,
-          itemsCalculadora: [
-            {
-              id: primerItem.id,
-              tipoProfesional: primerItem.tipoProfesional || 'Material',
-              descripcion: primerItem.descripcion || 'Trabajo adicional',
-              esModoManual: primerItem.esModoManual ?? false,
-              esRubroVacio: primerItem.esRubroVacio ?? false,
-              esGastoGeneral: primerItem.esGastoGeneral ?? false,
-              incluirEnCalculoDias: primerItem.incluirEnCalculoDias ?? true,
-              trabajaEnParalelo: primerItem.trabajaEnParalelo ?? true,
-              cantidadJornales: primerItem.cantidadJornales || 0,
-              importeJornal: primerItem.importeJornal || 0,
-              subtotalManoObra: subtotalManoObra,
-              total: totalItem,
-              profesionales: primerItem.profesionales || [],
-              materialesLista: materialesActualizados,
-              gastosGenerales: primerItem.gastosGenerales || [],
-              jornales: primerItem.jornales || []
-            }
-          ],
-          dias: trabajoExtra.dias || []
-        };
-
-        // 7. Enviar PUT
-        console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${obra.id}`);
-        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${obra.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'empresaId': empresaSeleccionada.id.toString()
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.text();
-          console.error('❌ Error del backend:', errorData);
-          throw new Error(`Error ${response.status}: ${errorData}`);
-        }
-
-        const resultado = await response.json();
-        console.log('✅ Respuesta del backend:', resultado);
-
-        // 8. Success feedback
-        alert(`✅ ${nuevosMateriales.length} material(es) asignado(s) correctamente al trabajo extra`);
-
-        // 9. Actualizar UI
-        await cargarAsignacionesActuales();
-        setMostrarAsignacionSemanal(false);
-        if (onAsignacionExitosa) {
-          onAsignacionExitosa();
-        }
-
-        setLoading(false);
-        return; // ✅ Salir aquí
-
-      } catch (error) {
-        console.error('❌ Error asignando materiales a trabajo extra:', error);
-        alert(`❌ Error al guardar: ${error.message}`);
-        setLoading(false);
-        return;
-      }
-    }
-
-    // 🔵 OBRA NORMAL: Lógica original
+    // � LÓGICA UNIFICADA PARA TODOS LOS TIPOS DE OBRA
     setLoading(true);
     setError(null);
 
@@ -1978,21 +1672,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     try {
       setLoading(true);
 
-      // 🔥 BIFURCACIÓN: Trabajos extra vs Obras normales
-      if (obra._esTrabajoExtra) {
-        await eliminarGastoDeTrabajoExtra(asignacionId);
-
-        // Actualizar UI
-        await cargarAsignacionesActuales();
-        if (onAsignacionExitosa) {
-          onAsignacionExitosa();
-        }
-        return;
-      }
-
-      // ════════════════════════════════════════════════════════════
-      // OBRA NORMAL: Usar endpoint tradicional
-      // ════════════════════════════════════════════════════════════
+      // � LÓGICA UNIFICADA PARA TODOS LOS TIPOS DE OBRA
 
       // 1. Eliminar de localStorage temporal si existe
       const locKey = `asignaciones_locales_costos_${obra.id}`;
@@ -2000,10 +1680,10 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       const filtered = currentLocales.filter(a => a.id.toString() !== asignacionId.toString());
       localStorage.setItem(locKey, JSON.stringify(filtered));
 
-      // 2. Eliminar de BD
+      // 2. Eliminar de BD usando endpoint unificado
       const obraIdParaDelete = getObraId();
 
-      const endpoint = `/api/obras/${obraIdParaDelete}/otros-costos/${asignacionId}`;
+      const endpoint = `/api/obras/${obraIdParaDelete}/materiales/${asignacionId}`;
       const headers = {
         'empresaId': empresaSeleccionada.id.toString()
       };
@@ -2035,28 +1715,6 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     }
   };
 
-  // 🆕 Función auxiliar para eliminar material de trabajo extra
-  const eliminarGastoDeTrabajoExtra = async (asignacionId) => {
-    console.log('🗑️ Eliminando material de trabajo extra...');
-    console.log('🗑️ ID del material a eliminar:', asignacionId);
-
-    // Usar el endpoint DELETE específico del backend
-    const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/materiales/${asignacionId}`, {
-      method: 'DELETE',
-      headers: {
-        'empresaId': empresaSeleccionada.id.toString()
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Error ${response.status} del backend:`, errorText);
-      throw new Error(`Error ${response.status}: ${errorText}`);
-    }
-
-    console.log('✅ Material eliminado del trabajo extra');
-  };
-
   const handleEditarAsignacion = (asignacion) => {
     console.log('✏️ Editando asignación:', asignacion);
     setAsignacionEnEdicion({
@@ -2082,40 +1740,29 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         return;
       }
 
-      // 🔥 BIFURCACIÓN: Trabajos extra vs Obras normales
-      if (obra._esTrabajoExtra) {
-        await actualizarGastoEnTrabajoExtra(asignacionEnEdicion.id, {
+      // � LÓGICA UNIFICADA: Usar endpoint de materiales para todos los tipos de obra
+      const obraIdParaUpdate = getObraId();
+      const endpoint = `/api/obras/${obraIdParaUpdate}/materiales/${asignacionEnEdicion.id}`;
+
+      const response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'empresaId': empresaSeleccionada.id.toString(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           importeAsignado: nuevoImporte,
           cantidadAsignada: nuevaCantidad,
           observaciones: asignacionEnEdicion.observaciones
-        });
-      } else {
-        // ════════════════════════════════════════════════════════════
-        // OBRA NORMAL: Usar endpoint tradicional
-        // ════════════════════════════════════════════════════════════
-        const obraIdParaUpdate = getObraId();
-        const endpoint = `/api/obras/${obraIdParaUpdate}/otros-costos/${asignacionEnEdicion.id}`;
+        })
+      });
 
-        const response = await fetch(endpoint, {
-          method: 'PUT',
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            importeAsignado: nuevoImporte,
-            cantidadAsignada: nuevaCantidad,
-            observaciones: asignacionEnEdicion.observaciones
-          })
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Error ${response.status}: ${errorText}`);
-        }
-
-        console.log('✅ Asignación actualizada en backend');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Error ${response.status}: ${errorText}`);
       }
+
+      console.log('✅ Asignación actualizada en backend');
 
       console.log('✅ Asignación actualizada');
       setMostrarModalEdicion(false);
@@ -2132,77 +1779,6 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
     }
   };
 
-  // 🆕 Función auxiliar para actualizar gasto en trabajo extra
-  const actualizarGastoEnTrabajoExtra = async (asignacionId, cambios) => {
-    console.log('✏️ Actualizando gasto en trabajo extra...');
-
-    // El ID tiene formato: `${itemIdx}-${gastoIdx}`
-    const [itemIdx, gastoIdx] = asignacionId.toString().split('-').map(Number);
-
-    if (isNaN(itemIdx) || isNaN(gastoIdx)) {
-      throw new Error(`ID de asignación inválido: ${asignacionId}`);
-    }
-
-    // 1. Obtener el trabajo extra actual
-    const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
-
-    // 2. Validar que el gasto existe
-    if (!trabajoExtra.itemsCalculadora ||
-        !trabajoExtra.itemsCalculadora[itemIdx] ||
-        !trabajoExtra.itemsCalculadora[itemIdx].materialesLista ||
-        !trabajoExtra.itemsCalculadora[itemIdx].materialesLista[gastoIdx]) {
-      throw new Error(`Gasto no encontrado en índices: item ${itemIdx}, gasto ${gastoIdx}`);
-    }
-
-    const gasto = trabajoExtra.itemsCalculadora[itemIdx].materialesLista[gastoIdx];
-    const importeAnterior = gasto.importe || gasto.subtotal || 0;
-
-    // 3. Actualizar el gasto
-    if (cambios.importeAsignado !== undefined) {
-      gasto.importe = cambios.importeAsignado;
-
-      // Recalcular precio unitario si hay cantidad
-      if (cambios.cantidadAsignada && cambios.cantidadAsignada > 0) {
-        gasto.cantidad = cambios.cantidadAsignada;
-        gasto.precioUnitario = cambios.importeAsignado / cambios.cantidadAsignada;
-      } else if (gasto.cantidad && gasto.cantidad > 0) {
-        gasto.precioUnitario = cambios.importeAsignado / gasto.cantidad;
-      } else {
-        gasto.precioUnitario = cambios.importeAsignado;
-        gasto.cantidad = 1;
-      }
-    }
-
-    if (cambios.observaciones !== undefined) {
-      gasto.observaciones = cambios.observaciones;
-    }
-
-    // 4. Recalcular subtotal del rubro
-    const diferenciaImporte = (gasto.importe || 0) - importeAnterior;
-    trabajoExtra.itemsCalculadora[itemIdx].subtotal =
-      (trabajoExtra.itemsCalculadora[itemIdx].subtotal || 0) + diferenciaImporte;
-
-    // 5. Guardar el trabajo extra actualizado
-    console.log('📡 PUT /api/v1/trabajos-extra/{id} - Actualizando gasto...');
-
-    const response = await fetch(`/api/v1/trabajos-extra/${obra.id}`, {
-      method: 'PUT',
-      headers: {
-        'empresaId': empresaSeleccionada.id.toString(),
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(trabajoExtra)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Error ${response.status} del backend:`, errorText);
-      throw new Error(`Error ${response.status}: ${errorText}`);
-    }
-
-    console.log('✅ Gasto actualizado en trabajo extra');
-  };
-
   // Funciones para manejo de detalle semanal
   const abrirDetalleSemana = (numeroSemana) => {
     setSemanaSeleccionada(numeroSemana);
@@ -2215,13 +1791,35 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
   // Nueva función: abrir formulario con fecha específica
   const abrirAsignacionParaDia = (fechaStr) => {
-    console.log('🎯 [DEBUG GASTOS] abrirAsignacionParaDia recibió fecha:', fechaStr);
+    // Auto-detectar tipo de asignacion segun el contexto disponible
+    const tieneGlobal = (modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && presupuestoGlobalDisponible > 0;
+    const tieneDetalle = materialesDisponibles.length > 0;
+
+    let tipoAuto = '';
+    let materialAuto = '';
+    let importeAuto = '';
+
+    if (tieneDetalle && !tieneGlobal) {
+      // Solo opcion detallada: preseleccionarla
+      tipoAuto = 'ELEMENTO_DETALLADO';
+      // Si solo hay 1 material, preseleccionarlo tambien
+      if (materialesDisponibles.length === 1) {
+        const mat = materialesDisponibles[0];
+        materialAuto = mat.id ? mat.id.toString() : '';
+        importeAuto = String(mat.importe || mat.precioUnitario || '');
+      }
+    } else if (tieneGlobal && !tieneDetalle) {
+      // Solo opcion global: preseleccionarla
+      tipoAuto = 'IMPORTE_GLOBAL';
+    }
+    // Si hay ambas opciones, dejar tipoAuto vacio para que el usuario elija
+
     setNuevaAsignacion({
-      tipoAsignacion: '',
-      materialId: '',
+      tipoAsignacion: tipoAuto,
+      materialId: materialAuto,
       cantidadAsignada: '',
-      importeUnitario: '',
-      importeAsignado: '',
+      importeUnitario: importeAuto,
+      importeAsignado: importeAuto,
       fechaAsignacion: fechaStr,
       observaciones: '',
       esManual: false
@@ -2230,13 +1828,13 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       descripcion: '',
       categoria: 'General',
       categoriaCustom: '',
+      unidad: 'unidades',
       cantidadAsignada: '',
       importeUnitario: '',
       observaciones: ''
     });
     setMostrarDetalleSemana(false); // Cerrar detalle semanal
     setMostrarFormularioIndividual(true); // Abrir formulario individual
-    console.log(`ð Formulario configurado para fecha: ${fechaStr}`);
   };
 
   // Nueva función: abrir modal de asignación semanal completa
@@ -2732,9 +2330,9 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                                   type="button"
                                   className="btn btn-sm btn-primary"
                                   onClick={() => {
-                                    // Resetear formulario completamente
+                                    // Resetear formulario - modo GLOBAL preseleccionado
                                     setNuevaAsignacion({
-                                      tipoAsignacion: '',
+                                      tipoAsignacion: 'IMPORTE_GLOBAL',
                                       materialId: '',
                                       cantidadAsignada: '',
                                       importeUnitario: '',
@@ -2747,6 +2345,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                                       descripcion: '',
                                       categoria: 'General',
                                       categoriaCustom: '',
+                                      unidad: 'unidades',
                                       cantidadAsignada: '',
                                       importeUnitario: '',
                                       observaciones: ''
@@ -2900,7 +2499,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
             <div className="modal-header bg-success text-dark">
               <h6 className="modal-title">
                 <i className="fas fa-plus me-2"></i>
-                Asignar Gasto General - {nuevaAsignacion.fechaAsignacion}
+                Asignar Material - {nuevaAsignacion.fechaAsignacion}
               </h6>
               <button
                 type="button"
@@ -2910,7 +2509,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
             </div>
             <div className="modal-body">
               <form onSubmit={handleSubmit}>
-                {/* 🆕 Selector de Tipo de Asignación */}
+                {/* Selector de Tipo de Asignación - solo visible cuando hay ambas opciones */}
+                {((modoPresupuesto === 'GLOBAL' || modoPresupuesto === 'MIXTO') && presupuestoGlobalDisponible > 0 && materialesDisponibles.length > 0) && (
                 <div className="mb-3">
                   <label className="form-label">
                     <i className="fas fa-filter me-1"></i>
@@ -2962,28 +2562,108 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                     </small>
                   )}
                 </div>
+                )}
 
                 {/* Mostrar campos según el tipo seleccionado */}
                 {nuevaAsignacion.tipoAsignacion === 'IMPORTE_GLOBAL' && (
                   <>
-                    <div className="alert alert-success mb-3">
-                      <strong>💰 Presupuesto Global Disponible:</strong> ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    <div className="alert alert-success mb-2 py-2">
+                      <strong>Presupuesto disponible:</strong> ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </div>
 
+                    {/* Nombre del material */}
                     <div className="mb-3">
                       <label className="form-label">
-                        Descripción del Gasto <span className="text-danger">*</span>
+                        Material <span className="text-danger">*</span>
                       </label>
                       <input
                         type="text"
                         className="form-control"
                         value={nuevoGastoManual.descripcion}
                         onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, descripcion: e.target.value})}
-                        placeholder="Ej: Volquetes, Escaleras, Seguro, etc."
+                        placeholder="Ej: Cemento, Arena, Hierro, Ladrillos..."
                         required
                       />
                     </div>
 
+                    {/* Unidad y Cantidad en la misma fila */}
+                    <div className="row g-2 mb-3">
+                      <div className="col-5">
+                        <label className="form-label">Unidad <span className="text-danger">*</span></label>
+                        <select
+                          className="form-select"
+                          value={nuevoGastoManual.unidad || 'unidades'}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, unidad: e.target.value})}
+                        >
+                          <option value="unidades">Unidades</option>
+                          <option value="bolsas">Bolsas</option>
+                          <option value="kg">Kilogramos (kg)</option>
+                          <option value="tn">Toneladas (tn)</option>
+                          <option value="m3">Metros cúbicos (m³)</option>
+                          <option value="m2">Metros cuadrados (m²)</option>
+                          <option value="ml">Metros lineales (ml)</option>
+                          <option value="lts">Litros (lts)</option>
+                          <option value="barras">Barras</option>
+                          <option value="chapas">Chapas</option>
+                          <option value="rollos">Rollos</option>
+                          <option value="caños">Caños</option>
+                          <option value="tablas">Tablas</option>
+                          <option value="otro">Otro</option>
+                        </select>
+                      </div>
+                      <div className="col-7">
+                        <label className="form-label">Cantidad <span className="text-danger">*</span></label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={nuevoGastoManual.cantidadAsignada}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, cantidadAsignada: e.target.value})}
+                          placeholder="Ej: 50"
+                          min="0.01"
+                          step="0.01"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Precio unitario */}
+                    <div className="mb-3">
+                      <label className="form-label">
+                        Precio unitario <span className="text-danger">*</span>
+                      </label>
+                      <div className="input-group">
+                        <span className="input-group-text">$</span>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={nuevoGastoManual.importeUnitario}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, importeUnitario: e.target.value})}
+                          placeholder="Ej: 2500"
+                          min="0"
+                          step="0.01"
+                          required
+                        />
+                        <span className="input-group-text">/ {nuevoGastoManual.unidad || 'unidad'}</span>
+                      </div>
+                    </div>
+
+                    {/* Total calculado */}
+                    {nuevoGastoManual.cantidadAsignada && nuevoGastoManual.importeUnitario && (() => {
+                      const total = (parseFloat(nuevoGastoManual.cantidadAsignada) || 0) * (parseFloat(nuevoGastoManual.importeUnitario) || 0);
+                      const excede = total > presupuestoGlobalDisponible;
+                      return total > 0 ? (
+                        <div className={`alert ${excede ? 'alert-danger' : 'alert-info'} py-2 mb-3`}>
+                          <strong>Total: ${total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                          {excede && (
+                            <span className="d-block small mt-1">
+                              Excede el disponible en ${(total - presupuestoGlobalDisponible).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </span>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {/* Categoría/Rubro */}
                     <div className="mb-3">
                       <label className="form-label">Categoría/Rubro</label>
                       <select
@@ -3006,30 +2686,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                           className="form-control mt-2"
                           value={nuevoGastoManual.categoriaCustom || ''}
                           onChange={(e) => setNuevoGastoManual({ ...nuevoGastoManual, categoriaCustom: e.target.value })}
-                          placeholder="Escribí el rubro (ej: Logística, Herramientas, Alquileres...)"
+                          placeholder="Escribí el rubro (ej: Hormigón, Mampostería, Cubierta...)"
                         />
-                      )}
-                    </div>
-
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Importe a Asignar <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        className="form-control"
-                        value={nuevaAsignacion.importeAsignado}
-                        onChange={(e) => setNuevaAsignacion({...nuevaAsignacion, importeAsignado: e.target.value})}
-                        placeholder="Ej: 500000"
-                        min="0.01"
-                        step="0.01"
-                        required
-                      />
-                      {nuevaAsignacion.importeAsignado && parseFloat(nuevaAsignacion.importeAsignado) > presupuestoGlobalDisponible && (
-                        <small className="text-danger d-block mt-1">
-                          <i className="fas fa-exclamation-triangle me-1"></i>
-                          El importe excede el disponible en ${(parseFloat(nuevaAsignacion.importeAsignado) - presupuestoGlobalDisponible).toLocaleString('es-AR')}
-                        </small>
                       )}
                     </div>
                   </>
@@ -3038,301 +2696,198 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                 {nuevaAsignacion.tipoAsignacion === 'ELEMENTO_DETALLADO' && (
                   <>
                 <div className="mb-3">
-                  <label className="form-label">Costo/Gasto General</label>
+                  <label className="form-label">Material del Presupuesto</label>
                   <select
                     className="form-select"
                     value={nuevaAsignacion.materialId}
                     onChange={(e) => {
-                      console.log('📝 [DEBUG GASTOS] Cambiando costo, fechaAsignacion actual:', nuevaAsignacion.fechaAsignacion);
-                      console.log('🔍 [DEBUG] Presupuesto completo:', presupuesto);
-                      console.log('🔍 [DEBUG] Honorarios otrosCostos:', presupuesto?.honorarios?.otrosCostos);
-                      console.log('🔍 [DEBUG] MayoresCostos otrosCostos:', presupuesto?.mayoresCostos?.otrosCostos);
+                      const valorSeleccionado = e.target.value;
 
-                      // 🔥 Autocompletar importe unitario con el valor del presupuesto + honorarios + mayores costos
-                      const costoSeleccionado = materialesDisponibles.find(c => c.id.toString() === e.target.value);
-                      console.log('📦 Costo seleccionado COMPLETO:', costoSeleccionado);
-                      console.log('📦 Todos los costos disponibles:', materialesDisponibles);
+                      // Si selecciona un material del catálogo, autocompletar precio
+                      if (valorSeleccionado && valorSeleccionado !== 'CREAR_NUEVO') {
+                        const materialSeleccionado = materialesCatalogo.find(m => m.id.toString() === valorSeleccionado);
+                        if (materialSeleccionado) {
+                          // Actualizar ambos estados para compatibilidad
+                          setNuevoGastoManual({
+                            ...nuevoGastoManual,
+                            descripcion: materialSeleccionado.nombre || '',
+                            unidad: materialSeleccionado.unidadMedida || 'unidades',
+                            importeUnitario: materialSeleccionado.precioUnitario?.toString() || ''
+                          });
 
-                      let importeUnitario = 0;
-                      if (costoSeleccionado) {
-                        const importeBase = Number(costoSeleccionado.importe || 0);
-                        importeUnitario = importeBase;
-                        console.log('💰 Importe BASE desde costoSeleccionado.importe:', importeBase);
-
-                        // Aplicar honorarios sobre la base
-                        if (presupuesto?.honorarios?.otrosCostos?.activo && presupuesto?.honorarios?.otrosCostos?.valor) {
-                          const valor = Number(presupuesto.honorarios.otrosCostos.valor);
-                          if (presupuesto.honorarios.otrosCostos.tipo === 'porcentaje') {
-                            const incrementoHonorarios = (importeBase * valor) / 100;
-                            importeUnitario += incrementoHonorarios;
-                            console.log(`💵 Aplicando honorarios ${valor}%: +$${incrementoHonorarios.toLocaleString()}`);
-                          }
-                        } else {
-                          console.log('⚠️ No se aplicaron honorarios');
+                          // Actualizar también el estado de nuevaAsignacion
+                          setNuevaAsignacion({
+                            ...nuevaAsignacion,
+                            materialId: valorSeleccionado,
+                            importeUnitario: materialSeleccionado.precioUnitario?.toString() || ''
+                          });
+                          return; // Salir temprano ya que actualizamos nuevaAsignacion arriba
                         }
-
-                        // Aplicar mayores costos sobre la BASE (no sobre base+honorarios)
-                        if (presupuesto?.mayoresCostos?.otrosCostos?.activo && presupuesto?.mayoresCostos?.otrosCostos?.valor) {
-                          const valor = Number(presupuesto.mayoresCostos.otrosCostos.valor);
-                          if (presupuesto.mayoresCostos.otrosCostos.tipo === 'porcentaje') {
-                            const incrementoMayoresCostos = (importeBase * valor) / 100;
-                            importeUnitario += incrementoMayoresCostos;
-                            console.log(`💵 Aplicando mayores costos ${valor}%: +$${incrementoMayoresCostos.toLocaleString()}`);
-                          }
-                        } else {
-                          console.log('⚠️ No se aplicaron mayores costos');
-                        }
-
-                        console.log('💰 Importe FINAL calculado:', importeUnitario);
                       }
 
                       setNuevaAsignacion({
                         ...nuevaAsignacion,
-                        materialId: e.target.value,
-                        importeUnitario: importeUnitario // 🔥 Auto-llenar importe unitario con fees aplicados
+                        materialId: valorSeleccionado
                       });
                     }}
                     required
                   >
-                    <option value="">Seleccionar costo...</option>
+                    <option value="">Seleccionar material...</option>
 
-                    {/* 🆕 Opción para crear nuevo gasto (cuando presupuesto es GLOBAL) */}
-                    {modoPresupuesto === 'GLOBAL' && (
-                      <option value="CREAR_NUEVO" style={{ fontWeight: 'bold', color: '#28a745', backgroundColor: '#d4edda' }}>
-                        ➕ Crear Nuevo Gasto Manual
-                      </option>
-                    )}
+                    {/* 🆕 Opción para crear nuevo material */}
+                    <option value="CREAR_NUEVO" style={{ fontWeight: 'bold', color: '#28a745', backgroundColor: '#d4edda' }}>
+                      ➕ Crear Nuevo Material
+                    </option>
 
-                    {/* ℹ️ Mensaje cuando no hay gastos disponibles (modo GLOBAL) */}
-                    {materialesDisponibles.length === 0 && modoPresupuesto === 'GLOBAL' && (
+                    {/* Materiales del catálogo */}
+                    {materialesCatalogo.length === 0 && (
                       <option disabled style={{ color: '#6c757d', fontStyle: 'italic' }}>
-                        Sin gastos detallados - Use "Crear Nuevo"
+                        Cargando materiales...
                       </option>
                     )}
 
-                    {(() => {
-                      // Agrupar costos por categoría/rubro
-                      const costosPorCategoria = {};
-                      materialesDisponibles.forEach(costo => {
-                        const categoria = costo.categoria || 'Sin categoría';
-                        if (!costosPorCategoria[categoria]) {
-                          costosPorCategoria[categoria] = [];
-                        }
-                        costosPorCategoria[categoria].push(costo);
-                      });
-
-                      // Colores para cada categoría
-                      const coloresCategorias = {
-                        'Albañileria': '#8B4513',
-                        'Albañilería': '#8B4513',
-                        'Pintura': '#4169E1',
-                        'Electricidad': '#FFD700',
-                        'Plomería': '#20B2AA',
-                        'Sin categoría': '#6c757d'
-                      };
-
-                      // Renderizar como opciones con separadores de categoría
-                      return Object.keys(costosPorCategoria).sort().flatMap(categoria => {
-                        const colorCategoria = coloresCategorias[categoria] || '#6c757d';
-
-                        return [
-                          // Separador de categoría (deshabilitado, con color)
-                          <option
-                            key={`sep-${categoria}`}
-                            disabled
-                            style={{
-                              fontWeight: 'bold',
-                              backgroundColor: colorCategoria,
-                              color: '#fff',
-                              padding: '5px'
-                            }}
-                          >
-                            ━━━ {categoria.toUpperCase()} ━━━
-                          </option>,
-                          // Items de esta categoría
-                          ...costosPorCategoria[categoria].map(costo => {
-                            const disponibleReal = calcularStockDisponible(costo.id);
-                            const estadoReal = getEstadoStockActualizado(costo.id);
-                            const stockOriginal = costo.cantidadDisponible || 0;
-
-                            const icono = {
-                              'DISPONIBLE': '🟢',
-                              'STOCK_BAJO': '🟡',
-                              'AGOTADO': '🔴',
-                              'SIN_STOCK': '⚪'
-                            }[estadoReal];
-
-                            const color = estadoReal === 'AGOTADO' ? '#dc3545' : '#000';
-
-                            const infoStock = disponibleReal !== null && disponibleReal !== stockOriginal
-                              ? `${disponibleReal}/${stockOriginal}`
-                              : (disponibleReal !== null ? `${disponibleReal}` : stockOriginal);
-
-                            // Calcular importe con honorarios y mayores costos
-                            const importeBase = Number(costo.importe || 0);
-                            let importeFinal = importeBase;
-
-                            // Aplicar honorarios sobre la base
-                            if (presupuesto?.honorarios?.otrosCostos?.activo && presupuesto?.honorarios?.otrosCostos?.valor) {
-                              const valor = Number(presupuesto.honorarios.otrosCostos.valor);
-                              if (presupuesto.honorarios.otrosCostos.tipo === 'porcentaje') {
-                                importeFinal += (importeBase * valor) / 100;
-                              }
-                            }
-
-                            // Aplicar mayores costos sobre la BASE (no sobre base+honorarios)
-                            if (presupuesto?.mayoresCostos?.otrosCostos?.activo && presupuesto?.mayoresCostos?.otrosCostos?.valor) {
-                              const valor = Number(presupuesto.mayoresCostos.otrosCostos.valor);
-                              if (presupuesto.mayoresCostos.otrosCostos.tipo === 'porcentaje') {
-                                importeFinal += (importeBase * valor) / 100;
-                              }
-                            }
-
-                            return (
-                              <option
-                                key={costo.id}
-                                value={costo.id}
-                                disabled={estadoReal === 'AGOTADO'}
-                                style={{ color, paddingLeft: '20px' }}
-                              >
-                                   {icono} {costo.nombre} {
-                                  disponibleReal !== null
-                                    ? `(${costo.unidadMedida ? infoStock + ' ' + costo.unidadMedida + ' disponibles - ' : ''}$${importeFinal.toLocaleString('es-AR')}/unidad)`
-                                    : `($${importeFinal.toLocaleString('es-AR')}/unidad)`
-                                }
-                              </option>
-                            );
-                          })
-                        ];
-                      });
-                    })()}
+                    {materialesCatalogo.map(material => (
+                      <option key={material.id} value={material.id}>
+                        {material.nombre} {material.unidadMedida ? `(${material.unidadMedida})` : ''} - ${Number(material.precioUnitario || 0).toLocaleString('es-AR')}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
-                {/* 🆕 Campos adicionales si está creando un gasto nuevo */}
+                {/* 🆕 Campos adicionales si está creando un material nuevo */}
                 {nuevaAsignacion.materialId === 'CREAR_NUEVO' && (
                   <>
-                    <div className="alert alert-info mb-3 d-flex justify-content-between align-items-center">
-                      <div>
-                        <small>
-                          <i className="fas fa-info-circle me-1"></i>
-                          <strong>Crear gasto desde presupuesto global</strong>
-                          <br />
-                          Disponible: ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </small>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-primary"
-                        onClick={() => setMostrarCrearGastoManual(true)}
-                        title="Abrir modal avanzado de creación"
-                      >
-                        <i className="fas fa-cog me-1"></i>
-                        Opciones Avanzadas
-                      </button>
+                    <div className="alert alert-success mb-2 py-2">
+                      <strong>Presupuesto disponible:</strong> ${presupuestoGlobalDisponible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </div>
 
-                    <div className="row mb-3">
-                      <div className="col-md-8">
-                        <label className="form-label">
-                          Descripción del Gasto <span className="text-danger">*</span>
-                        </label>
+                    {/* Nombre del material */}
+                    <div className="mb-3">
+                      <label className="form-label">
+                        Material <span className="text-danger">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={nuevoGastoManual.descripcion}
+                        onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, descripcion: e.target.value})}
+                        placeholder="Ej: Cemento, Arena, Hierro, Ladrillos..."
+                        required
+                      />
+                    </div>
+
+                    {/* Unidad y Cantidad en la misma fila */}
+                    <div className="row g-2 mb-3">
+                      <div className="col-5">
+                        <label className="form-label">Unidad <span className="text-danger">*</span></label>
+                        <select
+                          className="form-select"
+                          value={nuevoGastoManual.unidad || 'unidades'}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, unidad: e.target.value})}
+                        >
+                          <option value="unidades">Unidades</option>
+                          <option value="bolsas">Bolsas</option>
+                          <option value="kg">Kilogramos (kg)</option>
+                          <option value="tn">Toneladas (tn)</option>
+                          <option value="m3">Metros cúbicos (m³)</option>
+                          <option value="m2">Metros cuadrados (m²)</option>
+                          <option value="ml">Metros lineales (ml)</option>
+                          <option value="lts">Litros (lts)</option>
+                          <option value="barras">Barras</option>
+                          <option value="chapas">Chapas</option>
+                          <option value="rollos">Rollos</option>
+                          <option value="caños">Caños</option>
+                          <option value="tablas">Tablas</option>
+                          <option value="otro">Otro</option>
+                        </select>
+                      </div>
+                      <div className="col-7">
+                        <label className="form-label">Cantidad <span className="text-danger">*</span></label>
                         <input
-                          type="text"
+                          type="number"
                           className="form-control"
-                          value={nuevoGastoManual.descripcion}
-                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, descripcion: e.target.value})}
-                          placeholder="Ej: Volquetes, Escaleras, Seguro, etc."
+                          value={nuevoGastoManual.cantidadAsignada}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, cantidadAsignada: e.target.value})}
+                          placeholder="Ej: 50"
+                          min="0.01"
+                          step="0.01"
                           required
                         />
                       </div>
-                      <div className="col-md-4">
-                        <label className="form-label">Categoría/Rubro</label>
-                        <select
-                          className="form-select"
-                          value={nuevoGastoManual.categoria || 'General'}
-                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, categoria: e.target.value})}
-                        >
-                          <option value="General">General</option>
-                          <option value="Equipamiento">Equipamiento</option>
-                          <option value="Transporte">Transporte</option>
-                          <option value="Servicios">Servicios</option>
-                          <option value="Seguridad">Seguridad</option>
-                          <option value="Administrativo">Administrativo</option>
-                          <option value="Otros">Otros</option>
-                        </select>
+                    </div>
+
+                    {/* Precio unitario */}
+                    <div className="mb-3">
+                      <label className="form-label">
+                        Precio unitario <span className="text-danger">*</span>
+                      </label>
+                      <div className="input-group">
+                        <span className="input-group-text">$</span>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={nuevoGastoManual.importeUnitario}
+                          onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, importeUnitario: e.target.value})}
+                          placeholder="Ej: 2500"
+                          min="0"
+                          step="0.01"
+                          required
+                        />
+                        <span className="input-group-text">/ {nuevoGastoManual.unidad || 'unidad'}</span>
                       </div>
+                    </div>
+
+                    {/* Total calculado */}
+                    {nuevoGastoManual.cantidadAsignada && nuevoGastoManual.importeUnitario && (() => {
+                      const total = (parseFloat(nuevoGastoManual.cantidadAsignada) || 0) * (parseFloat(nuevoGastoManual.importeUnitario) || 0);
+                      const excede = total > presupuestoGlobalDisponible;
+                      return total > 0 ? (
+                        <div className={`alert ${excede ? 'alert-danger' : 'alert-info'} py-2 mb-3`}>
+                          <strong>Total: ${total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                          {excede && (
+                            <span className="d-block small mt-1">
+                              Excede el disponible en ${(total - presupuestoGlobalDisponible).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </span>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {/* Categoría/Rubro */}
+                    <div className="mb-3">
+                      <label className="form-label">Categoría/Rubro</label>
+                      <select
+                        className="form-select"
+                        value={nuevoGastoManual.categoria || 'General'}
+                        onChange={(e) => setNuevoGastoManual({
+                          ...nuevoGastoManual,
+                          categoria: e.target.value,
+                          categoriaCustom: e.target.value === '__OTRO__' ? (nuevoGastoManual.categoriaCustom || '') : ''
+                        })}
+                      >
+                        {rubrosParaSelect.map((rubro) => (
+                          <option key={rubro} value={rubro}>{rubro}</option>
+                        ))}
+                        <option value="__OTRO__">Otros (escribir rubro...)</option>
+                      </select>
+                      {nuevoGastoManual.categoria === '__OTRO__' && (
+                        <input
+                          type="text"
+                          className="form-control mt-2"
+                          value={nuevoGastoManual.categoriaCustom || ''}
+                          onChange={(e) => setNuevoGastoManual({ ...nuevoGastoManual, categoriaCustom: e.target.value })}
+                          placeholder="Escribí el rubro (ej: Hormigón, Mampostería, Cubierta...)"
+                        />
+                      )}
                     </div>
                   </>
                 )}
 
                 <div className="mb-3">
                   {(() => {
-                    // Si está creando nuevo, siempre mostrar campos de cantidad e importe
+                    // Si está creando nuevo, los campos ya están arriba - no mostrar nada aquí
                     if (nuevaAsignacion.materialId === 'CREAR_NUEVO') {
-                      return (
-                        <>
-                          <div className="row mb-3">
-                            <div className="col-md-6">
-                              <label className="form-label">
-                                Cantidad <span className="text-danger">*</span>
-                              </label>
-                              <input
-                                type="number"
-                                className="form-control"
-                                value={nuevoGastoManual.cantidadAsignada}
-                                onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, cantidadAsignada: e.target.value})}
-                                placeholder="Ej: 2"
-                                min="0.01"
-                                step="0.01"
-                                required
-                              />
-                            </div>
-                            <div className="col-md-6">
-                              <label className="form-label">
-                                Importe Unitario <span className="text-danger">*</span>
-                              </label>
-                              <input
-                                type="number"
-                                className="form-control"
-                                value={nuevoGastoManual.importeUnitario}
-                                onChange={(e) => setNuevoGastoManual({...nuevoGastoManual, importeUnitario: e.target.value})}
-                                placeholder="Ej: 1500000"
-                                min="0.01"
-                                step="0.01"
-                                required
-                              />
-                            </div>
-                          </div>
-
-                          {nuevoGastoManual.cantidadAsignada && nuevoGastoManual.importeUnitario && (
-                            <div className="alert alert-success mb-3">
-                              <div className="d-flex justify-content-between align-items-center">
-                                <span><strong>Total del gasto:</strong></span>
-                                <strong className="text-success">
-                                  ${(parseFloat(nuevoGastoManual.cantidadAsignada) * parseFloat(nuevoGastoManual.importeUnitario)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </strong>
-                              </div>
-                              {(() => {
-                                const totalGasto = parseFloat(nuevoGastoManual.cantidadAsignada) * parseFloat(nuevoGastoManual.importeUnitario);
-                                if (totalGasto > presupuestoGlobalDisponible) {
-                                  return (
-                                    <small className="text-danger d-block mt-1">
-                                      <i className="fas fa-exclamation-triangle me-1"></i>
-                                      Excede el disponible en ${(totalGasto - presupuestoGlobalDisponible).toLocaleString('es-AR')}
-                                    </small>
-                                  );
-                                }
-                                return (
-                                  <small className="text-muted d-block mt-1">
-                                    Disponible restante: ${(presupuestoGlobalDisponible - totalGasto).toLocaleString('es-AR')}
-                                  </small>
-                                );
-                              })()}
-                            </div>
-                          )}
-                        </>
-                      );
+                      return null;
                     }
 
                     const costoSeleccionado = materialesDisponibles.find(c => c.id.toString() === nuevaAsignacion.materialId);
@@ -3462,7 +3017,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
                     ) : (
                       <>
                         <i className="fas fa-check me-2"></i>
-                        Asignar Costo
+                        Asignar Material
                       </>
                     )}
                   </button>
