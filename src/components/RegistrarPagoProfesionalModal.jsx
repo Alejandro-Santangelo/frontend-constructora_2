@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { formatearMoneda, listarPagosPorProfesional, registrarPago } from '../services/pagosProfesionalObraService';
 import { registrarPagosConsolidadosBatch, listarPagosConsolidadosPorPresupuesto } from '../services/pagosConsolidadosService';
+import {
+  calcularDescuentoEstimado, // ⭐ Solo para estimaciones UI
+  listarAdelantosActivos,
+  formatearMoneda as formatearMonedaAdelantos
+} from '../services/adelantosService';
 import { useEmpresa } from '../EmpresaContext';
 import { useFinancialData } from '../context/FinancialDataContext';
 import api from '../services/api';
@@ -39,6 +44,10 @@ const RegistrarPagoProfesionalModal = ({ show, onHide, onSuccess, obraDireccion,
   // 📅 Estados para manejar asignaciones semanales
   const [asignacionesGastosSemana, setAsignacionesGastosSemana] = useState([]);
   const [semanasDisponibles, setSemanasDisponibles] = useState([]);
+
+  // 💸 Estados para adelantos activos
+  const [adelantosPorProfesional, setAdelantosPorProfesional] = useState({});
+  const [loadingAdelantos, setLoadingAdelantos] = useState(false);
 
   // Auto-actualización cuando el modal se abre O cuando cambia refreshTrigger
   useEffect(() => {
@@ -94,6 +103,50 @@ const RegistrarPagoProfesionalModal = ({ show, onHide, onSuccess, obraDireccion,
       console.log('🔔 [PagoIndividual] Desuscrito de eventos financieros');
     };
   }, [show, recargarDatos]);
+
+  // 💸 Cargar adelantos activos de todos los profesionales
+  useEffect(() => {
+    const cargarAdelantosActivos = async () => {
+      if (!show || !empresaSeleccionada || profesionales.length === 0) {
+        setAdelantosPorProfesional({});
+        return;
+      }
+
+      setLoadingAdelantos(true);
+      const adelantosMap = {};
+
+      try {
+        // Cargar adelantos para cada profesional en paralelo
+        const promesas = profesionales
+          .filter(p => p.profesionalObraId)
+          .map(async (prof) => {
+            try {
+              const adelantos = await listarAdelantosActivos(prof.profesionalObraId, empresaSeleccionada.id);
+              if (adelantos && adelantos.length > 0) {
+                const totalAdelantos = adelantos.reduce((sum, a) => sum + (a.saldoAdelantoPorDescontar || 0), 0);
+                adelantosMap[prof.id] = {
+                  cantidad: adelantos.length,
+                  total: totalAdelantos,
+                  adelantos: adelantos
+                };
+              }
+            } catch (err) {
+              console.warn(`⚠️ Error cargando adelantos de ${prof.nombre}:`, err);
+            }
+          });
+
+        await Promise.all(promesas);
+        setAdelantosPorProfesional(adelantosMap);
+        console.log('💸 Adelantos cargados:', adelantosMap);
+      } catch (err) {
+        console.error('❌ Error cargando adelantos:', err);
+      } finally {
+        setLoadingAdelantos(false);
+      }
+    };
+
+    cargarAdelantosActivos();
+  }, [show, empresaSeleccionada, profesionales, refreshTrigger]);
 
   // 📅 Cargar configuración de semanas de la obra desde BD
   const cargarConfiguracionObra = async (obraId) => {
@@ -250,36 +303,34 @@ const RegistrarPagoProfesionalModal = ({ show, onHide, onSuccess, obraDireccion,
           continue; // Saltar este profesional
         }
 
+        // 🎯 Preparar datos para el backend
+        // ⚠️ Backend aplica descuento de adelantos AUTOMÁTICAMENTE
+        // Solo enviamos montoBruto, el backend retorna montoFinal con descuentos
         const pagoData = {
           profesionalObraId: prof.profesionalObraId,
           empresaId: empresaSeleccionada.id,
-          tipoPago: semanaSeleccionada ? 'PAGO_SEMANAL' : 'PAGO_TOTAL',
+          tipoPago: semanaSeleccionada ? 'SEMANAL' : 'PAGO_TOTAL',
           montoBruto: prof.saldo,
-          montoFinal: prof.saldo,
-          montoNeto: prof.saldo,
-          montoBase: prof.saldo,
-          descuentoAdelantos: 0,
-          descuentoPresentismo: 0,
-          porcentajePresentismo: 100,
+          diasTrabajados: prof.diasTrabajados || 0,
+          diasEsperados: prof.diasEsperados || 0,
           metodoPago: 'EFECTIVO',
           fechaPago: new Date().toISOString().split('T')[0],
-          estado: 'PAGADO',
           observaciones: semanaSeleccionada
             ? `[PAGO SEMANA ${semanaSeleccionada}] ${prof.nombre} - ${prof.cantidadJornales} jornales`
             : `[PAGO TOTAL] ${prof.nombre} - Total: ${formatearMoneda(prof.saldo)}`
         };
 
         console.log('📤 JSON ENVIADO AL BACKEND:', JSON.stringify(pagoData, null, 2));
-        console.log('📋 Profesional completo:', JSON.stringify({
-          id: prof.id,
-          profesionalId: prof.profesionalId,
-          profesionalObraId: prof.profesionalObraId,
-          asignacionId: prof.asignacionId,
-          nombre: prof.nombre,
-          todasLasClaves: Object.keys(prof)
-        }, null, 2));
 
-        await registrarPago(pagoData, empresaSeleccionada.id);
+        // 🚀 Enviar al backend - Backend aplica descuentos automáticamente
+        const pagoCreado = await registrarPago(pagoData, empresaSeleccionada.id);
+
+        console.log('✅ PAGO CREADO (con descuentos automáticos):', {
+          montoBruto: pagoCreado.montoBruto,
+          descuentoAdelantos: pagoCreado.descuentoAdelantos || 0,
+          montoFinal: pagoCreado.montoFinal,
+          adelantosAplicados: pagoCreado.adelantosAplicadosIds
+        });
       }
 
       alert(`✅ ${profesionalesParaPagar.length} profesional(es) pagado(s) exitosamente`);
@@ -854,6 +905,10 @@ const RegistrarPagoProfesionalModal = ({ show, onHide, onSuccess, obraDireccion,
                               {profesionalesFiltrados.map(prof => {
                                 const estaSuspendido = profesionalesSuspendidos.has(prof.id);
                                 const estaCompleto = prof.precioTotal > 0 && prof.totalPagado >= prof.precioTotal;
+                                // 💸 Obtener adelantos activos de este profesional
+                                const adelantosInfo = adelantosPorProfesional[prof.id];
+                                const tieneAdelantos = adelantosInfo && adelantosInfo.total > 0;
+
                                 // Buscar fecha probable de inicio
                                 let fechaProbable = '';
                                 if (prof.fechaProbableInicio) {
@@ -871,6 +926,15 @@ const RegistrarPagoProfesionalModal = ({ show, onHide, onSuccess, obraDireccion,
                                       )}
                                       {estaSuspendido && !estaCompleto && (
                                         <span className="badge bg-secondary ms-2">Suspendido</span>
+                                      )}
+                                      {/* 💸 NUEVO: Badge de adelantos activos */}
+                                      {tieneAdelantos && !estaCompleto && (
+                                        <span
+                                          className="badge bg-warning text-dark ms-2"
+                                          title={`${adelantosInfo.cantidad} adelanto(s) activo(s)`}
+                                        >
+                                          💸 Adelanto: {formatearMoneda(adelantosInfo.total)}
+                                        </span>
                                       )}
                                     </td>
                                     <td className="text-center">{fechaProbable || <span className="text-muted">—</span>}</td>

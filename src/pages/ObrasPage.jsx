@@ -6600,6 +6600,255 @@ _Válido por 30 días_
     return '-';
   };
 
+  // Renderizar fila expandida para trabajos extra y tareas leves
+  const renderFilaExpandidaObra = (obra) => {
+    return (
+      <tr>
+        <td colSpan="13" style={{ padding: '20px', backgroundColor: '#f8f9fa', borderLeft: '5px solid #667eea' }}>
+          <div className="container-fluid">
+            <div className="row g-3">
+              {/* COLUMNA IZQUIERDA: Asignaciones */}
+
+              {/* Profesionales */}
+              <div className="col-md-6">
+                <h6 className="text-muted mb-2">
+                  <i className="fas fa-users-cog me-2"></i>
+                  Profesionales
+                </h6>
+                <button
+                  className={`btn btn-sm w-100 d-flex justify-content-between align-items-center ${obtenerConfiguracionObra(obra.id) ? 'btn-outline-success' : 'btn-outline-secondary'}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const config = obtenerConfiguracionObra(obra.id);
+                    if (!config) {
+                      showNotification(' Primero configura la planificación de la obra', 'warning');
+                      return;
+                    }
+
+                    try {
+                      const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId);
+                      const presupuestoCompleto = todosPresupuestos.find(p =>
+                        p.obraId === obra.id || p.idObra === obra.id
+                      );
+
+                      let asignacionesActuales = [];
+                      try {
+                        const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaId);
+                        asignacionesActuales = responseAsignaciones?.data || responseAsignaciones || [];
+                      } catch (error) {
+                        console.warn(' No se pudieron cargar asignaciones:', error.message);
+                      }
+
+                      const obraEnriquecida = {
+                        ...obra,
+                        presupuestoNoCliente: presupuestoCompleto || obra.presupuestoNoCliente,
+                        asignacionesActuales: asignacionesActuales
+                      };
+
+                      setObraParaAsignarProfesionales(obraEnriquecida);
+                    } catch (error) {
+                      console.error('Error cargando presupuesto:', error);
+                      setObraParaAsignarProfesionales(obra);
+                    }
+
+                    setMostrarModalAsignarProfesionalesSemanal(true);
+                  }}
+                  title={obtenerConfiguracionObra(obra.id) ? "Asignar profesionales" : "Configura primero la obra"}
+                  disabled={!obtenerConfiguracionObra(obra.id)}
+                >
+                  <span>
+                    <i className="fas fa-user-plus me-1"></i>
+                    Asignar Profesionales
+                  </span>
+                  <span className="badge bg-success d-flex align-items-center gap-1">
+                    {contarProfesionalesAsignados(obra.id)?.count || 0}
+                    {(() => {
+                      const estado = calcularEstadoTiempoObra(obra.id);
+                      return estado.emoji ? (
+                        <span
+                          title={estado.tooltip}
+                          style={{ fontSize: '0.9rem', marginLeft: '2px' }}
+                        >
+                          {estado.emoji}
+                        </span>
+                      ) : null;
+                    })()}
+                  </span>
+                </button>
+              </div>
+
+              {/* COLUMNA DERECHA: Otros */}
+
+              {/* Presupuestos */}
+              <div className="col-md-6">
+                <h6 className="text-muted mb-2">
+                  <i className="fas fa-file-invoice-dollar me-2"></i>
+                  Presupuestos
+                </h6>
+                <button
+                  className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleVerPresupuestosObra(obra);
+                  }}
+                >
+                  <span>
+                    <i className="fas fa-eye me-2"></i>
+                    Ver Presupuestos
+                  </span>
+                  <span className="badge bg-primary">{contarPresupuestosObra(obra.id)}</span>
+                </button>
+              </div>
+
+              {/* Materiales */}
+              <div className="col-md-6">
+                <h6 className="text-muted mb-2">
+                  <i className="fas fa-box me-2"></i>
+                  Materiales
+                </h6>
+                <button
+                  className={`btn btn-sm w-100 d-flex justify-content-between align-items-center ${obtenerConfiguracionObra(obra.id) ? 'btn-outline-warning' : 'btn-outline-secondary'}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const config = obtenerConfiguracionObra(obra.id);
+                    if (!config) {
+                      showNotification(' Primero configura la planificación de la obra', 'warning');
+                      return;
+                    }
+                    setObraParaAsignarMateriales(obra);
+                    setMostrarModalAsignarMateriales(true);
+                  }}
+                  disabled={!obtenerConfiguracionObra(obra.id)}
+                >
+                  <span>
+                    <i className="fas fa-boxes me-2"></i>
+                    Asignar Materiales
+                  </span>
+                  <span className="badge bg-warning text-dark">{contarMaterialesAsignados(obra.id)}</span>
+                </button>
+              </div>
+
+              {/* Adicionales Obra */}
+              <div className="col-md-6">
+                <h6 className="text-muted mb-2">
+                  <i className="fas fa-tools me-2"></i>
+                  Adicionales Obra
+                </h6>
+                <button
+                  className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedObraId(obra.id);
+                    setObraParaTrabajosExtra(obra);
+                    cargarTrabajosExtra(obra);
+                    dispatch(setActiveTab('trabajos-extra'));
+                  }}
+                >
+                  <span>
+                    <i className="fas fa-wrench me-2"></i>
+                    Gestionar Adicionales Obra
+                  </span>
+                  <span className="badge bg-secondary">{contarTrabajosExtraObra(obra.id)}</span>
+                </button>
+              </div>
+
+              {/* Gastos Generales */}
+              <div className="col-md-6">
+                <h6 className="text-muted mb-2">
+                  <i className="fas fa-receipt me-2"></i>
+                  Gastos Generales
+                </h6>
+                <button
+                  className={`btn btn-sm w-100 d-flex justify-content-between align-items-center ${obtenerConfiguracionObra(obra.id) ? 'btn-outline-danger' : 'btn-outline-secondary'}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const config = obtenerConfiguracionObra(obra.id);
+                    if (!config) {
+                      showNotification(' Primero configura la planificación de la obra', 'warning');
+                      return;
+                    }
+                    setObraParaAsignarGastos(obra);
+                    setMostrarModalAsignarGastos(true);
+                  }}
+                  disabled={!obtenerConfiguracionObra(obra.id)}
+                >
+                  <span>
+                    <i className="fas fa-dollar-sign me-2"></i>
+                    Asignar Gastos
+                  </span>
+                  <span className="badge bg-danger">{contarGastosAsignados(obra.id)}</span>
+                </button>
+              </div>
+
+              {/* Etapas Diarias */}
+              <div className="col-md-6">
+                <h6 className="text-muted mb-2">
+                  <i className="fas fa-calendar-alt me-2"></i>
+                  Etapas Diarias
+                </h6>
+                <button
+                  className="btn btn-sm btn-outline-info w-100 d-flex justify-content-between align-items-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedObraId(obra.id);
+                    cargarEtapasDiarias(obra);
+                    dispatch(setActiveTab('etapas-diarias'));
+                  }}
+                >
+                  <span>
+                    <i className="fas fa-calendar-plus me-2"></i>
+                    Gestionar Etapas
+                  </span>
+                  <span className="badge bg-info">{contarEtapasDiariasObra(obra.id)}</span>
+                </button>
+              </div>
+
+              {/* Tareas Leves */}
+              <div className="col-md-6">
+                <h6 className="text-muted mb-2">
+                  <i className="fas fa-clipboard-list me-2"></i>
+                  Tareas Leves
+                </h6>
+                <button
+                  className="btn btn-sm btn-outline-primary w-100 d-flex justify-content-between align-items-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedObraId(obra.id);
+
+                    if (obra.esTrabajoExtra && obra.obraPadreId) {
+                      const obraConContextoTrabajoExtra = {
+                        ...obra,
+                        id: obra.obraPadreId,
+                        _esTrabajoExtra: true,
+                        _trabajoExtraId: obra.id,
+                        _trabajoExtraNombre: obra.nombre
+                      };
+                      setObraParaTrabajosAdicionales(obraConContextoTrabajoExtra);
+                    } else {
+                      setObraParaTrabajosAdicionales(obra);
+                    }
+
+                    abrirModalTareaLeveDirecto(obra);
+                  }}
+                >
+                  <span>
+                    <i className="fas fa-plus-square me-2"></i>
+                    Gestionar Tareas Leves
+                  </span>
+                  <span className="badge bg-primary">
+                    {obra.esTrabajoExtra
+                      ? trabajosAdicionales.filter(ta => ta.trabajoExtraId === obra.id).length
+                      : contarTrabajosAdicionalesObra(obra.id)}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="container-fluid" style={{padding: '0'}} onClick={() => setSelectedObraId(null)}>
       <div className="row mb-4" style={{margin: '0', padding: '0 15px'}}>
@@ -7320,6 +7569,88 @@ _Válido por 30 días_
                                     </div>
 
                                     <div className="row g-3">
+                                      {/* COLUMNA IZQUIERDA: Asignaciones */}
+
+                                      {/* Profesionales */}
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-users-cog me-2"></i>
+                                          Profesionales
+                                        </h6>
+                                        <button
+                                          className={`btn btn-sm w-100 d-flex justify-content-between align-items-center ${obtenerConfiguracionObra(obra.id) ? 'btn-outline-success' : 'btn-outline-secondary'}`}
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const config = obtenerConfiguracionObra(obra.id);
+                                            if (!config) {
+                                              showNotification(' Primero configura la planificación de la obra', 'warning');
+                                              return;
+                                            }
+
+                                            // ðŸ"¥ Enriquecer obra con presupuesto completo Y asignaciones antes de abrir modal
+                                            try {
+                                              const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId);
+                                              const presupuestoCompleto = todosPresupuestos.find(p =>
+                                                p.obraId === obra.id || p.idObra === obra.id
+                                              );
+
+                                              // ðŸ"¥ NUEVO: Obtener asignaciones actuales de profesionales
+                                              let asignacionesActuales = [];
+                                              try {
+                                                const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaId);
+                                                asignacionesActuales = responseAsignaciones?.data || responseAsignaciones || [];
+                                                console.log('ðŸ"‹ Asignaciones actuales cargadas:', asignacionesActuales.length);
+                                              } catch (error) {
+                                                console.warn(' No se pudieron cargar asignaciones:', error.message);
+                                              }
+
+                                              const obraEnriquecida = {
+                                                ...obra,
+                                                presupuestoNoCliente: presupuestoCompleto || obra.presupuestoNoCliente,
+                                                asignacionesActuales: asignacionesActuales
+                                              };
+
+                                              console.log('ðŸ" DEBUG - Obra enriquecida:', {
+                                                obraId: obraEnriquecida.id,
+                                                tienePresupuesto: !!obraEnriquecida.presupuestoNoCliente,
+                                                fechaProbableInicio: obraEnriquecida.presupuestoNoCliente?.fechaProbableInicio,
+                                                asignacionesActuales: asignacionesActuales.length
+                                              });
+
+                                              setObraParaAsignarProfesionales(obraEnriquecida);
+                                            } catch (error) {
+                                              console.error('Error cargando presupuesto:', error);
+                                              setObraParaAsignarProfesionales(obra);
+                                            }
+
+                                            setMostrarModalAsignarProfesionalesSemanal(true);
+                                          }}
+                                          title={obtenerConfiguracionObra(obra.id) ? "Asignar profesionales" : "Configura primero la obra"}
+                                          disabled={!obtenerConfiguracionObra(obra.id)}
+                                        >
+                                          <span>
+                                            <i className="fas fa-user-plus me-1"></i>
+                                            Asignar Profesionales
+                                          </span>
+                                          <span className="badge bg-success d-flex align-items-center gap-1">
+                                            {contarProfesionalesAsignados(obra.id)?.count || 0}
+                                            {(() => {
+                                              const estado = calcularEstadoTiempoObra(obra.id);
+                                              return estado.emoji ? (
+                                                <span
+                                                  title={estado.tooltip}
+                                                  style={{ fontSize: '0.9rem', marginLeft: '2px' }}
+                                                >
+                                                  {estado.emoji}
+                                                </span>
+                                              ) : null;
+                                            })()}
+                                          </span>
+                                        </button>
+                                      </div>
+
+                                      {/* COLUMNA DERECHA: Otros */}
+
                                       {/* Presupuestos o Presupuesto Estimado */}
                                       <div className="col-md-6">
                                         {(() => {
@@ -7383,114 +7714,6 @@ _Válido por 30 días_
                                         })()}
                                       </div>
 
-                                      {/* Adicionales Obra */}
-                                      <div className="col-md-6">
-                                        <h6 className="text-muted mb-2">
-                                          <i className="fas fa-tools me-2"></i>
-                                          Adicionales Obra
-                                        </h6>
-                                        <button
-                                          className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            console.log('ðŸ” Click en Gestionar Trabajos Extra - Objeto obra:', obra);
-                                            console.log('ðŸ” Propiedades de trabajo extra:', {
-                                              esObraTrabajoExtra: obra.esObraTrabajoExtra,
-                                              es_obra_trabajo_extra: obra.es_obra_trabajo_extra,
-                                              id: obra.id
-                                            });
-                                            setSelectedObraId(obra.id);
-                                            setObraParaTrabajosExtra(obra);
-                                            cargarTrabajosExtra(obra);
-                                            dispatch(setActiveTab('trabajos-extra'));
-                                          }}
-                                        >
-                                          <span>
-                                            <i className="fas fa-wrench me-2"></i>
-                                            Gestionar Adicionales Obra
-                                          </span>
-                                          <span className="badge bg-secondary">{contarTrabajosExtraObra(obra.id)}</span>
-                                        </button>
-                                      </div>
-
-                                      {/* Profesionales */}
-                                      <div className="col-md-6">
-                                        <h6 className="text-muted mb-2">
-                                          <i className="fas fa-users-cog me-2"></i>
-                                          Profesionales
-                                        </h6>
-                                        <button
-                                          className={`btn btn-sm w-100 d-flex justify-content-between align-items-center ${obtenerConfiguracionObra(obra.id) ? 'btn-outline-success' : 'btn-outline-secondary'}`}
-                                          onClick={async (e) => {
-                                            e.stopPropagation();
-                                            const config = obtenerConfiguracionObra(obra.id);
-                                            if (!config) {
-                                              showNotification(' Primero configura la planificación de la obra', 'warning');
-                                              return;
-                                            }
-
-                                            // ðŸ”¥ Enriquecer obra con presupuesto completo Y asignaciones antes de abrir modal
-                                            try {
-                                              const todosPresupuestos = await api.presupuestosNoCliente.getAll(empresaId);
-                                              const presupuestoCompleto = todosPresupuestos.find(p =>
-                                                p.obraId === obra.id || p.idObra === obra.id
-                                              );
-
-                                              // ðŸ”¥ NUEVO: Obtener asignaciones actuales de profesionales
-                                              let asignacionesActuales = [];
-                                              try {
-                                                const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obra.id, empresaId);
-                                                asignacionesActuales = responseAsignaciones?.data || responseAsignaciones || [];
-                                                console.log('ðŸ“‹ Asignaciones actuales cargadas:', asignacionesActuales.length);
-                                              } catch (error) {
-                                                console.warn(' No se pudieron cargar asignaciones:', error.message);
-                                              }
-
-                                              const obraEnriquecida = {
-                                                ...obra,
-                                                presupuestoNoCliente: presupuestoCompleto || obra.presupuestoNoCliente,
-                                                asignacionesActuales: asignacionesActuales
-                                              };
-
-                                              console.log('ðŸ” DEBUG - Obra enriquecida:', {
-                                                obraId: obraEnriquecida.id,
-                                                tienePresupuesto: !!obraEnriquecida.presupuestoNoCliente,
-                                                fechaProbableInicio: obraEnriquecida.presupuestoNoCliente?.fechaProbableInicio,
-                                                asignacionesActuales: asignacionesActuales.length
-                                              });
-
-                                              setObraParaAsignarProfesionales(obraEnriquecida);
-                                            } catch (error) {
-                                              console.error('Error cargando presupuesto:', error);
-                                              setObraParaAsignarProfesionales(obra);
-                                            }
-
-                                            setMostrarModalAsignarProfesionalesSemanal(true);
-                                          }}
-                                          title={obtenerConfiguracionObra(obra.id) ? "Asignar profesionales" : "Configura primero la obra"}
-                                          disabled={!obtenerConfiguracionObra(obra.id)}
-                                        >
-                                          <span>
-                                            <i className="fas fa-user-plus me-1"></i>
-                                            Asignar Profesionales
-                                          </span>
-                                          <span className="badge bg-success d-flex align-items-center gap-1">
-                                            {contarProfesionalesAsignados(obra.id)?.count || 0}
-                                            {(() => {
-                                              const estado = calcularEstadoTiempoObra(obra.id);
-                                              return estado.emoji ? (
-                                                <span
-                                                  title={estado.tooltip}
-                                                  style={{ fontSize: '0.9rem', marginLeft: '2px' }}
-                                                >
-                                                  {estado.emoji}
-                                                </span>
-                                              ) : null;
-                                            })()}
-                                          </span>
-                                        </button>
-                                      </div>
-
                                       {/* Materiales */}
                                       <div className="col-md-6">
                                         <h6 className="text-muted mb-2">
@@ -7516,6 +7739,30 @@ _Válido por 30 días_
                                             Asignar Materiales
                                           </span>
                                           <span className="badge bg-warning text-dark">{contarMaterialesAsignados(obra.id)}</span>
+                                        </button>
+                                      </div>
+
+                                      {/* Adicionales Obra */}
+                                      <div className="col-md-6">
+                                        <h6 className="text-muted mb-2">
+                                          <i className="fas fa-tools me-2"></i>
+                                          Adicionales Obra
+                                        </h6>
+                                        <button
+                                          className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedObraId(obra.id);
+                                            setObraParaTrabajosExtra(obra);
+                                            cargarTrabajosExtra(obra);
+                                            dispatch(setActiveTab('trabajos-extra'));
+                                          }}
+                                        >
+                                          <span>
+                                            <i className="fas fa-wrench me-2"></i>
+                                            Gestionar Adicionales Obra
+                                          </span>
+                                          <span className="badge bg-secondary">{contarTrabajosExtraObra(obra.id)}</span>
                                         </button>
                                       </div>
 

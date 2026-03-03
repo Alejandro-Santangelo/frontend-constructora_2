@@ -12,6 +12,7 @@ import RegistrarPagoProfesionalModal from '../components/RegistrarPagoProfesiona
 import ListarPagosProfesionalModal from '../components/ListarPagosProfesionalModal';
 import ResumenFinancieroObraModal from '../components/ResumenFinancieroObraModal';
 import RegistrarPagoConsolidadoModal from '../components/RegistrarPagoConsolidadoModal';
+import DarAdelantoModal from '../components/DarAdelantoModal';
 import SistemaFinancieroConsolidadoModal from '../components/SistemaFinancieroConsolidadoModal';
 import DetalleConsolidadoPorObraModal from '../components/DetalleConsolidadoPorObraModal';
 import DetalleDistribucionCobrosModal from '../components/DetalleDistribucionCobrosModal';
@@ -151,6 +152,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const [showListarPagos, setShowListarPagos] = useState(false);
   const [showResumenFinanciero, setShowResumenFinanciero] = useState(false);
   const [showConsolidarPagosGeneral, setShowConsolidarPagosGeneral] = useState(false);
+  const [showDarAdelanto, setShowDarAdelanto] = useState(false);
+  const [profesionalParaAdelanto, setProfesionalParaAdelanto] = useState(null);
 
   // Estados para modal de desglose por obra
   const [showDesglose, setShowDesglose] = useState(false);
@@ -830,6 +833,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     setShowRegistrarPago(false);
     setShowRegistrarNuevoCobro(false);
     setShowAsignarCobroDisponible(false);
+    setShowDarAdelanto(false);
 
     // ✅ Recargar datos usando el contexto financiero
     recargarDatos();
@@ -3121,6 +3125,33 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             </div>
           </div>
         </div>
+
+        {/* 💸 NUEVO: Dar Adelantos */}
+        <div className="col-md-6 mb-3">
+          <div className="card h-100 border-warning shadow-sm hover-shadow">
+            <div className="card-header bg-warning text-dark">
+              <h5 className="mb-0">
+                <i className="bi bi-cash-stack"></i> 💸 Dar Adelantos
+              </h5>
+            </div>
+            <div className="card-body">
+              <p className="text-muted mb-0">
+                Otorgar adelantos semanales, quincenales, mensuales o por toda la obra a profesionales
+              </p>
+            </div>
+            <div className="card-footer bg-transparent">
+              <button
+                className="btn btn-warning w-100"
+                onClick={() => {
+                  setProfesionalParaAdelanto(null);
+                  setShowDarAdelanto(true);
+                }}
+              >
+                <i className="bi bi-cash-stack"></i> Abrir Tarjeta
+              </button>
+            </div>
+          </div>
+        </div>
           </>
         )}
       </div>
@@ -3224,6 +3255,19 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         obrasSeleccionadas={presupuestosSeleccionadosArray}
         obrasOriginales={obrasDisponibles.filter(obra => obrasSeleccionadas.has(obra.id))} // ✅ Obras completas para detectar independientes
         refreshTrigger={refreshTrigger}
+      />
+
+      {/* 💸 NUEVO: Modal de Dar Adelantos */}
+      <DarAdelantoModal
+        show={showDarAdelanto}
+        onHide={() => {
+          setShowDarAdelanto(false);
+          setProfesionalParaAdelanto(null);
+        }}
+        profesionalPreseleccionado={profesionalParaAdelanto}
+        profesionalesDisponibles={profesionalesSeleccionados}
+        modoMultiple={!profesionalParaAdelanto}
+        onSuccess={handleSuccess}
       />
 
       <ListarPagosProfesionalModal

@@ -68,8 +68,8 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
       })));
 
       // 🎯 LÓGICA DEFINITIVA: Seleccionar SOLO la última versión en estados válidos
-      // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO
-      const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO'];
+      // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO, TERMINADO, FINALIZADO
+      const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO', 'TERMINADO', 'FINALIZADO'];
 
       let presupuesto = null;
       if (Array.isArray(presupuestoData) && presupuestoData.length > 0) {

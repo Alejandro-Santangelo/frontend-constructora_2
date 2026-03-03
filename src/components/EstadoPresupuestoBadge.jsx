@@ -42,8 +42,8 @@ const EstadoPresupuestoBadge = ({ obraId, estadoObra }) => {
       }
 
       // Agrupar por numeroPresupuesto y seleccionar solo estados válidos
-      // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO
-      const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO'];
+      // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO, TERMINADO, FINALIZADO
+      const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO', 'TERMINADO', 'FINALIZADO'];
 
       let presupuesto = null;
       if (Array.isArray(presupuestoData) && presupuestoData.length > 0) {

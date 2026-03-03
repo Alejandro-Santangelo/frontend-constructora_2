@@ -105,8 +105,8 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
           })));
 
           // 🎯 LÓGICA DEFINITIVA: Agrupar por numeroPresupuesto y filtrar solo estados válidos
-          // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO
-          const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO'];
+          // Estados válidos: APROBADO, EN_EJECUCION, SUSPENDIDO, CANCELADO, TERMINADO, FINALIZADO
+          const ESTADOS_VALIDOS = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDO', 'CANCELADO', 'TERMINADO', 'FINALIZADO'];
 
           const porNumero = {};
           data.forEach(p => {

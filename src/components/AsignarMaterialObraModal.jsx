@@ -602,7 +602,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         }
       } else {
         // ✅ OBRA REGULAR: Buscar presupuesto viculado a esta obra
-        console.log('🔍 Buscando presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para obra:', obra.id);
+        console.log('🔍 Buscando presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA, TERMINADO, FINALIZADO) para obra:', obra.id);
 
         // Cargar solo presupuestos tradicionales
         const dataTradicionales = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
@@ -616,8 +616,8 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         const presupuestos = presupuestosTradicionales;
         console.log('📦 Total presupuestos para esta obra:', presupuestos.length);
 
-        // Estados válidos para obras vinculadas
-        const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
+        // Estados válidos para obras vinculadas (incluye TERMINADO y FINALIZADO para tareas leves)
+        const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA', 'TERMINADO', 'FINALIZADO'];
 
         // Filtrar por obraId y estado válido
         console.log('🔍 Filtrando presupuestos por obraId:', obra.id);
@@ -634,7 +634,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
         console.log('✅ Presupuestos válidos de obra', obra.id, ':', presupuestosObra.length);
 
         if (presupuestosObra.length === 0) {
-          throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA) para esta obra');
+          throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA, TERMINADO, FINALIZADO) para esta obra');
         }
 
         // Seleccionar el más reciente

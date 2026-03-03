@@ -631,8 +631,8 @@ const AsignarProfesionalSemanalModal = ({
         }
 
         if (Array.isArray(data) && data.length > 0) {
-          // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
-          const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
+          // Estados válidos para obras vinculadas (incluye TERMINADO y FINALIZADO para tareas leves)
+          const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA', 'TERMINADO', 'FINALIZADO'];
 
           // Buscar presupuestos con estado válido
           const presupuestosValidos = data.filter(p => estadosValidos.includes(p.estado));
@@ -704,8 +704,8 @@ const AsignarProfesionalSemanalModal = ({
           }
 
           if (Array.isArray(data) && data.length > 0) {
-            // Estados válidos para obras vinculadas (MODIFICADO NO se incluye)
-            const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA'];
+            // Estados válidos para obras vinculadas (incluye TERMINADO y FINALIZADO para tareas leves)
+            const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA', 'TERMINADO', 'FINALIZADO'];
 
             // Filtrar presupuestos con estado válido
             const presupuestosValidos = data.filter(p => estadosValidos.includes(p.estado));
