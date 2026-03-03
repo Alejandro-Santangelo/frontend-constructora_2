@@ -121,8 +121,9 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
   // ✅ Helper para obtener el ID REAL de la obra
   const getObraId = () => {
     if (!obra) return null;
-    console.log('📋 Usando ID de la obra:', obra.id);
-    return obra.id;
+    // ✅ FIX: Priorizar obra.obraId (ID de obra vinculada) antes que obra.id
+    console.log('📋 Usando ID de la obra:', obra.obraId || obra.id);
+    return obra.obraId || obra.id;
   };
 
   // 🔥 Crear configuración actualizada con fechaProbableInicio y jornales del presupuesto
@@ -495,12 +496,21 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
 
       // 🔥 SIEMPRE RECARGAR para tener datos frescos (evita mostrar presupuestos editados con valores viejos)
       if (obra._esTrabajoExtra) {
-        console.log('✅ Trabajo Extra detectado - cargando datos del trabajo extra ID:', obra.id);
+        console.log('✅ Trabajo Extra detectado - cargando datos del trabajo extra');
         console.log('⚠️ IMPORTANTE: Trabajo extra funciona como presupuesto-no-cliente independiente');
 
         // Cargar el trabajo extra completo (que incluye todos los datos del presupuesto)
         try {
-          presupuestoActual = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+          // ✅ FIX: Si el presupuesto ya viene en obra.presupuestoNoCliente, usarlo directamente
+          if (obra.presupuestoNoCliente) {
+            console.log('📦 Usando presupuesto ya cargado desde obra.presupuestoNoCliente');
+            presupuestoActual = obra.presupuestoNoCliente;
+          } else {
+            // Fallback: Cargar desde API usando el ID del trabajo extra
+            const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
+            console.log('📦 Cargando trabajo extra desde API con ID:', trabajoExtraId);
+            presupuestoActual = await api.trabajosExtra.getById(trabajoExtraId, empresaSeleccionada.id);
+          }
 
           // 🔑 PARA TRABAJOS EXTRA: El presupuestoId ES el ID del trabajo extra
           // NO necesita buscar presupuestos externos, ya tiene TODO dentro
@@ -615,77 +625,93 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
           throw new Error('No se pudo cargar el trabajo extra');
         }
       } else {
-        // ✅ OBRA REGULAR: Buscar presupuesto viculado a esta obra
-        console.log('🔍 Buscando presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA, TERMINADO, FINALIZADO) para obra:', obra.id);
+        // ✅ OBRA REGULAR: Buscar presupuesto vinculado a esta obra
+        console.log('🔍 Obra regular detectada - ID:', obra.id);
 
-        // Cargar solo presupuestos tradicionales
-        const dataTradicionales = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
-
-        console.log('📦 Presupuestos tradicionales obtenidos:', dataTradicionales?.length || 0);
-
-        // El backend puede devolver el array directamente o dentro de content/datos
-        const presupuestosTradicionales = Array.isArray(dataTradicionales) ? dataTradicionales : (dataTradicionales?.content || dataTradicionales?.datos || []);
-
-        // Solo presupuestos tradicionales
-        const presupuestos = presupuestosTradicionales;
-        console.log('📦 Total presupuestos para esta obra:', presupuestos.length);
-
-        // Estados válidos para obras vinculadas (incluye TERMINADO y FINALIZADO para tareas leves)
-        const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA', 'TERMINADO', 'FINALIZADO'];
-
-        // Filtrar por obraId y estado válido
-        console.log('🔍 Filtrando presupuestos por obraId:', obra.id);
-        let presupuestosObra = (presupuestos || []).filter(p => {
-          const coincideObra = (Number(p.obraId) === Number(obra.id) || Number(p.idObra) === Number(obra.id));
-          const tieneEstado = estadosValidos.includes(p.estado);
-
-          if (!coincideObra || !tieneEstado) {
-            console.warn(`❌ Presupuesto ${p.id} - coincideObra: ${coincideObra} (obraId: ${p.obraId}, idObra: ${p.idObra}), tieneEstado: ${tieneEstado} (estado: ${p.estado})`);
-          }
-
-          return coincideObra && tieneEstado;
-        });
-        console.log('✅ Presupuestos válidos de obra', obra.id, ':', presupuestosObra.length);
-
-        if (presupuestosObra.length === 0) {
-          throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA, TERMINADO, FINALIZADO) para esta obra');
-        }
-
-        // Seleccionar el más reciente
-        const presupuestoResumen = presupuestosObra.sort((a, b) => {
-          if (a.numeroPresupuesto === b.numeroPresupuesto) {
-            return (b.version || 0) - (a.version || 0);
-          }
-          return b.id - a.id;
-        })[0];
-        console.log('✅ Presupuesto seleccionado:', presupuestoResumen.id);
-
-        // IMPORTANTE: Siempre buscar la versión más reciente, incluso si tenemos una en configuracionObra
-        if (presupuestoResumen && configuracionObra?.presupuestoSeleccionado &&
-            presupuestoResumen.version !== configuracionObra.presupuestoSeleccionado.version) {
-          console.log('🔄 Detectada nueva versión del presupuesto:', {
-            actual: presupuestoResumen.version,
-            configuracion: configuracionObra.presupuestoSeleccionado.version
+        // ✅ PRIORIDAD 1: Si la obra ya viene con presupuesto cargado, usarlo directamente
+        if (obra.presupuestoNoCliente) {
+          console.log('✅ Usando presupuesto ya cargado desde obra.presupuestoNoCliente');
+          presupuestoActual = obra.presupuestoNoCliente;
+          presupuestoId = presupuestoActual.id;
+          console.log('✅ Presupuesto cargado:', {
+            id: presupuestoId,
+            nombre: presupuestoActual.nombreObra || presupuestoActual.nombre,
+            estado: presupuestoActual.estado
           });
-        }
-
-        const presupuestoId = presupuestoResumen.id;
-        const esTrabajoExtra = presupuestoResumen.esTrabajoExtra || presupuestoResumen.tipo === 'TRABAJO_EXTRA';
-
-        console.log('✅ Presupuesto seleccionado:', {
-          id: presupuestoId,
-          version: presupuestoResumen.version,
-          esTrabajoExtra: esTrabajoExtra,
-          nombre: presupuestoResumen.nombreObra || presupuestoResumen.nombre
-        });
-
-        // 🔥 OBTENER EL PRESUPUESTO COMPLETO según su tipo
-        if (esTrabajoExtra) {
-          console.log('📦 Cargando trabajo extra completo ID:', presupuestoId);
-          presupuestoActual = await api.trabajosExtra.getById(presupuestoId, empresaSeleccionada.id);
         } else {
-          console.log('📦 Cargando presupuesto tradicional completo ID:', presupuestoId);
-          presupuestoActual = await api.presupuestosNoCliente.getById(presupuestoId, empresaSeleccionada.id);
+          // ✅ PRIORIDAD 2: Buscar presupuesto en el backend
+          const obraIdReal = getObraId();
+          console.log('🔍 Buscando presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA, TERMINADO, FINALIZADO) para obra:', obraIdReal);
+
+          // Cargar solo presupuestos tradicionales
+          const dataTradicionales = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id);
+
+          console.log('📦 Presupuestos tradicionales obtenidos:', dataTradicionales?.length || 0);
+
+          // El backend puede devolver el array directamente o dentro de content/datos
+          const presupuestosTradicionales = Array.isArray(dataTradicionales) ? dataTradicionales : (dataTradicionales?.content || dataTradicionales?.datos || []);
+
+          // Solo presupuestos tradicionales
+          const presupuestos = presupuestosTradicionales;
+          console.log('📦 Total presupuestos para esta obra:', presupuestos.length);
+
+          // Estados válidos para obras vinculadas (incluye TERMINADO y FINALIZADO para tareas leves)
+          const estadosValidos = ['APROBADO', 'EN_EJECUCION', 'SUSPENDIDA', 'CANCELADA', 'TERMINADO', 'FINALIZADO'];
+
+          // Filtrar por obraId y estado válido
+          console.log('🔍 Filtrando presupuestos por obraId:', obraIdReal);
+          let presupuestosObra = (presupuestos || []).filter(p => {
+            const coincideObra = (Number(p.obraId) === Number(obraIdReal) || Number(p.idObra) === Number(obraIdReal));
+            const tieneEstado = estadosValidos.includes(p.estado);
+
+            if (!coincideObra || !tieneEstado) {
+              console.warn(`❌ Presupuesto ${p.id} - coincideObra: ${coincideObra} (obraId: ${p.obraId}, idObra: ${p.idObra}), tieneEstado: ${tieneEstado} (estado: ${p.estado})`);
+            }
+
+            return coincideObra && tieneEstado;
+          });
+          console.log('✅ Presupuestos válidos de obra', obraIdReal, ':', presupuestosObra.length);
+
+          if (presupuestosObra.length === 0) {
+            throw new Error('No se encontró un presupuesto con estado válido (APROBADO, EN_EJECUCION, SUSPENDIDA, CANCELADA, TERMINADO, FINALIZADO) para esta obra');
+          }
+
+          // Seleccionar el más reciente
+          const presupuestoResumen = presupuestosObra.sort((a, b) => {
+            if (a.numeroPresupuesto === b.numeroPresupuesto) {
+              return (b.version || 0) - (a.version || 0);
+            }
+            return b.id - a.id;
+          })[0];
+          console.log('✅ Presupuesto seleccionado:', presupuestoResumen.id);
+
+          // IMPORTANTE: Siempre buscar la versión más reciente, incluso si tenemos una en configuracionObra
+          if (presupuestoResumen && configuracionObra?.presupuestoSeleccionado &&
+              presupuestoResumen.version !== configuracionObra.presupuestoSeleccionado.version) {
+            console.log('🔄 Detectada nueva versión del presupuesto:', {
+              actual: presupuestoResumen.version,
+              configuracion: configuracionObra.presupuestoSeleccionado.version
+            });
+          }
+
+          presupuestoId = presupuestoResumen.id;
+          const esTrabajoExtra = presupuestoResumen.esTrabajoExtra || presupuestoResumen.tipo === 'TRABAJO_EXTRA';
+
+          console.log('✅ Presupuesto seleccionado:', {
+            id: presupuestoId,
+            version: presupuestoResumen.version,
+            esTrabajoExtra: esTrabajoExtra,
+            nombre: presupuestoResumen.nombreObra || presupuestoResumen.nombre
+          });
+
+          // 🔥 OBTENER EL PRESUPUESTO COMPLETO según su tipo
+          if (esTrabajoExtra) {
+            console.log('📦 Cargando trabajo extra completo ID:', presupuestoId);
+            presupuestoActual = await api.trabajosExtra.getById(presupuestoId, empresaSeleccionada.id);
+          } else {
+            console.log('📦 Cargando presupuesto tradicional completo ID:', presupuestoId);
+            presupuestoActual = await api.presupuestosNoCliente.getById(presupuestoId, empresaSeleccionada.id);
+          }
         }
       }
 
@@ -1004,13 +1030,14 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       // 💸 CARGAR GASTOS GENERALES CON ORIGEN PRESUPUESTO_MATERIALES
       // Estos gastos deben aparecer como materiales porque se cargan al presupuesto de materiales
       try {
+        const obraIdReal = getObraId();
         console.log('💸💸💸 INICIANDO CARGA DE GASTOS PARA MATERIALES 💸💸💸');
-        console.log('💸 Obra ID:', obra.id);
+        console.log('💸 Obra ID:', obraIdReal);
         console.log('💸 Empresa ID:', empresaSeleccionada.id);
-        console.log('💸 URL completa:', `/api/obras/${obra.id}/otros-costos`);
+        console.log('💸 URL completa:', `/api/obras/${obraIdReal}/otros-costos`);
 
         // api.get() retorna directamente los datos (response.data ya extraído)
-        const gastosData = await api.get(`/api/obras/${obra.id}/otros-costos`, {}, {
+        const gastosData = await api.get(`/api/obras/${obraIdReal}/otros-costos`, {}, {
           headers: { empresaId: empresaSeleccionada.id }
         });
 
@@ -1391,8 +1418,9 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       }
 
       // 🔥 Preparar payload según especificación del backend
+      const obraIdReal = getObraId();
       const payload = {
-        obraId: obra.id,
+        obraId: obraIdReal,
         materialCatalogoId: materialCatalogo ? parseInt(materialCatalogo.id) : null,
         descripcion: materialCatalogo?.nombre || nuevoGastoManual.descripcion || '',
         unidadMedida: materialCatalogo?.unidadMedida || nuevoGastoManual.unidad || 'unidades',
@@ -1404,11 +1432,11 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       };
 
       console.log('📤 Payload para asignar material:', payload);
-      console.log('🏗️ Obra ID:', obra.id);
+      console.log('🏗️ Obra ID:', obraIdReal);
       console.log('🏢 Empresa ID:', empresaSeleccionada.id);
 
       // 🔥 Llamar al nuevo endpoint de materiales
-      const resultado = await api.obras.asignarMaterial(obra.id, payload, empresaSeleccionada.id);
+      const resultado = await api.obras.asignarMaterial(obraIdReal, payload, empresaSeleccionada.id);
       console.log('✅ Material asignado exitosamente:', resultado);
 
       alert('✅ Material asignado correctamente');
@@ -1577,6 +1605,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
       const resultados = [];
       let conteoExitosas = 0;
 
+      const obraIdReal = getObraId();
       for (const asignacion of asignacionesSemana) {
         try {
           console.log(`📋 Asignando material para semana ${asignacion.numeroSemana}: ${asignacion.nombreMaterial}`);
@@ -1584,7 +1613,7 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
           // 🔑 Payload según especificación del backend
           // 🔥 CONVERTIR TODOS A TIPOS CORRECTOS
           let payload = {
-            obraId: Number(obra.id),
+            obraId: Number(obraIdReal),
             cantidadAsignada: Number(asignacion.cantidad) || 0,
             semana: Number(asignacion.numeroSemana),
             esGlobal: Boolean(modoPresupuesto === 'GLOBAL' || asignacion.esManual),
@@ -1594,11 +1623,11 @@ const AsignarMaterialObraModal = ({ show, onClose, obra, onAsignacionExitosa, co
             observaciones: String(asignacion.observaciones || '')
           };
 
-          // 🔥 SOLO enviar presupuestoMaterialId si es MODO DETALLADO Y tiene ID válido
-          if (modoPresupuesto !== 'GLOBAL' && asignacion.materialId && !String(asignacion.materialId).startsWith('MANUAL')) {
-            const presupuestoMaterialIdNum = Number(asignacion.materialId);
-            if (!isNaN(presupuestoMaterialIdNum)) {
-              payload.presupuestoMaterialId = presupuestoMaterialIdNum;
+          // 🔥 SOLO enviar materialCatalogoId si no es material manual
+          if (asignacion.materialId && !String(asignacion.materialId).startsWith('MANUAL')) {
+            const materialCatalogoIdNum = Number(asignacion.materialId);
+            if (!isNaN(materialCatalogoIdNum)) {
+              payload.materialCatalogoId = materialCatalogoIdNum;
             }
           }
 

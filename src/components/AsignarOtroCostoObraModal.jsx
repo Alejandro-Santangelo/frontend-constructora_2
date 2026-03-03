@@ -116,18 +116,12 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     return 'DISPONIBLE';
   };
 
-  // ✅ Helper para obtener el ID REAL de la obra (diferencia entre trabajo extra y obra normal)
+  // ✅ Helper para obtener el ID REAL de la obra
   const getObraId = () => {
     if (!obra) return null;
-    // 🔥 CRÍTICO: Un trabajo extra SIEMPRE debe usar su propio ID
-    // NO usar _obraId (eso es la obra principal)
-    if (obra._esTrabajoExtra) {
-      console.log('🔥 TRABAJO EXTRA: Usando ID del trabajo extra:', obra.id);
-      return obra.id; // ← USAR EL ID DEL TRABAJO EXTRA DIRECTAMENTE
-    }
-    // Si es una obra normal, usar el ID directo
-    console.log('📋 OBRA NORMAL: Usando ID de la obra:', obra.id);
-    return obra.id;
+    // ✅ FIX: Priorizar obra.obraId (ID de obra vinculada) antes que obra.id
+    console.log('📋 Usando ID de la obra:', obra.obraId || obra.id);
+    return obra.obraId || obra.id;
   };
 
   // 🔥 Crear configuración actualizada con fechaProbableInicio y jornales del presupuesto
@@ -510,12 +504,21 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
 
       // 🔥 SIEMPRE RECARGAR para tener datos frescos (evita mostrar presupuestos editados con valores viejos)
       if (obra._esTrabajoExtra) {
-        console.log('✅ Trabajo Extra detectado - cargando datos del trabajo extra ID:', obra.id);
+        console.log('✅ Trabajo Extra detectado - cargando datos del trabajo extra');
         console.log('⚠️ IMPORTANTE: Trabajo extra funciona como presupuesto-no-cliente independiente');
 
         // Cargar el trabajo extra completo (que incluye todos los datos del presupuesto)
         try {
-          presupuestoActual = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+          // ✅ FIX: Si el presupuesto ya viene en obra.presupuestoNoCliente, usarlo directamente
+          if (obra.presupuestoNoCliente) {
+            console.log('📦 Usando presupuesto ya cargado desde obra.presupuestoNoCliente');
+            presupuestoActual = obra.presupuestoNoCliente;
+          } else {
+            // Fallback: Cargar desde API usando el ID del trabajo extra
+            const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
+            console.log('📦 Cargando trabajo extra desde API con ID:', trabajoExtraId);
+            presupuestoActual = await api.trabajosExtra.getById(trabajoExtraId, empresaSeleccionada.id);
+          }
 
           // 🔑 PARA TRABAJOS EXTRA: El presupuestoId ES el ID del trabajo extra
           // NO necesita buscar presupuestos externos, ya tiene TODO dentro
@@ -1832,7 +1835,16 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
       try {
         // 1. Obtener el trabajo extra completo actual
         console.log('📥 Obteniendo trabajo extra completo...');
-        const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+        // ✅ FIX: Usar presupuesto ya cargado o ID correcto del trabajo extra
+        let trabajoExtra;
+        if (obra.presupuestoNoCliente) {
+          console.log('📦 Usando presupuesto ya cargado desde obra.presupuestoNoCliente');
+          trabajoExtra = obra.presupuestoNoCliente;
+        } else {
+          const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
+          console.log('📦 Cargando trabajo extra desde API con ID:', trabajoExtraId);
+          trabajoExtra = await api.trabajosExtra.getById(trabajoExtraId, empresaSeleccionada.id);
+        }
         console.log('✅ Trabajo extra obtenido:', trabajoExtra);
 
         // 2. Validar que tenga itemsCalculadora
@@ -1904,8 +1916,10 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         };
 
         // 7. Enviar PUT
-        console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${obra.id}`);
-        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${obra.id}`, {
+        // ✅ FIX: Usar ID correcto del trabajo extra
+        const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
+        console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${trabajoExtraId}`);
+        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${trabajoExtraId}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -2250,7 +2264,14 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     }
 
     // 1. Obtener el trabajo extra actual
-    const trabajoExtra = await api.trabajosExtra.getById(obra.id, empresaSeleccionada.id);
+    // ✅ FIX: Usar presupuesto ya cargado o ID correcto
+    let trabajoExtra;
+    if (obra.presupuestoNoCliente) {
+      trabajoExtra = obra.presupuestoNoCliente;
+    } else {
+      const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
+      trabajoExtra = await api.trabajosExtra.getById(trabajoExtraId, empresaSeleccionada.id);
+    }
 
     // 2. Validar que el gasto existe
     if (!trabajoExtra.itemsCalculadora ||
@@ -2291,7 +2312,9 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     // 5. Guardar el trabajo extra actualizado
     console.log('📡 PUT /api/v1/trabajos-extra/{id} - Actualizando gasto...');
 
-    const response = await fetch(`/api/v1/trabajos-extra/${obra.id}`, {
+    // ✅ FIX: Usar ID correcto del trabajo extra
+    const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
+    const response = await fetch(`/api/v1/trabajos-extra/${trabajoExtraId}`, {
       method: 'PUT',
       headers: {
         'empresaId': empresaSeleccionada.id.toString(),

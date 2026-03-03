@@ -63,22 +63,6 @@ const AsignarMaterialSemanalModal = ({
     cargarMaterialesCatalogo();
   }, [show, empresaSeleccionada?.id]);
 
-  // 🔥 Cargar materiales del catálogo de BD
-  useEffect(() => {
-    const cargarMaterialesCatalogo = async () => {
-      if (show && empresaSeleccionada?.id) {
-        try {
-          const materiales = await obtenerMateriales(empresaSeleccionada.id);
-          setMaterialesCatalogo(materiales || []);
-          console.log(`✅ ${materiales?.length || 0} materiales cargados del catálogo (semanal)`);
-        } catch (error) {
-          console.error('❌ Error cargando materiales del catálogo (semanal):', error);
-        }
-      }
-    };
-    cargarMaterialesCatalogo();
-  }, [show, empresaSeleccionada?.id]);
-
   // Estado para creación rápida de material manual
   const [nuevoMaterialManual, setNuevoMaterialManual] = useState({
     nombre: '',
@@ -222,7 +206,7 @@ const AsignarMaterialSemanalModal = ({
       precioUnitario: precioUnitario,
       numeroSemana,
       observaciones: observaciones + (tipoAsignacion === 'CANTIDAD_GLOBAL' ? ' [Para toda la Semana]' : ' [Material Semanal Detallado]'),
-      esManual: tipoAsignacion === 'CANTIDAD_GLOBAL',
+      esManual: true, // 🔥 Siempre true para materiales semanales (no vienen de presupuesto detallado)
       esSemanal: true
     };
 

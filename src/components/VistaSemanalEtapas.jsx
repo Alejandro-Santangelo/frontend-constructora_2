@@ -134,8 +134,9 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
       setDiasSemana(nuevasDias);
 
       // Cargar SOLO las etapas de los días de esta semana
+      const obraIdReal = obra.obraId || obra.id;
       const fechasStr = nuevasDias.map(d => d.fecha).join(',');
-      const response = await fetch(`http://localhost:8080/api/etapas-diarias?obraId=${obra.id}`, {
+      const response = await fetch(`http://localhost:8080/api/etapas-diarias?obraId=${obraIdReal}`, {
         headers: {
           'empresaId': empresaSeleccionada.id.toString()
         }
