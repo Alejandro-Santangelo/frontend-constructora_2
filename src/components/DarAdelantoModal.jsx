@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Button, Form, Badge, Alert } from 'react-bootstrap';
 import { useEmpresa } from '../EmpresaContext';
 import {
@@ -11,6 +11,8 @@ import {
   listarAdelantosActivos,
   formatearMoneda
 } from '../services/adelantosService';
+import { obtenerSaldoDisponible, listarCobrosEmpresa } from '../services/cobrosEmpresaService';
+import { calcularTotalRecibido } from '../services/asignacionesCobroObraService';
 
 /**
  * Modal para dar adelantos a profesionales
@@ -20,7 +22,9 @@ const DarAdelantoModal = ({
   show,
   onHide,
   profesionalPreseleccionado,
-  profesionalesDisponibles = [],
+  profesionalesDisponibles = [], // DEPRECATED - se mantiene por compatibilidad, pero se cargan desde el backend
+  obrasSeleccionadas = [],
+  empresaId,
   modoMultiple = false,
   obraDireccion,
   onSuccess
@@ -30,10 +34,16 @@ const DarAdelantoModal = ({
   // Estados principales
   const [profesionalSeleccionado, setProfesionalSeleccionado] = useState(null);
   const [profesionalesSeleccionados, setProfesionalesSeleccionados] = useState([]);
+  const [profesionalesConDatosFinancieros, setProfesionalesConDatosFinancieros] = useState([]); // Cargados desde backend
+  const [loadingProfesionales, setLoadingProfesionales] = useState(false);
   const [tipoAdelanto, setTipoAdelanto] = useState(TIPOS_ADELANTO.SEMANAL);
   const [usarMontoFijo, setUsarMontoFijo] = useState(false); // Toggle entre porcentaje y monto fijo
+  const [tipoSaldoSeleccionado, setTipoSaldoSeleccionado] = useState('obra'); // 'obra' | 'empresa'
+  const [totalCobradoEmpresa, setTotalCobradoEmpresa] = useState(0); // Total cobrado a la tenant (asignado + sin asignar)
+  const [totalCobrosAsignadosObra, setTotalCobrosAsignadosObra] = useState(0); // Total de cobros asignados a la obra actual
+  const [saldoDisponibleEmpresa, setSaldoDisponibleEmpresa] = useState(0); // Saldo sin asignar a obras
   const [porcentaje, setPorcentaje] = useState(CONFIGURACION_ADELANTOS.PORCENTAJE_DEFAULT);
-  const [montoFijo, setMontoFijo] = useState(0);
+  const [montoFijo, setMontoFijo] = useState(null);
   const [metodoPago, setMetodoPago] = useState('EFECTIVO');
   const [observaciones, setObservaciones] = useState('');
   const [semanaReferencia, setSemanaReferencia] = useState(null);
@@ -41,12 +51,138 @@ const DarAdelantoModal = ({
   // Estados de UI
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [advertencia, setAdvertencia] = useState(null); // Advertencias que no bloquean (ej: exceder 50%)
   const [adelantosActivos, setAdelantosActivos] = useState([]);
   const [loadingAdelantos, setLoadingAdelantos] = useState(false);
 
+// Cargar profesionales con datos financieros usando el nuevo endpoint del backend
+  const cargarProfesionalesConDatosFinancieros = async () => {
+    if (!empresaSeleccionada && !empresaId) return;
+    if (!obrasSeleccionadas || obrasSeleccionadas.length === 0) return;
+
+    setLoadingProfesionales(true);
+    try {
+      const idEmpresa = empresaId || empresaSeleccionada.id;
+      const todosLosProfesionales = [];
+
+      // Usar el nuevo endpoint que devuelve profesionales con datos financieros calculados
+      for (const obra of obrasSeleccionadas) {
+        try {
+          const presupuestoId = obra.id || obra.presupuestoId;
+          const url = `/api/presupuestos-no-cliente/${presupuestoId}/profesionales-financieros?empresaId=${idEmpresa}`;
+
+          const response = await fetch(url, {
+            headers: {
+              'empresaId': idEmpresa.toString(),
+              'X-Tenant-ID': idEmpresa.toString()
+            }
+          });
+
+          if (!response.ok) {
+            console.warn(`No se pudieron cargar profesionales para presupuesto ${presupuestoId}`);
+            continue;
+          }
+
+          const profesionales = await response.json();
+
+          // Los datos financieros ya vienen calculados del backend
+          profesionales.forEach(prof => {
+            todosLosProfesionales.push({
+              ...prof,
+              diasTrabajados: prof.cantidadJornales
+            });
+          });
+        } catch (err) {
+          console.error(`Error cargando profesionales para obra ${obra.nombreObra}:`, err);
+        }
+      }
+
+      setProfesionalesConDatosFinancieros(todosLosProfesionales);
+    } catch (error) {
+      console.error('Error cargando profesionales:', error);
+      setProfesionalesConDatosFinancieros([]);
+    } finally {
+      setLoadingProfesionales(false);
+    }
+  };
+
+  // Cargar datos financieros de la empresa (total cobrado + saldo sin asignar)
+  useEffect(() => {
+    const cargarDatosFinancierosEmpresa = async () => {
+      if (!show || (!empresaSeleccionada && !empresaId)) return;
+
+      try {
+        const idEmpresa = empresaId || empresaSeleccionada.id;
+
+        // 1️⃣ Obtener TODOS los cobros de la tenant (asignados y sin asignar)
+        const cobros = await listarCobrosEmpresa(idEmpresa);
+        const totalCobrado = cobros.reduce((sum, cobro) => {
+          // Sumar solo cobros activos (no anulados)
+          if (cobro.estado !== 'ANULADO') {
+            return sum + (cobro.montoTotal || cobro.monto || 0);
+          }
+          return sum;
+        }, 0);
+
+        // 2️⃣ Obtener saldo disponible (sin asignar a obras)
+        const saldoDisponible = await obtenerSaldoDisponible(idEmpresa);
+
+        console.log('💼 Datos financieros de la empresa:', {
+          totalCobrado,
+          saldoDisponible,
+          cantidadCobros: cobros.length
+        });
+
+        setTotalCobradoEmpresa(totalCobrado || 0);
+        setSaldoDisponibleEmpresa(saldoDisponible || 0);
+      } catch (err) {
+        console.error('Error cargando datos financieros de la empresa:', err);
+        setTotalCobradoEmpresa(0);
+        setSaldoDisponibleEmpresa(0);
+      }
+    };
+
+    cargarDatosFinancierosEmpresa();
+  }, [show, empresaSeleccionada, empresaId]);
+
+  // Cargar total de cobros asignados a las obras seleccionadas
+  useEffect(() => {
+    const cargarCobrosAsignadosObras = async () => {
+      if (!show || (!empresaSeleccionada && !empresaId)) return;
+      if (!obrasSeleccionadas || obrasSeleccionadas.length === 0) return;
+
+      try {
+        const idEmpresa = empresaId || empresaSeleccionada.id;
+        let totalAsignado = 0;
+
+        // Sumar el total de cobros asignados a cada obra seleccionada
+        for (const obra of obrasSeleccionadas) {
+          const obraId = obra.id || obra.presupuestoId;
+          const totalObra = await calcularTotalRecibido(obraId, idEmpresa);
+          totalAsignado += totalObra;
+        }
+
+        console.log('🏢 Total de cobros asignados a obras seleccionadas:', {
+          cantidadObras: obrasSeleccionadas.length,
+          totalAsignado
+        });
+
+        setTotalCobrosAsignadosObra(totalAsignado || 0);
+      } catch (err) {
+        console.error('Error cargando cobros asignados a obras:', err);
+        setTotalCobrosAsignadosObra(0);
+      }
+    };
+
+    cargarCobrosAsignadosObras();
+  }, [show, empresaSeleccionada, empresaId, obrasSeleccionadas]);
+
   // Inicializar con profesional preseleccionado
   useEffect(() => {
-    if (show) {
+    if (show && (empresaSeleccionada || empresaId) && obrasSeleccionadas?.length > 0) {
+      // Cargar profesionales con datos financieros al abrir el modal
+      cargarProfesionalesConDatosFinancieros();
+
       if (profesionalPreseleccionado) {
         setProfesionalSeleccionado(profesionalPreseleccionado);
         cargarAdelantosActivos(profesionalPreseleccionado);
@@ -58,20 +194,30 @@ const DarAdelantoModal = ({
       // Reset form
       setTipoAdelanto(TIPOS_ADELANTO.SEMANAL);
       setUsarMontoFijo(false);
+      setTipoSaldoSeleccionado('obra');
       setPorcentaje(CONFIGURACION_ADELANTOS.PORCENTAJE_DEFAULT);
-      setMontoFijo(0);
+      setMontoFijo(null);
       setMetodoPago('EFECTIVO');
       setObservaciones('');
       setSemanaReferencia(null);
       setError(null);
+      setAdvertencia(null);
       setProfesionalesSeleccionados([]);
     }
-  }, [show, profesionalPreseleccionado]);
+  }, [show, profesionalPreseleccionado, empresaId, obrasSeleccionadas]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Determinar qué lista de profesionales usar
+  // Prioridad: profesionalesConDatosFinancieros (cargados desde backend) > profesionalesDisponibles (legacy)
+  const profesionalesParaMostrar = useMemo(() => {
+    if (profesionalesConDatosFinancieros.length > 0) {
+      return profesionalesConDatosFinancieros;
+    }
+    return profesionalesDisponibles;
+  }, [profesionalesConDatosFinancieros, profesionalesDisponibles]);
 
   // Cargar adelantos activos del profesional
   const cargarAdelantosActivos = async (profesional) => {
     if (!profesional || !profesional.profesionalObraId || !empresaSeleccionada) return;
-
     setLoadingAdelantos(true);
     try {
       const adelantos = await listarAdelantosActivos(
@@ -89,31 +235,77 @@ const DarAdelantoModal = ({
 
   // Calcular montos
   const calcularMontos = () => {
-    if (!profesionalSeleccionado) return { estimado: 0, final: 0, disponible: 0 };
+    // 🔄 MODO MÚLTIPLE: Calcular para todos los profesionales seleccionados
+    if (modoMultiple && profesionalesSeleccionados.length > 0) {
+      let totalEstimado = 0;
 
-    const saldoPendiente = profesionalSeleccionado.saldoPendiente || profesionalSeleccionado.saldo || 0;
-    const totalAdelantosActivos = adelantosActivos.reduce((sum, a) => sum + (a.saldoAdelantoPorDescontar || 0), 0);
-    const disponible = saldoPendiente - totalAdelantosActivos;
+      profesionalesSeleccionados.forEach(profId => {
+        const prof = profesionalesParaMostrar.find(p => p.id === profId);
+        if (prof) {
+          totalEstimado += calcularMontoEstimado(prof, tipoAdelanto, 100);
+        }
+      });
+
+      // Seleccionar dinero disponible según la opción del usuario
+      // 🏢 'obra' = dinero de cobros asignados a las obras seleccionadas
+      // 💼 'empresa' = total cobrado a la tenant (asignado + sin asignar)
+      let disponibleFinal = tipoSaldoSeleccionado === 'empresa'
+        ? totalCobradoEmpresa
+        : totalCobrosAsignadosObra;
+
+      let montoFinal = 0;
+      if (usarMontoFijo) {
+        montoFinal = Math.min(montoFijo ?? 0, disponibleFinal);
+      } else {
+        montoFinal = Math.min((totalEstimado * porcentaje / 100), disponibleFinal);
+      }
+
+      return {
+        estimado: totalEstimado,
+        final: Math.max(0, montoFinal),
+        disponible: Math.max(0, disponibleFinal),
+        disponibleObra: Math.max(0, totalCobrosAsignadosObra),
+        disponibleEmpresa: Math.max(0, totalCobradoEmpresa),
+        adelantosActivos: 0
+      };
+    }
+
+    // 👤 MODO INDIVIDUAL: Calcular para un solo profesional
+    if (!profesionalSeleccionado) return {
+      estimado: 0,
+      final: 0,
+      disponible: 0,
+      disponibleObra: 0,
+      disponibleEmpresa: 0
+    };
+
+    // Calcular monto estimado según el período seleccionado
+    const montoEstimado = calcularMontoEstimado(profesionalSeleccionado, tipoAdelanto, 100);
+
+    // Seleccionar dinero disponible según la opción del usuario
+    // 🏢 'obra' = dinero de cobros asignados a las obras seleccionadas
+    // 💼 'empresa' = total cobrado a la tenant (asignado + sin asignar)
+    let disponible = tipoSaldoSeleccionado === 'empresa'
+      ? totalCobradoEmpresa
+      : totalCobrosAsignadosObra;
 
     let montoFinal = 0;
-    let montoEstimado = 0;
-
-    // 1️⃣ Calcular monto estimado según el período seleccionado
-    montoEstimado = calcularMontoEstimado(profesionalSeleccionado, tipoAdelanto, 100);
-
-    // 2️⃣ Aplicar método de cálculo: porcentaje o monto fijo
     if (usarMontoFijo) {
       // Usuario ingresó monto fijo específico
-      montoFinal = Math.min(montoFijo, disponible);
+      montoFinal = Math.min(montoFijo ?? 0, disponible);
     } else {
       // Usuario usa porcentaje sobre el estimado del período
       montoFinal = Math.min((montoEstimado * porcentaje / 100), disponible);
     }
 
+    const totalAdelantosActivos = adelantosActivos.reduce((sum, a) => sum + (a.saldoAdelantoPorDescontar || 0), 0);
+
     return {
       estimado: montoEstimado,
       final: Math.max(0, montoFinal),
       disponible: Math.max(0, disponible),
+      disponibleObra: Math.max(0, totalCobrosAsignadosObra),
+      disponibleEmpresa: Math.max(0, totalCobradoEmpresa),
       adelantosActivos: totalAdelantosActivos
     };
   };
@@ -122,7 +314,7 @@ const DarAdelantoModal = ({
 
   // Manejar cambio de profesional (modo selector)
   const handleProfesionalChange = (profesionalId) => {
-    const profesional = profesionalesDisponibles.find(p => p.id === profesionalId);
+    const profesional = profesionalesParaMostrar.find(p => p.id === profesionalId);
     setProfesionalSeleccionado(profesional);
     if (profesional) {
       cargarAdelantosActivos(profesional);
@@ -131,6 +323,9 @@ const DarAdelantoModal = ({
 
   // Toggle selección múltiple
   const toggleSeleccionProfesional = (profesionalId) => {
+    // Limpiar error al seleccionar/deseleccionar
+    setError(null);
+
     if (profesionalesSeleccionados.includes(profesionalId)) {
       setProfesionalesSeleccionados(prev => prev.filter(id => id !== profesionalId));
     } else {
@@ -140,15 +335,28 @@ const DarAdelantoModal = ({
 
   // Seleccionar/deseleccionar todos los profesionales
   const toggleSeleccionarTodos = () => {
-    const profesionalesConSaldo = profesionalesDisponibles.filter(p => (p.saldoPendiente || p.saldo || 0) > 0);
+    // Limpiar error al seleccionar todos
+    setError(null);
 
-    if (profesionalesSeleccionados.length === profesionalesConSaldo.length) {
+    if (profesionalesSeleccionados.length === profesionalesParaMostrar.length) {
       // Si todos están seleccionados, deseleccionar todos
       setProfesionalesSeleccionados([]);
     } else {
       // Seleccionar todos
-      setProfesionalesSeleccionados(profesionalesConSaldo.map(p => p.id));
+      setProfesionalesSeleccionados(profesionalesParaMostrar.map(p => p.id));
     }
+  };
+
+  // Calcular cuánto puede cobrar cada profesional según el período seleccionado
+  const calcularMontoDisponiblePorPeriodo = (profesional) => {
+    if (!profesional) return 0;
+
+    // Usar calcularMontoEstimado del servicio para calcular según el período
+    const montoEstimado = calcularMontoEstimado(profesional, tipoAdelanto, 100);
+
+    // El monto disponible es el menor entre lo estimado y el saldo pendiente
+    const saldoPendiente = profesional.saldoPendiente || profesional.saldo || 0;
+    return Math.min(montoEstimado, saldoPendiente);
   };
 
   // Validar y confirmar
@@ -178,11 +386,20 @@ const DarAdelantoModal = ({
       return;
     }
 
-    // Validación con el servicio
-    const validacion = validarAdelanto(profesionalSeleccionado, montos.final);
-    if (!validacion.valido) {
-      setError(validacion.errores.join('. '));
-      return;
+    // Validación con el servicio (solo en modo individual)
+    if (!modoMultiple) {
+      const validacion = validarAdelanto(profesionalSeleccionado, montos.final);
+      if (!validacion.valido) {
+        setError(validacion.errores.join('. '));
+        return;
+      }
+
+      // Mostrar advertencias si excede el 50% (no bloquea)
+      if (validacion.advertencias && validacion.advertencias.length > 0) {
+        setAdvertencia(validacion.advertencias.join(' '));
+      } else {
+        setAdvertencia(null);
+      }
     }
 
     // Confirmación del usuario
@@ -200,7 +417,7 @@ const DarAdelantoModal = ({
       if (modoMultiple) {
         // Registrar adelanto para cada profesional seleccionado
         for (const profId of profesionalesSeleccionados) {
-          const prof = profesionalesDisponibles.find(p => p.id === profId);
+          const prof = profesionalesParaMostrar.find(p => p.id === profId);
           if (!prof || !prof.profesionalObraId) continue;
 
           await registrarAdelanto({
@@ -220,7 +437,7 @@ const DarAdelantoModal = ({
           throw new Error('El profesional no tiene ID de asignación válido');
         }
 
-        await registrarAdelanto({
+        const response = await registrarAdelanto({
           profesionalObraId: profesionalSeleccionado.profesionalObraId,
           tipoAdelanto,
           montoAdelanto: montos.final,
@@ -229,7 +446,13 @@ const DarAdelantoModal = ({
           semanaReferencia
         }, empresaSeleccionada.id);
 
-        alert(`✅ Adelanto registrado exitosamente para ${profesionalSeleccionado.nombre}`);
+        // Verificar si el backend retornó advertencia por exceder el 50%
+        const mensajeExito = `✅ Adelanto registrado exitosamente para ${profesionalSeleccionado.nombre}`;
+        if (response?.excedeLimiteRecomendado && response?.advertencia) {
+          alert(`${mensajeExito}\n\n⚠️ ${response.advertencia}`);
+        } else {
+          alert(mensajeExito);
+        }
       }
 
       // Callback de éxito
@@ -271,6 +494,15 @@ const DarAdelantoModal = ({
           </Alert>
         )}
 
+        {advertencia && (
+          <Alert variant="warning" onClose={() => setAdvertencia(null)} dismissible>
+            <strong>⚠️ Advertencia:</strong> {advertencia}
+            <div className="mt-2 small">
+              <em>Puedes continuar, pero está excediendo el límite recomendado del 50%.</em>
+            </div>
+          </Alert>
+        )}
+
         {/* Selector de profesional (si no está preseleccionado) */}
         {!profesionalPreseleccionado && !modoMultiple && (
           <div className="mb-4">
@@ -278,16 +510,17 @@ const DarAdelantoModal = ({
             <Form.Select
               value={profesionalSeleccionado?.id || ''}
               onChange={(e) => handleProfesionalChange(e.target.value)}
-              disabled={loading}
+              disabled={loading || loadingProfesionales}
             >
               <option value="">-- Seleccione un profesional --</option>
-              {profesionalesDisponibles
-                .filter(p => (p.saldoPendiente || p.saldo || 0) > 0)
-                .map(prof => (
-                  <option key={prof.id} value={prof.id}>
-                    {prof.nombre} - Saldo: {formatearMoneda(prof.saldoPendiente || prof.saldo || 0)}
+              {profesionalesParaMostrar.map(prof => {
+                const montoDisponible = calcularMontoDisponiblePorPeriodo(prof);
+                return (
+                  <option key={prof.id} value={prof.id} disabled={montoDisponible <= 0}>
+                    {prof.nombre} - Puede cobrar: {formatearMoneda(montoDisponible)} ({prof.nombreObra || 'Sin obra'})
                   </option>
-                ))}
+                );
+              })}
             </Form.Select>
           </div>
         )}
@@ -296,36 +529,155 @@ const DarAdelantoModal = ({
         {modoMultiple && (
           <div className="mb-4">
             <div className="d-flex justify-content-between align-items-center mb-2">
-              <Form.Label className="fw-bold mb-0">Seleccionar Profesionales *</Form.Label>
-              <Button
-                variant="outline-primary"
-                size="sm"
-                onClick={toggleSeleccionarTodos}
-                disabled={loading}
-              >
-                {profesionalesSeleccionados.length === profesionalesDisponibles.filter(p => (p.saldoPendiente || p.saldo || 0) > 0).length
-                  ? '☑ Deseleccionar todos'
-                  : '☐ Seleccionar todos'}
-              </Button>
+              <div>
+                <Form.Label className="fw-bold mb-0">Seleccionar Profesionales *</Form.Label>
+                <br />
+                <small className="text-muted">
+                  Mostrando importes disponibles para cada período
+                </small>
+              </div>
+              {profesionalesParaMostrar.length > 0 && (
+                <Button
+                  variant="outline-primary"
+                  size="sm"
+                  onClick={toggleSeleccionarTodos}
+                  disabled={loading || loadingProfesionales}
+                >
+                  {profesionalesSeleccionados.length === profesionalesParaMostrar.length
+                    ? '☑ Deseleccionar todos'
+                    : '☐ Seleccionar todos'}
+                </Button>
+              )}
             </div>
-            <div className="border rounded p-3" style={{ maxHeight: '200px', overflowY: 'auto' }}>
-              {profesionalesDisponibles
-                .filter(p => (p.saldoPendiente || p.saldo || 0) > 0)
-                .map(prof => (
-                  <Form.Check
-                    key={prof.id}
-                    type="checkbox"
-                    id={`prof-${prof.id}`}
-                    label={
-                      <span>
-                        <strong>{prof.nombre}</strong> - Saldo: {formatearMoneda(prof.saldoPendiente || prof.saldo || 0)}
-                      </span>
-                    }
-                    checked={profesionalesSeleccionados.includes(prof.id)}
-                    onChange={() => toggleSeleccionProfesional(prof.id)}
-                    disabled={loading}
-                  />
-                ))}
+            <div className="border rounded p-2" style={{ maxHeight: '400px', overflowY: 'auto', overflowX: 'auto' }}>
+              {loadingProfesionales ? (
+                <div className="text-center py-4">
+                  <div className="spinner-border text-primary mb-2" role="status">
+                    <span className="visually-hidden">Cargando...</span>
+                  </div>
+                  <p className="text-muted mb-0">Cargando profesionales...</p>
+                </div>
+              ) : profesionalesParaMostrar.length === 0 ? (
+                <div className="text-center py-4">
+                  <div className="text-muted mb-2">
+                    <i className="bi bi-info-circle" style={{ fontSize: '2rem' }}></i>
+                  </div>
+                  <p className="text-muted mb-2">
+                    <strong>No hay profesionales disponibles</strong>
+                  </p>
+                  <small className="text-muted">
+                    Asegurate de tener obras seleccionadas con profesionales asignados.
+                  </small>
+                </div>
+              ) : (
+                <table className="table table-sm table-hover mb-0" style={{ fontSize: '0.875rem' }}>
+                  <thead className="table-light sticky-top" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                    <tr>
+                      <th style={{ width: '40px' }} className="text-center">
+                        <Form.Check
+                          type="checkbox"
+                          checked={profesionalesSeleccionados.length === profesionalesParaMostrar.length && profesionalesParaMostrar.length > 0}
+                          onChange={toggleSeleccionarTodos}
+                          disabled={loading}
+                        />
+                      </th>
+                      <th style={{ minWidth: '150px' }}>Profesional / Obra</th>
+                      <th className="text-end" style={{ minWidth: '100px' }}>
+                        📅 Semanal<br />
+                        <small className="text-muted fw-normal">(5 días)</small>
+                      </th>
+                      <th className="text-end" style={{ minWidth: '100px' }}>
+                        📅 Quincenal<br />
+                        <small className="text-muted fw-normal">(10 días)</small>
+                      </th>
+                      <th className="text-end" style={{ minWidth: '100px' }}>
+                        📅 Mensual<br />
+                        <small className="text-muted fw-normal">(22 días)</small>
+                      </th>
+                      <th className="text-end" style={{ minWidth: '110px' }}>
+                        📅 Total Obra<br />
+                        <small className="text-muted fw-normal">(Todos los jornales)</small>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profesionalesParaMostrar.map(prof => {
+                      // Calcular lo que debe cobrar por período (jornal × días)
+                      const precioJornal = prof.precioJornal || 0;
+                      const cantidadJornales = prof.cantidadJornales || 0;
+
+                      // 1 semana = 5 días laborables
+                      const montoSemanal = precioJornal * 5;
+
+                      // 2 semanas = 10 días laborables
+                      const montoQuincenal = precioJornal * 10;
+
+                      // 1 mes = 22 días laborables
+                      const montoMensual = precioJornal * 22;
+
+                      // Total obra = todos los jornales asignados
+                      const montoTotalObra = precioJornal * cantidadJornales;
+
+                      const tieneAlgunMonto = montoSemanal > 0 || montoQuincenal > 0 || montoMensual > 0 || montoTotalObra > 0;
+
+                      return (
+                        <tr
+                          key={prof.id}
+                          className={profesionalesSeleccionados.includes(prof.id) ? 'table-active' : ''}
+                        >
+                          <td className="text-center align-middle">
+                            <Form.Check
+                              type="checkbox"
+                              id={`prof-${prof.id}`}
+                              checked={profesionalesSeleccionados.includes(prof.id)}
+                              onChange={() => toggleSeleccionProfesional(prof.id)}
+                              disabled={loading}
+                            />
+                          </td>
+                          <td className="align-middle">
+                            <div>
+                              <strong className="text-dark">{prof.nombre}</strong>
+                              {!tieneAlgunMonto && (
+                                <Badge bg="warning" text="dark" className="ms-2" style={{ fontSize: '0.65rem' }}>
+                                  Sin precio jornal
+                                </Badge>
+                              )}
+                              <br />
+                              <small className="text-muted">
+                                {prof.nombreObra || 'N/A'}
+                              </small>
+                              <br />
+                              <small className="text-muted">
+                                {cantidadJornales} {cantidadJornales === 1 ? 'jornal' : 'jornales'} × {formatearMoneda(precioJornal)}
+                              </small>
+                            </div>
+                          </td>
+                          <td className="text-end align-middle">
+                            <span className={montoSemanal > 0 ? 'text-success fw-bold' : 'text-secondary'}>
+                              {formatearMoneda(montoSemanal)}
+                            </span>
+                          </td>
+                          <td className="text-end align-middle">
+                            <span className={montoQuincenal > 0 ? 'text-success fw-bold' : 'text-secondary'}>
+                              {formatearMoneda(montoQuincenal)}
+                            </span>
+                          </td>
+                          <td className="text-end align-middle">
+                            <span className={montoMensual > 0 ? 'text-success fw-bold' : 'text-secondary'}>
+                              {formatearMoneda(montoMensual)}
+                            </span>
+                          </td>
+                          <td className="text-end align-middle">
+                            <span className={montoTotalObra > 0 ? 'text-success fw-bold' : 'text-secondary'}>
+                              {formatearMoneda(montoTotalObra)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
             <small className="text-muted">
               {profesionalesSeleccionados.length} profesional(es) seleccionado(s)
@@ -549,8 +901,8 @@ const DarAdelantoModal = ({
                 min="0"
                 max={montos.disponible}
                 step="100"
-                value={montoFijo}
-                onChange={(e) => setMontoFijo(parseFloat(e.target.value) || 0)}
+                value={montoFijo ?? ''}
+                onChange={(e) => setMontoFijo(e.target.value === '' ? null : Number(e.target.value))}
                 disabled={loading}
                 placeholder="Ingresá el monto exacto"
                 className="form-control-lg"
@@ -559,6 +911,59 @@ const DarAdelantoModal = ({
             <small className="text-muted">
               Máximo disponible: {formatearMoneda(montos.disponible)}
             </small>
+
+{/* 💰 Selector de origen del dinero para el adelanto */}
+            <div className="mt-3 p-3 bg-light rounded border">
+              <div className="mb-3">
+                <small className="fw-bold text-muted d-block mb-2">💰 Origen del Dinero para el Adelanto</small>
+
+                {/* Radio buttons para seleccionar tipo de saldo */}
+                <div className="d-flex flex-column gap-2">
+                  <Form.Check
+                    type="radio"
+                    id="saldo-obra"
+                    name="tipoSaldo"
+                    label="🏢 Usar cobros asignados a las obras"
+                    checked={tipoSaldoSeleccionado === 'obra'}
+                    onChange={() => setTipoSaldoSeleccionado('obra')}
+                  />
+                  <Form.Check
+                    type="radio"
+                    id="saldo-empresa"
+                    name="tipoSaldo"
+                    label="💼 Usar total cobrado a la tenant"
+                    checked={tipoSaldoSeleccionado === 'empresa'}
+                    onChange={() => setTipoSaldoSeleccionado('empresa')}
+                  />
+                </div>
+              </div>
+
+              {/* Mostrar los 2 saldos disponibles */}
+              <div className="row g-2">
+                <div className="col-6">
+                  <div className={`p-2 rounded ${tipoSaldoSeleccionado === 'obra' ? 'bg-primary bg-opacity-10 border border-primary' : 'bg-white border'}` }>
+                    <small className="d-block text-muted" style={{fontSize: '0.7rem'}}>🏢 Cobros a obras</small>
+                    <strong className="d-block" style={{fontSize: '0.9rem'}}>
+                      {formatearMoneda(montos.disponibleObra)}
+                    </strong>
+                  </div>
+                </div>
+                <div className="col-6">
+                  <div className={`p-2 rounded ${tipoSaldoSeleccionado === 'empresa' ? 'bg-warning bg-opacity-10 border border-warning' : 'bg-white border'}` }>
+                    <small className="d-block text-muted" style={{fontSize: '0.7rem'}}>💼 Total tenant</small>
+                    <strong className="d-block" style={{fontSize: '0.9rem'}}>
+                      {formatearMoneda(montos.disponibleEmpresa)}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <small className="text-muted d-block mt-2" style={{fontSize: '0.7rem'}}>
+                💡 <strong>Cobros a obras:</strong> Dinero de cobros asignados a las obras seleccionadas.<br/>
+                💡 <strong>Total tenant:</strong> Todo el dinero cobrado a la tenant (incluye asignado + sin asignar).
+              </small>
+            </div>
+
             {montoFijo > montos.disponible && (
               <div className="alert alert-warning mt-2 py-2 mb-0">
                 <small>⚠️ El monto excede el saldo disponible. Se ajustará a {formatearMoneda(montos.disponible)}</small>
@@ -636,7 +1041,11 @@ const DarAdelantoModal = ({
         <Button
           variant="primary"
           onClick={handleConfirmar}
-          disabled={loading || !profesionalSeleccionado || montos.final <= 0}
+          disabled={
+            loading ||
+            montos.final <= 0 ||
+            (modoMultiple ? profesionalesSeleccionados.length === 0 : !profesionalSeleccionado)
+          }
         >
           {loading ? (
             <>

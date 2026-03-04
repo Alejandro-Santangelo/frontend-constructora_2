@@ -345,9 +345,9 @@ export const fetchEstadosDisponibles = createAsyncThunk(
 // Obtener profesionales asignados
 export const fetchProfesionalesAsignados = createAsyncThunk(
   'obras/fetchProfesionalesAsignados',
-  async (obraId, { rejectWithValue }) => {
+  async ({ obraId, empresaId }, { rejectWithValue }) => {
     try {
-  const response = await fetch(`/api/obras/${obraId}/profesionales-asignados`);
+      const response = await fetch(`/api/profesionales-obras/profesionales-por-obra?empresaId=${empresaId}&obraId=${obraId}`);
       if (!response.ok) {
         throw new Error('Error fetching profesionales asignados');
       }

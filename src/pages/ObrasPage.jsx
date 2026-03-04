@@ -3764,7 +3764,7 @@ _V?lido por 30 d?as_
 
   const handleCargarProfesionales = async (obraId) => {
     try {
-      await dispatch(fetchProfesionalesAsignados(obraId)).unwrap();
+      await dispatch(fetchProfesionalesAsignados({ obraId, empresaId })).unwrap();
       showNotification('Profesionales asignados cargados', 'success');
     } catch (error) {
       showNotification('Error cargando profesionales asignados', 'error');

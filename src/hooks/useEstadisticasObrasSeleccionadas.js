@@ -140,8 +140,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
     setError(null);
 
     try {
-      console.log(' [ObrasSeleccionadas] Cargando datos de', presupuestosSeleccionados.length, 'obras seleccionadas');
-
       // Separar obras que tienen presupuesto de las que no (obras independientes y trabajos adicionales)
       const obrasConPresupuesto = presupuestosSeleccionados.filter(p =>
         !p.esObraIndependiente && !p._esTrabajoAdicional && p.id
@@ -149,18 +147,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       const obrasSinPresupuesto = presupuestosSeleccionados.filter(p =>
         p.esObraIndependiente || p._esTrabajoAdicional
       );
-
-      console.log(' [ObrasSeleccionadas] Desglose:', {
-        total: presupuestosSeleccionados.length,
-        conPresupuesto: obrasConPresupuesto.length,
-        sinPresupuesto: obrasSinPresupuesto.length,
-        obrasSinPresupuesto: obrasSinPresupuesto.map(o => ({
-          id: o.id,
-          nombre: o.nombreObra,
-          esIndependiente: o.esObraIndependiente,
-          esTrabajoAdicional: o._esTrabajoAdicional
-        }))
-      });
 
       // Cargar datos completos solo de las obras que tienen presupuesto
       const presupuestosCompletos = obrasConPresupuesto.length > 0
@@ -181,6 +167,37 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         }))
       ];
 
+      // CARGAR PROFESIONALES ASIGNADOS A CADA OBRA
+      const profesionalesAsignadosPromises = todasLasObras.map(async (obra) => {
+        const obraId = obra.obraId || obra.direccionObraId || obra.id;
+
+        if (!obraId) {
+          return [];
+        }
+
+        try {
+          const url = `/api/profesionales-obras/profesionales-por-obra/financiero?empresaId=${empresaId}&obraId=${obraId}`;
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            console.warn(`Error HTTP ${response.status} al cargar profesionales de obra ${obraId}`);
+            return [];
+          }
+          const profesionales = await response.json();
+          return profesionales || [];
+        } catch (error) {
+          console.error(`Error cargando profesionales de obra ${obraId}:`, error);
+          return [];
+        }
+      });
+
+      const profesionalesAsignadosPorObra = await Promise.all(profesionalesAsignadosPromises);
+
+      // Agregar profesionales asignados a cada obra
+      todasLasObras.forEach((obra, idx) => {
+        obra.profesionalesAsignados = profesionalesAsignadosPorObra[idx] || [];
+      });
+
       // -----------------------------------------------------------------------
       // SISTEMA UNIFICADO: Cargar estadisticas para TODAS las entidades
       // Incluye OBRA_PRINCIPAL, OBRA_INDEPENDIENTE, TRABAJO_EXTRA, TRABAJO_ADICIONAL
@@ -188,7 +205,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       let estadisticasUnificadas = [];
       try {
         estadisticasUnificadas = await cargarEstadisticasParaEntidades(empresaId, presupuestosSeleccionados);
-        console.log('[ObrasSeleccionadas] Estadisticas unificadas cargadas:', estadisticasUnificadas.length, 'entidades');
       } catch (estadError) {
         console.warn('[ObrasSeleccionadas] Sistema unificado no disponible (backend pendiente de deploy):', estadError?.message);
       }
@@ -253,7 +269,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           (sum, ef) => sum + (parseFloat(ef.totalCobrado) || 0),
           0
         );
-        console.log(`[ObrasSeleccionadas] Total cobrado (sistema unificado, ${estadisticasUnificadas.length} entidades): $${totalCobrado.toLocaleString()}`);
       } else {
         // FALLBACK: cobros del sistema legacy, solo obras principales
         try {
@@ -268,7 +283,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           );
           const cobrosCobrados = cobrosObrasSeleccionadas.filter(c => c.estado === 'COBRADO' || c.estado === 'cobrado');
           totalCobrado = cobrosCobrados.reduce((sum, c) => sum + (parseFloat(c.monto) || 0), 0);
-          console.log(`[ObrasSeleccionadas] Total cobrado (legacy, solo obras principales): $${totalCobrado.toLocaleString()}`);
         } catch (error) {
           console.warn('[ObrasSeleccionadas] Error cargando cobros (sistema legacy):', error);
         }
@@ -279,7 +293,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       try {
         const { obtenerTodasAsignaciones } = await import('../services/asignacionesCobroObraService');
         todasLasAsignaciones = await obtenerTodasAsignaciones(empresaId);
-        console.log(` [ObrasSeleccionadas] Total de asignaciones: ${todasLasAsignaciones.length}`);
       } catch (error) {
         console.warn(` Error cargando asignaciones:`, error);
       }
@@ -301,7 +314,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           if (obraId) {
             const resumen = await api.get(`/api/v1/obras-financiero/${obraId}/resumen`, { params: { empresaId } });
             pagadoObra = resumen.totalPagadoGeneral || 0;
-            console.log(`   [ObrasSeleccionadas] "${nombreObra}" (obraId=${obraId}): Total pagado=$${pagadoObra.toLocaleString()}`);
           } else {
             console.warn(`   [ObrasSeleccionadas] "${nombreObra}": No tiene obraId, usando pagos consolidados (pueden no incluir pagos individuales)`);
             const pagosObra = pagosMap[presupuesto.id] || [];
@@ -319,48 +331,46 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         }
         totalPagado += pagadoObra;
 
-        // Extraer profesionales
-        itemsCalculadora.forEach((item) => {
-          if (item.profesionales && Array.isArray(item.profesionales)) {
-            item.profesionales.forEach((prof, profIdx) => {
-              contadorProfesionales++;
-              const idUnico = `${presupuesto.id}-${prof.id}-${contadorProfesionales}`;
-              const precioTotal = (prof.cantidadJornales || 0) * (prof.importeJornal || 0);
+// EXTRAER PROFESIONALES ASIGNADOS
+        const profesionalesAsignados = presupuesto.profesionalesAsignados || [];
 
-              // Buscar pagos existentes para este profesional
-              const pagosPresupuesto = pagosMap[presupuesto.id] || [];
-              const pagosProfesional = pagosPresupuesto.filter(pago =>
-                pago.tipoPago === 'PROFESIONALES' &&
-                pago.profesionalObraId === prof.profesionalObraId
-              );
+        profesionalesAsignados.forEach((prof, profIdx) => {
+          contadorProfesionales++;
+          const idUnico = `${presupuesto.id}-${prof.id}-${contadorProfesionales}`;
+          const precioTotal = parseFloat(prof.precioTotal || prof.precio || 0);
 
-              const totalPagadoProfesional = pagosProfesional
-                .filter(p => p.estado === 'PAGADO')
-                .reduce((sum, p) => sum + parseFloat(p.montoNeto || p.montoBruto || 0), 0);
+          // Buscar pagos existentes para este profesional
+          const pagosPresupuesto = pagosMap[presupuesto.id] || [];
+          const pagosProfesional = pagosPresupuesto.filter(pago =>
+            pago.tipoPago === 'PROFESIONALES' &&
+            (pago.profesionalObraId === prof.id || pago.profesionalObraId === prof.profesionalObraId)
+          );
 
-              const saldoPendiente = precioTotal - totalPagadoProfesional;
-              const porcentajePagado = precioTotal > 0 ? (totalPagadoProfesional / precioTotal) * 100 : 0;
+          const totalPagadoProfesional = pagosProfesional
+            .filter(p => p.estado === 'PAGADO')
+            .reduce((sum, p) => sum + parseFloat(p.montoNeto || p.montoBruto || 0), 0);
 
-              todosProfesionales.push({
-                id: idUnico,
-                profesionalId: prof.id,
-                profesionalObraId: prof.profesionalObraId || prof.id,
-                indiceEnLista: contadorProfesionales,
-                presupuestoId: presupuesto.id,
-                nombreObra: nombreObra,
-                tipoProfesional: prof.tipo || item.tipoProfesional || 'Sin tipo',
-                nombre: prof.nombre || `${prof.tipo || item.tipoProfesional} #${profIdx + 1}`,
-                cantidadJornales: prof.cantidadJornales || 0,
-                precioJornal: prof.importeJornal || 0,
-                precioTotal: precioTotal,
-                nombreCompleto: prof.nombre || `${prof.tipo || item.tipoProfesional} #${profIdx + 1}`,
-                totalPagado: totalPagadoProfesional,
-                saldoPendiente: saldoPendiente,
-                porcentajePagado: porcentajePagado,
-                pagos: pagosProfesional
-              });
-            });
-          }
+          const saldoPendiente = precioTotal - totalPagadoProfesional;
+          const porcentajePagado = precioTotal > 0 ? (totalPagadoProfesional / precioTotal) * 100 : 0;
+
+          todosProfesionales.push({
+            id: idUnico,
+            profesionalId: prof.profesionalId || prof.id,
+            profesionalObraId: prof.id, // ID de la asignación (tabla profesionales_obra)
+            indiceEnLista: contadorProfesionales,
+            presupuestoId: presupuesto.id,
+            nombreObra: nombreObra,
+            tipoProfesional: prof.tipoProfesional || prof.tipo || 'Sin tipo',
+            nombre: prof.nombreCompleto || prof.nombre || `Profesional #${profIdx + 1}`,
+            cantidadJornales: parseFloat(prof.cantidadJornales || 0),
+            precioJornal: parseFloat(prof.precioJornal || prof.jornal || 0),
+            precioTotal: precioTotal,
+            nombreCompleto: prof.nombreCompleto || prof.nombre || `Profesional #${profIdx + 1}`,
+            totalPagado: totalPagadoProfesional,
+            saldoPendiente: saldoPendiente,
+            porcentajePagado: porcentajePagado,
+            pagos: pagosProfesional
+          });
         });
 
         // Extraer materiales
@@ -513,11 +523,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         const resumenEmpresa = await obtenerResumenCobrosEmpresa(empresaId);
         totalCobradoEmpresa = parseFloat(resumenEmpresa?.totalCobrado || 0);
         saldoDisponibleEmpresa = parseFloat(resumenEmpresa?.totalDisponible || 0);
-        console.log(' [ObrasSeleccionadas] Cobros empresa:', {
-          totalCobrado: totalCobradoEmpresa,
-          totalAsignado: resumenEmpresa?.totalAsignado,
-          totalDisponible: saldoDisponibleEmpresa
-        });
       } catch (error) {
         console.error(' Error obteniendo cobros empresa (backend no implementado):', error.message);
         console.warn(' Usando totalCobrado de obras como fallback temporal');
@@ -536,26 +541,16 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
             return esObraSeleccionada && (a.estado === 'ACTIVA' || a.estado === 'activa');
           })
           .reduce((sum, a) => sum + (parseFloat(a.montoAsignado) || 0), 0);
-        console.log(' [ObrasSeleccionadas] Total asignado a rubros:', totalAsignado);
       } catch (error) {
         console.error(' Error calculando total asignado:', error);
         totalAsignado = 0;
       }
-
-      console.log(' [ObrasSeleccionadas] Total Presupuesto BASE (sin trabajos extra):', totalPresupuesto.toLocaleString());
 
       //  Obtener IDs de presupuestos que YA son trabajos extra para evitar duplicados
       const idsPresupuestosTrabajosExtra = todasLasObras
         .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
         .map(p => p.id);
 
-      console.log(' [ObrasSeleccionadas] Presupuestos que YA son trabajos extra:', {
-        cantidad: idsPresupuestosTrabajosExtra.length,
-        ids: idsPresupuestosTrabajosExtra,
-        presupuestos: todasLasObras
-          .filter(p => p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_presupuesto_trabajo_extra === true)
-          .map(p => ({ id: p.id, nombre: p.nombreObra, total: calcularTotalPresupuestoObra(p) }))
-      });
 
       //  Sumar trabajos extra al presupuesto total (solo los que NO estn en presupuestos_no_cliente)
       let totalTrabajosExtra = 0;
@@ -575,7 +570,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
                   //  EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
                   if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
-                    console.log(`   [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" (ID: ${fullTrabajo.id}) YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, omitiendo`);
                     return null; // Marcarlo para filtrarlo
                   }
 
@@ -641,9 +635,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           const totalesPorObra = await Promise.all(trabajosExtraPromises);
           totalTrabajosExtra = totalesPorObra.reduce((sum, total) => sum + total, 0);
 
-          console.log(' [ObrasSeleccionadas] Total trabajos extra:', totalTrabajosExtra.toLocaleString());
           totalPresupuesto += totalTrabajosExtra;
-          console.log(' [ObrasSeleccionadas] Total Presupuesto FINAL (base + trabajos extra):', totalPresupuesto.toLocaleString());
         } catch (error) {
           console.warn(' Error cargando trabajos extra:', error);
         }
@@ -655,14 +647,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
       const porcentajePagado = totalPresupuesto > 0 ? (totalPagado / totalPresupuesto) * 100 : 0;
       const porcentajeDisponible = totalPresupuesto > 0 ? (saldoDisponible / totalPresupuesto) * 100 : 0;
 
-      console.log(` [ObrasSeleccionadas] Mtricas finales:`, {
-        totalCobradoEmpresa,
-        totalAsignado,
-        saldoCobradoSinAsignar,
-        totalPagado,
-        totalRetirado,
-        saldoDisponible
-      });
 
       //  Generar desglose por obra para el modal
       const desglosePorObra = [];
@@ -705,7 +689,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
                   //  EVITAR DUPLICADOS: Si el trabajo extra tiene presupuestoNoClienteId y ya fue contado, marcarlo
                   if (fullTrabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(fullTrabajo.presupuestoNoClienteId)) {
-                    console.log(`   [ObrasSeleccionadas] Trabajo extra "${fullTrabajo.nombre}" YA fue contado como presupuesto ${fullTrabajo.presupuestoNoClienteId}, marcado para omitir`);
+
                     return null; // Marcarlo para filtrarlo despus
                   }
 
@@ -761,7 +745,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
                 } catch (err) {
                   //  EVITAR DUPLICADOS: Verificar tambin en el catch
                   if (trabajo.presupuestoNoClienteId && idsPresupuestosTrabajosExtra.includes(trabajo.presupuestoNoClienteId)) {
-                    console.log(`   [ObrasSeleccionadas] Trabajo extra ${trabajo.id} (error) YA fue contado como presupuesto ${trabajo.presupuestoNoClienteId}, omitiendo`);
+
                     return null;
                   }
 
@@ -875,16 +859,6 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         });
       }
 
-      console.log(' [ObrasSeleccionadas] Datos cargados:', {
-        profesionales: todosProfesionales.length,
-        materiales: todosMateriales.length,
-        otrosCostos: todosOtrosCostos.length,
-        totalPresupuesto,
-        totalCobrado,
-        totalPagado,
-        totalRetirado
-      });
-
       setProfesionales(todosProfesionales);
       setMateriales(todosMateriales);
       setOtrosCostos(todosOtrosCostos);
@@ -924,14 +898,11 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
     let debounceTimer = null;
 
     const handleFinancialEvent = (eventData) => {
-      console.log(' [useEstadisticasObrasSeleccionadas] Evento financiero recibido:', eventData);
-
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
 
       debounceTimer = setTimeout(() => {
-        console.log(' [useEstadisticasObrasSeleccionadas] Recargando estadsticas...');
         cargarDatosSeleccionados();
       }, 500);
     };

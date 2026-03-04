@@ -6,6 +6,7 @@ import { getTipoProfesionalBadgeClass, ordenarPorRubro } from '../utils/badgeCol
 import { esFeriado, esDiaHabil, contarDiasHabiles } from '../utils/feriadosArgentina';
 import { listarPagosPorProfesional, registrarPago } from '../services/pagosProfesionalObraService';
 import { registrarPagoConsolidado, listarPagosConsolidadosPorEmpresa } from '../services/pagosConsolidadosService';
+import { obtenerTotalAdelantosActivos } from '../services/adelantosService';
 
 /**
  * Modal para registrar pagos consolidados a múltiples profesionales de múltiples obras
@@ -516,12 +517,27 @@ const RegistrarPagoConsolidadoModal = ({
                 const pagosArray = Array.isArray(pagos) ? pagos : (pagos?.data || []);
                 console.log(`  📋 ${prof.nombre}: Encontrados ${pagosArray.length} pago(s)`);
 
-                const totalPagado = pagosArray.reduce((sum, pago) => sum + (pago.montoFinal || pago.monto || 0), 0);
+                // 🔥 SEPARAR pagos normales de adelantos
+                const pagosSinAdelantos = pagosArray.filter(pago => !pago.esAdelanto);
+                const adelantosSeparados = pagosArray.filter(pago => pago.esAdelanto);
+
+                // 💰 Total Pagado = solo pagos consolidados normales (sin adelantos)
+                const totalPagado = pagosSinAdelantos.reduce((sum, pago) => sum + (pago.montoFinal || pago.monto || 0), 0);
+
+                // 💸 Adelantos Pendientes = suma de adelantos con saldoPendiente > 0
+                const totalAdelantos = adelantosSeparados.reduce((sum, adelanto) => {
+                  const saldoPendiente = adelanto.saldoAdelantoPorDescontar || adelanto.montoFinal || adelanto.monto || 0;
+                  return sum + saldoPendiente;
+                }, 0);
+
                 prof.totalPagado = totalPagado;
-                prof.saldo = prof.importeCalculado - totalPagado;
-                console.log(`  💰 ${prof.nombre}: Total=${prof.importeCalculado}, Pagado=${totalPagado}, Saldo=${prof.saldo}`);
+                prof.adelantosPendientes = totalAdelantos;
+                prof.saldo = prof.importeCalculado - totalPagado; // Saldo = lo que debe - pagos normales
+
+                console.log(`  💰 ${prof.nombre}: Total=${prof.importeCalculado}, Pagos=${totalPagado} (${pagosSinAdelantos.length}), Adelantos=${totalAdelantos} (${adelantosSeparados.length}), Saldo=${prof.saldo}`);
               } else {
                 console.warn(`  ⚠️ ${prof.nombre}: No tiene ID válido para buscar pagos`);
+                prof.adelantosPendientes = 0;
               }
             } catch (err) {
               console.error(`  ❌ Error cargando pagos de ${prof.nombre}:`, err);
@@ -1898,7 +1914,8 @@ const RegistrarPagoConsolidadoModal = ({
     // Sumar profesionales
     total += profesionalesSeleccionados.reduce((sum, prof) => {
       const saldoPendiente = (prof.importeCalculado || 0) - (prof.totalPagado || 0);
-      return sum + Math.max(0, saldoPendiente);
+      const adelantosPend = prof.adelantosPendientes || 0;
+      return sum + Math.max(0, saldoPendiente - adelantosPend);
     }, 0);
 
     // Sumar materiales
@@ -2298,16 +2315,6 @@ const RegistrarPagoConsolidadoModal = ({
                     <button type="button" className={`btn btn-lg ${tabActiva === 'OTROS_COSTOS' ? 'btn-warning' : 'btn-outline-warning'}`} onClick={() => setTabActiva('OTROS_COSTOS')}>
                       📋 Otros Costos ({otrosCostosFiltradosPorSemana.length})
                     </button>
-                    <button type="button" className={`btn btn-lg ${tabActiva === 'TRABAJOS_ADICIONALES' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setTabActiva('TRABAJOS_ADICIONALES')} style={{whiteSpace: 'normal', lineHeight: '1.2'}}>
-                      <div>
-                        <div style={{fontSize: '1rem', marginBottom: '2px'}}>
-                          🔧 Tareas Leves ({trabajosExtraFiltradosPorSemana.filter(t => !t.esObraIndependiente).length})
-                        </div>
-                        <div style={{fontSize: '0.85rem', opacity: 0.9}}>
-                          🏗️ Trabajos Diarios ({trabajosExtraFiltradosPorSemana.filter(t => t.esObraIndependiente === true).length})
-                        </div>
-                      </div>
-                    </button>
                   </div>
                 </div>
 
@@ -2437,6 +2444,8 @@ const RegistrarPagoConsolidadoModal = ({
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Total a Pagar</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Total Pagado</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Saldo Pendiente</th>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right',color:'#e65100'}}>💸 Adelantos</th>
+                                            <th style={{minWidth:'130px',padding:'8px',textAlign:'right',backgroundColor:'#f1f8e9',fontWeight:'bold'}}>✅ Neto a Cobrar</th>
                                             <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Estado Pago</th>
                                             <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>
                                               <input
@@ -2495,6 +2504,8 @@ const RegistrarPagoConsolidadoModal = ({
                                               ? totalHabiles * (prof.tarifaPorDia || prof.precioJornal || 0)
                                               : (prof.importeCalculado || prof.precioTotal || 0);
                                             const saldoAjustado = totalAPagar - (prof.totalPagado || 0);
+                                            const adelantosPendientes = prof.adelantosPendientes || 0;
+                                            const netoACobrar = Math.max(0, saldoAjustado - adelantosPendientes);
 
                                             return (
                                               <tr key={uniqueId} className={estaPagado ? 'table-success' : ''}>
@@ -2550,6 +2561,23 @@ const RegistrarPagoConsolidadoModal = ({
                                                   {mostrarSoloHabiles && hayFeriados && Math.abs(saldoAjustado - saldoPendiente) > 0.01 && (
                                                     <small className="d-block text-muted" style={{fontSize:'0.7rem'}}>
                                                       (${saldoPendiente.toLocaleString('es-AR', {minimumFractionDigits: 2})} total)
+                                                    </small>
+                                                  )}
+                                                </td>
+                                                <td className="text-end" style={{color: adelantosPendientes > 0 ? '#e65100' : '#aaa'}}>
+                                                  {adelantosPendientes > 0
+                                                    ? `-$\u00A0${adelantosPendientes.toLocaleString('es-AR', {minimumFractionDigits: 2})}`
+                                                    : <span className="text-muted">—</span>
+                                                  }
+                                                </td>
+                                                <td className="text-end fw-bold" style={{
+                                                  backgroundColor: adelantosPendientes > 0 ? '#f1f8e9' : undefined,
+                                                  color: netoACobrar <= 0 ? '#888' : '#2e7d32'
+                                                }}>
+                                                  ${netoACobrar.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                  {adelantosPendientes > 0 && (
+                                                    <small className="d-block text-muted" style={{fontSize:'0.7rem',fontWeight:'normal'}}>
+                                                      (desc. ${adelantosPendientes.toLocaleString('es-AR', {minimumFractionDigits: 2})})
                                                     </small>
                                                   )}
                                                 </td>
@@ -2643,6 +2671,8 @@ const RegistrarPagoConsolidadoModal = ({
                                                   const saldoAjustado = mostrarSoloHabiles
                                                     ? totalAPagar - (prof.totalPagado || 0)
                                                     : saldoPendiente;
+                                                  const adelantosPendientesSubobra = prof.adelantosPendientes || 0;
+                                                  const netoACobrarSubobra = Math.max(0, saldoAjustado - adelantosPendientesSubobra);
 
                                                   return (
                                                     <tr key={prof.uniqueId || profIdx} className={esSeleccionado ? 'table-active' : ''}>
@@ -2658,6 +2688,24 @@ const RegistrarPagoConsolidadoModal = ({
                                                       <td className="text-end text-success" style={{width:'120px'}}>${(prof.totalPagado || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
                                                       <td className="text-end text-danger" style={{width:'120px'}}>
                                                         ${saldoAjustado.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                      </td>
+                                                      <td className="text-end" style={{width:'120px', color: adelantosPendientesSubobra > 0 ? '#e65100' : '#aaa'}}>
+                                                        {adelantosPendientesSubobra > 0
+                                                          ? `-$\u00A0${adelantosPendientesSubobra.toLocaleString('es-AR', {minimumFractionDigits: 2})}`
+                                                          : <span className="text-muted">—</span>
+                                                        }
+                                                      </td>
+                                                      <td className="text-end fw-bold" style={{
+                                                        width:'130px',
+                                                        backgroundColor: adelantosPendientesSubobra > 0 ? '#f1f8e9' : undefined,
+                                                        color: netoACobrarSubobra <= 0 ? '#888' : '#2e7d32'
+                                                      }}>
+                                                        ${netoACobrarSubobra.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                        {adelantosPendientesSubobra > 0 && (
+                                                          <small className="d-block text-muted" style={{fontSize:'0.7rem',fontWeight:'normal'}}>
+                                                            (desc. ${adelantosPendientesSubobra.toLocaleString('es-AR', {minimumFractionDigits: 2})})
+                                                          </small>
+                                                        )}
                                                       </td>
                                                       <td className="text-center" style={{width:'100px'}}>
                                                         {estaPagado ? (
@@ -3022,199 +3070,187 @@ const RegistrarPagoConsolidadoModal = ({
                       )}
                     </>
                   )}
+                </div>
 
-                  {/* TAB TRABAJOS ADICIONALES */}
-                  {tabActiva === 'TRABAJOS_ADICIONALES' && (
-                    <>
-                      {todosLosTrabajos.length === 0 ? (
-                        <div className="alert alert-info">
-                          <i className="bi bi-info-circle me-2"></i>
-                          No hay trabajos adicionales registrados en las obras seleccionadas
-                        </div>
-                      ) : (
-                        <>
-                          {/* 🏗️ OBRAS INDEPENDIENTES (sin presupuesto) */}
-                          {(() => {
-                            const obrasIndependientes = trabajosExtraFiltradosPorSemana.filter(
-                              t => t.esObraIndependiente === true
-                            );
+                {/* OBRAS INDEPENDIENTES */}
+                {(() => {
+                  const obrasIndependientes = trabajosExtraFiltradosPorSemana.filter(t => t.esObraIndependiente === true);
+                  const totalAPagarObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.totalCalculado || 0), 0);
+                  const totalPagadoObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.totalPagado || 0), 0);
+                  const saldoObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.saldo || 0), 0);
 
-                            if (obrasIndependientes.length === 0) return null;
+                  if (obrasIndependientes.length === 0) return null;
 
-                            const totalAPagarObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.totalCalculado || 0), 0);
-                            const totalPagadoObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.totalPagado || 0), 0);
-                            const saldoObrasIndep = obrasIndependientes.reduce((sum, t) => sum + (t.saldo || 0), 0);
-
-                            return (
-                              <div className="mb-4">
-                                {/* Encabezado de Obras Independientes */}
-                                <div className={`card ${saldoObrasIndep === 0 ? 'border-success' : 'border-warning'}`}>
-                                  <div className={`card-header ${saldoObrasIndep === 0 ? 'bg-success' : 'bg-warning'} text-dark`} style={{backgroundColor: saldoObrasIndep === 0 ? undefined : '#ffc107'}}>
-                                    <div className="d-flex justify-content-between align-items-center">
-                                      <div>
-                                        <h6 className="mb-0">
-                                          <i className="bi bi-hammer me-2"></i>
-                                          🏗️ OBRAS INDEPENDIENTES (Sin Presupuesto)
-                                        </h6>
-                                        <small>
-                                          <i className="bi bi-info-circle me-1"></i>
-                                          Obras registradas manualmente sin presupuesto previo
-                                        </small>
-                                      </div>
-                                      <div className="text-end">
-                                        <div className="badge bg-light text-dark">
-                                          {obrasIndependientes.length} obra(s) independiente(s)
-                                        </div>
-                                        <div className="mt-1">
-                                          <small>Saldo: </small>
-                                          <strong>${saldoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="card-body p-0">
-                                    <div className="table-responsive">
-                                      <table className="table table-hover table-bordered mb-0">
-                                        <thead style={{backgroundColor:'#fff3cd'}}>
-                                          <tr>
-                                            <th style={{minWidth:'250px',padding:'8px'}}>Obra Independiente</th>
-                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Importe Estimado</th>
-                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Pagado</th>
-                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Saldo</th>
-                                            <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Estado</th>
-                                            <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>
-                                              <input
-                                                type="checkbox"
-                                                className="form-check-input"
-                                                checked={obrasIndependientes.every(t =>
-                                                  trabajosExtraSeleccionados.includes(t.id)
-                                                )}
-                                                onChange={() => toggleTodosTrabajoObra(obrasIndependientes)}
-                                                disabled={saldoObrasIndep === 0}
-                                              />
-                                            </th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {obrasIndependientes.map((obra) => {
-                                            const totalObra = obra.totalCalculado || 0;
-                                            const totalPagado = obra.totalPagado || 0;
-                                            const saldo = obra.saldo || 0;
-                                            const porcentajePagado = totalObra > 0 ? (totalPagado / totalObra) * 100 : 0;
-                                            const estaSeleccionado = trabajosExtraSeleccionados.includes(obra.id);
-                                            const estaPagado = saldo <= 0;
-
-                                            return (
-                                              <tr key={obra.id}>
-                                                <td style={{padding:'8px'}}>
-                                                  <div className="d-flex align-items-start">
-                                                    <div className="flex-grow-1">
-                                                      <div className="fw-bold">
-                                                        {obra.nombre}
-                                                      </div>
-                                                      {obra.direccion && (
-                                                        <small className="text-muted d-block mt-1">
-                                                          <i className="bi bi-geo-alt me-1"></i>
-                                                          {obra.direccion}
-                                                        </small>
-                                                      )}
-                                                      <div className="mt-1">
-                                                        <span className="badge bg-warning text-dark me-2">
-                                                          🏗️ Obra Independiente
-                                                        </span>
-                                                        <span className="badge bg-info text-white">
-                                                          ℹ️ Sin Presupuesto Previo
-                                                        </span>
-                                                      </div>
-                                                    </div>
-                                                  </div>
-                                                </td>
-
-                                                <td style={{padding:'8px',textAlign:'right'}}>
-                                                  <strong className="text-primary">
-                                                    ${totalObra.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                  </strong>
-                                                  <br />
-                                                  <small className="text-muted">(Estimado)</small>
-                                                </td>
-
-                                                <td style={{padding:'8px',textAlign:'right'}}>
-                                                  <span className="text-success">
-                                                    ${totalPagado.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                  </span>
-                                                </td>
-
-                                                <td style={{padding:'8px',textAlign:'right'}}>
-                                                  <strong className={saldo > 0 ? 'text-warning' : 'text-muted'}>
-                                                    ${saldo.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                  </strong>
-                                                </td>
-
-                                                <td style={{padding:'8px',textAlign:'center'}}>
-                                                  {obra.estadoPago === 'PAGADO_TOTAL' ? (
-                                                    <span className="badge bg-success">✅ Completo</span>
-                                                  ) : obra.estadoPago === 'PAGADO_PARCIAL' ? (
-                                                    <span className="badge bg-warning text-dark">
-                                                      <i className="bi bi-clock-history me-1"></i>
-                                                      Parcial ({porcentajePagado.toFixed(0)}%)
-                                                    </span>
-                                                  ) : (
-                                                    <span className="badge bg-danger">
-                                                      <i className="bi bi-exclamation-circle me-1"></i>
-                                                      Pendiente
-                                                    </span>
-                                                  )}
-                                                </td>
-
-                                                <td style={{padding:'8px',textAlign:'center'}}>
-                                                  <input
-                                                    type="checkbox"
-                                                    className="form-check-input"
-                                                    checked={estaSeleccionado}
-                                                    onChange={() => toggleTrabajoExtra(obra.id)}
-                                                    disabled={estaPagado}
-                                                  />
-                                                </td>
-                                              </tr>
-                                            );
-                                          })}
-                                        </tbody>
-
-                                        <tfoot style={{backgroundColor:'#fff3cd'}}>
-                                          <tr>
-                                            <td style={{padding:'8px',textAlign:'right'}}>
-                                              <strong>TOTAL OBRAS INDEPENDIENTES:</strong>
-                                            </td>
-                                            <td style={{padding:'8px',textAlign:'right'}}>
-                                              <strong className="text-primary">
-                                                ${totalAPagarObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                              </strong>
-                                            </td>
-                                            <td style={{padding:'8px',textAlign:'right'}}>
-                                              <strong className="text-success">
-                                                ${totalPagadoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                              </strong>
-                                            </td>
-                                            <td style={{padding:'8px',textAlign:'right'}}>
-                                              <strong className="text-warning">
-                                                ${saldoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                              </strong>
-                                            </td>
-                                            <td colSpan="2"></td>
-                                          </tr>
-                                        </tfoot>
-                                      </table>
-                                    </div>
-                                  </div>
-                                </div>
-                                <hr className="my-4" />
+                  return (
+                    <div className="mb-4">
+                      <div className={`card ${saldoObrasIndep === 0 ? 'border-success' : 'border-warning'}`}>
+                        <div className={`card-header ${saldoObrasIndep === 0 ? 'bg-success' : 'bg-warning'} text-dark`} style={{backgroundColor: saldoObrasIndep === 0 ? undefined : '#ffc107'}}>
+                          <div className="d-flex justify-content-between align-items-center">
+                            <div>
+                              <h6 className="mb-0">
+                                <i className="bi bi-hammer me-2"></i>
+                                🏗️ OBRAS INDEPENDIENTES (Sin Presupuesto)
+                              </h6>
+                              <small>
+                                <i className="bi bi-info-circle me-1"></i>
+                                Obras registradas manualmente sin presupuesto previo
+                              </small>
+                            </div>
+                            <div className="text-end">
+                              <div className="badge bg-light text-dark">
+                                {obrasIndependientes.length} obra(s) independiente(s)
                               </div>
-                            );
-                          })()}
+                              <div className="mt-1">
+                                <small>Saldo: </small>
+                                <strong>${saldoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}</strong>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
 
-                          {/* Agrupar trabajos adicionales por obra */}
-                          {presupuestos.map((presupuesto, presupuestoIdx) => {
+                        <div className="card-body p-0">
+                          <div className="table-responsive">
+                            <table className="table table-hover table-bordered mb-0">
+                              <thead style={{backgroundColor:'#fff3cd'}}>
+                                <tr>
+                                  <th style={{minWidth:'250px',padding:'8px'}}>Obra Independiente</th>
+                                  <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Importe Estimado</th>
+                                  <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Pagado</th>
+                                  <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Saldo</th>
+                                  <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Estado</th>
+                                  <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>
+                                    <input
+                                      type="checkbox"
+                                      className="form-check-input"
+                                      checked={obrasIndependientes.every(t =>
+                                        trabajosExtraSeleccionados.includes(t.id)
+                                      )}
+                                      onChange={() => toggleTodosTrabajoObra(obrasIndependientes)}
+                                      disabled={saldoObrasIndep === 0}
+                                    />
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {obrasIndependientes.map((obra) => {
+                                  const totalObra = obra.totalCalculado || 0;
+                                  const totalPagado = obra.totalPagado || 0;
+                                  const saldo = obra.saldo || 0;
+                                  const porcentajePagado = totalObra > 0 ? (totalPagado / totalObra) * 100 : 0;
+                                  const estaSeleccionado = trabajosExtraSeleccionados.includes(obra.id);
+                                  const estaPagado = saldo <= 0;
+
+                                  return (
+                                    <tr key={obra.id}>
+                                      <td style={{padding:'8px'}}>
+                                        <div className="d-flex align-items-start">
+                                          <div className="flex-grow-1">
+                                            <div className="fw-bold">
+                                              {obra.nombre}
+                                            </div>
+                                            {obra.direccion && (
+                                              <small className="text-muted d-block mt-1">
+                                                <i className="bi bi-geo-alt me-1"></i>
+                                                {obra.direccion}
+                                              </small>
+                                            )}
+                                            <div className="mt-1">
+                                              <span className="badge bg-warning text-dark me-2">
+                                                🏗️ Obra Independiente
+                                              </span>
+                                              <span className="badge bg-info text-white">
+                                                ℹ️ Sin Presupuesto Previo
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      <td style={{padding:'8px',textAlign:'right'}}>
+                                        <strong className="text-primary">
+                                          ${totalObra.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                        </strong>
+                                        <br />
+                                        <small className="text-muted">(Estimado)</small>
+                                      </td>
+
+                                      <td style={{padding:'8px',textAlign:'right'}}>
+                                        <span className="text-success">
+                                          ${totalPagado.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                        </span>
+                                      </td>
+
+                                      <td style={{padding:'8px',textAlign:'right'}}>
+                                        <strong className={saldo > 0 ? 'text-warning' : 'text-muted'}>
+                                          ${saldo.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                        </strong>
+                                      </td>
+
+                                      <td style={{padding:'8px',textAlign:'center'}}>
+                                        {obra.estadoPago === 'PAGADO_TOTAL' ? (
+                                          <span className="badge bg-success">✅ Completo</span>
+                                        ) : obra.estadoPago === 'PAGADO_PARCIAL' ? (
+                                          <span className="badge bg-warning text-dark">
+                                            <i className="bi bi-clock-history me-1"></i>
+                                            Parcial ({porcentajePagado.toFixed(0)}%)
+                                          </span>
+                                        ) : (
+                                          <span className="badge bg-danger">
+                                            <i className="bi bi-exclamation-circle me-1"></i>
+                                            Pendiente
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      <td style={{padding:'8px',textAlign:'center'}}>
+                                        <input
+                                          type="checkbox"
+                                          className="form-check-input"
+                                          checked={estaSeleccionado}
+                                          onChange={() => toggleTrabajoExtra(obra.id)}
+                                          disabled={estaPagado}
+                                        />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+
+                              <tfoot style={{backgroundColor:'#fff3cd'}}>
+                                <tr>
+                                  <td style={{padding:'8px',textAlign:'right'}}>
+                                    <strong>TOTAL OBRAS INDEPENDIENTES:</strong>
+                                  </td>
+                                  <td style={{padding:'8px',textAlign:'right'}}>
+                                    <strong className="text-primary">
+                                      ${totalAPagarObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                    </strong>
+                                  </td>
+                                  <td style={{padding:'8px',textAlign:'right'}}>
+                                    <strong className="text-success">
+                                      ${totalPagadoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                    </strong>
+                                  </td>
+                                  <td style={{padding:'8px',textAlign:'right'}}>
+                                    <strong className="text-warning">
+                                      ${saldoObrasIndep.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                    </strong>
+                                  </td>
+                                  <td colSpan="2"></td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Agrupar trabajos adicionales por obra */}
+                {trabajosExtraFiltradosPorSemana.some(t => t.esObraIndependiente !== true) && (
+                  <div className="mt-4">
+                    {presupuestos.map((presupuesto, presupuestoIdx) => {
                             // 🔥 Filtrar trabajos adicionales de esta obra (NO obras independientes)
                             const trabajosObra = trabajosExtraFiltradosPorSemana.filter(
                               t => t.presupuestoId === presupuesto.id && t.esObraIndependiente !== true
@@ -3414,11 +3450,8 @@ const RegistrarPagoConsolidadoModal = ({
                               </div>
                             );
                           })}
-                        </>
-                      )}
-                    </>
+                    </div>
                   )}
-                </div>
 
                 {/* Resumen de selección */}
                 {(profesionalesSeleccionados.length > 0 || materialesSeleccionados.length > 0 || otrosCostosSeleccionados.length > 0 || trabajosExtraSeleccionados.length > 0) && (

@@ -41,6 +41,7 @@ export const TIPOS_ADELANTO_LABELS = {
 
 /**
  * Calcula el monto estimado de un adelanto según el tipo
+ * IMPORTANTE: Usa el saldo pendiente real como base para reflejar el trabajo efectivamente realizado
  */
 export const calcularMontoEstimado = (profesional, tipoAdelanto, porcentaje = 50) => {
   if (!profesional) return 0;
@@ -48,65 +49,111 @@ export const calcularMontoEstimado = (profesional, tipoAdelanto, porcentaje = 50
   const porcentajeDecimal = porcentaje / 100;
   let montoBase = 0;
 
+  // Obtener el saldo pendiente real (Total asignado - Total pagado)
+  const saldoPendiente = profesional.saldoPendiente || profesional.saldo || 0;
+
+  // Si el profesional tiene datos de días trabajados, usar esos para cálculos más precisos
+  const diasTrabajados = profesional.diasTrabajados || profesional.totalDias || null;
+  const precioJornal = profesional.precioJornal || 0;
+
   switch (tipoAdelanto) {
     case TIPOS_ADELANTO.SEMANAL:
-      // Estimación: jornal promedio por semana
-      montoBase = (profesional.precioJornal || 0) * 5; // 5 días laborables
+      // 1 semana = 1/4 del saldo pendiente (asumiendo ~4 semanas trabajadas)
+      // Si tiene días trabajados, calcular proporción exacta: (5 días / días totales) * saldo
+      if (diasTrabajados && diasTrabajados > 0) {
+        const diasSemana = Math.min(5, diasTrabajados); // Máximo 5 días laborables
+        montoBase = (diasSemana / diasTrabajados) * saldoPendiente;
+      } else {
+        // Fallback: 25% del saldo pendiente o jornal × 5 días
+        montoBase = Math.max(saldoPendiente * 0.25, precioJornal * 5);
+      }
       break;
 
     case TIPOS_ADELANTO.QUINCENAL:
-      // 2 semanas
-      montoBase = (profesional.precioJornal || 0) * 10;
+      // 2 semanas = 1/2 del saldo pendiente (asumiendo ~4 semanas trabajadas)
+      // Si tiene días trabajados, calcular proporción exacta: (10 días / días totales) * saldo
+      if (diasTrabajados && diasTrabajados > 0) {
+        const diasQuincena = Math.min(10, diasTrabajados); // Máximo 10 días laborables
+        montoBase = (diasQuincena / diasTrabajados) * saldoPendiente;
+      } else {
+        // Fallback: 50% del saldo pendiente o jornal × 10 días
+        montoBase = Math.max(saldoPendiente * 0.50, precioJornal * 10);
+      }
       break;
 
     case TIPOS_ADELANTO.MENSUAL:
-      // 4.33 semanas en promedio
-      montoBase = (profesional.precioJornal || 0) * 21.65; // ~22 días laborables/mes
+      // 4 semanas = 100% del saldo pendiente (asumiendo que lo trabajado es ~1 mes)
+      // O usar días trabajados si están disponibles
+      if (diasTrabajados && diasTrabajados > 0) {
+        const diasMes = Math.min(22, diasTrabajados); // Máximo ~22 días laborables
+        montoBase = (diasMes / diasTrabajados) * saldoPendiente;
+      } else {
+        // Fallback: 100% del saldo pendiente
+        montoBase = saldoPendiente;
+      }
       break;
 
     case TIPOS_ADELANTO.TOTAL_OBRA:
-      // Saldo pendiente completo
-      montoBase = profesional.saldoPendiente || profesional.saldo || 0;
+      // Saldo pendiente completo - todo lo que falta pagar
+      montoBase = saldoPendiente;
       break;
 
     default:
       montoBase = 0;
   }
 
+  // Aplicar porcentaje (por defecto 50%, pero puede ser hasta 100%)
   return montoBase * porcentajeDecimal;
 };
 
 /**
  * Valida que el adelanto sea posible
+ * IMPORTANTE: No valida el límite del 50%, ya que es solo una advertencia
+ * Solo valida que haya saldo disponible suficiente
  */
 export const validarAdelanto = (profesional, montoAdelanto) => {
   const errores = [];
+  const advertencias = [];
 
   if (!profesional) {
     errores.push('Debe seleccionar un profesional');
-    return { valido: false, errores };
+    return { valido: false, errores, advertencias };
   }
 
   if (montoAdelanto <= 0) {
     errores.push('El monto debe ser mayor a $0');
   }
 
+  // Usar datos financieros del backend si están disponibles
   const saldoDisponible = profesional.saldoPendiente || profesional.saldo || 0;
-  const adelantosActivos = profesional.adelantosActivos || 0;
-  const disponibleReal = saldoDisponible - adelantosActivos;
+  const totalAdelantosActivos = profesional.totalAdelantosActivos || profesional.adelantosActivos || 0;
+  const adelantoDisponible = profesional.adelantoDisponible || (saldoDisponible - totalAdelantosActivos);
+  const limiteRecomendado = profesional.limiteAdelanto || (profesional.precioTotal || 0) * 0.5;
 
-  if (disponibleReal <= 0) {
+  if (saldoDisponible <= 0) {
     errores.push('No hay saldo disponible para adelantar');
   }
 
-  if (montoAdelanto > disponibleReal) {
-    errores.push(`El monto excede el saldo disponible (${formatearMoneda(disponibleReal)})`);
+  if (montoAdelanto > adelantoDisponible) {
+    errores.push(`El monto excede el saldo disponible (${formatearMoneda(adelantoDisponible)})`);
+  }
+
+  // Advertencia si excede el 50% recomendado (NO bloquea)
+  const totalConNuevo = totalAdelantosActivos + montoAdelanto;
+  if (totalConNuevo > limiteRecomendado) {
+    const exceso = totalConNuevo - limiteRecomendado;
+    advertencias.push(
+      `⚠️ El total de adelantos (${formatearMoneda(totalConNuevo)}) excederá el límite recomendado del 50% (${formatearMoneda(limiteRecomendado)}). Exceso: ${formatearMoneda(exceso)}`
+    );
   }
 
   return {
     valido: errores.length === 0,
     errores,
-    disponibleReal
+    advertencias,
+    adelantoDisponible,
+    limiteRecomendado,
+    excedeLimite: totalConNuevo > limiteRecomendado
   };
 };
 
@@ -116,37 +163,41 @@ export const validarAdelanto = (profesional, montoAdelanto) => {
  * Registra un nuevo adelanto
  * Backend maneja automáticamente: estadoAdelanto, saldoAdelantoPorDescontar, montoOriginalAdelanto
  */
+/**
+ * Registra un nuevo adelanto usando el endpoint específico de adelantos
+ * Backend: POST /api/adelantos
+ */
 export const registrarAdelanto = async (adelantoData, empresaId) => {
   try {
     console.log('📤 REGISTRAR ADELANTO - Datos enviados:', {
-      url: '/api/v1/pagos-profesional-obra',
+      url: '/api/adelantos',
       body: adelantoData,
       empresaId
     });
 
-    // 🎯 Estructura según PagoProfesionalObraRequestDTO del backend
-    const pagoAdelanto = {
+    // Estructura según AdelantoRequestDTO del backend
+    const adelantoRequest = {
       profesionalObraId: adelantoData.profesionalObraId,
       empresaId: empresaId,
-      tipoPago: 'ADELANTO',
-      esAdelanto: true,
-      periodoAdelanto: adelantoData.tipoAdelanto,
-      montoBruto: adelantoData.montoAdelanto,
+      monto: adelantoData.montoAdelanto,
       fechaPago: new Date().toISOString().split('T')[0],
-      metodoPago: adelantoData.metodoPago || 'EFECTIVO',
-      comprobantePago: adelantoData.comprobantePago || null,
+      periodoAdelanto: adelantoData.tipoAdelanto, // 1_SEMANA, 2_SEMANAS, 1_MES, OBRA_COMPLETA
+      metodoPago: (adelantoData.metodoPago || 'EFECTIVO').toLowerCase(), // efectivo, transferencia, cheque
+      numeroComprobante: adelantoData.comprobantePago || null,
+      motivo: adelantoData.motivo || `Adelanto ${TIPOS_ADELANTO_LABELS[adelantoData.tipoAdelanto]}`,
       observaciones: adelantoData.observaciones ||
-        `💸 ADELANTO ${TIPOS_ADELANTO_LABELS[adelantoData.tipoAdelanto]} - Monto: ${formatearMoneda(adelantoData.montoAdelanto)}`
+        `💸 ADELANTO ${TIPOS_ADELANTO_LABELS[adelantoData.tipoAdelanto]} - Monto: ${formatearMoneda(adelantoData.montoAdelanto)}`,
+      aprobadoPor: adelantoData.aprobadoPor || null,
+      presupuestoNoClienteId: adelantoData.presupuestoNoClienteId || null
     };
 
-    // ⚠️ Backend inicializa automáticamente:
-    // - estadoAdelanto = 'ACTIVO'
-    // - saldoAdelantoPorDescontar = montoBruto
-    // - montoOriginalAdelanto = montoBruto
-    // - montoFinal = montoBruto
-
-    const response = await api.post('/api/v1/pagos-profesional-obra', pagoAdelanto);
+    const response = await api.post('/api/adelantos', adelantoRequest);
     console.log('✅ ADELANTO REGISTRADO:', response);
+
+    // Verificar si excede el límite recomendado del 50%
+    if (response.excedeLimiteRecomendado) {
+      console.warn('⚠️ ADVERTENCIA:', response.advertencia);
+    }
 
     // 🔔 Emitir evento para sincronización
     console.log('📣 [SERVICIO] Emitiendo evento ADELANTO_REGISTRADO...');
@@ -172,26 +223,15 @@ export const registrarAdelanto = async (adelantoData, empresaId) => {
 
 /**
  * Lista adelantos activos de un profesional
+ * Backend: GET /api/adelantos/profesional/{profesionalObraId}/pendientes
  */
 export const listarAdelantosActivos = async (profesionalObraId, empresaId) => {
   try {
-    // 🎯 Obtener todos los pagos y filtrar localmente
-    // El backend no tiene endpoint específico para filtrar adelantos activos
-    const pagos = await api.get('/api/v1/pagos-profesional-obra', {
-      params: {
-        profesionalObraId,
-        empresaId
-      }
+    const response = await api.get(`/api/adelantos/profesional/${profesionalObraId}/pendientes`, {
+      params: { empresaId }
     });
 
-    // Filtrar solo adelantos activos (con saldo por descontar)
-    const adelantosActivos = (Array.isArray(pagos) ? pagos : []).filter(p =>
-      p.profesionalObraId === profesionalObraId &&
-      p.esAdelanto === true &&
-      p.estadoAdelanto === 'ACTIVO' &&
-      (p.saldoAdelantoPorDescontar || 0) > 0
-    );
-
+    const adelantosActivos = Array.isArray(response) ? response : response?.data || [];
     console.log('📋 Adelantos activos encontrados:', adelantosActivos.length);
     return adelantosActivos;
   } catch (error) {
@@ -202,12 +242,16 @@ export const listarAdelantosActivos = async (profesionalObraId, empresaId) => {
 
 /**
  * Obtiene el total de adelantos activos de un profesional
+ * Backend: GET /api/adelantos/profesional/{profesionalObraId}/total-pendiente
  */
 export const obtenerTotalAdelantosActivos = async (profesionalObraId, empresaId) => {
   try {
-    const adelantos = await listarAdelantosActivos(profesionalObraId, empresaId);
-    const total = adelantos.reduce((sum, a) => sum + (a.saldoAdelantoPorDescontar || 0), 0);
-    return total;
+    const response = await api.get(`/api/adelantos/profesional/${profesionalObraId}/total-pendiente`, {
+      params: { empresaId }
+    });
+
+    const data = response?.data || response;
+    return parseFloat(data.totalAdelantosPendientes || 0);
   } catch (error) {
     console.error('❌ Error obteniendo total de adelantos activos:', error);
     return 0;
@@ -269,10 +313,13 @@ export const actualizarSaldoAdelanto = async (adelantoId, nuevoSaldo, empresaId)
 
 /**
  * Constantes de configuración
+ * IMPORTANTE: El límite del 50% es RECOMENDADO, no restrictivo
+ * El backend permite excederlo pero genera una advertencia
  */
 export const CONFIGURACION_ADELANTOS = {
   PORCENTAJE_MINIMO: 30,
-  PORCENTAJE_MAXIMO: 80,
+  PORCENTAJE_RECOMENDADO: 50, // Limite recomendado (genera advertencia si se excede)
+  PORCENTAJE_MAXIMO: 100, // El frontend permite hasta el 100%, el backend valida solo contra saldo disponible
   PORCENTAJE_DEFAULT: 50
 };
 
