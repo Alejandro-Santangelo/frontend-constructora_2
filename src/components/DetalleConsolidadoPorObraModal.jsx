@@ -1813,6 +1813,9 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
 
     // Filtrar solo obras con déficit (balance negativo) y excluir TEs
     const obrasConDeficit = datos.filter(obra => {
+      // ✅ Si no tiene cobros asignados, no puede estar en déficit (usa fondos generales)
+      if ((obra.totalCobrado || 0) === 0) return false;
+
       // Verificar si es un TE
       const obraIdActual = obra.obraId || obra.id;
       const presupuestoIdActual = obra.presupuestoId || obra.id;
@@ -1820,7 +1823,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
 
       if (esTE) return false;
 
-      // Verificar si tiene déficit
+      // Verificar si tiene déficit (gastó más de lo cobrado)
       const balance = (obra.totalCobrado || 0) - (obra.totalPagado || 0) - (obra.totalRetirado || 0);
       return balance < 0;
     });
@@ -1860,7 +1863,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                   </td>
                   <td className="text-end text-success">{formatearMoneda(obra.totalCobrado || 0)}</td>
                   <td className="text-end text-danger">{formatearMoneda(obra.totalPagado || 0)}</td>
-                  <td className="text-end text-warning">{formatearMoneda(obra.totalRetirado || 0)}</td>
+                  <td className="text-end" style={{color: '#e65100', fontWeight: '600'}}>{formatearMoneda(obra.totalRetirado || 0)}</td>
                   <td className="text-end">
                     <strong className="text-danger fs-6">
                       {formatearMoneda(balance)}
@@ -1879,7 +1882,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
               <td className="text-end text-danger">
                 {formatearMoneda(obrasConDeficit.reduce((sum, o) => sum + (o.totalPagado || 0), 0))}
               </td>
-              <td className="text-end text-warning">
+              <td className="text-end" style={{color: '#e65100', fontWeight: '600'}}>
                 {formatearMoneda(obrasConDeficit.reduce((sum, o) => sum + (o.totalRetirado || 0), 0))}
               </td>
               <td className="text-end">
@@ -1898,6 +1901,8 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
 
   const renderSaldoDisponible = () => {
     const totalCobrado = estadisticas?.totalCobradoEmpresa || estadisticas?.totalCobrado || 0;
+    const totalPagado = estadisticas?.totalPagado || 0;
+    const totalRetirado = estadisticas?.totalRetirado || 0;
 
     // ✅ CORREGIDO: Crear Set solo con IDs de presupuestos que son trabajos extra
     const idsPresupuestosTrabajosExtra = new Set();
@@ -1950,7 +1955,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
     const totalAsignadoPrincipal = datos.reduce((sum, o) => sum + (o.totalCobrado || 0), 0);
     const totalAsignadoSinDist = entidadesSinDistribucion.reduce((sum, e) => sum + (e.totalCobrado || 0), 0);
     const totalAsignado = totalAsignadoPrincipal + totalAsignadoSinDist;
-    const saldoDisponible = totalCobrado - totalAsignado;
+    const saldoDisponible = totalCobrado - totalAsignado - totalPagado - totalRetirado;
 
     // Clave para colapsar el bloque global de TAs
     const claveTA = 'sd_global_tareas';
@@ -1960,20 +1965,28 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
       <>
         <div className="alert alert-info mb-3">
           <div className="row">
-            <div className="col-md-4 text-center border-end">
-              <div className="mb-1"><strong>Total Cobrado (Empresa)</strong></div>
-              <div className="fs-4 text-success fw-bold">{formatearMoneda(totalCobrado)}</div>
+            <div className="col-md-3 text-center border-end">
+              <div className="mb-1"><small><strong>Total Cobrado</strong></small></div>
+              <div className="fs-5 text-success fw-bold">{formatearMoneda(totalCobrado)}</div>
             </div>
-            <div className="col-md-4 text-center border-end">
-              <div className="mb-1"><strong>Total Asignado a Obras</strong></div>
-              <div className="fs-4 text-primary fw-bold">
+            <div className="col-md-2 text-center border-end">
+              <div className="mb-1"><small><strong>Asignado</strong></small></div>
+              <div className="fs-5 text-primary fw-bold">
                 {cargandoEntidadesSinDist
                   ? <span className="spinner-border spinner-border-sm text-primary" />
                   : formatearMoneda(totalAsignado)}
               </div>
             </div>
-            <div className="col-md-4 text-center">
-              <div className="mb-1"><strong>Saldo Disponible</strong></div>
+            <div className="col-md-2 text-center border-end">
+              <div className="mb-1"><small><strong>Pagado</strong></small></div>
+              <div className="fs-5 text-danger fw-bold">{formatearMoneda(totalPagado)}</div>
+            </div>
+            <div className="col-md-2 text-center border-end">
+              <div className="mb-1"><small><strong>Retirado</strong></small></div>
+              <div className="fs-5 fw-bold" style={{color: '#e65100'}}>{formatearMoneda(totalRetirado)}</div>
+            </div>
+            <div className="col-md-3 text-center">
+              <div className="mb-1"><small><strong>Saldo Disponible</strong></small></div>
               <div className={`fs-4 fw-bold ${saldoDisponible >= 0 ? 'text-success' : 'text-danger'}`}>
                 {cargandoEntidadesSinDist
                   ? <span className="spinner-border spinner-border-sm" />
@@ -2223,7 +2236,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                 </td>
                 <td className="text-end text-success">{formatearMoneda(obra.totalCobrado || 0)}</td>
                 <td className="text-end text-primary">{formatearMoneda(obra.totalPagado || 0)}</td>
-                <td className="text-end text-warning">{formatearMoneda(obra.totalRetirado || 0)}</td>
+                <td className="text-end" style={{color: '#e65100', fontWeight: '600'}}>{formatearMoneda(obra.totalRetirado || 0)}</td>
                 <td className="text-end">
                   <strong className={balance >= 0 ? 'text-success' : 'text-danger'}>
                     {formatearMoneda(balance)}
@@ -2242,7 +2255,7 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
             <td className="text-end text-primary">
               {formatearMoneda(datos.reduce((sum, o) => sum + (o.totalPagado || 0), 0))}
             </td>
-            <td className="text-end text-warning">
+            <td className="text-end" style={{color: '#e65100', fontWeight: '600'}}>
               {formatearMoneda(datos.reduce((sum, o) => sum + (o.totalRetirado || 0), 0))}
             </td>
             <td className="text-end">
@@ -2409,18 +2422,48 @@ const DetalleConsolidadoPorObraModal = ({ show, onHide, tipo, datos, titulo, est
                   </div>
                 </div>
               )}
-              {tipo === 'deficit' && estadisticas && (
+              {tipo === 'deficit' && datos && (
                 <div className="mt-3 text-center">
                   <strong className="fs-5">Déficit total:</strong>{' '}
-                  <span className="text-danger fw-bold fs-4">
-                    {formatearMoneda(estadisticas.saldoDisponible < 0 ? estadisticas.saldoDisponible : 0)}
-                  </span>
-                  {estadisticas.saldoDisponible >= 0 && (
-                    <div className="mt-2 text-success">
-                      <i className="bi bi-check-circle me-2"></i>
-                      No hay déficit general
-                    </div>
-                  )}
+                  {(() => {
+                    // Crear Set con todos los IDs de trabajos extra para excluirlos
+                    const idsTrabajosExtra = new Set();
+                    trabajosExtra.forEach(tesObra => {
+                      tesObra.forEach(te => {
+                        if (te.obraId) idsTrabajosExtra.add(te.obraId);
+                        if (te.id) idsTrabajosExtra.add(te.id);
+                      });
+                    });
+
+                    // Calcular déficit solo de obras con balance negativo (excluyendo TEs y obras sin cobros)
+                    const totalDeficit = datos.reduce((sum, obra) => {
+                      // ✅ Excluir obras sin cobros asignados
+                      if ((obra.totalCobrado || 0) === 0) return sum;
+
+                      const obraIdActual = obra.obraId || obra.id;
+                      const presupuestoIdActual = obra.presupuestoId || obra.id;
+                      const esTE = idsTrabajosExtra.has(obraIdActual) || idsTrabajosExtra.has(presupuestoIdActual);
+
+                      if (esTE) return sum;
+
+                      const balance = (obra.totalCobrado || 0) - (obra.totalPagado || 0) - (obra.totalRetirado || 0);
+                      return balance < 0 ? sum + balance : sum;
+                    }, 0);
+
+                    return (
+                      <>
+                        <span className="text-danger fw-bold fs-4">
+                          {formatearMoneda(totalDeficit)}
+                        </span>
+                        {totalDeficit === 0 && (
+                          <div className="mt-2 text-success">
+                            <i className="bi bi-check-circle me-2"></i>
+                            No hay déficit general
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>

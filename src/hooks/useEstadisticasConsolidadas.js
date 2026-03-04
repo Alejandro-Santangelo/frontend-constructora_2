@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { listarCobrosPorObra } from '../services/cobrosObraService';
-import { listarPagosPorProfesionalObra } from '../services/pagosProfesionalObraService';
-import { listarPagosConsolidadosPorPresupuesto } from '../services/pagosConsolidadosService';
+import { listarPagosPorProfesionalObra, listarTodosPagosEmpresa } from '../services/pagosProfesionalObraService';
+import { listarPagosConsolidadosPorPresupuesto, listarPagosConsolidadosPorEmpresa } from '../services/pagosConsolidadosService';
 import { obtenerAsignacionesDeObra } from '../services/asignacionesCobroObraService';
 import { obtenerSaldoDisponible } from '../services/retirosPersonalesService';
 import { obtenerResumenCobrosEmpresa } from '../services/cobrosEmpresaService';
@@ -122,9 +122,10 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
     setError(null);
 
     try {
-      const [responseAprobado, responseEnEjecucion] = await Promise.all([
+      const [responseAprobado, responseEnEjecucion, responseTerminado] = await Promise.all([
         api.presupuestosNoCliente.busquedaAvanzada({ estado: 'APROBADO' }, empresaId),
-        api.presupuestosNoCliente.busquedaAvanzada({ estado: 'EN_EJECUCION' }, empresaId)
+        api.presupuestosNoCliente.busquedaAvanzada({ estado: 'EN_EJECUCION' }, empresaId),
+        api.presupuestosNoCliente.busquedaAvanzada({ estado: 'TERMINADO' }, empresaId)
       ]);
 
       const extractData = (response) => {
@@ -137,17 +138,29 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
       const presupuestosAprobado = extractData(responseAprobado);
       const presupuestosEnEjecucion = extractData(responseEnEjecucion);
-      const todosPresupuestos = [...presupuestosAprobado, ...presupuestosEnEjecucion];
+      const presupuestosTerminado = extractData(responseTerminado);
+      const todosPresupuestos = [...presupuestosAprobado, ...presupuestosEnEjecucion, ...presupuestosTerminado];
 
       console.log('🔍 [useEstadisticasConsolidadas] Presupuestos encontrados ANTES de cargar completos:', {
         aprobados: presupuestosAprobado.length,
         enEjecucion: presupuestosEnEjecucion.length,
+        terminados: presupuestosTerminado.length,
         total: todosPresupuestos.length,
         ids: todosPresupuestos.map(p => ({
           id: p.id,
           estado: p.estado,
           numero: p.numeroPresupuesto,
           nombreObra: p.nombreObra
+        }))
+      });
+
+      console.log('🔍🔍🔍 DEBUG MODAL RETIROS - Presupuestos totales ANTES de deduplicar:', {
+        cantidad: todosPresupuestos.length,
+        detalle: todosPresupuestos.map(p => ({
+          id: p.id,
+          estado: p.estado,
+          nombreObra: p.nombreObra,
+          numeroPresupuesto: p.numeroPresupuesto
         }))
       });
 
@@ -178,11 +191,12 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         return;
       }
 
-      // ✅ Solo las versiones más recientes tienen estado APROBADO o EN_EJECUCION
+      // ✅ Solo las versiones más recientes tienen estado APROBADO, EN_EJECUCION o TERMINADO
       // No necesitamos agrupar, cada presupuesto ya es único
       console.log('🔍 [useEstadisticasConsolidadas] Presupuestos encontrados:', {
         aprobados: presupuestosAprobado.length,
         enEjecucion: presupuestosEnEjecucion.length,
+        terminados: presupuestosTerminado.length,
         total: todosPresupuestos.length,
         ids: todosPresupuestos.map(p => ({ id: p.id, estado: p.estado, numero: p.numeroPresupuesto }))
       });
@@ -222,6 +236,27 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
           numero: p.numeroPresupuesto,
           estado: p.estado
         }))
+      });
+
+      console.log('🔍🔍🔍 DEBUG MODAL RETIROS - Presupuestos DESPUÉS de deduplicar:', {
+        cantidad: presupuestosUnicos.length,
+        eliminados: presupuestosSinNulls.length - presupuestosUnicos.length,
+        detalle: presupuestosUnicos.map(p => ({
+          id: p.id,
+          nombreObra: p.nombreObra,
+          numeroPresupuesto: p.numeroPresupuesto,
+          estado: p.estado,
+          obraId: p.obraId
+        })),
+        presupuestosEliminados: presupuestosSinNulls
+          .filter(p => !presupuestosUnicos.some(u => u.id === p.id))
+          .map(p => ({
+            id: p.id,
+            nombreObra: p.nombreObra,
+            numeroPresupuesto: p.numeroPresupuesto,
+            estado: p.estado,
+            razon: 'duplicado (ID menor)'
+          }))
       });
 
       console.log('🔍 DIAGNÓSTICO CRÍTICO - Presupuestos únicos:', presupuestosUnicos.map(p => ({
@@ -550,8 +585,23 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
             id: p.id,
             nombre: p.nombreObra,
             obraId: p.obraId,
-            direccionObraId: p.direccionObraId
+            direccionObraId: p.direccionObraId,
+            tipo: p.tipoPresupuesto
           })));
+
+          // 🔍 Analizar distribución de asignaciones
+          const porObraId = todasLasAsignaciones.filter(a => a.obraId).length;
+          const porPresupuestoId = todasLasAsignaciones.filter(a => a.presupuestoNoClienteId).length;
+          const porTrabajoAdicional = todasLasAsignaciones.filter(a => a.trabajoAdicionalId).length;
+          const porObraIndependiente = todasLasAsignaciones.filter(a => a.obraIndependienteId).length;
+
+          console.log('🔍 DISTRIBUCIÓN DE ASIGNACIONES:', {
+            total: todasLasAsignaciones.length,
+            porObraId,
+            porPresupuestoId,
+            porTrabajoAdicional,
+            porObraIndependiente
+          });
         }
       } catch (error) {
         console.warn(`⚠️ Error cargando asignaciones de la empresa:`, error);
@@ -561,27 +611,23 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
       for (const presupuesto of presupuestosUnicos) {
         const nombreObra = presupuesto.nombreObra || `${presupuesto.direccionObraCalle || ''} ${presupuesto.direccionObraAltura || ''}`.trim() || `Presupuesto #${presupuesto.numeroPresupuesto || presupuesto.id}`;
         const totalPresupuestoObra = calcularTotalPresupuesto(presupuesto);
+        const esTareaLeve = presupuesto.tipoPresupuesto === 'TAREA_LEVE' || presupuesto.tipo_presupuesto === 'TAREA_LEVE';
 
-        console.log(`🏗️ Obra "${nombreObra}" - Presupuesto ID: ${presupuesto.id}, Obra ID del presupuesto: ${presupuesto.obraId}`);
-
-        // 🆕 Primero calcular distribución por ítems usando asignaciones
-        const asignacionesObra = todasLasAsignaciones.filter(a =>
-          (a.obraId === presupuesto.obraId || a.presupuestoNoClienteId === presupuesto.id) &&
-          (a.estado === 'ACTIVA' || a.estado === 'activa')
-        );
+        // 🆕 Para tareas leves, SOLO usar presupuestoNoClienteId (no obraId) para evitar duplicados
+        const asignacionesObra = esTareaLeve
+          ? todasLasAsignaciones.filter(a =>
+              a.presupuestoNoClienteId === presupuesto.id &&
+              (a.estado === 'ACTIVA' || a.estado === 'activa')
+            )
+          : todasLasAsignaciones.filter(a =>
+              (a.obraId === presupuesto.obraId || a.presupuestoNoClienteId === presupuesto.id) &&
+              (a.estado === 'ACTIVA' || a.estado === 'activa')
+            );
 
         let montoProfesionales = 0;
         let montoMateriales = 0;
         let montoGastosGenerales = 0;
         let montoTrabajosExtra = 0;
-
-        console.log(`📊 [${nombreObra}] Calculando distribución por ítems:`, {
-          obraId: presupuesto.obraId,
-          presupuestoId: presupuesto.id,
-          totalAsignacionesEmpresa: todasLasAsignaciones.length,
-          asignacionesObra: asignacionesObra.length,
-          asignaciones: asignacionesObra
-        });
 
         asignacionesObra.forEach(asig => {
           montoProfesionales += parseFloat(asig.montoProfesionales || 0);
@@ -590,20 +636,25 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
           montoTrabajosExtra += parseFloat(asig.montoTrabajosExtra || 0);
         });
 
-        console.log(`💰 [${nombreObra}] Totales distribuidos:`, {
-          montoProfesionales,
-          montoMateriales,
-          montoGastosGenerales,
-          montoTrabajosExtra,
-          total: montoProfesionales + montoMateriales + montoGastosGenerales + montoTrabajosExtra
-        });
-
         // 🆕 El totalCobradoObra es la suma de todas las asignaciones de esta obra
         const totalCobradoObra = montoProfesionales + montoMateriales + montoGastosGenerales + montoTrabajosExtra;
         const cantidadCobrosObra = asignacionesObra.length;
         const cobrosPendientesObra = 0; // No aplicable en modelo de asignaciones
 
-        console.log(`  💵 Total cobrado asignado a esta obra: $${totalCobradoObra.toLocaleString()}`);
+        // 🔍 Log específico para tareas leves
+        if (esTareaLeve) {
+          console.log(`🎯 TAREA LEVE "${nombreObra}":`, {
+            presupuestoId: presupuesto.id,
+            asignacionesEncontradas: asignacionesObra.length,
+            cobradoTotal: totalCobradoObra,
+            detalleAsignaciones: asignacionesObra.map(a => ({
+              id: a.id,
+              montoAsignado: a.montoAsignado,
+              montoProfesionales: a.montoProfesionales,
+              montoMateriales: a.montoMateriales
+            }))
+          });
+        }
 
 
         // Obtener trabajos extra de esta obra
@@ -738,6 +789,76 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         });
       }
 
+      console.log('🔍🔍🔍 DEBUG MODAL RETIROS - desglosePorObra DESPUÉS del bucle:', {
+        cantidad: desglosePorObra.length,
+        obras: desglosePorObra.map(o => ({
+          id: o.id,
+          obraId: o.obraId,
+          nombreObra: o.nombreObra,
+          numeroPresupuesto: o.numeroPresupuesto,
+          totalHonorarios: o.totalHonorarios,
+          totalCobrado: o.totalCobrado
+        }))
+      });
+
+      // 🆕 CARGAR PAGOS CONSOLIDADOS PRIMERO (para que estén disponibles para TAs y OIs)
+      console.log('📊 Obteniendo cantidad de pagos reales registrados...');
+      let pagosPorObra = {}; // Mapa obraId -> cantidad de pagos
+      let pagosPorTrabajoAdicional = {}; // 🆕 Mapa trabajoAdicionalId -> {cantidad, monto}
+      let pagosPorObraIndependiente = {}; // 🆕 Mapa obraIndependienteId -> {cantidad, monto}
+      let cantidadPagos = 0;
+      let pagosConsolidados = []; // 🔧 Declarar FUERA del try para scope global
+
+      try {
+        // Obtener pagos consolidados por empresa
+        pagosConsolidados = await listarPagosConsolidadosPorEmpresa(empresaId);
+        console.log(`  ✅ ${pagosConsolidados.length} pagos consolidados encontrados`);
+
+        // 🔍 Log detallado de cada pago para debugging
+        console.log('🔍 DETALLE DE PAGOS CONSOLIDADOS:');
+        pagosConsolidados.forEach(pago => {
+          console.log(`  Pago ID ${pago.id}: Monto=$${parseFloat(pago.montoFinal || pago.monto || 0).toLocaleString()}, obraId=${pago.obraId}, presupuestoNoClienteId=${pago.presupuestoNoClienteId}, trabajoAdicionalId=${pago.trabajoAdicionalId}`);
+        });
+
+        // Contar pagos por obra, TA y OI
+        pagosConsolidados.forEach(pago => {
+          const montoPago = parseFloat(pago.montoFinal || pago.monto || 0);
+
+          // Pagos por obra
+          if (pago.obraId) {
+            pagosPorObra[pago.obraId] = (pagosPorObra[pago.obraId] || 0) + 1;
+          }
+
+          // 🆕 Pagos por Trabajo Adicional
+          if (pago.trabajoAdicionalId) {
+            if (!pagosPorTrabajoAdicional[pago.trabajoAdicionalId]) {
+              pagosPorTrabajoAdicional[pago.trabajoAdicionalId] = { cantidad: 0, monto: 0 };
+            }
+            pagosPorTrabajoAdicional[pago.trabajoAdicionalId].cantidad += 1;
+            pagosPorTrabajoAdicional[pago.trabajoAdicionalId].monto += montoPago;
+          }
+
+          // 🆕 Pagos por Obra Independiente
+          if (pago.obraIndependienteId) {
+            if (!pagosPorObraIndependiente[pago.obraIndependienteId]) {
+              pagosPorObraIndependiente[pago.obraIndependienteId] = { cantidad: 0, monto: 0 };
+            }
+            pagosPorObraIndependiente[pago.obraIndependienteId].cantidad += 1;
+            pagosPorObraIndependiente[pago.obraIndependienteId].monto += montoPago;
+          }
+        });
+
+        // Actualizar cantidadPagos total
+        cantidadPagos = pagosConsolidados.length;
+
+        console.log('  📋 Pagos por obra:', pagosPorObra);
+        console.log('  📋 Pagos por Trabajo Adicional:', pagosPorTrabajoAdicional);
+        console.log('  📋 Pagos por Obra Independiente:', pagosPorObraIndependiente);
+        console.log(`  📊 Total de pagos registrados: ${cantidadPagos}`);
+      } catch (error) {
+        console.warn('⚠️ Error al obtener pagos reales:', error);
+      }
+
       // ✅ AGREGAR TRABAJOS ADICIONALES CON ASIGNACIONES DE COBRO
       console.log('🔍 Buscando asignaciones a Trabajos Adicionales...');
       const asignacionesTA = todasLasAsignaciones.filter(a =>
@@ -766,7 +887,14 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
       for (const [taId, data] of taConAsignaciones.entries()) {
         try {
           const ta = await trabajosAdicionalesService.obtenerTrabajoPorId(taId, empresaId);
-          console.log(`✅ TA "${ta.nombre}" (ID:${ta.id}): $${data.totalAsignado.toLocaleString()}`);
+          const pagoData = pagosPorTrabajoAdicional[taId] || { cantidad: 0, monto: 0 };
+
+          console.log(`✅ TA "${ta.nombre}" (ID:${ta.id}):`, {
+            cobrado: data.totalAsignado.toLocaleString(),
+            pagado: pagoData.monto.toLocaleString(),
+            cantidadPagos: pagoData.cantidad,
+            saldo: (data.totalAsignado - pagoData.monto).toLocaleString()
+          });
 
           desglosePorObra.push({
             id: ta.id,
@@ -779,8 +907,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
             totalCobrado: data.totalAsignado,
             cantidadCobros: data.asignaciones.length,
             cobrosPendientes: 0,
-            totalPagado: 0,
-            cantidadPagos: 0,
+            totalPagado: pagoData.monto, // 🆕 Incluir pagos reales
+            cantidadPagos: pagoData.cantidad, // 🆕 Incluir cantidad de pagos
             pagosPendientes: 0,
             trabajosExtra: [],
             montoProfesionales: 0,
@@ -823,7 +951,14 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
       for (const [oiId, data] of oiConAsignaciones.entries()) {
         try {
           const oi = await api.obras.getById(oiId, empresaId);
-          console.log(`✅ OI "${oi.nombre}" (ID:${oi.id}): $${data.totalAsignado.toLocaleString()}`);
+          const pagoData = pagosPorObraIndependiente[oiId] || { cantidad: 0, monto: 0 };
+
+          console.log(`✅ OI "${oi.nombre}" (ID:${oi.id}):`, {
+            cobrado: data.totalAsignado.toLocaleString(),
+            pagado: pagoData.monto.toLocaleString(),
+            cantidadPagos: pagoData.cantidad,
+            saldo: (data.totalAsignado - pagoData.monto).toLocaleString()
+          });
 
           desglosePorObra.push({
             id: oi.id,
@@ -836,8 +971,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
             totalCobrado: data.totalAsignado,
             cantidadCobros: data.asignaciones.length,
             cobrosPendientes: 0,
-            totalPagado: 0,
-            cantidadPagos: 0,
+            totalPagado: pagoData.monto, // 🆕 Incluir pagos reales
+            cantidadPagos: pagoData.cantidad, // 🆕 Incluir cantidad de pagos
             pagosPendientes: 0,
             trabajosExtra: [],
             montoProfesionales: 0,
@@ -851,6 +986,18 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
           console.warn(`⚠️ Error cargando OI ${oiId}:`, err);
         }
       }
+
+      console.log('🔍🔍🔍 DEBUG MODAL RETIROS - desglosePorObra FINAL (incluye TAs y OIs):', {
+        cantidad: desglosePorObra.length,
+        obras: desglosePorObra.map(o => ({
+          id: o.id,
+          obraId: o.obraId,
+          nombreObra: o.nombreObra,
+          tipo: o.esTrabajoAdicional ? 'TA' : (o.esObraIndependiente ? 'OI' : 'Presupuesto'),
+          totalHonorarios: o.totalHonorarios,
+          totalCobrado: o.totalCobrado
+        }))
+      });
 
       // 🔍 IDENTIFICAR COBROS HUÉRFANOS (no asignados a ninguna obra)
       const totalCobradoPorObras = desglosePorObra.reduce((sum, o) => sum + o.totalCobrado, 0);
@@ -898,16 +1045,39 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
       }
 
       let totalPagado = 0;
-      let cantidadPagos = 0;
+      // cantidadPagos ya fue declarado arriba al cargar pagos consolidados
       let pagosPendientes = 0;
 
-      // 🔥 USAR ENDPOINT DE RESUMEN FINANCIERO POR OBRA
-      console.log('💰 Obteniendo resúmenes financieros de cada obra...');
+      // 🔥 CALCULAR TOTAL PAGADO REAL (sin duplicación del backend)
+      console.log('💰 Calculando total pagado REAL desde endpoints de pagos...');
+
+      // 1️⃣ Obtener pagos a profesionales
+      let totalPagadoProfesionales = 0;
+      try {
+        const pagosProfesionales = await listarTodosPagosEmpresa(empresaId);
+        totalPagadoProfesionales = pagosProfesionales.reduce((sum, p) =>
+          sum + (parseFloat(p.montoFinal || p.monto || 0)), 0);
+        console.log(`  ✅ Pagos a profesionales: $${totalPagadoProfesionales.toLocaleString('es-AR')} (${pagosProfesionales.length} pagos)`);
+      } catch (error) {
+        console.warn('⚠️ Error obteniendo pagos profesionales:', error);
+      }
+
+      // 2️⃣ Los pagos consolidados YA fueron cargados arriba (línea ~816)
+      // Reutilizamos esa variable para evitar llamada duplicada
+      const totalPagadoConsolidados = pagosConsolidados.reduce((sum, p) =>
+        sum + (parseFloat(p.montoFinal || p.monto || 0)), 0);
+      console.log(`  ✅ Pagos consolidados: $${totalPagadoConsolidados.toLocaleString('es-AR')} (${pagosConsolidados.length} pagos)`);
+
+      // 3️⃣ Sumar ambos totales
+      totalPagado = totalPagadoProfesionales + totalPagadoConsolidados;
+      console.log(`  💰 TOTAL PAGADO BASE: $${totalPagado.toLocaleString('es-AR')}`);
+
+      // 🔥 MANTENER CARGA DE RESÚMENES PARA OTRAS MÉTRICAS (pero no para totalPagado)
+      console.log('📊 Obteniendo resúmenes financieros de cada obra (solo para métricas adicionales)...');
 
       const resumenesPromises = presupuestosUnicos.map(async (presupuesto) => {
         try {
           const obraId = presupuesto.obraId || presupuesto.direccionObraId;
-          console.log(`  📊 Obteniendo resumen financiero de obra ${obraId}...`);
           const resumen = await api.get(`/api/v1/obras-financiero/${obraId}/resumen`, { empresaId });
           console.log(`  ✅ Obra ${obraId} (${resumen.nombreObra}):`, {
             totalPagadoGeneral: resumen.totalPagadoGeneral,
@@ -918,22 +1088,13 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
           return resumen;
         } catch (error) {
           const obraId = presupuesto.obraId || presupuesto.direccionObraId;
-          console.error(`  ❌ Error 400 obteniendo resumen de obra ${obraId}:`, {
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            mensaje: error.response?.data,
-            url: `/api/v1/obras-financiero/${obraId}/resumen?empresaId=${empresaId}`,
-            error: error
-          });
+          console.error(`  ❌ Error obteniendo resumen de obra ${obraId}:`, error.message);
           return null;
         }
       });
 
       const resumenes = await Promise.all(resumenesPromises);
       const resumenesSinNulls = resumenes.filter(r => r !== null);
-
-      // Sumar totales de todas las obras (sin trabajos extra aún)
-      totalPagado = resumenesSinNulls.reduce((sum, r) => sum + (r.totalPagadoGeneral || 0), 0);
 
       // 🔧 AGREGAR PAGOS DE TRABAJOS EXTRA
       console.log('🔧 Obteniendo pagos de trabajos extra...');
@@ -977,42 +1138,16 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         console.warn('⚠️ No se pudieron cargar pagos de trabajos extra:', error);
       }
 
-      console.log(`💰 TOTAL PAGADO CONSOLIDADO (CON TRABAJOS EXTRA): $${totalPagado.toLocaleString('es-AR')}`);
+      console.log(`💰 TOTAL PAGADO CONSOLIDADO FINAL: $${totalPagado.toLocaleString('es-AR')}`);
       console.log(`  📊 Desglose:`, {
-        profesionales: resumenesSinNulls.reduce((sum, r) => sum + (r.totalPagadoProfesionales || 0), 0),
-        materiales: resumenesSinNulls.reduce((sum, r) => sum + (r.totalPagadoMateriales || 0), 0),
-        gastosGenerales: resumenesSinNulls.reduce((sum, r) => sum + (r.totalPagadoGastosGenerales || 0), 0),
-        trabajosExtra: totalPagadoTrabajosExtra
+        pagosProfesionales: totalPagadoProfesionales.toLocaleString(),
+        pagosConsolidados: totalPagadoConsolidados.toLocaleString(),
+        pagosTrabajosExtra: totalPagadoTrabajosExtra.toLocaleString(),
+        TOTAL: totalPagado.toLocaleString()
       });
 
-      // 🆕 CONTAR PAGOS REALES REGISTRADOS
-      console.log('📊 Obteniendo cantidad de pagos reales registrados...');
-      let pagosPorObra = {}; // Mapa obraId -> cantidad de pagos
-
-      try {
-        // Importar y consultar servicios de pagos
-        const { listarPagosPorObra } = await import('../services/pagosProfesionalObraService');
-        const { listarPagosConsolidadosPorEmpresa } = await import('../services/pagosConsolidadosService');
-
-        // Obtener pagos consolidados por empresa
-        const pagosConsolidados = await listarPagosConsolidadosPorEmpresa(empresaId);
-        console.log(`  ✅ ${pagosConsolidados.length} pagos consolidados encontrados`);
-
-        // Contar pagos por obra
-        pagosConsolidados.forEach(pago => {
-          if (pago.obraId) {
-            pagosPorObra[pago.obraId] = (pagosPorObra[pago.obraId] || 0) + 1;
-          }
-        });
-
-        // Actualizar cantidadPagos total
-        cantidadPagos = pagosConsolidados.length;
-
-        console.log('  📋 Pagos por obra:', pagosPorObra);
-        console.log(`  📊 Total de pagos registrados: ${cantidadPagos}`);
-      } catch (error) {
-        console.warn('⚠️ Error al obtener pagos reales:', error);
-      }
+      // 🔍 Los pagos consolidados ya fueron cargados anteriormente (antes de agregar TAs y OIs)
+      // Se reutilizan las variables pagosPorObra, pagosPorTrabajoAdicional, pagosPorObraIndependiente
 
       // Actualizar desglose por obra con pagos de trabajos extra y cantidad de pagos
       resumenesSinNulls.forEach(resumen => {
@@ -1115,9 +1250,19 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         totalAsignado = 0;
       }
 
-      const saldoDisponible = totalCobradoEmpresa - totalPagado - totalRetirado; // 🔥 Usar totalCobradoEmpresa
+      // 🔥 FALLBACK: Si totalCobradoEmpresa es 0 (endpoint no implementado), usar totalCobrado (suma de asignaciones)
+      const totalCobradoParaSaldo = totalCobradoEmpresa || totalCobrado;
+      console.log('💰 [useEstadisticasConsolidadas] Cálculo de saldo:', {
+        totalCobradoEmpresa,
+        totalCobrado,
+        totalCobradoUsado: totalCobradoParaSaldo,
+        totalRetirado,
+        usandoFallback: !totalCobradoEmpresa
+      });
+
+      const saldoDisponible = totalCobradoParaSaldo - totalRetirado; // ⚠️ NO restar pagos, solo retiros
       const saldoCobradoSinAsignar = saldoDisponibleEmpresa; // 🔥 Usar el valor del endpoint
-      const porcentajeCobrado = totalPresupuesto > 0 ? (totalCobradoEmpresa / totalPresupuesto) * 100 : 0; // 🔥 Usar totalCobradoEmpresa
+      const porcentajeCobrado = totalPresupuesto > 0 ? (totalCobradoParaSaldo / totalPresupuesto) * 100 : 0;
       const porcentajePagado = totalPresupuesto > 0 ? (totalPagado / totalPresupuesto) * 100 : 0;
       const porcentajeDisponible = totalPresupuesto > 0 ? (saldoDisponible / totalPresupuesto) * 100 : 0;
 
@@ -1136,7 +1281,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         obrasDesglose: desglosePorObra.map(o => o.nombreObra)
       });
 
-      // 🔧 Calcular saldoDisponible para cada obra (cobrado - pagado - retirado de esa obra específica)
+      // 🔧 Calcular saldoDisponible para cada obra (cobrado - retirado)
+      // ⚠️ NO se restan los pagos, porque son gastos de la obra, no afectan el saldo para retiros del dueño
       // 🆕 Distribuir retiros generales proporcionalmente entre todas las obras
       const cantidadObras = desglosePorObra.length;
       const retiroGeneralPorObra = cantidadObras > 0 ? retirosGenerales / cantidadObras : 0;
@@ -1144,7 +1290,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
       const desglosePorObraConSaldo = desglosePorObra.map(obra => {
         const retiradoObraEspecifico = retirosPorObra[obra.obraId] || 0;
         const retiradoObraTotal = retiradoObraEspecifico + retiroGeneralPorObra;
-        const saldoDisponible = obra.totalCobrado - obra.totalPagado - retiradoObraTotal;
+        const saldoDisponible = obra.totalCobrado - retiradoObraTotal;
         return {
           ...obra,
           totalRetirado: retiradoObraTotal,
@@ -1175,8 +1321,8 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
       setEstadisticas({
         totalPresupuesto,
-        totalCobrado: totalCobradoEmpresa,
-        totalCobradoEmpresa,
+        totalCobrado: totalCobradoParaSaldo, // 🔥 Usar el valor con fallback
+        totalCobradoEmpresa: totalCobradoParaSaldo, // 🔥 Usar el valor con fallback
         saldoCobradoSinAsignar: saldoDisponibleEmpresa,
         totalAsignado,
         totalPagado,

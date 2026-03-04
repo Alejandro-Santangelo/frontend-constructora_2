@@ -127,90 +127,10 @@ const EstadisticasTodasObrasModal = ({
     if (!estadisticas) return estadisticas;
 
     // ─── Modo "sin selección" (llamado desde ObrasPage con Sets vacíos) ──────────
-    // El hook useEstadisticasConsolidadas ya calculó todo desde el backend:
-    // totalPresupuesto incluye OP + OI + TE + TA reales.
-    // No reemplazar esos valores con datos incompletos del store Redux.
+    // Usar DIRECTAMENTE las estadísticas del hook (igual que SistemaFinancieroPage)
     if (obrasSeleccionadas.size === 0 && trabajosExtraSeleccionados.size === 0) {
-      // ─── Misma lógica que SistemaFinancieroPage ───────────────────────────────
-
-      // 1. OP — desde presupuestosNoCliente (normales), aplicando descuentos como useEstadisticasConsolidadas
-      const calcularTotalConDescuentos = (p) => {
-        // ✅ Prioridad 1: Si ya tiene totalConDescuentos calculado, usarlo
-        if (p.totalConDescuentos != null && p.totalConDescuentos > 0) {
-          return parseFloat(p.totalConDescuentos);
-        }
-
-        // ✅ Prioridad 2: Si tiene items y configuración de descuentos, calcular con descuentos
-        if (p.itemsCalculadora && Array.isArray(p.itemsCalculadora) && p.itemsCalculadora.length > 0) {
-          try {
-            const resultado = calcularTotalConDescuentosDesdeItems(p.itemsCalculadora, p);
-            if (resultado.totalFinal > 0) {
-              return resultado.totalFinal;
-            }
-          } catch (error) {
-            console.warn('⚠️ Error calculando con descuentos:', error);
-          }
-        }
-
-        // Fallback: usar valores sin descuentos
-        return parseFloat(
-          p.totalFinal ||
-          p.valorTotalIva ||
-          p.totalPresupuestoConHonorarios ||
-          p.totalPresupuesto ||
-          p.montoTotal ||
-          p.valorTotal || 0
-        );
-      };
-      const totalOP = pptoNormalesInternos.reduce((s, p) => s + calcularTotalConDescuentos(p), 0);
-      const cantidadOP = pptoNormalesInternos.length;
-
-      // 2. TE — desde presupuestosNoCliente con esPresupuestoTrabajoExtra=true
-      const totalTE = pptoTeInternos.reduce((s, p) => s + calcularTotalConDescuentos(p), 0);
-      const cantidadTE = pptoTeInternos.length;
-
-      // 3. OI — desde obrasDisponibles (no tienen presupuesto, nunca en el hook)
-      const oiMap = new Map();
-      obrasDisponibles.forEach(obra => {
-        if (!obra.esObraIndependiente) return;
-        const clave = `${obra.nombreObra || ''}_${obra.direccion || ''}`.trim();
-        const monto = parseFloat(obra.totalPresupuesto || obra.presupuestoEstimado || 0);
-        if (!oiMap.has(clave) || monto > (oiMap.get(clave) || 0)) oiMap.set(clave, monto);
-      });
-      const totalOI = Array.from(oiMap.values()).reduce((s, v) => s + v, 0);
-      const cantidadOI = oiMap.size;
-
-      // 4. TA — desde taInternos
-      const taIds = new Set();
-      const totalTA = taInternos.reduce((s, ta) => {
-        if (!taIds.has(ta.id)) { taIds.add(ta.id); return s + parseFloat(ta.importe || ta.montoTotal || ta.monto || 0); }
-        return s;
-      }, 0);
-      const cantidadTA = taIds.size;
-
-      // Esperar a que carguen los presupuestos antes de mostrar el total
-      const cargando = pptoNormalesInternos.length === 0 && pptoTeInternos.length === 0 && taInternos.length === 0;
-      const totalPresupuestoFinal = cargando
-        ? (estadisticas.totalPresupuesto || 0)   // Mientras carga: usar el hook
-        : totalOP + totalTE + totalOI + totalTA;  // Cargado: calcular igual que SFP
-
-      console.log('✅ [EstadisticasModal - Modo ObrasPage] Totales (igual que SFP):', {
-        totalOP, cantidadOP,
-        totalTE, cantidadTE,
-        totalOI, cantidadOI,
-        totalTA, cantidadTA,
-        totalPresupuestoFinal
-      });
-
-      return {
-        ...estadisticas,
-        cantidadObras: cantidadOP + cantidadTE + cantidadOI,  // igual que hook: incluye TEs
-        cantidadTrabajosExtra: cantidadTE,
-        cantidadTrabajosAdicionales: cantidadTA,
-        totalPresupuesto: totalPresupuestoFinal,
-        _totalTE: totalTE,
-        _totalTA: totalTA
-      };
+      console.log('✅ [EstadisticasModal - Modo ObrasPage] Usando estadísticas del hook directamente:', estadisticas);
+      return estadisticas;
     }
 
     // ─── Modo "con selecciones activas" (llamado desde SistemaFinancieroPage) ───
@@ -412,8 +332,8 @@ const EstadisticasTodasObrasModal = ({
                     >
                       <i className="bi bi-arrow-up-circle fs-1 text-danger"></i>
                       <h6 className="text-muted mt-2 mb-1">Total Pagado</h6>
-                      <h4 className="text-danger mb-0">{formatearMoneda(statsPersonalizadas.totalPagado)}</h4>
-                      <small className="text-muted">{statsPersonalizadas.porcentajePagado.toFixed(1)}% del presupuesto total</small>
+                      <h4 className="text-danger mb-0">{formatearMoneda(statsPersonalizadas.totalPagado || 0)}</h4>
+                      <small className="text-muted">{((statsPersonalizadas.totalPagado || 0) / (statsPersonalizadas.totalPresupuesto || 1) * 100).toFixed(1)}% del presupuesto total</small>
                       <div className="mt-1">
                         <small className="text-danger"><i className="bi bi-hand-index"></i></small>
                       </div>
@@ -492,14 +412,16 @@ const EstadisticasTodasObrasModal = ({
                           if (loading) {
                             return <span className="spinner-border spinner-border-sm" role="status"></span>;
                           }
-                          // Calcular: Total Cobrado - Total Asignado a obras (incluyendo TA y OI)
+                          // Calcular: Total Cobrado - Total Asignado - Total Pagado - Total Retirado
                           const totalCobrado = statsPersonalizadas.totalCobradoEmpresa || statsPersonalizadas.totalCobrado || 0;
                           const totalAsignado = (statsPersonalizadas.totalAsignado || 0) + cobradoTAOI;
-                          const saldoDisponible = totalCobrado - totalAsignado;
+                          const totalPagado = statsPersonalizadas.totalPagado || 0;
+                          const totalRetirado = statsPersonalizadas.totalRetirado || 0;
+                          const saldoDisponible = totalCobrado - totalAsignado - totalPagado - totalRetirado;
                           return formatearMoneda(saldoDisponible);
                         })()}
                       </h4>
-                      <small className="text-muted">Cobrado - Asignado</small>
+                      <small className="text-muted">Cobrado - Asignado - Pagado - Retirado</small>
                       <div className="mt-1">
                         <small className="text-primary"><i className="bi bi-hand-index"></i></small>
                       </div>
@@ -515,9 +437,12 @@ const EstadisticasTodasObrasModal = ({
                       <h6 className="text-muted mt-2 mb-1">Déficit</h6>
                       <h4 className="mb-0 text-danger">
                         {(() => {
-                          // Calcular suma de déficits individuales (solo obras con balance negativo)
+                          // Calcular suma de déficits individuales (solo obras con cobros asignados y balance negativo)
                           const desglose = statsPersonalizadas.desglosePorObra || [];
                           const deficitTotal = desglose.reduce((sum, obra) => {
+                            // ✅ Solo considerar obras con cobros asignados
+                            if ((obra.totalCobrado || 0) === 0) return sum;
+
                             const balance = (obra.totalCobrado || 0) - (obra.totalPagado || 0) - (obra.totalRetirado || 0);
                             return balance < 0 ? sum + balance : sum;
                           }, 0);

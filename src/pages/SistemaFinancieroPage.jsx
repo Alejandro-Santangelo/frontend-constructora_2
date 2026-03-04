@@ -2582,10 +2582,10 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <i className="bi bi-arrow-up-circle fs-1 text-danger"></i>
                             <h6 className="text-muted mt-2 mb-1">Total Pagado</h6>
                             <h4 className="text-danger mb-0">
-                              ${statsFinales.totalPagado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              ${(statsFinales.totalPagado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </h4>
                             <small className="text-muted">
-                              {statsFinales.porcentajePagado.toFixed(1)}% del presupuesto total
+                              {((statsFinales.totalPagado || 0) / (statsFinales.totalPresupuesto || 1) * 100).toFixed(1)}% del presupuesto total
                             </small>
                             <div className="mt-1">
                               <small className="text-danger"><i className="bi bi-hand-index"></i></small>
@@ -2667,20 +2667,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <h6 className="text-muted mt-2 mb-1">Total disponible de lo ya cobrado</h6>
                             <h4 className="mb-0 text-primary">
                               {(() => {
-                                // Total cobrado menos total distribuido a ítems
+                                // Total cobrado menos asignado, pagado y retirado
                                 if (loading) {
                                   return <span className="spinner-border spinner-border-sm" role="status"></span>;
                                 }
 
-                                // Calcular: Total Cobrado - Total Asignado a obras (incluyendo TA y OI)
+                                // Calcular: Total Cobrado - Total Asignado - Total Pagado - Total Retirado
                                 const totalCobrado = statsFinales.totalCobradoEmpresa || statsFinales.totalCobrado || 0;
                                 const totalAsignado = (statsFinales.totalAsignado || 0) + totalAsignadoTAOI;
-                                const saldoDisponible = totalCobrado - totalAsignado;
+                                const totalPagado = statsFinales.totalPagado || 0;
+                                const totalRetirado = statsFinales.totalRetirado || 0;
+                                const saldoDisponible = totalCobrado - totalAsignado - totalPagado - totalRetirado;
 
                                 return formatearMoneda(saldoDisponible);
                               })()}
                             </h4>
-                            <small className="text-muted">Cobrado - Asignado</small>
+                            <small className="text-muted">Cobrado - Asignado - Pagado - Retirado</small>
                             <div className="mt-1">
                               <small className="text-primary"><i className="bi bi-hand-index"></i></small>
                             </div>
@@ -2700,6 +2702,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                 const desglose = statsFinales?.desglosePorObra || [];
 
                                 const deficitTotal = desglose.reduce((sum, obra) => {
+                                  // ✅ Solo considerar obras con cobros asignados
+                                  if ((obra.totalCobrado || 0) === 0) return sum;
+
                                   const balance = (obra.totalCobrado || 0) - (obra.totalPagado || 0) - (obra.totalRetirado || 0);
                                   return balance < 0 ? sum + balance : sum;
                                 }, 0);
@@ -2753,158 +2758,6 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                           </p>
                         </div>
                       )} */}
-
-                      {/* Top 10 Obras por Presupuesto */}
-                      {(() => {
-                        // 🆕 Agrupar obras con sus subobras
-                        const todasLasObras = statsFinales.desglosePorObra || [];
-                        const obrasConSubobras = [];
-                        const subobrasYaAgregadas = new Set();
-
-                        // Ordenar primero por presupuesto para mantener el ranking
-                        const obrasSorted = [...todasLasObras].sort((a, b) => b.totalPresupuesto - a.totalPresupuesto);
-
-                        obrasSorted.forEach(obra => {
-                          if (subobrasYaAgregadas.has(obra.id)) return;
-
-                          // Buscar subobras: obras cuyo nombre empiece con el nombre de esta obra
-                          const subobras = obrasSorted.filter(posibleSubobra => {
-                            if (posibleSubobra.id === obra.id) return false;
-                            // Detectar si es subobra: el nombre incluye el nombre de la obra padre
-                            const esSubobra = posibleSubobra.nombreObra?.startsWith(obra.nombreObra + ' ') ||
-                                            posibleSubobra.nombreObra?.includes(obra.nombreObra + ' ');
-                            return esSubobra;
-                          });
-
-                          // Marcar subobras como ya procesadas
-                          subobras.forEach(sub => subobrasYaAgregadas.add(sub.id));
-
-                          obrasConSubobras.push({
-                            ...obra,
-                            subobras
-                          });
-                        });
-
-                        const topObras = obrasConSubobras.slice(0, 10);
-
-                        if (topObras.length === 0) return null;
-
-                        // Calcular posiciones globales antes del render
-                        let posicionActual = 0;
-                        const obrasConPosicion = topObras.map(obra => {
-                          const posicionObra = posicionActual++;
-                          const subobrasMapeadas = (obra.subobras || []).map(subobra => ({
-                            ...subobra,
-                            posicion: posicionActual++
-                          }));
-
-                          return {
-                            ...obra,
-                            posicion: posicionObra,
-                            subobras: subobrasMapeadas
-                          };
-                        });
-
-                        return (
-                          <div className="mt-4">
-                            <div className="card">
-                              <div className="card-header bg-light">
-                                <h6 className="mb-0">
-                                  <i className="fas fa-trophy me-2"></i>
-                                  Top 10 Obras por Presupuesto {usarSeleccionadas ? '(Seleccionadas)' : ''}
-                                </h6>
-                              </div>
-                              <div className="card-body">
-                                <div className="table-responsive">
-                                  <table className="table table-sm table-hover">
-                                    <thead className="table-light">
-                                      <tr>
-                                        <th>Posición</th>
-                                        <th>Obra</th>
-                                        <th className="text-end">Presupuesto</th>
-                                        <th className="text-end">Asignado</th>
-                                        <th className="text-end">Pagado</th>
-                                        <th className="text-end">Retirado</th>
-                                        <th className="text-end">Disponible</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {obrasConPosicion.map((obra, index) => {
-                                        const totalTrabajosExtra = obra.trabajosExtra?.reduce((sum, t) => sum + (t.totalCalculado || 0), 0) || 0;
-                                        const presupuestoConTE = obra.totalPresupuesto + totalTrabajosExtra;
-
-                                        return (
-                                          <React.Fragment key={obra.id || index}>
-                                            {/* Obra Principal */}
-                                            <tr>
-                                              <td>
-                                                <span className={`badge ${obra.posicion === 0 ? 'bg-warning' : obra.posicion === 1 ? 'bg-secondary' : obra.posicion === 2 ? 'bg-info' : 'bg-light text-dark'}`}>
-                                                  {obra.posicion === 0 ? '🥇' : obra.posicion === 1 ? '🥈' : obra.posicion === 2 ? '🥉' : `${obra.posicion + 1}°`}
-                                                </span>
-                                              </td>
-                                              <td className="fw-bold">{obra.nombreObra}</td>
-                                              <td className="text-end">{formatearMoneda(obra.totalPresupuesto)}</td>
-                                              <td className="text-end">{formatearMoneda(obra.totalCobrado)}</td>
-                                              <td className="text-end">{formatearMoneda(obra.totalPagado)}</td>
-                                              <td className="text-end">{formatearMoneda(obra.totalRetirado || 0)}</td>
-                                              <td className="text-end text-primary fw-bold">{formatearMoneda(obra.saldoDisponible)}</td>
-                                            </tr>
-
-                                            {/* Subobras */}
-                                            {obra.subobras && obra.subobras.map((subobra, sIdx) => (
-                                              <tr key={`${obra.id}-subobra-${sIdx}`} className="table-secondary bg-opacity-25">
-                                                <td className="ps-3">
-                                                  <span className="badge bg-light text-dark">
-                                                    {subobra.posicion === 0 ? '🥇' : subobra.posicion === 1 ? '🥈' : subobra.posicion === 2 ? '🥉' : `${subobra.posicion + 1}°`}
-                                                  </span>
-                                                </td>
-                                                <td className="ps-4">
-                                                  <i className="bi bi-diagram-3 me-2 text-primary"></i>
-                                                  <strong>{subobra.nombreObra}</strong>
-                                                </td>
-                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalPresupuesto)}</strong></td>
-                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalCobrado)}</strong></td>
-                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalPagado)}</strong></td>
-                                                <td className="text-end"><strong>{formatearMoneda(subobra.totalRetirado || 0)}</strong></td>
-                                                <td className="text-end text-primary"><strong>{formatearMoneda(subobra.saldoDisponible)}</strong></td>
-                                              </tr>
-                                            ))}
-
-                                            {/* Trabajos Extra */}
-                                            {obra.trabajosExtra && obra.trabajosExtra.map((trabajo, tIdx) => (
-                                              <tr key={`${obra.id}-trabajo-${tIdx}`} className="table-active">
-                                                <td></td>
-                                                <td className="ps-4">
-                                                  <span className="badge bg-warning text-dark me-2" style={{fontSize: '0.7em'}}>📋 Adicional Obra</span>
-                                                  <small><strong>{trabajo.nombre}</strong></small>
-                                                </td>
-                                                <td className="text-end">
-                                                  <small><strong>{formatearMoneda(trabajo.totalCalculado || 0)}</strong></small>
-                                                </td>
-                                                <td className="text-end"><small>-</small></td>
-                                                <td className="text-end"><small>-</small></td>
-                                                <td className="text-end"><small>-</small></td>
-                                                <td className="text-end"><small>-</small></td>
-                                              </tr>
-                                            ))}
-
-                                            {/* Separador entre grupos */}
-                                            {index < obrasConPosicion.length - 1 && (
-                                              <tr>
-                                                <td colSpan="7" className="p-0" style={{borderBottom: '3px solid #000 !important', borderTop: '3px solid #000 !important', height: '3px', backgroundColor: '#000'}}></td>
-                                              </tr>
-                                            )}
-                                          </React.Fragment>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
                     </>
                   );
                 })()}
@@ -2930,8 +2783,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         {seccionCobrosExpandida && (
           <>
         <div className="col-md-6 mb-3">
-          <div className="card h-100 border-success shadow-sm hover-shadow">
-            <div className="card-header bg-success text-white">
+          <div className="card h-100 border-primary shadow-sm hover-shadow">
+            <div className="card-header bg-primary text-white">
               <h5 className="mb-0">
                 <i className="bi bi-cash-coin"></i> Gestión de Cobros
               </h5>
@@ -2939,13 +2792,13 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             <div className="card-body">
               <div className="d-grid gap-2">
                 <button
-                  className="btn btn-primary"
+                  className="btn btn-info text-white"
                   onClick={() => setShowRegistrarNuevoCobro(true)}
                 >
                   <i className="bi bi-plus-circle"></i> Registrar Nuevo Cobro
                 </button>
                 <button
-                  className="btn btn-info text-white"
+                  className="btn btn-primary"
                   onClick={() => setShowAsignarCobroDisponible(true)}
                 >
                   <i className="bi bi-arrow-down-circle"></i> Asignar Saldo Disponible
@@ -2956,15 +2809,15 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         </div>
 
         <div className="col-md-6 mb-3">
-          <div className="card h-100 border-success shadow-sm hover-shadow">
-            <div className="card-header bg-success text-white">
+          <div className="card h-100 border-info shadow-sm hover-shadow">
+            <div className="card-header bg-info text-white">
               <h5 className="mb-0">
                 <i className="bi bi-list-check"></i> Listar Cobros
               </h5>
             </div>
             <div className="card-footer bg-transparent">
               <button
-                className="btn btn-outline-success w-100"
+                className="btn btn-outline-info w-100"
                 onClick={() => setShowListarCobros(true)}
               >
                 <i className="bi bi-list-ul"></i> Abrir Tarjeta
@@ -2992,15 +2845,15 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         {seccionPagosExpandida && (
           <>
         <div className="col-md-6 mb-3">
-          <div className="card h-100 border-primary shadow-sm hover-shadow">
-            <div className="card-header bg-primary text-white">
+          <div className="card h-100 border-success shadow-sm hover-shadow">
+            <div className="card-header bg-success text-white">
               <h5 className="mb-0">
                 <i className="bi bi-cash-coin"></i> Registrar Pago
               </h5>
             </div>
             <div className="card-footer bg-transparent">
               <button
-                className="btn btn-primary w-100"
+                className="btn btn-success w-100"
                 onClick={() => {
                   if (obrasSeleccionadas.size > 0) {
                     setShowRegistrarPagoConsolidado(true);
@@ -3016,15 +2869,15 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         </div>
 
         <div className="col-md-6 mb-3">
-          <div className="card h-100 border-primary shadow-sm hover-shadow">
-            <div className="card-header bg-primary text-white">
+          <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #198754'}}>
+            <div className="card-header" style={{backgroundColor: '#20c997', color: 'white'}}>
               <h5 className="mb-0">
                 <i className="bi bi-receipt"></i> Listar Pagos
               </h5>
             </div>
             <div className="card-footer bg-transparent">
               <button
-                className="btn btn-outline-primary w-100"
+                className="btn btn-outline-success w-100"
                 onClick={() => setShowListarPagos(true)}
               >
                 <i className="bi bi-list-ul"></i> Abrir Tarjeta
@@ -3035,20 +2888,15 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
         {/* 💸 NUEVO: Dar Adelantos */}
         <div className="col-md-6 mb-3">
-          <div className="card h-100 border-warning shadow-sm hover-shadow">
-            <div className="card-header bg-warning text-dark">
+          <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #28a745'}}>
+            <div className="card-header" style={{backgroundColor: '#28a745', color: 'white'}}>
               <h5 className="mb-0">
                 <i className="bi bi-cash-stack"></i> 💸 Dar Adelantos
               </h5>
             </div>
-            <div className="card-body">
-              <p className="text-muted mb-0">
-                Otorgar adelantos semanales, quincenales, mensuales o por toda la obra a profesionales
-              </p>
-            </div>
             <div className="card-footer bg-transparent">
               <button
-                className="btn btn-warning w-100"
+                className="btn btn-success w-100" style={{backgroundColor: '#28a745', borderColor: '#28a745'}}
                 onClick={() => {
                   setProfesionalParaAdelanto(null);
                   setShowDarAdelanto(true);
@@ -3080,14 +2928,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           <>
         <div className="col-md-6 mb-3">
           <div className="card h-100 border-warning shadow-sm hover-shadow">
-            <div className="card-header bg-warning text-dark">
+            <div className="card-header" style={{backgroundColor: '#fd7e14', color: 'white'}}>
               <h5 className="mb-0">
                 <i className="bi bi-wallet2"></i> Registrar Retiro
               </h5>
             </div>
             <div className="card-footer bg-transparent">
               <button
-                className="btn btn-warning w-100"
+                className="btn w-100" style={{backgroundColor: '#fd7e14', color: 'white', borderColor: '#fd7e14'}}
                 onClick={() => setShowRegistrarRetiro(true)}
               >
                 <i className="bi bi-plus-lg"></i> Abrir Tarjeta
@@ -3098,14 +2946,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
         <div className="col-md-6 mb-3">
           <div className="card h-100 border-warning shadow-sm hover-shadow">
-            <div className="card-header bg-warning text-dark">
+            <div className="card-header" style={{backgroundColor: '#ff9800', color: 'white'}}>
               <h5 className="mb-0">
                 <i className="bi bi-list-check"></i> Listar Retiros
               </h5>
             </div>
             <div className="card-footer bg-transparent">
               <button
-                className="btn btn-outline-warning w-100"
+                className="btn w-100" style={{backgroundColor: 'white', color: '#ff9800', borderColor: '#ff9800', border: '1px solid #ff9800'}}
                 onClick={() => setShowListarRetiros(true)}
               >
                 <i className="bi bi-list-ul"></i> Abrir Tarjeta

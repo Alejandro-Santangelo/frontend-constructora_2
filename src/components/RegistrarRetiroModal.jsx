@@ -37,12 +37,10 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
   const [obrasDisponibles, setObrasDisponibles] = useState([]);
   const [totalHonorariosPresupuestados, setTotalHonorariosPresupuestados] = useState(0);
 
-  // Calcular saldo disponible CORRECTO: totalCobrado - totalPagado - totalRetirado
-  const saldoDisponibleReal = estadisticasConsolidadas
-    ? (estadisticasConsolidadas.totalCobradoEmpresa || estadisticasConsolidadas.totalCobrado || 0)
-      - (estadisticasConsolidadas.totalPagado || 0)
-      - (estadisticasConsolidadas.totalRetirado || 0)
-    : 0;
+  // ✅ USAR SALDO CALCULADO POR EL HOOK (totalCobrado - totalRetirado)
+  // ⚠️ NO restar totalPagado porque los pagos a profesionales/materiales son gastos de obra
+  // ⚠️ El saldo de retiros es: "¿Cuánto cobré y cuánto ya retiré para mí?"
+  const saldoDisponibleReal = estadisticasConsolidadas?.saldoDisponible ?? 0;
 
   // Obtener saldo disponible de la obra seleccionada
   const obraSeleccionada = obrasDisponibles.find(o => o.obraId === formData.obraId);
@@ -226,7 +224,7 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
 
     } catch (err) {
       console.error('Error registrando retiro:', err);
-      const mensaje = err?.response?.data?.message || err?.message || 'Error desconocido';
+      const mensaje = err?.response?.data?.message || err?.data?.message || err?.message || 'Error desconocido';
       setError(`Error al registrar retiro: ${mensaje}`);
     } finally {
       setLoading(false);
@@ -256,12 +254,34 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                       <i className="bi bi-briefcase me-2"></i>
                       💼 Honorarios Totales Presupuestados
                     </h6>
-                    <div className="fs-4 fw-bold text-primary">
+                    <div className="fs-5 fw-bold text-primary mb-2">
                       {formatearMoneda(totalHonorariosPresupuestados)}
                     </div>
-                    <small className="text-muted">
-                      Suma de todas las obras en ejecución
-                    </small>
+
+                    {/* Mostrar retiros realizados */}
+                    {estadisticasConsolidadas && estadisticasConsolidadas.totalRetirado > 0 && (
+                      <>
+                        <div className="text-muted mb-1">
+                          <small>Menos retiros realizados:</small>
+                          <span className="fw-bold text-danger ms-2">
+                            -{formatearMoneda(estadisticasConsolidadas.totalRetirado)}
+                          </span>
+                        </div>
+                        <div className="border-top pt-2 mt-2">
+                          <small className="text-muted d-block mb-1">Disponible para retirar:</small>
+                          <div className="fs-4 fw-bold text-success">
+                            {formatearMoneda(totalHonorariosPresupuestados - (estadisticasConsolidadas.totalRetirado || 0))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Si no hay retiros, mostrar el total como disponible */}
+                    {(!estadisticasConsolidadas || estadisticasConsolidadas.totalRetirado === 0) && (
+                      <small className="text-muted">
+                        Suma de todas las obras en ejecución
+                      </small>
+                    )}
                   </div>
                   <div className="col-md-6">
                     <details>
@@ -328,7 +348,7 @@ const RegistrarRetiroModal = ({ show, onHide, onSuccess }) => {
                     <div className="row">
                       <div className="col-md-4">
                         <strong>💰 Total Cobrado:</strong><br />
-                        {formatearMoneda(estadisticasConsolidadas.totalCobradoEmpresa || estadisticasConsolidadas.totalCobrado || 0)}
+                        {formatearMoneda(estadisticasConsolidadas.totalCobradoEmpresa || 0)}
                       </div>
                       <div className="col-md-4">
                         <strong>💸 Total Pagado:</strong><br />
