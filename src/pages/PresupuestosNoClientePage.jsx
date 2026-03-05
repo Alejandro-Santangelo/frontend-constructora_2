@@ -148,6 +148,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
   // Estados para modales
   const [showNuevoModal, setShowNuevoModal] = useState(false);
+  const [showModalTrabajoDiario, setShowModalTrabajoDiario] = useState(false);
   const [showEditarModal, setShowEditarModal] = useState(false);
   const [showListarModal, setShowListarModal] = useState(false);
   const [showBuscarDireccionModal, setShowBuscarDireccionModal] = useState(false);
@@ -917,6 +918,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     setShowNuevoModal(true);
   };
 
+  const handleNuevoTrabajoDiario = () => {
+    setPresupuestoData(null);
+    setShowModalTrabajoDiario(true);
+  };
+
   // 🔒 Función para verificar si un presupuesto es editable
   const esPresupuestoEditable = (presupuesto) => {
     // Solo BORRADOR y A_ENVIAR son editables
@@ -1666,8 +1672,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           setShowEditarModal(false);
           setPresupuestoData(null);
 
-          // Forzar recarga inmediata de la lista para actualizar los badges de alerta
-          await loadList();
+          // Forzar recarga inmediata de la lista sin caché para actualizar los badges de alerta
+          await loadList(true);
 
           showNotification && showNotification(
             `✅ Fechas actualizadas exitosamente.\nVersión y estado preservados.`,
@@ -1766,7 +1772,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           ...presupuesto,          // ← Cambios del usuario (sobrescribe solo lo que cambió)
           id: presupuestoData.id,  // ← Asegurar que el ID se mantiene
           numeroVersion: presupuestoCompleto.numeroVersion || presupuestoCompleto.version || 1,
-          estado: presupuestoCompleto.estado // ← Preservar el estado a menos que se haya cambiado explícitamente
+          estado: presupuestoCompleto.estado, // ← Preservar el estado a menos que se haya cambiado explícitamente
+          // ✅ CRÍTICO: Preservar totales calculados en el modal (descuentos, mayores costos, etc.)
+          totalFinal: presupuesto.totalFinal || presupuestoCompleto.totalFinal,
+          totalConDescuentos: presupuesto.totalConDescuentos || presupuestoCompleto.totalConDescuentos,
+          totalPresupuestoConHonorarios: presupuesto.totalPresupuestoConHonorarios || presupuestoCompleto.totalPresupuestoConHonorarios,
+          totalGeneral: presupuesto.totalGeneral || presupuestoCompleto.totalGeneral,
+          montoTotal: presupuesto.montoTotal || presupuestoCompleto.montoTotal
         };
 
         console.log(`📤 Enviando presupuesto COMPLETO con merge al backend:`, {
@@ -1787,6 +1799,9 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         // Cerrar el modal después de editar
         setShowEditarModal(false);
         setPresupuestoData(null);
+
+        // ✅ Recargar lista sin caché para obtener datos frescos
+        await loadList(true);
 
       } else {
         // ✅ CREACIÓN NUEVA: crear primera versión
@@ -1848,12 +1863,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
         // Cerrar el modal de creación
         setShowNuevoModal(false);
+        setShowModalTrabajoDiario(false);
         setShowEditarModal(false);
         setPresupuestoData(null);
-      }
 
-      // Recargar la lista para mostrar el presupuesto recién creado/modificado
-      await loadList();
+        // ✅ Recargar lista sin caché para obtener datos frescos
+        await loadList(true);
+      }
     } catch (error) {
       console.error('❌ ERROR AL GUARDAR PRESUPUESTO:', error.response?.data || error.message);
 
@@ -2434,6 +2450,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         selectedId,
         selectedPresupuesto,
         handleNuevo,
+        handleNuevoTrabajoDiario,
         handleEditar,
         handleListarTodos,
         handleBuscarPorDireccion,
@@ -2534,7 +2551,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                     <th className="small">Dirección</th>
                     <th style={{width: '90px'}} className="small">Inicio</th>
                     <th style={{width: '70px'}} className="small">Estado</th>
-                    <th style={{width: '80px'}} className="small">Tipo</th>
+                    <th style={{width: '80px'}} className="small">Modo</th>
                     <th style={{width: '80px'}} className="small">Alertas</th>
                     <th style={{width: '110px'}} className="text-end small">Total</th>
                     <th style={{width: '160px'}} className="text-center small">Acciones</th>
@@ -2697,7 +2714,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                             </span>
                           </div>
                         )}
-                        {row.esPresupuestoTrabajoExtra && row.tipoPresupuesto !== 'TAREA_LEVE' && (
+                        {row.tipoPresupuesto === 'TRABAJO_DIARIO' && (
+                          <div className="mt-1">
+                            <span className="badge text-white" style={{fontSize: '0.7em', padding: '3px 6px', backgroundColor: '#ff8c42'}}>
+                              📋 TRABAJO DIARIO
+                            </span>
+                          </div>
+                        )}
+                        {row.esPresupuestoTrabajoExtra && row.tipoPresupuesto !== 'TAREA_LEVE' && row.tipoPresupuesto !== 'TRABAJO_DIARIO' && (
                           <div className="mt-1">
                             <span className="badge bg-warning text-dark" style={{fontSize: '0.7em', padding: '3px 6px'}}>
                               🔧 TRABAJO EXTRA
@@ -2822,53 +2846,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         </span>
                       </td>
                       <td className="small">
-                        {/* Determinar modo basado en itemsCalculadora */}
+                        {/* Determinar modo basado en modoPresupuesto */}
                         {(() => {
-                          // Si no tiene items, mostrar "Sin items"
-                          if (!row.itemsCalculadora || row.itemsCalculadora.length === 0) {
-                            return (
-                              <span className="badge bg-light text-dark" style={{ fontSize: '0.7em' }}>
-                                <i className="fas fa-question me-1"></i>
-                                Sin items
-                              </span>
-                            );
-                          }
-
-                          // Verificar si hay elementos con indicadores de modo global
-                          let esGlobal = false;
-
-                          row.itemsCalculadora.forEach(item => {
-                            // Revisar jornales
-                            if (item.jornales && item.jornales.length > 0) {
-                              item.jornales.forEach(j => {
-                                const rol = (j.rol || '').toUpperCase();
-                                if (rol.includes('PRESUPUESTO GLOBAL') || rol.includes('PARA LA OBRA')) {
-                                  esGlobal = true;
-                                }
-                              });
-                            }
-
-                            // Revisar materiales
-                            if (item.materialesLista && item.materialesLista.length > 0) {
-                              item.materialesLista.forEach(m => {
-                                const nombre = (m.nombre || m.descripcion || '').toLowerCase();
-                                if (nombre.includes('presupuesto global') || nombre.includes('para la obra') ||
-                                    nombre.includes('materiales para la')) {
-                                  esGlobal = true;
-                                }
-                              });
-                            }
-
-                            // Revisar gastos
-                            if (item.gastosGenerales && item.gastosGenerales.length > 0) {
-                              item.gastosGenerales.forEach(g => {
-                                const desc = (g.descripcion || '').toLowerCase();
-                                if (desc.includes('presupuesto global') || desc.includes('para la obra')) {
-                                  esGlobal = true;
-                                }
-                              });
-                            }
-                          });
+                          // Obtener el modo del presupuesto (por defecto 'DETALLADO')
+                          const modo = row.modoPresupuesto || row.modo_presupuesto || 'DETALLADO';
+                          const esGlobal = modo === 'TRADICIONAL' || modo === 'GLOBAL';
 
                           if (esGlobal) {
                             return (
@@ -2911,7 +2893,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         <div>
                           <div className="fw-bold text-primary">
                             {(() => {
-                              // 1. Backend ya calculó el total con descuentos → usar directamente
+                              //✅ PRIORIDAD 1: totalConDescuentos (incluye descuentos, honorarios y mayores costos)
+                              // Este es el total REAL que debe mostrarse cuando hay descuentos aplicados
                               if (row.totalConDescuentos != null && Number(row.totalConDescuentos) > 0) {
                                 return (
                                   <>
@@ -2921,7 +2904,12 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                 );
                               }
 
-                              // 2. Recalcular desde itemsCalculadora con la utilidad compartida
+                              // PRIORIDAD 2: totalFinal (incluye honorarios y mayores costos, pero SIN descuentos)
+                              if (row.totalFinal != null && Number(row.totalFinal) > 0) {
+                                return `$${Number(row.totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                              }
+
+                              // PRIORIDAD 3: Recalcular desde itemsCalculadora (si no hay totales precalculados)
                               const items = row.itemsCalculadora;
                               if (items && Array.isArray(items) && items.length > 0) {
                                 const { totalFinal, totalDescuentos } = calcularTotalConDescuentosDesdeItems(items, row);
@@ -2937,8 +2925,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                 }
                               }
 
-                              // 3. Fallback final: priorizar el campo que incluye honorarios + mayores costos
-                              const total = row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || row.totalFinal || 0;
+                              // PRIORIDAD 4: Fallback a otros campos legacy
+                              const total = row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
                               if (total > 0) return `$${Number(total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
 
                               return <span className="text-muted">Sin datos</span>;
@@ -3137,7 +3125,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                               </tr>
                               {!colAd && adicionalesObra.map(adic => {
                                 const adicSel = selectedId === adic.id;
-                                const adicTotal = adic.totalConDescuentos || adic.totalPresupuestoConHonorarios || adic.totalGeneral || adic.montoTotal || adic.totalFinal || 0;
+                                // ✅ Priorizar totalConDescuentos (con descuentos), luego totalFinal (sin descuentos)
+                                const adicTotal = adic.totalConDescuentos || adic.totalFinal || adic.totalPresupuestoConHonorarios || adic.totalGeneral || adic.montoTotal || 0;
                                 const adicDir = [adic.direccionObraCalle, adic.direccionObraAltura].filter(Boolean).join(' ');
                                 return (
                                   <tr
@@ -3171,11 +3160,36 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                     <td className="small">{adicDir || '—'}</td>
                                     <td className="small">{adic.fechaProbableInicio || '—'}</td>
                                     <td>
-                                      <span className={`badge ${getEstadoBadgeClass(adic.estado)}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
-                                        {adic.estado || '—'}
-                                      </span>
+                                      {(() => {
+                                        const estado = adic.estado || adic.estadoPresupuesto || adic.estado_presupuesto || '—';
+                                        return (
+                                          <span className={`badge ${getEstadoBadgeClass(estado)}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                            {estado}
+                                          </span>
+                                        );
+                                      })()}
                                     </td>
-                                    <td></td>
+                                    <td className="small">
+                                      {(() => {
+                                        const modo = adic.modoPresupuesto || adic.modo_presupuesto || 'DETALLADO';
+                                        const esGlobal = modo === 'TRADICIONAL' || modo === 'GLOBAL';
+                                        if (esGlobal) {
+                                          return (
+                                            <span className="badge bg-secondary text-white" style={{ fontSize: '0.65em' }}>
+                                              <i className="fas fa-globe me-1"></i>
+                                              Global
+                                            </span>
+                                          );
+                                        } else {
+                                          return (
+                                            <span className="badge bg-info text-white" style={{ fontSize: '0.65em' }}>
+                                              <i className="fas fa-list me-1"></i>
+                                              Detallado
+                                            </span>
+                                          );
+                                        }
+                                      })()}
+                                    </td>
                                     <td></td>
                                     <td className="text-end fw-bold text-primary small">
                                       {adicTotal > 0
@@ -3300,7 +3314,8 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                               </tr>
                               {!colTL && tareasLeves.map(tarea => {
                                 const tareaSel = selectedId === tarea.id;
-                                const tareaTotal = tarea.totalConDescuentos || tarea.totalPresupuestoConHonorarios || tarea.totalGeneral || tarea.montoTotal || tarea.totalFinal || 0;
+                                // ✅ Priorizar totalConDescuentos (con descuentos), luego totalFinal (sin descuentos)
+                                const tareaTotal = tarea.totalConDescuentos || tarea.totalFinal || tarea.totalPresupuestoConHonorarios || tarea.totalGeneral || tarea.montoTotal || 0;
                                 const tareaDir = [tarea.direccionObraCalle, tarea.direccionObraAltura].filter(Boolean).join(' ');
                                 return (
                                   <tr
@@ -3326,11 +3341,36 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                     <td className="small">{tareaDir || '—'}</td>
                                     <td className="small">{tarea.fechaProbableInicio || '—'}</td>
                                     <td>
-                                      <span className={`badge ${getEstadoBadgeClass(tarea.estado)}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
-                                        {tarea.estado || '—'}
-                                      </span>
+                                      {(() => {
+                                        const estado = tarea.estado || tarea.estadoPresupuesto || tarea.estado_presupuesto || '—';
+                                        return (
+                                          <span className={`badge ${getEstadoBadgeClass(estado)}`} style={{fontSize:'0.65em', padding:'3px 5px'}}>
+                                            {estado}
+                                          </span>
+                                        );
+                                      })()}
                                     </td>
-                                    <td></td>
+                                    <td className="small">
+                                      {(() => {
+                                        const modo = tarea.modoPresupuesto || tarea.modo_presupuesto || 'DETALLADO';
+                                        const esGlobal = modo === 'TRADICIONAL' || modo === 'GLOBAL';
+                                        if (esGlobal) {
+                                          return (
+                                            <span className="badge bg-secondary text-white" style={{ fontSize: '0.65em' }}>
+                                              <i className="fas fa-globe me-1"></i>
+                                              Global
+                                            </span>
+                                          );
+                                        } else {
+                                          return (
+                                            <span className="badge bg-info text-white" style={{ fontSize: '0.65em' }}>
+                                              <i className="fas fa-list me-1"></i>
+                                              Detallado
+                                            </span>
+                                          );
+                                        }
+                                      })()}
+                                    </td>
                                     <td></td>
                                     <td className="text-end fw-bold text-primary small">
                                       {tareaTotal > 0
@@ -3411,12 +3451,39 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           }}
           onSave={async (presupuesto) => {
             await handleSavePresupuesto(presupuesto);
-            setShowNuevoModal(false);
-            setPresupuestoData(null);
-            await loadList();
+            // handleSavePresupuesto ya cierra el modal y recarga la lista
           }}
           tituloPersonalizado="Nuevo Presupuesto para Obra Principal"
           initialData={null}
+          saving={saving}
+        />
+      )}
+
+      {/* Modal Nuevo Trabajo Diario */}
+      {showModalTrabajoDiario && (
+        <PresupuestoNoClienteModal
+          show={showModalTrabajoDiario}
+          onClose={() => {
+            setShowModalTrabajoDiario(false);
+            setPresupuestoData(null);
+          }}
+          onSave={async (presupuesto) => {
+            await handleSavePresupuesto(presupuesto);
+            // handleSavePresupuesto ya cierra el modal y recarga la lista
+          }}
+          tituloPersonalizado="Nuevo Presupuesto para Trabajo Diario -- Nuevos Clientes"
+          initialData={{
+            idEmpresa: empresaId,
+            nombreEmpresa: empresaSeleccionada?.nombreEmpresa,
+            esPresupuestoTrabajoExtra: false,
+            tipoPresupuesto: 'TRABAJO_DIARIO',
+            estado: 'BORRADOR',
+            version: 1,
+            numeroVersion: 1,
+            fechaEmision: new Date().toISOString().slice(0, 10),
+            vencimiento: new Date().toISOString().slice(0, 10),
+            calculoAutomaticoDiasHabiles: false
+          }}
           saving={saving}
         />
       )}
@@ -3426,6 +3493,22 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         <PresupuestoNoClienteModal
           key={presupuestoData.id}
           show={showEditarModal}
+          tituloPersonalizado={(() => {
+            const tipo = presupuestoData.tipoPresupuesto;
+            const nombreObra = presupuestoData.nombreObra || presupuestoData.nombreObraManual || 'Obra';
+            const esLectura = forzarModoLectura || !esPresupuestoEditable(presupuestoData);
+            const accion = esLectura ? 'Ver' : 'Editar';
+
+            if (tipo === 'TRABAJO_DIARIO') {
+              return `${accion} Presupuesto para Trabajo Diario -- ${nombreObra}`;
+            } else if (tipo === 'TAREA_LEVE') {
+              return `${accion} Tarea Leve para: ${nombreObra}`;
+            } else if (tipo === 'TRABAJO_EXTRA') {
+              return `${accion} Presupuesto para Adicional Obra -- ${nombreObra}`;
+            } else {
+              return `${accion} Presupuesto para Obra Principal`;
+            }
+          })()}
           onClose={() => {
             setShowEditarModal(false);
             setPresupuestoData(null);
@@ -3437,9 +3520,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           }}
           onSave={async (presupuesto) => {
             await handleSavePresupuesto(presupuesto);
-            setShowEditarModal(false);
-            setPresupuestoData(null);
-            await loadList();
+            // No necesitamos cerrar el modal ni recargar aquí porque handleSavePresupuesto ya lo hace
           }}
           initialData={presupuestoData}
           saving={saving}

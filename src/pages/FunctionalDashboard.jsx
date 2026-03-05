@@ -400,9 +400,9 @@ const FunctionalDashboard = ({ showNotification }) => {
       value: stats.trabajosObrasIndependientes,
       icon: 'fas fa-wrench',
       color: 'success',
-      link: '/obras?tab=obras-manuales',
-      description: 'Obras creadas sin presupuesto previo',
-      customColor: '#4CAF50'
+      link: '/presupuestos-no-cliente',
+      description: 'Crear presupuestos para nuevos clientes',
+      customColor: '#ff8c42'
     },
     {
       title: 'Reportes del Sistema',

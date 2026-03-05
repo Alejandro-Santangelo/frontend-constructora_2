@@ -1497,7 +1497,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     // Solo para presupuestos nuevos (sin id)
     if (!form.id) {
-      if (form.tipoPresupuesto === 'PRINCIPAL' && form.estado === 'OBRA_A_CONFIRMAR') {
+      if ((form.tipoPresupuesto === 'PRINCIPAL' || form.tipoPresupuesto === 'TRABAJO_DIARIO') && form.estado === 'OBRA_A_CONFIRMAR') {
         setForm(prev => ({ ...prev, estado: 'BORRADOR' }));
       }
     }
@@ -6148,9 +6148,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     }));
   };
 
-  // Calcula el total final del presupuesto ya con los descuentos restados.
-  // Se usa al construir el payload para persistir el valor calculado en el backend.
-  const calcularTotalConDescuentos = () => {
+  // Función auxiliar para recalcular descuentos manualmente (no utilizada actualmente)
+  const calcularTotalConDescuentosManual = () => {
     const items = itemsCalculadoraConsolidados || [];
     const totalSinDescuento = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
     let totalDescuentos = 0;
@@ -7199,7 +7198,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       const totalDescuentos = descJornalesBase + descManoObraBase + descMaterialesBase + descGastosBase +
                                descHonJornales + descHonManoObra + descHonMateriales + descHonGastos;
       if (totalDescuentos > 0) {
-        rubro.total -= totalDescuentos;
+        // ✅ NO restar descuentos de rubro.total - debe quedarse SIN descuentos para totalPresupuestoConHonorarios
+        // rubro.total debe ser: base + honorarios + mayoresCostos (SIN descuentos)
         rubro.descuentosAplicados = totalDescuentos;
       }
     });
@@ -7235,6 +7235,26 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     form.honorariosGastosActivo, form.honorariosGastosValor, form.honorariosGastosTipo,
     form.descuentos,
   ]);
+
+  // ✅ TOTAL QUE VE EL USUARIO EN LA UI
+  // Este es el valor REAL que debe guardarse en el backend
+  const totalUIVisible = React.useMemo(() => {
+    const items = itemsCalculadoraConsolidados || [];
+    // Este es EXACTAMENTE el mismo cálculo que muestra la UI en el "TOTAL FINAL"
+    return items.reduce((acc, ic) => acc + (ic.total || 0) - (ic.descuentosAplicados || 0), 0);
+  }, [itemsCalculadoraConsolidados]);
+
+  // ✅ TOTALES SIN DESCUENTOS (para backend)
+  const totalesSinDescuentos = React.useMemo(() => {
+    const items = itemsCalculadoraConsolidados || [];
+    const totalSinDescuento = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+    const totalDescuentos = items.reduce((sum, item) => sum + (Number(item.descuentosAplicados) || 0), 0);
+    return {
+      total: totalSinDescuento,
+      descuentos: totalDescuentos,
+      conDescuentos: totalSinDescuento - totalDescuentos
+    };
+  }, [itemsCalculadoraConsolidados]);
 
   // 🎯 Modo de presupuesto detectado con hook reutilizable (ver línea ~237)
 
@@ -7821,10 +7841,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       return;
     }
 
-    await sincronizarCliente();
+    try {
+      await sincronizarCliente();
 
-    // ✅ UX MEJORADA: Validación flexible - calle/altura obligatorios solo si NO hay nombreObra
-    const tieneNombreObra = form.nombreObra && form.nombreObra.trim() !== '';
+      // ✅ UX MEJORADA: Validación flexible - calle/altura obligatorios solo si NO hay nombreObra
+      const tieneNombreObra = form.nombreObra && form.nombreObra.trim() !== '';
 
     const nextErrors = {};
     if (!tieneNombreObra) {
@@ -7887,7 +7908,32 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     estaGuardandoRef.current = true; // 🚫 Evitar loops
     setSaving(true);
     console.log('📦 PAYLOAD COMPLETO JSON:', JSON.stringify(datosCompletos, null, 2));
-    try {
+
+    // ✅ VERIFICACIÓN FINAL: Lo que ve el usuario ES lo que se guarda
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('📺 CONFIRMACIÓN: GUARDANDO EXACTAMENTE LO QUE VE EN LA UI');
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('💰 TOTAL FINAL VISIBLE EN UI:', totalUIVisible.toLocaleString('es-AR'));
+    console.log('💾 TOTAL QUE SE GUARDARÁ:', datosCompletos.totalConDescuentos?.toLocaleString('es-AR'));
+    console.log('✅ ¿COINCIDEN?', totalUIVisible === datosCompletos.totalConDescuentos ? 'SÍ ✓' : 'NO ✗');
+
+    // 🏗️ VERIFICACIÓN: Campos para creación automática de obra
+    if (datosCompletos.tipoPresupuesto === 'TRABAJO_DIARIO' || datosCompletos.tipoPresupuesto === 'PRINCIPAL') {
+      const puedeCrearObra = datosCompletos.estado === 'APROBADO' &&
+                             (datosCompletos.clienteId || datosCompletos.idCliente) &&
+                             datosCompletos.nombreObra &&
+                             datosCompletos.fechaProbableInicio &&
+                             !datosCompletos.obraId &&
+                             !datosCompletos.idObra;
+
+      console.log('🏗️ CREACIÓN AUTOMÁTICA DE OBRA:', puedeCrearObra ? '✅ SÍ SE CREARÁ' : '❌ NO SE CREARÁ');
+      console.log('   - Estado APROBADO:', datosCompletos.estado === 'APROBADO' ? '✅' : '❌', datosCompletos.estado);
+      console.log('   - Tiene Cliente:', !!(datosCompletos.clienteId || datosCompletos.idCliente) ? '✅' : '❌', datosCompletos.clienteId || datosCompletos.idCliente);
+      console.log('   - Tiene Nombre Obra:', !!datosCompletos.nombreObra ? '✅' : '❌', datosCompletos.nombreObra);
+      console.log('   - Tiene Fecha Inicio:', !!datosCompletos.fechaProbableInicio ? '✅' : '❌', datosCompletos.fechaProbableInicio);
+      console.log('   - NO tiene obraId:', !datosCompletos.obraId && !datosCompletos.idObra ? '✅' : '❌', 'obraId:', datosCompletos.obraId, 'idObra:', datosCompletos.idObra);
+    }
+
       const resultado = await onSave(datosCompletos);
 
       // 🔄 Sincronizar estado de la obra si es un trabajo extra
@@ -8173,6 +8219,29 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         delete payload.clienteId;
         delete payload.idCliente;
       }
+
+      // ✅ CRÍTICO: Si el presupuesto está APROBADO, debe crear OBRA NUEVA
+      // Por lo tanto, mover idObra a idObraPadre y eliminar idObra
+      if (payload.estado === 'APROBADO' && (payload.obraId || payload.idObra)) {
+        console.log('🏗️ TRABAJO_EXTRA/TAREA_LEVE APROBADO: Moviendo idObra a idObraPadre para crear OBRA NUEVA');
+        payload.idObraPadre = payload.obraId || payload.idObra;
+        delete payload.obraId;
+        delete payload.idObra;
+        console.log('✅ idObraPadre:', payload.idObraPadre, '→ Se creará obra nueva con nombreObra:', payload.nombreObra);
+      }
+
+      // 🔍 DEBUG CRÍTICO: Verificar campos necesarios para creación de obra
+      if (payload.tipoPresupuesto === 'TRABAJO_EXTRA' || payload.tipoPresupuesto === 'TAREA_LEVE') {
+        console.log('🏗️ ' + payload.tipoPresupuesto + ' - Verificación campos para crear obra:', {
+          estado: payload.estado,
+          nombreObra: payload.nombreObra,
+          clienteId: 'Se hereda de obra padre (idObraPadre)',
+          idObraPadre: payload.idObraPadre,
+          fechaProbableInicio: payload.fechaProbableInicio,
+          obraId: payload.obraId || payload.idObra,
+          '⚠️ CREARÁ_OBRA': payload.estado === 'APROBADO' && payload.nombreObra && payload.fechaProbableInicio && !payload.obraId && !payload.idObra && !!payload.idObraPadre
+        });
+      }
     } else if (payload.tipoPresupuesto === 'PRINCIPAL' || payload.tipoPresupuesto === 'TRABAJO_DIARIO') {
       // PRINCIPAL/TRABAJO_DIARIO: Backend no permite obraId
       // Si tiene obraId, guardarlo como idObraPadre para vinculación futura y limpiar obraId
@@ -8182,6 +8251,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         delete payload.obraId;
         delete payload.idObra;
         console.log('🧹 LIMPIEZA: Tipo ' + payload.tipoPresupuesto + ' → eliminando obraId del payload (backend no lo permite)');
+      }
+
+      // 🔍 DEBUG CRÍTICO: Verificar campos necesarios para creación de obra
+      if (payload.tipoPresupuesto === 'TRABAJO_DIARIO') {
+        console.log('🏗️ TRABAJO_DIARIO - Verificación campos para crear obra:', {
+          estado: payload.estado,
+          nombreObra: payload.nombreObra,
+          clienteId: payload.clienteId || payload.idCliente,
+          fechaProbableInicio: payload.fechaProbableInicio,
+          obraId: payload.obraId || payload.idObra,
+          idObraPadre: payload.idObraPadre,
+          '⚠️ CREARÁ_OBRA': payload.estado === 'APROBADO' && (payload.clienteId || payload.idCliente) && payload.nombreObra && payload.fechaProbableInicio && !payload.obraId && !payload.idObra
+        });
       }
     }
 
@@ -8925,7 +9007,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     itemsCalculadoraConsolidados?.forEach((item, idx) => {
     });
+    // ✅ Para display: total SIN descuentos (rubro.total ya NO tiene descuentos restados)
     const totalConsolidadoFinal = itemsCalculadoraConsolidados?.reduce((sum, item) => sum + (item.total || 0), 0) || 0;
+    // Para display CON descuentos: restar descuentosAplicados
+    const totalConsolidadoConDescuentos = itemsCalculadoraConsolidados?.reduce((sum, item) => sum + (item.total || 0) - (item.descuentosAplicados || 0), 0) || 0;
 
     // ✅ USAR itemsCalculadora SIN CONSOLIDAR para evitar duplicación de jornales/profesionales/materiales/gastos
     // itemsCalculadoraConsolidados es SOLO para MOSTRAR en UI, NO para guardar
@@ -9301,6 +9386,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     //   Estos últimos se crean automáticamente para tenerlos disponibles en futuros presupuestos
 
     // ✅ RECALCULAR totalPresupuesto desde payload.itemsCalculadora (FILTRANDO LEGACY)
+    // 🔥 CRÍTICO: Usar subtotales BASE (sin honorarios ni mayores costos) para evitar suma doble
     const itemsValidosParaTotal = (payload.itemsCalculadora || []).filter(item => {
       const esLegacy = item.tipoProfesional?.toLowerCase().includes('migrado') ||
                        item.tipoProfesional?.toLowerCase().includes('legacy') ||
@@ -9308,19 +9394,35 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       return !esLegacy;
     });
 
-    const totalCalculadoraRecalculado = itemsValidosParaTotal.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+    // 🔧 CORRECCIÓN: Calcular base SIN honorarios ni mayores costos desde subtotales
+    const totalCalculadoraBaseRecalculado = itemsValidosParaTotal.reduce((sum, item) => {
+      // Sumar solo subtotales base, NO item.total que incluye honorarios y mayores costos
+      const jornales = Number(item.subtotalJornales) || 0;
+      const manoObra = Number(item.subtotalManoObra) || 0;
+      const materiales = Number(item.subtotalMateriales) || 0;
+      const gastos = Number(item.subtotalGastosGenerales) || 0;
+      const manual = item.esModoManual ? (Number(item.totalManual) || 0) : 0;
+      return sum + jornales + manoObra + materiales + gastos + manual;
+    }, 0);
 
-    console.log('💰 Total calculado (filtrando legacy):', totalCalculadoraRecalculado, 'de', payload.itemsCalculadora?.length, 'items (', itemsValidosParaTotal.length, 'válidos)');
+    console.log('💰 Total BASE calculado (filtrando legacy):', totalCalculadoraBaseRecalculado, 'de', payload.itemsCalculadora?.length, 'items (', itemsValidosParaTotal.length, 'válidos)');
 
-    payload.totalPresupuesto = totalProfItemsBase + totalMatItemsBase + totalOtrosItemsBase + totalCalculadoraRecalculado;
-    // Recalcular totalFinal antes de guardar
+    // ✅ PASO 1: Total BASE (sin honorarios, sin mayores costos, sin descuentos)
+    payload.totalPresupuesto = totalProfItemsBase + totalMatItemsBase + totalOtrosItemsBase + totalCalculadoraBaseRecalculado;
+
+    // ✅ PASO 2: Total CON HONORARIOS Y MAYORES COSTOS (sin descuentos)
     const totalFinalCalculado = payload.totalPresupuesto + totalHonorarios + totalMayoresCostos;
     payload.totalPresupuestoConHonorarios = totalFinalCalculado;
     payload.montoTotal = totalFinalCalculado;
     payload.totalFinal = totalFinalCalculado;
     payload.totalGeneral = totalFinalCalculado;
 
-    console.log('💵 TOTAL FINAL CALCULADO A GUARDAR:', totalFinalCalculado.toLocaleString('es-AR'));
+    console.log('💵 TOTALES CALCULADOS A GUARDAR:', {
+      totalPresupuesto: payload.totalPresupuesto.toLocaleString('es-AR'),
+      totalHonorarios: totalHonorarios.toLocaleString('es-AR'),
+      totalMayoresCostos: totalMayoresCostos.toLocaleString('es-AR'),
+      totalFinal: totalFinalCalculado.toLocaleString('es-AR')
+    });
 
     payload.descripcionProfesionales = descripcionProfesionales || null;
     payload.observacionesProfesionales = observacionesProfesionales || null;
@@ -9587,9 +9689,35 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('💸 Sin descuentos configurados');
     }
 
-    // 💰 TOTAL CON DESCUENTOS: calculado en frontend y persistido en backend
-    // Permite que la lista muestre el total correcto sin recalcular
-    payload.totalConDescuentos = calcularTotalConDescuentos();
+    // ✅ GUARDAR EXACTAMENTE LO QUE MUESTRA LA UI - SIN RECALCULAR
+    payload.totalConDescuentos = totalUIVisible;
+    payload.totalPresupuestoConHonorarios = totalesSinDescuentos.total;
+    payload.totalFinal = totalesSinDescuentos.total;
+    payload.montoTotal = totalesSinDescuentos.total;
+    payload.totalGeneral = totalesSinDescuentos.total;
+
+    console.log('💾 GUARDANDO EXACTAMENTE LO QUE MUESTRA LA UI:', {
+      '📺 TOTAL VISIBLE EN UI': totalUIVisible.toLocaleString('es-AR'),
+      '🔢 Total sin descuentos': totalesSinDescuentos.total.toLocaleString('es-AR'),
+      '💸 Descuentos aplicados': totalesSinDescuentos.descuentos.toLocaleString('es-AR'),
+      '✅ VALIDACIÓN': totalUIVisible === totalesSinDescuentos.conDescuentos ? 'CORRECTO' : 'ERROR'
+    });
+
+    // ✅ VALIDACIÓN SIMPLE: El total con descuentos debe ser menor o igual al total sin descuentos
+    if (totalUIVisible > totalesSinDescuentos.total) {
+      console.error('❌ ERROR: Total con descuentos mayor que total sin descuentos:', {
+        totalConDescuentos: totalUIVisible,
+        totalSinDescuentos: totalesSinDescuentos.total
+      });
+      throw new Error(
+        `Error: El total con descuentos no puede ser mayor al total sin descuentos.\n\n` +
+        `Total sin descuentos: $${totalesSinDescuentos.total.toLocaleString('es-AR')}\n` +
+        `Total con descuentos: $${totalUIVisible.toLocaleString('es-AR')}\n\n` +
+        `Por favor, verifique la configuración de descuentos.`
+      );
+    }
+
+    console.log('✅ Valores de UI capturados correctamente - Listos para guardar');
 
     // 🧹 LIMPIAR campos internos del frontend (que empiezan con "_")
     // Estos campos son solo para control interno y no deben enviarse al backend
@@ -9900,11 +10028,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 <div className="col-12 mb-3">
                   <div className="alert alert-light border" style={{
                     backgroundColor: '#f8f9fa',
-                    borderLeft: '5px solid #0d6efd',
+                    borderLeft: `5px solid ${getBorderColor()}`,
                     padding: '12px 20px'
                   }}>
                     <h6 className="mb-0" style={{
-                      color: '#0d6efd',
+                      color: getBorderColor(),
                       fontSize: '1.1rem',
                       fontWeight: 'bold',
                       letterSpacing: '0.5px'
@@ -9995,8 +10123,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             })()
                           ) : null}
                           {(form.id || initialData?.id) && (form.clienteId || initialData?.clienteId || form.obraId || initialData?.obraId) ? (
-                            <div className="alert alert-info mb-3" style={{backgroundColor: '#e7f3ff', borderLeft: '4px solid #0d6efd'}}>
-                              <h6 className="fw-bold mb-3" style={{color: '#0d6efd'}}>
+                            <div className="alert alert-info mb-3" style={{backgroundColor: '#e7f3ff', borderLeft: `4px solid ${getBorderColor()}`}}>
+                              <h6 className="fw-bold mb-3" style={{color: getBorderColor()}}>
                                 <i className="fas fa-link me-2"></i>
                                 Presupuesto Vinculado
                                 {form.esPresupuestoTrabajoExtra && (
@@ -10628,9 +10756,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                         style={{
                           maxWidth: '160px',
                           marginTop: 0,
-                          backgroundColor: (form.calculoAutomaticoDiasHabiles === true) ? '#e9f7ef' : (editarSoloFechas ? '#fff3cd' : '#e7f3ff'),
+                          backgroundColor: (form.calculoAutomaticoDiasHabiles === true) ? '#e9f7ef' : (editarSoloFechas ? '#fff3cd' : 'white'),
                           fontWeight: editarSoloFechas ? 'bold' : 'normal',
-                          border: (form.calculoAutomaticoDiasHabiles === true) ? '3px solid #28a745' : '3px solid #0d6efd',
+                          border: (form.calculoAutomaticoDiasHabiles === true) ? '3px solid #28a745' : `3px solid ${getBorderColor()}`,
                           borderRadius: '8px',
                           padding: '10px 12px',
                           fontSize: '0.95rem',
@@ -14848,16 +14976,21 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             formData.append('file', pdfBlob, archivoConExtension);
                             formData.append('nombre_archivo', archivoConExtension);
 
-                            if (!modoTrabajoExtra) {
-                              formData.append('version_presupuesto', form.version || 1);
-                              formData.append('incluye_honorarios', String(!ocultarHonorariosEnPDF));
-                              formData.append('incluye_configuracion', String(!ocultarConfiguracionEnPDF));
-                            }
+                            // ✅ SIEMPRE enviar estos parámetros (son requeridos por el backend)
+                            formData.append('version_presupuesto', form.version || 1);
+                            formData.append('incluye_honorarios', String(!ocultarHonorariosEnPDF));
+                            formData.append('incluye_configuracion', String(!ocultarConfiguracionEnPDF));
 
-                            // 🔄 Usar endpoint correcto según el modo
-                            const endpoint = modoTrabajoExtra
-                              ? `/api/v1/trabajos-extra/${form.id}/pdf`
-                              : `/api/v1/presupuestos-no-cliente/${form.id}/pdf`;
+                            // ✅ TODOS los presupuestos (incluidos trabajos extra) se guardan en presupuestos-no-cliente
+                            // El modoTrabajoExtra es solo un flag de UI, no determina la tabla real
+                            const endpoint = `/api/v1/presupuestos-no-cliente/${form.id}/pdf`;
+
+                            console.log('📄 Guardando PDF en backend:', {
+                              endpoint,
+                              presupuestoId: form.id,
+                              tipoPresupuesto: form.tipoPresupuesto,
+                              modoTrabajoExtra: modoTrabajoExtra
+                            });
 
                             // 🔒 Asegurar que empresaId sea un número limpio
                             const empresaId = Number(empresaSeleccionada?.id || 1);
@@ -14882,12 +15015,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               alert(`✅ PDF generado, descargado Y guardado en la base de datos\n\nArchivo: ${archivoConExtension}\nEstado: ${response.status || 'OK'}`);
                             }
 
-                            // Marcar como ENVIADO segun tipo
-                            if (modoTrabajoExtra) {
-                              await marcarTrabajoExtraComoEnviado();
-                            } else {
-                              await marcarComoEnviado();
-                            }
+                            // ✅ Marcar como ENVIADO - todos los presupuestos usan la misma función
+                            await marcarComoEnviado();
                           }
 
                           // 📱 IMPORTANTE: Abrir WhatsApp/Email SIEMPRE que los flags estén activos (independiente de si se guardó en BD)
@@ -15199,7 +15328,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                           totalCalculadoraCompleto += (item.total || 0);
                         });
 
-                        totalCalculadoraCompleto = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (item.total || 0), 0);
+                        // ✅ Display CON descuentos aplicados
+                        totalCalculadoraCompleto = itemsCalculadoraConsolidados.reduce((sum, item) => sum + (item.total || 0) - (item.descuentosAplicados || 0), 0);
 
                         // 🔍 DEBUG: Ver detalle del total
                         if (itemsCalculadoraConsolidados.length > 0 && !estaCargandoInicialRef.current) {
@@ -15254,7 +15384,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                       Grupos de Tareas ({itemsCalculadora.length})
                                     </span>
                                     <span className="fw-bold text-info">
-                                      {`$${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                      {`$${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0) - (ic.descuentosAplicados || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                                     </span>
                                   </div>
 
@@ -15477,7 +15607,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     </h5>
                                   </div>
                                   <h3 className="mb-0 fw-bold text-success">
-                                    ${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    ${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0) - (ic.descuentosAplicados || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                   </h3>
                                 </div>
                                 <div className="mt-2">

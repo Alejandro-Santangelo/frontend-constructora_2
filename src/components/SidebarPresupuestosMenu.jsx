@@ -9,6 +9,7 @@ const menuConfig = [
     color: 'primary',
     children: [
       { label: 'Nuevo presupuesto', onClick: 'crear' },
+      { label: '🟠 Trabajo Diario - Nuevo Cliente', onClick: 'crearTrabajoDiario' },
       { label: 'Duplicar presupuesto', onClick: 'duplicar' },
     ]
   },

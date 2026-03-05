@@ -79,6 +79,14 @@ const Sidebar = ({ collapsed, onToggleSidebar, presupuestoControls, obrasControl
               </button>
 
               <button
+                className="btn w-100 text-start py-3 fs-5 fw-semibold text-white"
+                style={{ backgroundColor: '#ff8c42', border: 'none' }}
+                onClick={presupuestoControls.handleNuevoTrabajoDiario}
+              >
+                <i className="fas fa-wrench me-2"></i>Trabajo Diario
+              </button>
+
+              <button
                 className="btn w-100 text-start py-3 fs-5 fw-semibold"
                 style={{ backgroundColor: '#0056b3', border: 'none', color: '#fff', fontWeight: 'bold' }}
                 onClick={presupuestoControls.handleListarTodos}

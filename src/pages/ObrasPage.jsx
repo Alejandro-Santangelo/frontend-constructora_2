@@ -784,7 +784,7 @@ const ObrasPage = ({ showNotification }) => {
               nombreCliente: presup.nombreSolicitante || nombreClienteObra || 'Sin especificar',
               direccion: direccionCompleta !== '?' ? direccionCompleta : (direccionObra || '?'),
               contacto: presup.telefono || telefonoObra || '?',
-              importe: presup.totalFinal || presup.importe || 0,
+              importe: presup.totalConDescuentos || presup.totalFinal || presup.importe || 0,
               fechaInicio: presup.fechaProbableInicio || presup.fechaInicio,
               fechaFin: presup.fechaFinalizacion || presup.fechaFin,
               descripcion: presup.descripcion || '',
@@ -799,17 +799,18 @@ const ObrasPage = ({ showNotification }) => {
           setTareasLeves(tareasMapeadas);
 
           // ?? IMPORTANTE: Guardar presupuestos en presupuestosObras para que estén disponibles
-          // Usar tareasMapeadas para preservar el obraId explícitamente
-          const presupuestosPorId = {};
+          // Usar OBRA ID como clave, no presupuesto ID, para que funcione con selectedObraId
+          const presupuestosPorObraId = {};
           tareasMapeadas.forEach(tarea => {
-            if (tarea.id) {
-              presupuestosPorId[tarea.id] = tarea;
+            if (tarea.obraId) {
+              presupuestosPorObraId[tarea.obraId] = tarea;
+              console.log(`📋 Guardando presupuesto TAREA_LEVE: obra[${tarea.obraId}] = presupuesto ${tarea.id}`);
             }
           });
 
           setPresupuestosObras(prev => ({
             ...prev,
-            ...presupuestosPorId
+            ...presupuestosPorObraId
           }));
         } catch (error) {
           console.error('? Error al cargar tareas leves:', error);
@@ -1564,16 +1565,20 @@ const ObrasPage = ({ showNotification }) => {
               const presupuesto = presupuestosObras[obra.id];
               const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
-              console.log('?? ========== EDITAR OBRA ==========');
-              console.log('?? Obra seleccionada:', obra.nombre, ' (ID:', obra.id, ')');
-              console.log('?? presupuestosObras[' + obra.id + ']:', presupuesto);
+              console.log('🔧 ========== EDITAR OBRA ==========');
+              console.log('🔧 Obra seleccionada:', obra.nombre, ' (ID:', obra.id, ')');
+              console.log('🔧 presupuestosObras[' + obra.id + ']:', presupuesto);
+              console.log('🔧 tienePresupuesto:', tienePresupuesto);
+              console.log('🔧 typeof presupuesto:', typeof presupuesto);
               if (presupuesto) {
                 console.log('     +- Presupuesto ID:', presupuesto.id);
                 console.log('     +- Nombre Obra:', presupuesto.nombreObra);
-                console.log('     +- Versi?n:', presupuesto.numeroVersion);
+                console.log('     +- Tipo Presupuesto:', presupuesto.tipoPresupuesto);
+                console.log('     +- Estado:', presupuesto.estado);
+                console.log('     +- Versión:', presupuesto.numeroVersion);
                 console.log('     +- obraId del presupuesto:', presupuesto.obraId);
               }
-              console.log('?? =====================================');
+              console.log('🔧 =====================================');;
 
               if (tienePresupuesto) {
                 // ?? OBRA CON PRESUPUESTO: Abrir modal de edici?n en la misma p?gina (sin navegar)
@@ -2820,28 +2825,54 @@ _V?lido por 30 d?as_
 
           setMostrarModalTrabajoExtra(true);
         },
-        handleAprobar: () => {
-          if (trabajoExtraSeleccionado) {
-            // Cambiar estado a APROBADO
-            if (trabajoExtraSeleccionado.estado === 'ENVIADO' || trabajoExtraSeleccionado.estado === 'A_ENVIAR') {
-              api.presupuestosNoCliente.update(trabajoExtraSeleccionado.id, {
-                ...trabajoExtraSeleccionado,
-                estado: 'APROBADO',
-                esPresupuestoTrabajoExtra: true
-              }, empresaId)
-                .then(() => {
-                  showNotification('? Trabajo extra aprobado exitosamente', 'success');
-                  cargarTrabajosExtra(obraParaTrabajosExtra);
-                  setTrabajoExtraSeleccionado(null);
-                })
-                .catch(error => {
-                  showNotification('? Error al aprobar: ' + error.message, 'error');
-                });
-            } else {
-              showNotification('El trabajo extra debe estar en estado ENVIADO o A_ENVIAR para aprobarlo', 'warning');
-            }
-          } else {
+        handleAprobar: async () => {
+          if (!trabajoExtraSeleccionado) {
             showNotification('Seleccione un trabajo extra para aprobar', 'warning');
+            return;
+          }
+
+          if (trabajoExtraSeleccionado.estado !== 'ENVIADO' && trabajoExtraSeleccionado.estado !== 'A_ENVIAR') {
+            showNotification('El trabajo extra debe estar en estado ENVIADO o A_ENVIAR para aprobarlo', 'warning');
+            return;
+          }
+
+          try {
+            // Usar el mismo endpoint que PresupuestosNoClientePage
+            // Este endpoint en el backend hace TODO: aprobar + crear obra
+            const response = await api.post(
+              `/api/v1/presupuestos-no-cliente/${trabajoExtraSeleccionado.id}/aprobar-y-crear-obra`,
+              {},
+              {
+                params: { empresaId },
+                headers: { 'X-Tenant-ID': empresaId, 'Content-Type': 'application/json' }
+              }
+            );
+
+            const respuestaData = response.data || response;
+            const obraId = respuestaData?.obraId || respuestaData?.id;
+            const mensaje = respuestaData?.mensaje || respuestaData?.message;
+            const obraCreada = respuestaData?.obraCreada !== false;
+
+            if (obraCreada && obraId) {
+              showNotification(
+                mensaje || `Trabajo extra aprobado. Obra #${obraId} creada exitosamente.`,
+                'success'
+              );
+            } else {
+              showNotification(
+                mensaje || 'Trabajo extra aprobado exitosamente',
+                'success'
+              );
+            }
+
+            // Recargar datos
+            await dispatch(fetchObrasPorEmpresa(empresaId));
+            cargarTrabajosExtra(obraParaTrabajosExtra);
+            setTrabajoExtraSeleccionado(null);
+
+          } catch (error) {
+            console.error('Error al aprobar:', error);
+            showNotification('Error al aprobar: ' + error.message, 'error');
           }
         },
         esTrabajosExtra: true, // Flag para que el sidebar sepa que est? en modo trabajos extra
@@ -2929,11 +2960,16 @@ _V?lido por 30 d?as_
             if (response.ok) {
               let data = await response.json();
 
-              // Si es array, buscar presupuesto aprobado o en ejecuci?n
+              // Si es array, buscar presupuesto en orden de prioridad
               if (Array.isArray(data)) {
                 const presupuesto = data.find(p => p.estado === 'EN_EJECUCION') ||
-                                   data.find(p => p.estado === 'APROBADO');
+                                   data.find(p => p.estado === 'APROBADO') ||
+                                   data.find(p => p.estado === 'TERMINADO') ||
+                                   data.find(p => p.estado === 'ENVIADO') ||
+                                   data.find(p => p.estado === 'A_ENVIAR') ||
+                                   data[0]; // Fallback: tomar el primero si existe
                 presupuestos[obra.id] = presupuesto || null;
+                console.log(`📋 Obra ${obra.id} (${obra.nombre}): Cargado presupuesto ID=${presupuesto?.id}, tipo=${presupuesto?.tipoPresupuesto}, estado=${presupuesto?.estado}`);
               } else if (data && data.id) {
                 presupuestos[obra.id] = data;
               } else {
@@ -4161,9 +4197,11 @@ _V?lido por 30 d?as_
       const obraIdParaAPI = obra._obraOriginalId || obra.id;
       const data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId: obraIdParaAPI, esPresupuestoTrabajoExtra: true });
 
-      // ?? FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+      // ✅ FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+      // ✅ EXCLUIR tareas leves que tienen esPresupuestoTrabajoExtra pero son tipo TAREA_LEVE
       const soloTrabajosExtra = (Array.isArray(data) ? data : []).filter(p =>
-        p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
+        (p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V') &&
+        p.tipoPresupuesto === 'TRABAJO_EXTRA'
       );
 
       // ?? Normalizar datos para asegurar que tienen obraId
@@ -4474,48 +4512,173 @@ _V?lido por 30 d?as_
   // ? Funci?n para generar obra derivada desde trabajo extra aprobado
   const handleGenerarObraDesdeTrabajoExtra = async (trabajo) => {
     try {
-      if (!window.confirm('?Desea generar una nueva OBRA a partir de este trabajo extra?')) return;
+      console.log('=== INICIANDO APROBACION Y CREACION DE OBRA ===');
+      console.log('Presupuesto recibido:', trabajo);
+      console.log('Tipo:', trabajo.tipoPresupuesto);
+      console.log('ID:', trabajo.id);
 
-      // 1?? Primero cambiar el estado a APROBADO
-      console.log('?? Cambiando estado del trabajo extra a APROBADO...');
-      const trabajoNormalizado = {
-        ...normalizarTrabajoExtra(trabajo),
+      if (!window.confirm('Desea aprobar este presupuesto y generar una nueva OBRA?')) {
+        console.log('Usuario cancelo la operacion');
+        return;
+      }
+
+      // Obtener el presupuesto COMPLETO del backend
+      console.log('Obteniendo presupuesto completo del backend...');
+      const presupuestoCompleto = await api.presupuestosNoCliente.getById(trabajo.id, empresaId);
+      console.log('Presupuesto completo obtenido');
+      console.log('Datos completos:', JSON.stringify(presupuestoCompleto, null, 2));
+
+      const tipoPresupuesto = presupuestoCompleto.tipoPresupuesto;
+      console.log('Tipo de presupuesto:', tipoPresupuesto);
+
+      // Verificar duplicados
+      console.log('Verificando si ya existe una obra para este presupuesto...');
+      const obrasExistentes = await api.obras.obtenerObras({ empresaId });
+      const yaExisteObra = obrasExistentes?.data?.some(o => o.presupuestoOriginalId === trabajo.id);
+
+      if (yaExisteObra) {
+        console.log('Ya existe una obra para este presupuesto ID:', trabajo.id);
+        showNotification('Ya existe una obra creada para este presupuesto', 'warning');
+        return;
+      }
+      console.log('No hay obra duplicada, se puede crear');
+
+      // Actualizar estado a APROBADO
+      console.log('Actualizando estado del presupuesto a APROBADO...');
+      const presupuestoActualizado = {
+        ...presupuestoCompleto,
         estado: 'APROBADO'
       };
 
-      if (!trabajoNormalizado.nombre) trabajoNormalizado.nombre = trabajoNormalizado.nombreObra || 'Trabajo Extra';
+      await api.presupuestosNoCliente.update(trabajo.id, presupuestoActualizado, empresaId);
+      console.log('Estado actualizado a APROBADO en el backend');
 
-      await api.presupuestosNoCliente.update(trabajoNormalizado.id, {
-        ...trabajoNormalizado,
-        esPresupuestoTrabajoExtra: true
-      }, empresaId);
+      // Crear la obra segun el tipo de presupuesto
+      let obraData = null;
 
-      console.log('? Estado actualizado a APROBADO');
+      // TRABAJO_EXTRA y TAREA_LEVE: funcionan como "Adicional Obra" (obra derivada)
+      if (tipoPresupuesto === 'TRABAJO_EXTRA' || tipoPresupuesto === 'TAREA_LEVE') {
+        console.log('Creando obra DERIVADA (adicional) desde tipo:', tipoPresupuesto);
 
-      // 2?? Luego crear la obra derivada
-      const obraData = {
-        nombre: trabajo.nombre || `Trabajo Extra #${trabajo.id} - ${obraParaTrabajosExtra?.nombre || 'Obra Padre'}`,
-        direccion: trabajo.direccionObraCalle || obraParaTrabajosExtra?.direccion || 'Direcci?n de obra padre',
-        idEmpresa: empresaId,
-        clienteId: trabajo.clienteId || obraParaTrabajosExtra?.clienteId,
-        estado: 'EN_EJECUCION',
-        // Referencias para trazabilidad
-        presupuestoOriginalId: trabajo.id,
-        observaciones: `Obra derivada del trabajo extra #${trabajo.id} de la obra ${obraParaTrabajosExtra?.nombre}. \n${trabajo.observaciones || ''}`
-      };
+        // Determinar obraPadreId
+        const obraPadreIdFinal = presupuestoCompleto.idObraPadre || presupuestoCompleto.obraId || obraParaTrabajosExtra?.id;
+        console.log('Obra Padre ID:', obraPadreIdFinal);
 
-      await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
-      showNotification('? Obra creada exitosamente desde trabajo extra', 'success');
+        // Obtener clienteId de la obra padre si no lo tiene
+        let clienteIdFinal = presupuestoCompleto.clienteId;
+        if (!clienteIdFinal && obraPadreIdFinal) {
+          try {
+            console.log('Obteniendo cliente de obra padre...');
+            const obraPadreResponse = await api.obras.obtenerPorId(obraPadreIdFinal, empresaId);
+            const obraPadre = obraPadreResponse?.data || obraPadreResponse;
+            clienteIdFinal = obraPadre?.clienteId;
+            console.log('Cliente obtenido de obra padre:', clienteIdFinal);
+          } catch (err) {
+            console.warn('No se pudo obtener cliente de obra padre:', err);
+          }
+        }
 
-      // 3?? Recargar listas
-      dispatch(fetchObrasPorEmpresa(empresaId));
-      if (obraParaTrabajosExtra) {
-        cargarTrabajosExtra(obraParaTrabajosExtra);
+        obraData = {
+          nombre: presupuestoCompleto.nombreObra || presupuestoCompleto.nombreObraManual || `${tipoPresupuesto} #${trabajo.id}`,
+          direccion: presupuestoCompleto.direccionObraCalle || obraParaTrabajosExtra?.direccion || 'Dirección no especificada',
+          direccionObraCalle: presupuestoCompleto.direccionObraCalle || '',
+          direccionObraAltura: presupuestoCompleto.direccionObraAltura || '',
+          direccionObraBarrio: presupuestoCompleto.direccionObraBarrio || '',
+          direccionObraLocalidad: presupuestoCompleto.direccionObraLocalidad || '',
+          direccionObraProvincia: presupuestoCompleto.direccionObraProvincia || '',
+          direccionObraCodigoPostal: presupuestoCompleto.direccionObraCodigoPostal || '',
+          fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || new Date().toISOString().split('T')[0],
+          idEmpresa: empresaId,
+          clienteId: clienteIdFinal,
+          estado: 'APROBADO',
+          esTrabajoExtra: true,
+          obraPadreId: obraPadreIdFinal,
+          nombreSolicitante: presupuestoCompleto.nombreSolicitante || '',
+          telefono: presupuestoCompleto.telefono || '',
+          mail: presupuestoCompleto.mail || '',
+          presupuestoOriginalId: trabajo.id,
+          observaciones: `Obra generada automaticamente desde ${tipoPresupuesto} aprobado #${trabajo.id}.\n${presupuestoCompleto.observaciones || ''}`
+        };
+
+        console.log('Obra DERIVADA (tipo adicional) configurada');
+      }
+      // TRABAJO_DIARIO y PRINCIPAL: funcionan como "Obra Principal" (obra independiente)
+      else if (tipoPresupuesto === 'TRABAJO_DIARIO' || tipoPresupuesto === 'PRINCIPAL') {
+        console.log('Creando obra PRINCIPAL (independiente) desde tipo:', tipoPresupuesto);
+
+        obraData = {
+          nombre: presupuestoCompleto.nombreObra || presupuestoCompleto.nombreObraManual || `${tipoPresupuesto} #${trabajo.id}`,
+          direccion: presupuestoCompleto.direccionObraCalle || 'Dirección no especificada',
+          direccionObraCalle: presupuestoCompleto.direccionObraCalle || '',
+          direccionObraAltura: presupuestoCompleto.direccionObraAltura || '',
+          direccionObraBarrio: presupuestoCompleto.direccionObraBarrio || '',
+          direccionObraLocalidad: presupuestoCompleto.direccionObraLocalidad || '',
+          direccionObraProvincia: presupuestoCompleto.direccionObraProvincia || '',
+          direccionObraCodigoPostal: presupuestoCompleto.direccionObraCodigoPostal || '',
+          fechaProbableInicio: presupuestoCompleto.fechaProbableInicio || new Date().toISOString().split('T')[0],
+          idEmpresa: empresaId,
+          clienteId: presupuestoCompleto.clienteId,
+          estado: 'APROBADO',
+          nombreSolicitante: presupuestoCompleto.nombreSolicitante || '',
+          telefono: presupuestoCompleto.telefono || '',
+          mail: presupuestoCompleto.mail || '',
+          presupuestoOriginalId: trabajo.id,
+          observaciones: `Obra generada automaticamente desde ${tipoPresupuesto} aprobado #${trabajo.id}.\n${presupuestoCompleto.observaciones || ''}`
+        };
+
+        console.log('Obra PRINCIPAL (independiente) configurada');
+      }
+      else {
+        console.error('Tipo de presupuesto no reconocido:', tipoPresupuesto);
+        showNotification('Tipo de presupuesto no valido: ' + tipoPresupuesto, 'error');
+        return;
       }
 
+      // Validar campos obligatorios antes de crear
+      console.log('Validando datos de obra antes de crear...');
+      console.log('📋 Datos finales de obra:', JSON.stringify(obraData, null, 2));
+
+      if (!obraData.nombre) {
+        console.error('❌ Falta nombre de obra');
+        showNotification('❌ Error: Falta nombre de obra', 'error');
+        return;
+      }
+      if (!obraData.clienteId) {
+        console.error('❌ Falta clienteId');
+        showNotification('❌ Error: Falta cliente', 'error');
+        return;
+      }
+
+      console.log('Validacion OK - Creando obra en el backend...');
+      const obraCreada = await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
+      console.log('=== OBRA CREADA EXITOSAMENTE ===');
+      console.log('Obra creada:', obraCreada);
+
+      showNotification('Presupuesto aprobado y obra creada automaticamente', 'success');
+
+      // 5️⃣ Recargar listas
+      console.log('🔄 Recargando lista de obras...');
+      await dispatch(fetchObrasPorEmpresa(empresaId));
+
+      if (obraParaTrabajosExtra) {
+        console.log('🔄 Recargando trabajos extra de la obra...');
+        await cargarTrabajosExtra(obraParaTrabajosExtra);
+      }
+
+      console.log('✅✅✅ PROCESO COMPLETADO EXITOSAMENTE ✅✅✅');
+
     } catch (error) {
-       console.error('? Error generando obra derivada:', error);
-       showNotification('? Error al generar la obra derivada: ' + (error.message || 'Error desconocido'), 'error');
+      console.error('❌❌❌ ERROR EN EL PROCESO ❌❌❌');
+      console.error('❌ Error:', error);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error response:', error.response);
+      console.error('❌ Error response data:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+
+      const mensajeError = error.response?.data?.mensaje || error.response?.data?.error || error.message || 'Error desconocido';
+      showNotification('❌ Error al generar la obra: ' + mensajeError, 'error');
+
+      alert(`ERROR DETALLADO:\n\n${mensajeError}\n\nRevise la consola (F12) para más detalles.`);
     }
   };
 
@@ -4692,10 +4855,24 @@ _V?lido por 30 d?as_
         }
       }
 
-      // Intentar obtener desde las asignaciones de BD
-      const { obtenerAsignacionesSemanalPorObra } = await import('../services/profesionalesObraService');
-      const asignacionesResponse = await obtenerAsignacionesSemanalPorObra(obraId, empresaId);
-      const asignaciones = Array.isArray(asignacionesResponse) ? asignacionesResponse : asignacionesResponse?.data || [];
+      // ✅ Si el presupuesto es GLOBAL (tradicional), no tiene asignaciones en el presupuesto
+      // Las asignaciones se crean después en "Configuración y Planificación de Obra"
+      if (presupuestoObra?.modoPresupuesto === 'TRADICIONAL') {
+        console.log(`📋 [ObrasPage] Presupuesto GLOBAL - No cargando asignaciones desde presupuesto`);
+        return null;
+      }
+
+      // Intentar obtener desde las asignaciones de BD (solo para presupuestos DETALLADOS)
+      let asignaciones = [];
+      try {
+        const { obtenerAsignacionesSemanalPorObra } = await import('../services/profesionalesObraService');
+        const asignacionesResponse = await obtenerAsignacionesSemanalPorObra(obraId, empresaId);
+        asignaciones = Array.isArray(asignacionesResponse) ? asignacionesResponse : asignacionesResponse?.data || [];
+      } catch (error) {
+        // ✅ Error 404 es esperado para presupuestos GLOBAL o sin asignaciones - no fallar
+        console.log(`📋 [ObrasPage] No se encontraron asignaciones para obra ${obraId} (esperado para modo GLOBAL)`);
+        return null;
+      }
 
       // Extraer semanas_objetivo de la primera asignaci?n
       if (asignaciones.length > 0 && asignaciones[0].semanasObjetivo) {
@@ -5624,33 +5801,22 @@ _V?lido por 30 d?as_
       const origenId = o.obraOrigenId || o.obra_origen_id;
 
       if (padreIdExplicito === obra.id || origenId === obra.id) {
-        // ? Sub-obra confirmada por ID de padre/origen
-        // Filtrar solo trabajos extra (NO tareas leves)
-        // Verificar si está en el array de tareas leves
-        const esTareaLeveEnEstado = tareasLeves.some(tl => tl.id === o.id);
-        if (esTareaLeveEnEstado) return false;
-
-        // También verificar en presupuestos por si acaso
-        const presupuesto = presupuestosObras[o.id];
-        const esTareaLeve = presupuesto?.tipo_presupuesto === 'TAREA_LEVE' ||
-                           presupuesto?.tipoPresupuesto === 'TAREA_LEVE';
+        // ✅ Sub-obra confirmada por ID de padre/origen
+        // Filtrar solo trabajos extra (NO tareas leves) - usar campo del backend
+        const esTareaLeve = o.tipoPresupuesto === 'TAREA_LEVE' || o.tipo_presupuesto === 'TAREA_LEVE';
         return !esTareaLeve;
       }
 
-      // ?? CRITERIO 2 (FALLBACK): Detecci?n por nombre + flag esTrabajoExtra
+      // ?? CRITERIO 2 (FALLBACK): Detección por nombre + flag esTrabajoExtra
       const nombreO = (o.nombre || '').trim();
       if (nombrePadre && nombreO.startsWith(nombrePadre + ' ')) {
-        // Verificar si está en el array de tareas leves
-        const esTareaLeveEnEstado = tareasLeves.some(tl => tl.id === o.id);
-        if (esTareaLeveEnEstado) return false;
+        // ✅ Verificar si es tarea leve usando el campo del backend
+        const esTareaLeve = o.tipoPresupuesto === 'TAREA_LEVE' || o.tipo_presupuesto === 'TAREA_LEVE';
+        if (esTareaLeve) return false;
 
         const esTrabajoExtra = o.esTrabajoExtra || o.esObraTrabajoExtra ||
                                o.es_obra_trabajo_extra || o._esTrabajoExtra;
-        // También verificar en presupuestos por si acaso
-        const presupuesto = presupuestosObras[o.id];
-        const esTareaLeve = presupuesto?.tipo_presupuesto === 'TAREA_LEVE' ||
-                           presupuesto?.tipoPresupuesto === 'TAREA_LEVE';
-        return esTrabajoExtra && !esTareaLeve;
+        return esTrabajoExtra;
       }
 
       return false;
@@ -5720,7 +5886,7 @@ _V?lido por 30 d?as_
           nombreCliente: presup.nombreSolicitante || nombreClienteObra || 'Sin especificar',
           direccion: direccionCompleta !== '?' ? direccionCompleta : (direccionObra || '?'),
           contacto: presup.telefono || telefonoObra || '?',
-          importe: presup.totalFinal || presup.importe || 0,
+          importe: presup.totalConDescuentos || presup.totalFinal || presup.importe || 0,
           fechaInicio: presup.fechaProbableInicio || presup.fechaInicio,
           fechaFin: presup.fechaFinalizacion || presup.fechaFin,
           descripcion: presup.descripcion || '',
@@ -5770,7 +5936,7 @@ _V?lido por 30 d?as_
           nombreCliente: presup.nombreSolicitante || nombreClienteObra || 'Sin especificar',
           direccion: direccionCompleta !== '?' ? direccionCompleta : (direccionObra || '?'),
           contacto: presup.telefono || telefonoObra || '?',
-          importe: presup.totalFinal || presup.importe || 0,
+          importe: presup.totalConDescuentos || presup.totalFinal || presup.importe || 0,
           fechaInicio: presup.fechaProbableInicio || presup.fechaInicio,
           fechaFin: presup.fechaFinalizacion || presup.fechaFin,
           descripcion: presup.descripcion || '',
@@ -5965,12 +6131,14 @@ _V?lido por 30 d?as_
 
         // Trabajos Extra
         api.presupuestosNoCliente.getAll(empresaId, { obraId, esPresupuestoTrabajoExtra: true }).then(data => {
-          // ?? FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+          // ✅ FILTRAR solo los que son trabajos extra (backend puede no estar filtrando correctamente)
+          // ✅ EXCLUIR tareas leves que tienen esPresupuestoTrabajoExtra pero son tipo TAREA_LEVE
           let trabajosArray = (Array.isArray(data) ? data : []).filter(p =>
-            p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V'
+            (p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V') &&
+            p.tipoPresupuesto === 'TRABAJO_EXTRA'
           );
 
-          // ?? FILTRAR: Si estamos dentro de un trabajo extra (obraId es un trabajo extra),
+          // ✅ FILTRAR: Si estamos dentro de un trabajo extra (obraId es un trabajo extra),
           // excluir ese trabajo extra de su propia lista
           const obraActual = obras.find(o => o.id === obraId || o.obraId === obraId);
           const esTrabajoExtra = obraActual?.esTrabajoExtra || obraActual?._esTrabajoExtra || obraActual?.esObraTrabajoExtra;
@@ -6001,8 +6169,8 @@ _V?lido por 30 d?as_
         // Profesionales asignados - usar el servicio correcto que devuelve formato agrupado
         obtenerAsignacionesSemanalPorObra(obraId, empresaId).then(response => {
           let data = response.data || response;
-          console.log('  ?? Respuesta profesionales (RAW):', response);
-          console.log('  ?? Profesionales data:', data);
+          console.log('  📊 Respuesta profesionales (RAW):', response);
+          console.log('  📊 Profesionales data:', data);
 
           // Si data tiene una propiedad data, extraerla
           if (data.data && Array.isArray(data.data)) {
@@ -7272,17 +7440,25 @@ _V?lido por 30 d?as_
                               });
                             });
 
-                            // Separar obras normales de trabajos extra (incluyendo detecci?n autom?tica)
+                            // Separar obras normales de trabajos extra (incluyendo detección automática)
                             const obrasNormales = todasObrasActivas.filter(o => {
                               const esTrabajoExtraExplicito = o.esTrabajoExtra;
                               const esSubobraDetectada = subobrasDetectadas.has(o.id);
-                              return !esTrabajoExtraExplicito && !esSubobraDetectada;
+
+                              // ✅ EXCLUIR obras que son TAREA_LEVE (usar campo del backend)
+                              const esTareaLeve = o.tipoPresupuesto === 'TAREA_LEVE' || o.tipo_presupuesto === 'TAREA_LEVE';
+
+                              return !esTrabajoExtraExplicito && !esSubobraDetectada && !esTareaLeve;
                             }).sort((a, b) => a.id - b.id);
 
                             const obrasTrabajoExtra = todasObrasActivas.filter(o => {
                               const esTrabajoExtraExplicito = o.esTrabajoExtra;
                               const esSubobraDetectada = subobrasDetectadas.has(o.id);
-                              return esTrabajoExtraExplicito || esSubobraDetectada;
+
+                              // ✅ EXCLUIR obras que son TAREA_LEVE (usar campo del backend)
+                              const esTareaLeve = o.tipoPresupuesto === 'TAREA_LEVE' || o.tipo_presupuesto === 'TAREA_LEVE';
+
+                              return (esTrabajoExtraExplicito || esSubobraDetectada) && !esTareaLeve;
                             });
 
                             const listaOrdenada = [];
@@ -7721,12 +7897,12 @@ _V?lido por 30 d?as_
                                   const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
                                   if (tienePresupuesto) {
-                                    // Obtener total del presupuesto
-                                    const total = presupuesto.totalFinal ||
+                                    // Obtener total del presupuesto (PRIORIDAD: totalConDescuentos > totalFinal)
+                                    const total = presupuesto.totalConDescuentos ||
+                                                 presupuesto.total_con_descuentos ||
+                                                 presupuesto.totalFinal ||
                                                  presupuesto.total_presupuesto_con_honorarios ||
                                                  presupuesto.totalPresupuestoConHonorarios ||
-                                                 presupuesto.totalConDescuentos ||
-                                                 presupuesto.total_con_descuentos ||
                                                  presupuesto.montoTotal ||
                                                  presupuesto.totalGeneral ||
                                                  0;
@@ -8424,17 +8600,20 @@ _V?lido por 30 d?as_
                                             </span>
                                           </td>
                                           <td>
-                                            {trabajoExtra.profesionalesAsignados?.length > 0 ? (
-                                              <div className="badge bg-success d-inline-flex align-items-center gap-1">
-                                                <span>?</span>
-                                                <span className="small">{trabajoExtra.profesionalesAsignados.length} asignados</span>
-                                              </div>
-                                            ) : (
-                                              <div className="badge bg-warning text-dark d-inline-flex align-items-center gap-1">
-                                                <span>??</span>
-                                                <span className="small">Sin profesionales asignados</span>
-                                              </div>
-                                            )}
+                                            {(() => {
+                                              const count = contarProfesionalesAsignados(trabajoExtra.id)?.count || 0;
+                                              return count > 0 ? (
+                                                <div className="badge bg-success d-inline-flex align-items-center gap-1">
+                                                  <span>👷</span>
+                                                  <span className="small">{count} asignados</span>
+                                                </div>
+                                              ) : (
+                                                <div className="badge bg-warning text-dark d-inline-flex align-items-center gap-1">
+                                                  <span>⚠️</span>
+                                                  <span className="small">Sin profesionales asignados</span>
+                                                </div>
+                                              );
+                                            })()}
                                           </td>
                                           <td><small>{trabajoExtra.fechaInicio || '?'}</small></td>
                                           <td><small>{trabajoExtra.fechaFin || '?'}</small></td>
@@ -8446,12 +8625,12 @@ _V?lido por 30 d?as_
                                               const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
                                               if (tienePresupuesto) {
-                                                // Obtener total del presupuesto
-                                                const total = presupuesto.totalFinal ||
+                                                // Obtener total del presupuesto (PRIORIDAD: totalConDescuentos > totalFinal)
+                                                const total = presupuesto.totalConDescuentos ||
+                                                             presupuesto.total_con_descuentos ||
+                                                             presupuesto.totalFinal ||
                                                              presupuesto.total_presupuesto_con_honorarios ||
                                                              presupuesto.totalPresupuestoConHonorarios ||
-                                                             presupuesto.totalConDescuentos ||
-                                                             presupuesto.total_con_descuentos ||
                                                              presupuesto.montoTotal ||
                                                              presupuesto.totalGeneral ||
                                                              0;
@@ -8535,7 +8714,9 @@ _V?lido por 30 d?as_
                                   </tr>
                                   {/* Filas de cada tarea leve */}
                                   {!colTareasLeves && tareasLevesObra.map((tareaLeve, tlIndex) => {
-                                    const isSelected = selectedObraId === tareaLeve.id;
+                                    // ✅ IMPORTANTE: Para tareas leves, usar obraId como selectedId, no el id del presupuesto
+                                    const tareaLeveObraId = tareaLeve.obraId || tareaLeve.id;
+                                    const isSelected = selectedObraId === tareaLeveObraId;
                                     return (
                                       <React.Fragment key={tareaLeve.id}>
                                         {/* Separador entre tareas */}
@@ -8553,7 +8734,7 @@ _V?lido por 30 d?as_
                                         <tr
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            setSelectedObraId(isSelected ? null : tareaLeve.id);
+                                            setSelectedObraId(isSelected ? null : tareaLeveObraId);
                                           }}
                                           style={{
                                             backgroundColor: isSelected ? '#cfe2ff' : '#f0f9ff',
@@ -8642,17 +8823,20 @@ _V?lido por 30 d?as_
                                             </span>
                                           </td>
                                           <td>
-                                            {tareaLeve.profesionalesAsignados?.length > 0 ? (
-                                              <div className="badge bg-success d-inline-flex align-items-center gap-1">
-                                                <span>👷</span>
-                                                <span className="small">{tareaLeve.profesionalesAsignados.length} asignados</span>
-                                              </div>
-                                            ) : (
-                                              <div className="badge bg-warning text-dark d-inline-flex align-items-center gap-1">
-                                                <span>⚠</span>
-                                                <span className="small">Sin asignar</span>
-                                              </div>
-                                            )}
+                                            {(() => {
+                                              const count = contarProfesionalesAsignados(tareaLeve.id)?.count || 0;
+                                              return count > 0 ? (
+                                                <div className="badge bg-success d-inline-flex align-items-center gap-1">
+                                                  <span>👷</span>
+                                                  <span className="small">{count} asignados</span>
+                                                </div>
+                                              ) : (
+                                                <div className="badge bg-warning text-dark d-inline-flex align-items-center gap-1">
+                                                  <span>⚠️</span>
+                                                  <span className="small">Sin asignar</span>
+                                                </div>
+                                              );
+                                            })()}
                                           </td>
                                           <td><small>{tareaLeve.fechaInicio || '?'}</small></td>
                                           <td><small>{tareaLeve.fechaFin || '?'}</small></td>
@@ -8663,12 +8847,12 @@ _V?lido por 30 d?as_
                                               const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
                                               if (tienePresupuesto) {
-                                                // Obtener total del presupuesto
-                                                const total = presupuesto.totalFinal ||
+                                                // Obtener total del presupuesto (PRIORIDAD: totalConDescuentos > totalFinal)
+                                                const total = presupuesto.totalConDescuentos ||
+                                                             presupuesto.total_con_descuentos ||
+                                                             presupuesto.totalFinal ||
                                                              presupuesto.total_presupuesto_con_honorarios ||
                                                              presupuesto.totalPresupuestoConHonorarios ||
-                                                             presupuesto.totalConDescuentos ||
-                                                             presupuesto.total_con_descuentos ||
                                                              presupuesto.montoTotal ||
                                                              presupuesto.totalGeneral ||
                                                              tareaLeve.importe ||
@@ -10562,9 +10746,20 @@ _V?lido por 30 d?as_
       {activeTab === 'obras-manuales' && (
         <div className="row" style={{margin: '0'}}>
           <div className="col-12" style={{padding: '0'}}>
-            <div className="card" style={{margin: '0', border: 'none'}} onClick={(e) => e.stopPropagation()}>
+            <div className="card" style={{margin: '0', border: 'none'}}>
               <div className="card-header d-flex justify-content-between align-items-center">
                 <div className="d-flex align-items-center gap-3">
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    onClick={() => {
+                      console.log('🔙 Navegando a Presupuestos No Cliente');
+                      navigate('/presupuestos-no-cliente');
+                    }}
+                    title="Volver a Presupuestos No Cliente"
+                  >
+                    <i className="fas fa-arrow-left me-1"></i>Volver
+                  </button>
                   <h5 className="mb-0">
                     <i className="fas fa-folder-open me-2"></i>
                     Trabajos Diarios / Nuevos Clientes
@@ -11186,7 +11381,8 @@ _V?lido por 30 d?as_
                                           return sum + (parseFloat(t.importe) || 0);
                                         }, 0);
 
-                                        const totalGeneral = row.totalFinal || row.montoTotal || (totalProfesionales + totalTareas) || 0;
+                                        // ✅ PRIORIDAD CORRECTA: totalConDescuentos (con descuentos) → totalFinal (sin descuentos) → otros
+                                        const totalGeneral = row.totalConDescuentos || row.totalFinal || row.montoTotal || (totalProfesionales + totalTareas) || 0;
 
                                         if (totalGeneral && totalGeneral > 0) {
                                           return `$${Number(totalGeneral).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
@@ -12762,7 +12958,7 @@ Gestionar Tareas Leves
                             </td>
                             <td>
                               <strong>
-                                ${(presupuesto.totalFinal || presupuesto.total || 0).toLocaleString()}
+                                ${(presupuesto.totalConDescuentos || presupuesto.totalFinal || presupuesto.total || 0).toLocaleString()}
                               </strong>
                             </td>
                             <td>
@@ -13053,6 +13249,20 @@ Gestionar Tareas Leves
       {mostrarModalEditarPresupuesto && presupuestoParaEditar && (
         <PresupuestoNoClienteModal
           show={mostrarModalEditarPresupuesto}
+          tituloPersonalizado={(() => {
+            const tipo = presupuestoParaEditar.tipoPresupuesto;
+            const nombreObra = presupuestoParaEditar.nombreObra || presupuestoParaEditar.nombreObraManual || 'Obra';
+
+            if (tipo === 'TRABAJO_DIARIO') {
+              return `Editar Presupuesto para Trabajo Diario -- ${nombreObra}`;
+            } else if (tipo === 'TAREA_LEVE') {
+              return `Editar Tarea Leve para: ${nombreObra}`;
+            } else if (tipo === 'TRABAJO_EXTRA') {
+              return `Editar Presupuesto para Adicional Obra -- ${nombreObra}`;
+            } else {
+              return `Editar Presupuesto para Obra Principal`;
+            }
+          })()}
           onClose={() => {
             setMostrarModalEditarPresupuesto(false);
             setPresupuestoParaEditar(null);
@@ -13152,52 +13362,105 @@ Gestionar Tareas Leves
                   return; // Salir sin cerrar el modal si hay error
                 }
 
-                // ??? AUTO-GENERAR OBRA SI ES TRABAJO EXTRA APROBADO
-                if (presupuesto.esPresupuestoTrabajoExtra && presupuesto.estado === 'APROBADO' && presupuesto.obraId) {
-                  console.log('??? Trabajo Extra APROBADO detectado - Verificando si necesita crear obra...');
+                // AUTO-GENERAR OBRA SI EL PRESUPUESTO ESTA APROBADO
+                if (presupuesto.estado === 'APROBADO') {
+                  console.log('=== PRESUPUESTO APROBADO DETECTADO ===');
+                  console.log('Tipo presupuesto:', presupuesto.tipoPresupuesto);
+                  console.log('esPresupuestoTrabajoExtra:', presupuesto.esPresupuestoTrabajoExtra);
+                  console.log('Presupuesto ID:', presupuesto.id);
+
                   try {
                     // Buscar si ya existe una obra con este presupuestoOriginalId
                     const obrasExistentes = await api.obras.obtenerObras({ empresaId });
                     const yaExisteObra = obrasExistentes?.data?.some(o => o.presupuestoOriginalId === presupuesto.id);
 
                     if (!yaExisteObra) {
-                      console.log('?? No existe obra para este presupuesto - Creando autom?ticamente...');
+                      console.log('✅ No existe obra para este presupuesto - Creando automáticamente...');
 
-                      const obraData = {
-                        nombre: presupuesto.nombreObra || presupuesto.nombreObraManual || `Trabajo Extra #${presupuesto.id}`,
-                        direccion: presupuesto.direccionObraCalle || 'Direcci?n no especificada',
-                        direccionObraCalle: presupuesto.direccionObraCalle || '',
-                        direccionObraAltura: presupuesto.direccionObraAltura || '',
-                        direccionObraBarrio: presupuesto.direccionObraBarrio || '',
-                        direccionObraLocalidad: presupuesto.direccionObraLocalidad || '',
-                        direccionObraProvincia: presupuesto.direccionObraProvincia || '',
-                        direccionObraCodigoPostal: presupuesto.direccionObraCodigoPostal || '',
-                        idEmpresa: empresaId,
-                        clienteId: presupuesto.clienteId,
-                        estado: 'APROBADO',
-                        esTrabajoExtra: true,
-                        obraPadreId: presupuesto.obraId,
-                        nombreSolicitante: presupuesto.nombreSolicitante || '',
-                        telefono: presupuesto.telefono || '',
-                        mail: presupuesto.mail || '',
-                        presupuestoOriginalId: presupuesto.id,
-                        observaciones: `Obra generada autom?ticamente desde trabajo extra aprobado #${presupuesto.id}.\n${presupuesto.observaciones || ''}`
-                      };
+                      let obraData = null;
 
-                      await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
-                      console.log('? Obra creada autom?ticamente desde presupuesto aprobado');
+                      // 🎯 TRABAJO_EXTRA o TAREA_LEVE: Crear obra derivada de obra padre
+                      if (presupuesto.tipoPresupuesto === 'TRABAJO_EXTRA' || presupuesto.tipoPresupuesto === 'TAREA_LEVE') {
+                        console.log('📦 Creando obra desde ' + presupuesto.tipoPresupuesto);
 
-                      showNotification('? Presupuesto aprobado y obra creada autom?ticamente', 'success');
+                        // Obtener información de la obra padre si está disponible
+                        let clienteIdFinal = presupuesto.clienteId;
+                        if (!clienteIdFinal && presupuesto.idObraPadre) {
+                          try {
+                            const obraPadre = await api.obras.obtenerPorId(presupuesto.idObraPadre, empresaId);
+                            clienteIdFinal = obraPadre?.data?.clienteId || obraPadre?.clienteId;
+                            console.log('🔗 Cliente obtenido de obra padre:', clienteIdFinal);
+                          } catch (err) {
+                            console.warn('⚠️ No se pudo obtener cliente de obra padre:', err);
+                          }
+                        }
 
-                      // Recargar obras
-                      await dispatch(fetchObrasPorEmpresa(empresaId));
+                        obraData = {
+                          nombre: presupuesto.nombreObra || presupuesto.nombreObraManual || `${presupuesto.tipoPresupuesto} #${presupuesto.id}`,
+                          direccion: presupuesto.direccionObraCalle || 'Dirección no especificada',
+                          direccionObraCalle: presupuesto.direccionObraCalle || '',
+                          direccionObraAltura: presupuesto.direccionObraAltura || '',
+                          direccionObraBarrio: presupuesto.direccionObraBarrio || '',
+                          direccionObraLocalidad: presupuesto.direccionObraLocalidad || '',
+                          direccionObraProvincia: presupuesto.direccionObraProvincia || '',
+                          direccionObraCodigoPostal: presupuesto.direccionObraCodigoPostal || '',
+                          fechaProbableInicio: presupuesto.fechaProbableInicio || new Date().toISOString().split('T')[0],
+                          idEmpresa: empresaId,
+                          clienteId: clienteIdFinal,
+                          estado: 'APROBADO',
+                          esTrabajoExtra: true,
+                          obraPadreId: presupuesto.idObraPadre || presupuesto.obraId,
+                          nombreSolicitante: presupuesto.nombreSolicitante || '',
+                          telefono: presupuesto.telefono || '',
+                          mail: presupuesto.mail || '',
+                          presupuestoOriginalId: presupuesto.id,
+                          observaciones: `Obra generada automáticamente desde ${presupuesto.tipoPresupuesto} aprobado #${presupuesto.id}.\n${presupuesto.observaciones || ''}`
+                        };
+                      }
+                      // 🎯 PRINCIPAL o TRABAJO_DIARIO: Crear obra nueva independiente
+                      else if (presupuesto.tipoPresupuesto === 'PRINCIPAL' || presupuesto.tipoPresupuesto === 'TRABAJO_DIARIO') {
+                        console.log('📦 Creando obra desde ' + presupuesto.tipoPresupuesto);
+
+                        obraData = {
+                          nombre: presupuesto.nombreObra || presupuesto.nombreObraManual || `${presupuesto.tipoPresupuesto} #${presupuesto.id}`,
+                          direccion: presupuesto.direccionObraCalle || 'Dirección no especificada',
+                          direccionObraCalle: presupuesto.direccionObraCalle || '',
+                          direccionObraAltura: presupuesto.direccionObraAltura || '',
+                          direccionObraBarrio: presupuesto.direccionObraBarrio || '',
+                          direccionObraLocalidad: presupuesto.direccionObraLocalidad || '',
+                          direccionObraProvincia: presupuesto.direccionObraProvincia || '',
+                          direccionObraCodigoPostal: presupuesto.direccionObraCodigoPostal || '',
+                          fechaProbableInicio: presupuesto.fechaProbableInicio || new Date().toISOString().split('T')[0],
+                          idEmpresa: empresaId,
+                          clienteId: presupuesto.clienteId,
+                          estado: 'APROBADO',
+                          nombreSolicitante: presupuesto.nombreSolicitante || '',
+                          telefono: presupuesto.telefono || '',
+                          mail: presupuesto.mail || '',
+                          presupuestoOriginalId: presupuesto.id,
+                          observaciones: `Obra generada automáticamente desde ${presupuesto.tipoPresupuesto} aprobado #${presupuesto.id}.\n${presupuesto.observaciones || ''}`
+                        };
+                      }
+
+                      if (obraData) {
+                        console.log('🏗️ Datos de obra a crear:', obraData);
+                        const obraCreada = await dispatch(createObra({ obra: obraData, empresaId })).unwrap();
+                        console.log('✅ Obra creada automáticamente:', obraCreada);
+
+                        showNotification('✅ Presupuesto aprobado y obra creada automáticamente', 'success');
+
+                        // Recargar obras
+                        await dispatch(fetchObrasPorEmpresa(empresaId));
+                      } else {
+                        console.warn('⚠️ Tipo de presupuesto no reconocido para crear obra:', presupuesto.tipoPresupuesto);
+                      }
                     } else {
-                      console.log('?? Ya existe una obra para este presupuesto - No se crea duplicada');
+                      console.log('ℹ️ Ya existe una obra para este presupuesto - No se crea duplicada');
                     }
                   } catch (errorObra) {
-                    console.error('? Error al crear obra autom?ticamente:', errorObra);
+                    console.error('❌ Error al crear obra automáticamente:', errorObra);
                     showNotification(
-                      ' Presupuesto guardado pero error al crear obra: ' + (errorObra.message || 'Error desconocido'),
+                      '⚠️ Presupuesto guardado pero error al crear obra: ' + (errorObra.message || 'Error desconocido'),
                       'warning'
                     );
                   }
@@ -13777,7 +14040,7 @@ Gestionar Tareas Leves
                         'No definida'}
                     </strong></li>
                     {configuracionObra.presupuestoSeleccionado?.totalFinal && (
-                      <li>Total del presupuesto: <strong>${configuracionObra.presupuestoSeleccionado.totalFinal.toLocaleString()}</strong></li>
+                      <li>Total del presupuesto: <strong>${(configuracionObra.presupuestoSeleccionado.totalConDescuentos || configuracionObra.presupuestoSeleccionado.totalFinal).toLocaleString()}</strong></li>
                     )}
                     {configuracionObra.presupuestoSeleccionado?.tiempoEstimadoTerminacion && (
                       <li>Tiempo estimado (d?as): <strong>{configuracionObra.presupuestoSeleccionado.tiempoEstimadoTerminacion} d?as</strong></li>
