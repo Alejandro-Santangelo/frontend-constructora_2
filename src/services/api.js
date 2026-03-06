@@ -8,13 +8,14 @@ import axios from 'axios';
 // Base URL: http://localhost:8080/api
 //
 // IMPORTANTE:
-// - baseURL está VACIO para evitar duplicación
+// - baseURL está VACIO para evitar duplicación EN DESARROLLO (usa proxy de Vite)
+// - En PRODUCCIÓN se configura con VITE_API_URL (URL del backend Railway)
 // - TODAS las rutas incluyen /api/ al inicio
 // - Endpoints nuevos versionados usan /api/v1/ (presupuestos-no-cliente, caja-chica, pagos-profesional-obra, etc)
 // - Endpoints antiguos usan /api/ (empresas, obras, profesionales, clientes, etc)
 // ================================================================================
 
-const API_BASE_URL = ''; // VACIO - NO usar '/api' para evitar duplicación
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''; // Vacío en desarrollo (usa proxy), URL backend en producción
 
 // Variable global para el tenant actual
 let currentTenantId = 1; // Default tenant
