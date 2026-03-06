@@ -9,13 +9,22 @@ import axios from 'axios';
 //
 // IMPORTANTE:
 // - baseURL está VACIO para evitar duplicación EN DESARROLLO (usa proxy de Vite)
-// - En PRODUCCIÓN se configura con VITE_API_URL (URL del backend Railway)
+// - En PRODUCCIÓN se configura automáticamente con la URL del backend Railway
 // - TODAS las rutas incluyen /api/ al inicio
 // - Endpoints nuevos versionados usan /api/v1/ (presupuestos-no-cliente, caja-chica, pagos-profesional-obra, etc)
 // - Endpoints antiguos usan /api/ (empresas, obras, profesionales, clientes, etc)
 // ================================================================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || ''; // Vacío en desarrollo (usa proxy), URL backend en producción
+// Detectar automáticamente el entorno
+const isProduction = import.meta.env.MODE === 'production';
+const RAILWAY_BACKEND_URL = 'https://backend-constructora2-production.up.railway.app';
+
+// En producción: usar URL del backend Railway
+// En desarrollo: vacío (usa proxy de Vite)
+const API_BASE_URL = isProduction ? RAILWAY_BACKEND_URL : '';
+
+console.log('🔧 API Service - Modo:', import.meta.env.MODE);
+console.log('🔧 API Service - Base URL:', API_BASE_URL || '(usando proxy local)');
 
 // Variable global para el tenant actual
 let currentTenantId = 1; // Default tenant
