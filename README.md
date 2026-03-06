@@ -297,3 +297,5 @@ Este frontend te permitirá ser **10x más productivo** que usando Swagger UI.
 ---
 
 **⭐ Si te gusta este proyecto, ¡dale una estrella!**
+#   B u i l d   c o n   V I T E _ A P I _ U R L   c o n f i g u r a d a  
+ 
