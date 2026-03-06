@@ -1,11 +1,28 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
+// ================================================================================
+// CONFIGURACIÓN DE URL BACKEND
+// ================================================================================
+// Detectar automáticamente el entorno
+const isProduction = import.meta.env.MODE === 'production';
+const RAILWAY_BACKEND_URL = 'https://backend-constructora2-production.up.railway.app';
+
+// En producción: usar URL del backend Railway
+// En desarrollo: vacío (usa proxy de Vite)
+const API_BASE_URL = isProduction ? RAILWAY_BACKEND_URL : '';
+
+console.log('🔧 EmpresasSlice - Modo:', import.meta.env.MODE);
+console.log('🔧 EmpresasSlice - Base URL:', API_BASE_URL || '(usando proxy local)');
+
 // Async thunks para llamadas a la API
 export const fetchEmpresasActivas = createAsyncThunk(
   'empresas/fetchActivas',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await fetch('/api/empresas/activas', {
+      const url = `${API_BASE_URL}/api/empresas/activas`;
+      console.log('🔄 Fetching empresas activas desde:', url);
+      
+      const response = await fetch(url, {
         headers: { 'accept': '*/*' }
       });
       if (!response.ok) {
@@ -23,13 +40,16 @@ export const fetchAllEmpresas = createAsyncThunk(
   'empresas/fetchAll',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await fetch('http://localhost:8080/api/empresas/simple', {
+      const url = `${API_BASE_URL}/api/empresas/simple`;
+      console.log('🔄 EMPRESAS: Obteniendo lista desde:', url);
+      
+      const response = await fetch(url, {
         headers: { 'accept': '*/*' }
       });
-      
+
       if (!response.ok) {
-        console.error(`❌ Error ${response.status} al cargar empresas. Usando datos de respaldo.`);
-        
+        console.error(`❌ EMPRESAS: Error ${response.status} al cargar empresas. Usando datos de respaldo.`);
+
         // 🔧 DATOS DE RESPALDO si el backend falla
         const mockEmpresas = [
           {
@@ -47,30 +67,38 @@ export const fetchAllEmpresas = createAsyncThunk(
             activo: true
           }
         ];
-        
-        console.warn('⚠️ Usando empresas MOCK. El backend debe estar funcionando para ver datos reales.');
+
+        console.warn('⚠️ EMPRESAS: Usando empresas MOCK. El backend debe estar funcionando para ver datos reales.');
         return mockEmpresas;
       }
-      
+
       const data = await response.json();
-      
+      console.log('✅ EMPRESAS: Respuesta de /api/empresas/simple:', data);
+
       // Determinar el array de empresas según el formato de respuesta
       let empresasArray = null;
-      
+
       if (data && Array.isArray(data.resultado)) {
         empresasArray = data.resultado;
+        console.log('📋 EMPRESAS: Formato data.resultado detectado');
       } else if (data && Array.isArray(data.lista)) {
         empresasArray = data.lista;
+        console.log('📋 EMPRESAS: Formato data.lista detectado');
       } else if (Array.isArray(data)) {
         empresasArray = data;
+        console.log('📋 EMPRESAS: Formato array directo detectado');
       } else if (data && Array.isArray(data.data)) {
         empresasArray = data.data;
+        console.log('📋 EMPRESAS: Formato data.data detectado');
       } else {
+        console.error('❌ EMPRESAS: Formato inesperado:', data);
         throw new Error('Formato inesperado en la respuesta de empresas simple');
       }
-      
+
+      console.log(`📋 EMPRESAS: Encontradas ${empresasArray.length} empresas:`, empresasArray.map(e => e.nombreEmpresa));
       return empresasArray;
     } catch (error) {
+      console.error('❌ EMPRESAS: Error en fetchAllEmpresas:', error);
       return rejectWithValue(error.message);
     }
   }
@@ -80,14 +108,14 @@ const initialState = {
   // Cache de empresas
   empresas: [],
   empresasActivas: [],
-  
+
   // Estados de carga
   loading: false,
   loadingActivas: false,
-  
+
   // Errores
   error: null,
-  
+
   // Última actualización del cache
   lastUpdated: null,
 };
@@ -119,7 +147,7 @@ const empresasSlice = createSlice({
         state.loadingActivas = false;
         state.error = action.payload;
       })
-      
+
       // Fetch all empresas
       .addCase(fetchAllEmpresas.pending, (state) => {
         state.loading = true;
@@ -150,6 +178,6 @@ export const selectEmpresasError = (state) => state.empresas.error;
 export const selectEmpresasLastUpdated = (state) => state.empresas.lastUpdated;
 
 // Selector para obtener empresa por ID
-export const selectEmpresaById = (state, empresaId) => 
+export const selectEmpresaById = (state, empresaId) =>
   state.empresas.empresasActivas.find(empresa => empresa.id === empresaId) ||
   state.empresas.empresas.find(empresa => empresa.id === empresaId);
