@@ -59,13 +59,14 @@ export const PRESUPUESTO_CONFIG = {
     esPadre: true,
     puedeSerPadre: true,                 // Puede tener hijos (trabajos extra, tareas)
 
-    // Estados permitidos
+    // Estados permitidos (10 estados sincronizados con backend)
     estadosPermitidos: [
       'BORRADOR',
       'A_ENVIAR',
       'ENVIADO',
       'MODIFICADO',
       'APROBADO',
+      'OBRA_A_CONFIRMAR',
       'EN_EJECUCION',
       'SUSPENDIDA',
       'TERMINADO',
@@ -133,11 +134,14 @@ export const PRESUPUESTO_CONFIG = {
     esPadre: true,                       // PUEDE SER PADRE de tareas leves
     puedeSerPadre: true,                 // Puede tener tareas leves como hijas
 
-    // Estados permitidos
+    // Estados permitidos (10 estados sincronizados con backend)
     estadosPermitidos: [
       'BORRADOR',
+      'A_ENVIAR',
       'ENVIADO',
+      'MODIFICADO',
       'APROBADO',
+      'OBRA_A_CONFIRMAR',
       'EN_EJECUCION',
       'SUSPENDIDA',
       'TERMINADO',

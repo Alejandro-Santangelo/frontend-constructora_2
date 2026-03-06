@@ -169,7 +169,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
       // CARGAR PROFESIONALES ASIGNADOS A CADA OBRA
       const profesionalesAsignadosPromises = todasLasObras.map(async (obra) => {
-        const obraId = obra.obraId || obra.direccionObraId || obra.id;
+        const obraId = obra.obraId || obra.obra_id || obra.direccionObraId || obra.id;
 
         if (!obraId) {
           return [];
@@ -310,7 +310,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         // Este endpoint incluye TODOS los tipos de pagos: profesionales, materiales, gastos generales
         let pagadoObra = 0;
         try {
-          const obraId = presupuesto.obraId || presupuesto.direccionObraId;
+          const obraId = presupuesto.obraId || presupuesto.obra_id || presupuesto.direccionObraId;
           if (obraId) {
             const resumen = await api.get(`/api/v1/obras-financiero/${obraId}/resumen`, { params: { empresaId } });
             pagadoObra = resumen.totalPagadoGeneral || 0;
@@ -554,7 +554,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
       //  Sumar trabajos extra al presupuesto total (solo los que NO estn en presupuestos_no_cliente)
       let totalTrabajosExtra = 0;
-      const obraIds = todasLasObras.map(p => p.obraId || p.direccionObraId).filter(Boolean);
+      const obraIds = todasLasObras.map(p => p.obraId || p.obra_id || p.direccionObraId).filter(Boolean);
 
       if (obraIds.length > 0) {
         try {
@@ -796,7 +796,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         // La entidadId en la tabla original depende del tipo
         const entidadIdOriginal =
           tipoEntidad === 'OBRA_INDEPENDIENTE'
-            ? (obra.obraId || obra.direccionObraId || obra.id)
+            ? (obra.obraId || obra.obra_id || obra.direccionObraId || obra.id)
             : obra.id;
 
         // Buscar estadisticas en el sistema unificado

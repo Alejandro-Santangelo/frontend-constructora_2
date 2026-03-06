@@ -195,7 +195,7 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess, refreshTrig
       // 3. Procesar TRABAJOS EXTRA (última versión por obraId)
       const trabajosExtraPorObraId = {};
       presupuestosTrabajosExtra.forEach(p => {
-        const obraId = p.obraId || p.direccionObraId || p.id;
+        const obraId = p.obraId || p.obra_id || p.direccionObraId || p.id;
         const version = p.numeroVersion || p.version || 0;
 
         if (!trabajosExtraPorObraId[obraId] || version > (trabajosExtraPorObraId[obraId].numeroVersion || 0)) {
@@ -206,9 +206,9 @@ const AsignarCobroDisponibleModal = memo(({ show, onHide, onSuccess, refreshTrig
       const trabajosExtra = Object.values(trabajosExtraPorObraId).map(p => ({
         tipo: 'TRABAJO_EXTRA',
         trabajoExtraId: p.id,
-        trabajoExtraObraId: p.obraId || p.direccionObraId,
+        trabajoExtraObraId: p.obraId || p.obra_id || p.direccionObraId,
         presupuestoNoClienteId: p.id,
-        obraId: p.obraId || p.direccionObraId,
+        obraId: p.obraId || p.obra_id || p.direccionObraId,
         obraPadreId: p.obra_origen_id || p.obraOrigenId,
         nombre: p.nombreObra || p.nombre || p.titulo || `Trabajo Extra #${p.id}`,
         nombreObra: p.nombreObra || p.nombre,

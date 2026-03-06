@@ -2,23 +2,22 @@
 // SERVICIO: Sistema Unificado de Entidades Financieras
 // Backend endpoint base: /api/v1/entidades-financieras
 //
-// Tipos de entidad (ver src/constants/obraTypes.js):
-//   OBRA_PRINCIPAL     ('OBRA_PRINCIPAL')    - Obra generada desde presupuesto PRINCIPAL
-//   OBRA_TRABAJO_DIARIO('OBRA_TRABAJO_DIARIO')- Obra generada desde presupuesto TRABAJO_DIARIO
-//   OBRA_ADICIONAL     ('TRABAJO_EXTRA')     - Adicional vinculado a obra (presupuesto TRABAJO_EXTRA)
-//   OBRA_TAREA_LEVE    ('TRABAJO_ADICIONAL') - Tarea leve vinculada a obra (presupuesto TAREA_LEVE)
-//   OBRA_INDEPENDIENTE ('OBRA_INDEPENDIENTE')- Obra sin presupuesto, creada manualmente
+// ⚠️ IMPORTANTE: NO CONFUNDIR tipoOrigen (campo de obras) con TipoEntidadFinanciera
+//
+// TipoEntidadFinanciera (valores para /sincronizar):
+//   'OBRA_PRINCIPAL'      - Obra que tiene presupuestoNoClienteId
+//   'OBRA_INDEPENDIENTE'  - Obra sin presupuesto (creada manualmente)
+//   'TRABAJO_EXTRA'       - Trabajo extra vinculado a obra
+//   'TRABAJO_ADICIONAL'   - Tarea leve vinculada a obra
+//
+// tipoOrigen (campo de solo lectura en obras - NO usar para sincronizar):
+//   'PRESUPUESTO_PRINCIPAL', 'PRESUPUESTO_TRABAJO_DIARIO', etc.
 // ================================================================================
 import apiClient from './api';
 import { getCurrentEmpresaId } from './api';
 import {
-  TIPOS_OBRA,
-  OBRA_PRINCIPAL,
-  OBRA_TRABAJO_DIARIO,
-  OBRA_ADICIONAL,
-  OBRA_TAREA_LEVE,
-  OBRA_INDEPENDIENTE,
-  tipoObraDesdePresupuesto,
+  TIPO_ENTIDAD_FINANCIERA,
+  getTipoEntidadFinanciera,
 } from '../constants/obraTypes';
 
 const BASE_URL = '/api/v1/entidades-financieras';
@@ -52,9 +51,10 @@ export const invalidarCache = () => {
  *
  * @param {Object} data - SincronizarRequest
  * @param {number} data.empresaId
- * @param {'OBRA_PRINCIPAL'|'OBRA_TRABAJO_DIARIO'|'OBRA_ADICIONAL'|'OBRA_TAREA_LEVE'|'OBRA_INDEPENDIENTE'} data.tipoEntidad
- * @param {number} entidadId - ID de la entidad original
+ * @param {'OBRA_PRINCIPAL'|'OBRA_INDEPENDIENTE'|'TRABAJO_EXTRA'|'TRABAJO_ADICIONAL'} data.tipoEntidad
+ * @param {number} data.entidadId - ID de la entidad original (obraId para obras, id propio para trabajos)
  * @param {string} [data.nombreDisplay]
+ * @param {number} [data.presupuestoNoClienteId] - Solo para OBRA_PRINCIPAL
  * @returns {Promise<EntidadFinanciera>}
  */
 export const sincronizarEntidad = async (data) => {
@@ -125,7 +125,8 @@ export const listarEntidadesFinancieras = async (empresaIdParam, forzarRecarga =
  * Estrategia 2: POST /sincronizar si no esta en cache.
  *
  * @param {number} empresaId
- * @param {'OBRA_PRINCIPAL'|'OBRA_TRABAJO_DIARIO'|'OBRA_ADICIONAL'|'OBRA_TAREA_LEVE'|'OBRA_INDEPENDIENTE'} tipoEntidad
+ * @param {'OBRA_PRINCIPAL'|'OBRA_INDEPENDIENTE'|'TRABAJO_EXTRA'|'TRABAJO_ADICIONAL'} tipoEntidad
+ * @param {number} entidadId - ID de la entidad original (obraId para obras, id propio para trabajos)
  * @param {Object} [extraData] - Datos adicionales para /sincronizar si es necesario
  * @returns {Promise<number|null>} - entidadFinancieraId, o null si falla
  */
@@ -324,29 +325,60 @@ export const migrarEntidadesFinancieras = async (empresaIdParam) => {
 // -----------------------------------------------------------------------
 
 /**
- * Clasifica una obra segun si tiene o no presupuestoNoClienteId.
- * @param {Object} obra
- * @returns {string} OBRA_PRINCIPAL | OBRA_INDEPENDIENTE
+ * Clasifica una obra según su tipo de entidad financiera.
+ * ✅ MAPEO CORRECTO PARA SISTEMA FINANCIERO:
+ * - Si tiene presupuestoNoClienteId → OBRA_PRINCIPAL
+ * - Si NO tiene presupuestoNoClienteId → OBRA_INDEPENDIENTE
+ *
+ * @param {Object} obra - Objeto obra del backend
+ * @returns {string} 'OBRA_PRINCIPAL' | 'OBRA_INDEPENDIENTE'
  */
 export const clasificarTipoObra = (obra) => {
-  if (obra.presupuestoNoClienteId != null) return OBRA_PRINCIPAL;
-  return OBRA_INDEPENDIENTE;
+  return getTipoEntidadFinanciera(obra);
 };
 
 /**
- * Determina el tipoEntidad a partir de los flags presentes en la entidad
- * combinada que maneja el frontend (presupuesto seleccionado).
+ * ⚠️ CRÍTICO: Determina el TipoEntidadFinanciera correcto para sincronizar.
  *
- * @param {Object} entidad - Objeto de presupuesto/obra/trabajo del frontend
- * @returns {string} - Valor de TIPOS_OBRA
+ * NO CONFUNDIR:
+ * - tipoOrigen (campo de obras): PRESUPUESTO_PRINCIPAL, PRESUPUESTO_TRABAJO_DIARIO, etc.
+ * - TipoEntidadFinanciera (para /sincronizar): OBRA_PRINCIPAL, OBRA_INDEPENDIENTE, etc.
+ *
+ * REGLAS:
+ * 1. Trabajos adicionales (tareas leves) → TRABAJO_ADICIONAL
+ * 2. Trabajos extra → TRABAJO_EXTRA
+ * 3. Obras independientes (sin presupuesto) → OBRA_INDEPENDIENTE
+ * 4. Obras con presupuesto → OBRA_PRINCIPAL (sin importar el tipoOrigen)
+ *
+ * @param {Object} entidad - Objeto de obra/trabajo del frontend
+ * @returns {string} - Valor de TIPO_ENTIDAD_FINANCIERA
  */
 export const inferirTipoEntidad = (entidad) => {
-  if (entidad._esTrabajoAdicional) return OBRA_TAREA_LEVE;
-  if (entidad._esTrabajoExtra || entidad.esTrabajoExtra) return OBRA_ADICIONAL;
-  if (entidad.esObraIndependiente) return OBRA_INDEPENDIENTE;
-  // Si tiene tipoPresupuesto explícito, usar el mapeo directo
-  if (entidad.tipoPresupuesto) return tipoObraDesdePresupuesto(entidad.tipoPresupuesto);
-  return OBRA_PRINCIPAL;
+  // 1. Tareas leves / trabajos adicionales
+  if (entidad._esTrabajoAdicional || entidad.esTareaLeve) {
+    return TIPO_ENTIDAD_FINANCIERA.TRABAJO_ADICIONAL;
+  }
+
+  // 2. Trabajos extra
+  if (entidad._esTrabajoExtra || entidad.esTrabajoExtra) {
+    return TIPO_ENTIDAD_FINANCIERA.TRABAJO_EXTRA;
+  }
+
+  // 3. Obras independientes (sin presupuesto)
+  if (entidad.esObraIndependiente) {
+    return TIPO_ENTIDAD_FINANCIERA.OBRA_INDEPENDIENTE;
+  }
+
+  // 4. Verificar si tiene presupuestoNoClienteId
+  const tienePresupuesto = entidad.presupuestoNoClienteId != null ||
+                          entidad.presupuesto_no_cliente_id != null;
+
+  if (tienePresupuesto) {
+    return TIPO_ENTIDAD_FINANCIERA.OBRA_PRINCIPAL;
+  }
+
+  // 5. Default: obra independiente
+  return TIPO_ENTIDAD_FINANCIERA.OBRA_INDEPENDIENTE;
 };
 
 // -----------------------------------------------------------------------
@@ -372,18 +404,19 @@ export const cargarEstadisticasParaEntidades = async (empresaIdParam, entidades)
   const resolucionesPromises = entidades.map(async (entidad) => {
     const tipoEntidad = inferirTipoEntidad(entidad);
 
-    // entidadId = ID original en la tabla correspondiente
-    // Obras (principales, independientes, trabajo diario) usan obraId; adicionales/leves usan su propio id
-    const esObra = tipoEntidad === OBRA_PRINCIPAL ||
-                   tipoEntidad === OBRA_TRABAJO_DIARIO ||
-                   tipoEntidad === OBRA_INDEPENDIENTE;
+    // ✅ REGLA CRÍTICA: entidadId depende del tipoEntidad
+    // - OBRA_PRINCIPAL / OBRA_INDEPENDIENTE → ID de la OBRA (obraId)
+    // - TRABAJO_EXTRA / TRABAJO_ADICIONAL → ID del trabajo (id propio)
+    const esObra = tipoEntidad === TIPO_ENTIDAD_FINANCIERA.OBRA_PRINCIPAL ||
+                   tipoEntidad === TIPO_ENTIDAD_FINANCIERA.OBRA_INDEPENDIENTE;
+
     const entidadId = esObra
       ? (entidad.obraId || entidad.direccionObraId || entidad.id)
       : entidad.id;
 
     const efId = await resolverEntidadFinancieraId(empresaId, tipoEntidad, entidadId, {
       nombreDisplay: entidad.nombreObra || entidad.nombre || null,
-      presupuestoNoClienteId: entidad.presupuestoNoClienteId ?? null
+      presupuestoNoClienteId: entidad.presupuestoNoClienteId || entidad.presupuesto_no_cliente_id || null
     });
 
     return { entidad, tipoEntidad, entidadId, efId };

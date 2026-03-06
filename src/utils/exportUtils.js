@@ -21,7 +21,7 @@ const generarHTMLImpresion = (datos) => {
           @page { margin: 1.5cm; size: A4; }
           body { margin: 0; }
         }
-        
+
         body {
           font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
           font-size: 11pt;
@@ -31,7 +31,7 @@ const generarHTMLImpresion = (datos) => {
           margin: 0 auto;
           padding: 10mm;
         }
-        
+
         h1 {
           color: #0056b3;
           font-size: 24pt;
@@ -39,7 +39,7 @@ const generarHTMLImpresion = (datos) => {
           border-bottom: 3px solid #0056b3;
           padding-bottom: 10px;
         }
-        
+
         h2 {
           color: #28a745;
           font-size: 16pt;
@@ -48,37 +48,37 @@ const generarHTMLImpresion = (datos) => {
           border-bottom: 2px solid #28a745;
           padding-bottom: 5px;
         }
-        
+
         h3 {
           color: #666;
           font-size: 13pt;
           margin-top: 15px;
           margin-bottom: 8px;
         }
-        
+
         .header {
           display: flex;
           justify-content: space-between;
           align-items: start;
           margin-bottom: 20px;
         }
-        
+
         .header-info {
           flex: 1;
         }
-        
+
         .header-meta {
           text-align: right;
           color: #666;
         }
-        
+
         table {
           width: 100%;
           border-collapse: collapse;
           margin: 15px 0;
           font-size: 10pt;
         }
-        
+
         th {
           background-color: #f8f9fa;
           border: 1px solid #dee2e6;
@@ -87,41 +87,41 @@ const generarHTMLImpresion = (datos) => {
           font-weight: bold;
           color: #495057;
         }
-        
+
         td {
           border: 1px solid #dee2e6;
           padding: 8px;
         }
-        
+
         tr:nth-child(even) {
           background-color: #f8f9fa;
         }
-        
+
         .info-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 10px;
           margin: 15px 0;
         }
-        
+
         .info-item {
           padding: 8px;
           background-color: #f8f9fa;
           border-left: 3px solid #0056b3;
         }
-        
+
         .info-label {
           font-weight: bold;
           color: #666;
           font-size: 9pt;
           text-transform: uppercase;
         }
-        
+
         .info-value {
           color: #333;
           margin-top: 3px;
         }
-        
+
         .total-box {
           background-color: #d1ecf1;
           border: 2px solid #0c5460;
@@ -131,18 +131,18 @@ const generarHTMLImpresion = (datos) => {
           font-size: 14pt;
           font-weight: bold;
         }
-        
+
         .subtotal {
           text-align: right;
           font-weight: bold;
           padding-top: 10px;
           border-top: 2px solid #dee2e6;
         }
-        
+
         .page-break {
           page-break-before: always;
         }
-        
+
         .badge {
           display: inline-block;
           padding: 4px 8px;
@@ -150,7 +150,7 @@ const generarHTMLImpresion = (datos) => {
           font-size: 9pt;
           font-weight: bold;
         }
-        
+
         .badge-success { background-color: #d4edda; color: #155724; }
         .badge-warning { background-color: #fff3cd; color: #856404; }
         .badge-info { background-color: #d1ecf1; color: #0c5460; }
@@ -170,7 +170,7 @@ const generarHTMLImpresion = (datos) => {
           <p><strong>Fecha:</strong> ${formatFecha(datos.fechaEmision)}</p>
         </div>
       </div>
-      
+
       <h2>📍 Información General</h2>
       <div class="info-grid">
         <div class="info-item">
@@ -190,7 +190,7 @@ const generarHTMLImpresion = (datos) => {
           <div class="info-value">${datos.direccionParticular || '-'}</div>
         </div>
       </div>
-      
+
       <h2>🏗️ Dirección de Obra</h2>
       <div class="info-grid">
         <div class="info-item">
@@ -218,7 +218,7 @@ const generarHTMLImpresion = (datos) => {
           <div class="info-value">${datos.direccionObraProvincia || '-'}</div>
         </div>
       </div>
-      
+
       <h2>📅 Fechas y Plazos</h2>
       <div class="info-grid">
         <div class="info-item">
@@ -238,26 +238,26 @@ const generarHTMLImpresion = (datos) => {
           <div class="info-value">${datos.tiempoEstimadoTerminacion ? `${datos.tiempoEstimadoTerminacion} días` : '-'}</div>
         </div>
       </div>
-      
+
       ${datos.descripcion ? `
         <h2>📝 Descripción</h2>
         <p>${datos.descripcion}</p>
       ` : ''}
-      
+
       ${datos.observaciones ? `
         <h2>💬 Observaciones</h2>
         <p>${datos.observaciones}</p>
       ` : ''}
-      
+
       ${generarSeccionConfiguracion(datos)}
       ${generarSeccionProfesionales(datos)}
       ${generarSeccionMateriales(datos)}
       ${generarSeccionOtrosCostos(datos)}
-      
+
       <div class="total-box">
         💰 TOTAL PRESUPUESTO: $${formatMoneda(datos.montoTotal || 0)}
       </div>
-      
+
       <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #dee2e6; text-align: center; color: #999; font-size: 9pt;">
         <p>Documento generado el ${new Date().toLocaleString('es-AR')}</p>
       </div>
@@ -271,25 +271,25 @@ const generarHTMLImpresion = (datos) => {
  */
 const generarSeccionConfiguracion = (datos) => {
   if (!datos.incluirConfiguracion) return '';
-  
+
   let html = '<div class="page-break"></div><h2>⚙️ Configuración del Presupuesto</h2>';
-  
+
   // Profesionales
   if (datos.configsProfesionales && datos.configsProfesionales.length > 0) {
     html += '<h3>👷 Profesionales</h3>';
     html += '<table><thead><tr><th>Tipo</th><th>Modalidad</th><th>Importe</th><th>Cantidad</th><th>Subtotal</th></tr></thead><tbody>';
-    
+
     let totalProf = 0;
     datos.configsProfesionales.forEach(config => {
       const modo = config.modoSeleccionado || 'hora';
       const importe = Number(config[`importe${modo.charAt(0).toUpperCase() + modo.slice(1)}`] || 0);
-      const cantidadKey = modo === 'hora' ? 'cantidadHoras' : 
+      const cantidadKey = modo === 'hora' ? 'cantidadHoras' :
                           modo === 'dia' ? 'cantidadDias' :
                           modo === 'semana' ? 'cantidadSemanas' : 'cantidadMeses';
       const cantidad = Number(config[cantidadKey] || 0);
       const subtotal = importe * cantidad;
       totalProf += subtotal;
-      
+
       html += `<tr>
         <td>${config.esGeneral ? '<em>General</em>' : config.tipoProfesional || '-'}</td>
         <td>Por ${modo}</td>
@@ -298,21 +298,21 @@ const generarSeccionConfiguracion = (datos) => {
         <td>$${formatMoneda(subtotal)}</td>
       </tr>`;
     });
-    
+
     html += `</tbody></table>`;
     html += `<div class="subtotal">Subtotal Profesionales: $${formatMoneda(totalProf)}</div>`;
   }
-  
+
   // Materiales
   if (datos.configsMateriales && datos.configsMateriales.length > 0) {
     html += '<h3>🧱 Materiales</h3>';
     html += '<table><thead><tr><th>Material</th><th>Categoría</th><th>Cantidad</th><th>Unidad</th><th>Precio Unit.</th><th>Subtotal</th></tr></thead><tbody>';
-    
+
     let totalMat = 0;
     datos.configsMateriales.forEach(config => {
       const subtotal = Number(config.presupuestoTotal || 0);
       totalMat += subtotal;
-      
+
       html += `<tr>
         <td>${config.esGeneral ? '<em>General</em>' : config.tipoMaterial || '-'}</td>
         <td>${config.categoria || '-'}</td>
@@ -322,32 +322,32 @@ const generarSeccionConfiguracion = (datos) => {
         <td>$${formatMoneda(subtotal)}</td>
       </tr>`;
     });
-    
+
     html += `</tbody></table>`;
     html += `<div class="subtotal">Subtotal Materiales: $${formatMoneda(totalMat)}</div>`;
   }
-  
+
   // Otros Costos
   if (datos.configsOtros && datos.configsOtros.length > 0) {
     html += '<h3>💼 Otros Costos</h3>';
     html += '<table><thead><tr><th>Descripción</th><th>Categoría</th><th>Importe</th></tr></thead><tbody>';
-    
+
     let totalOtros = 0;
     datos.configsOtros.forEach(config => {
       const importe = Number(config.presupuestoTotal || 0);
       totalOtros += importe;
-      
+
       html += `<tr>
         <td>${config.esGeneral ? '<em>General</em>' : config.descripcion || '-'}</td>
         <td>${config.categoria || '-'}</td>
         <td>$${formatMoneda(importe)}</td>
       </tr>`;
     });
-    
+
     html += `</tbody></table>`;
     html += `<div class="subtotal">Subtotal Otros: $${formatMoneda(totalOtros)}</div>`;
   }
-  
+
   return html;
 };
 
@@ -356,23 +356,23 @@ const generarSeccionConfiguracion = (datos) => {
  */
 const generarSeccionProfesionales = (datos) => {
   if (!datos.incluirProfesionales || !datos.profesionales || datos.profesionales.length === 0) return '';
-  
+
   let html = '<div class="page-break"></div><h2>👷 Profesionales Asignados (Detalle)</h2>';
   html += '<table><thead><tr><th>Tipo</th><th>Modalidad</th><th>Importe</th><th>Cantidad</th><th>Total</th></tr></thead><tbody>';
-  
+
   let total = 0;
   datos.profesionales.forEach(prof => {
     const importeCalc = Number(prof.importeCalculado || 0);
     total += importeCalc;
-    
-    const modo = prof.importeXHora ? 'hora' : 
+
+    const modo = prof.importeXHora ? 'hora' :
                  prof.importeXDia ? 'día' :
                  prof.importeXSemana ? 'semana' :
                  prof.importeXMes ? 'mes' : 'obra';
-    
+
     const importe = prof.importeXHora || prof.importeXDia || prof.importeXSemana || prof.importeXMes || prof.importeXObra || 0;
     const cantidad = prof.cantidadHoras || prof.cantidadDias || prof.cantidadSemanas || prof.cantidadMeses || 1;
-    
+
     html += `<tr>
       <td>${prof.tipoProfesional || '-'}</td>
       <td>Por ${modo}</td>
@@ -381,10 +381,10 @@ const generarSeccionProfesionales = (datos) => {
       <td>$${formatMoneda(importeCalc)}</td>
     </tr>`;
   });
-  
+
   html += `</tbody></table>`;
   html += `<div class="subtotal">Total Profesionales: $${formatMoneda(total)}</div>`;
-  
+
   return html;
 };
 
@@ -393,17 +393,17 @@ const generarSeccionProfesionales = (datos) => {
  */
 const generarSeccionMateriales = (datos) => {
   if (!datos.incluirMateriales || !datos.materiales || datos.materiales.length === 0) return '';
-  
+
   let html = '<h2>🧱 Materiales (Detalle)</h2>';
   html += '<table><thead><tr><th>Material</th><th>Cantidad</th><th>Unidad</th><th>Precio Unit.</th><th>Subtotal</th></tr></thead><tbody>';
-  
+
   let total = 0;
   datos.materiales.forEach(mat => {
     const cantidad = Number(mat.cantidad || 0);
     const precioUnit = Number(mat.precioUnitario || 0);
     const subtotal = cantidad * precioUnit;
     total += subtotal;
-    
+
     html += `<tr>
       <td>${mat.tipoMaterial || '-'}</td>
       <td>${cantidad}</td>
@@ -412,10 +412,10 @@ const generarSeccionMateriales = (datos) => {
       <td>$${formatMoneda(subtotal)}</td>
     </tr>`;
   });
-  
+
   html += `</tbody></table>`;
   html += `<div class="subtotal">Total Materiales: $${formatMoneda(total)}</div>`;
-  
+
   return html;
 };
 
@@ -424,25 +424,25 @@ const generarSeccionMateriales = (datos) => {
  */
 const generarSeccionOtrosCostos = (datos) => {
   if (!datos.incluirOtrosCostos || !datos.otrosCostos || datos.otrosCostos.length === 0) return '';
-  
+
   let html = '<h2>💼 Otros Costos (Detalle)</h2>';
   html += '<table><thead><tr><th>Descripción</th><th>Categoría</th><th>Importe</th></tr></thead><tbody>';
-  
+
   let total = 0;
   datos.otrosCostos.forEach(costo => {
     const importe = Number(costo.importe || 0);
     total += importe;
-    
+
     html += `<tr>
       <td>${costo.descripcion || '-'}</td>
       <td>${costo.categoria || '-'}</td>
       <td>$${formatMoneda(importe)}</td>
     </tr>`;
   });
-  
+
   html += `</tbody></table>`;
   html += `<div class="subtotal">Total Otros Costos: $${formatMoneda(total)}</div>`;
-  
+
   return html;
 };
 
@@ -459,26 +459,32 @@ const formatFecha = (fecha) => {
 
 const formatEstado = (estado) => {
   const estados = {
-    'A_ENVIAR': 'A Enviar',
-    'MODIFICADO': 'Modificado',
     'BORRADOR': 'Borrador',
+    'A_ENVIAR': 'A Enviar',
     'ENVIADO': 'Enviado',
+    'MODIFICADO': 'Modificado',
     'APROBADO': 'Aprobado',
+    'OBRA_A_CONFIRMAR': 'Obra a Confirmar',
     'EN_EJECUCION': 'En Ejecución',
-    'TERMINADO': 'Terminado'
+    'SUSPENDIDA': 'Suspendida',
+    'TERMINADO': 'Terminado',
+    'CANCELADO': 'Cancelado'
   };
   return estados[estado] || estado || '-';
 };
 
 const getBadgeClass = (estado) => {
   const clases = {
-    'A_ENVIAR': 'success',
-    'MODIFICADO': 'warning',
     'BORRADOR': 'secondary',
+    'A_ENVIAR': 'success',
     'ENVIADO': 'info',
+    'MODIFICADO': 'warning',
     'APROBADO': 'success',
+    'OBRA_A_CONFIRMAR': 'warning',
     'EN_EJECUCION': 'primary',
-    'TERMINADO': 'dark'
+    'SUSPENDIDA': 'danger',
+    'TERMINADO': 'dark',
+    'CANCELADO': 'danger'
   };
   return clases[estado] || 'secondary';
 };
@@ -491,12 +497,12 @@ const getBadgeClass = (estado) => {
 export const handlePrint = (datosCompletos) => {
   // Crear una ventana nueva para imprimir con formato personalizado
   const ventanaImpresion = window.open('', '_blank');
-  
+
   const htmlContent = generarHTMLImpresion(datosCompletos);
-  
+
   ventanaImpresion.document.write(htmlContent);
   ventanaImpresion.document.close();
-  
+
   // Esperar a que cargue el contenido antes de imprimir
   ventanaImpresion.onload = () => {
     ventanaImpresion.print();
@@ -513,16 +519,16 @@ export const exportToExcel = (data, filename = 'export', sheetName = 'Datos') =>
   try {
     // Crear libro de trabajo
     const wb = XLSX.utils.book_new();
-    
+
     // Crear hoja de trabajo desde el array de datos
     const ws = XLSX.utils.json_to_sheet(data);
-    
+
     // Agregar la hoja al libro
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    
+
     // Generar archivo y descargarlo
     XLSX.writeFile(wb, `${filename}.xlsx`);
-    
+
     return true;
   } catch (error) {
     console.error('Error al exportar a Excel:', error);
@@ -539,23 +545,23 @@ export const exportToCSV = (data, filename = 'export') => {
   try {
     // Crear hoja de trabajo
     const ws = XLSX.utils.json_to_sheet(data);
-    
+
     // Convertir a CSV
     const csv = XLSX.utils.sheet_to_csv(ws);
-    
+
     // Crear blob y descargar
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    
+
     link.setAttribute('href', url);
     link.setAttribute('download', `${filename}.csv`);
     link.style.visibility = 'hidden';
-    
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     return true;
   } catch (error) {
     console.error('Error al exportar a CSV:', error);
@@ -574,15 +580,15 @@ export const exportToJSON = (data, filename = 'export') => {
     const blob = new Blob([json], { type: 'application/json' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    
+
     link.setAttribute('href', url);
     link.setAttribute('download', `${filename}.json`);
     link.style.visibility = 'hidden';
-    
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     return true;
   } catch (error) {
     console.error('Error al exportar a JSON:', error);
@@ -598,7 +604,7 @@ export const exportToJSON = (data, filename = 'export') => {
  */
 export const prepararDatosPresupuesto = (presupuesto) => {
   const datos = [];
-  
+
   // ========== ENCABEZADO ==========
   datos.push({
     'SECCIÓN': '═══════════════════════════════════════════════════════════',
@@ -608,7 +614,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': 'PRESUPUESTO',
     'CAMPO': `Nº ${presupuesto.numeroPresupuesto || 'NUEVO'} - Versión ${presupuesto.version || 1}`,
@@ -617,7 +623,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '═══════════════════════════════════════════════════════════',
     'CAMPO': '',
@@ -626,9 +632,9 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({}); // Línea en blanco
-  
+
   // ========== INFORMACIÓN GENERAL ==========
   datos.push({
     'SECCIÓN': '📋 INFORMACIÓN GENERAL',
@@ -638,7 +644,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Solicitante',
@@ -647,7 +653,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Teléfono',
@@ -656,7 +662,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Email',
@@ -665,7 +671,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Dirección Particular',
@@ -674,7 +680,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Estado',
@@ -683,9 +689,9 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({}); // Línea en blanco
-  
+
   // ========== DIRECCIÓN DE OBRA ==========
   datos.push({
     'SECCIÓN': '🏗️ DIRECCIÓN DE OBRA',
@@ -695,7 +701,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   const direccionCompleta = [
     presupuesto.direccionObraBarrio,
     presupuesto.direccionObraCalle,
@@ -704,7 +710,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     presupuesto.direccionObraPiso ? `Piso ${presupuesto.direccionObraPiso}` : '',
     presupuesto.direccionObraDepartamento ? `Depto ${presupuesto.direccionObraDepartamento}` : ''
   ].filter(Boolean).join(' ');
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Dirección Completa',
@@ -713,7 +719,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Localidad',
@@ -722,7 +728,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Provincia',
@@ -731,9 +737,9 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({}); // Línea en blanco
-  
+
   // ========== FECHAS ==========
   datos.push({
     'SECCIÓN': '📅 FECHAS Y PLAZOS',
@@ -743,7 +749,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Fecha Creación',
@@ -752,7 +758,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Fecha Probable Inicio',
@@ -761,7 +767,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Vencimiento',
@@ -770,7 +776,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '',
     'CAMPO': 'Tiempo Estimado',
@@ -779,9 +785,9 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({}); // Línea en blanco
-  
+
   // ========== PROFESIONALES ==========
   if (presupuesto.profesionales && presupuesto.profesionales.length > 0) {
     datos.push({
@@ -792,20 +798,20 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': '',
       'SUBTOTAL': ''
     });
-    
+
     let totalProf = 0;
     presupuesto.profesionales.forEach((prof, idx) => {
       const importe = Number(prof.importeCalculado || 0);
       totalProf += importe;
-      
-      const modo = prof.importeXHora ? 'Por Hora' : 
+
+      const modo = prof.importeXHora ? 'Por Hora' :
                    prof.importeXDia ? 'Por Día' :
                    prof.importeXSemana ? 'Por Semana' :
                    prof.importeXMes ? 'Por Mes' : 'Por Obra';
-      
+
       const precioUnit = prof.importeXHora || prof.importeXDia || prof.importeXSemana || prof.importeXMes || prof.importeXObra || 0;
       const cantidad = prof.cantidadHoras || prof.cantidadDias || prof.cantidadSemanas || prof.cantidadMeses || 1;
-      
+
       datos.push({
         'SECCIÓN': `  ${idx + 1}`,
         'CAMPO': prof.tipoProfesional || '-',
@@ -815,7 +821,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
         'SUBTOTAL': `$${formatMoneda(importe)}`
       });
     });
-    
+
     datos.push({
       'SECCIÓN': '',
       'CAMPO': '',
@@ -824,10 +830,10 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': 'SUBTOTAL:',
       'SUBTOTAL': `$${formatMoneda(totalProf)}`
     });
-    
+
     datos.push({}); // Línea en blanco
   }
-  
+
   // ========== MATERIALES ==========
   if (presupuesto.materiales && presupuesto.materiales.length > 0) {
     datos.push({
@@ -838,14 +844,14 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': '',
       'SUBTOTAL': ''
     });
-    
+
     let totalMat = 0;
     presupuesto.materiales.forEach((mat, idx) => {
       const cantidad = Number(mat.cantidad || 0);
       const precioUnit = Number(mat.precioUnitario || 0);
       const subtotal = cantidad * precioUnit;
       totalMat += subtotal;
-      
+
       datos.push({
         'SECCIÓN': `  ${idx + 1}`,
         'CAMPO': mat.tipoMaterial || '-',
@@ -855,7 +861,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
         'SUBTOTAL': `$${formatMoneda(subtotal)}`
       });
     });
-    
+
     datos.push({
       'SECCIÓN': '',
       'CAMPO': '',
@@ -864,10 +870,10 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': 'SUBTOTAL:',
       'SUBTOTAL': `$${formatMoneda(totalMat)}`
     });
-    
+
     datos.push({}); // Línea en blanco
   }
-  
+
   // ========== OTROS COSTOS ==========
   if (presupuesto.otrosCostos && presupuesto.otrosCostos.length > 0) {
     datos.push({
@@ -878,12 +884,12 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': '',
       'SUBTOTAL': ''
     });
-    
+
     let totalOtros = 0;
     presupuesto.otrosCostos.forEach((costo, idx) => {
       const importe = Number(costo.importe || 0);
       totalOtros += importe;
-      
+
       datos.push({
         'SECCIÓN': `  ${idx + 1}`,
         'CAMPO': costo.descripcion || '-',
@@ -893,7 +899,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
         'SUBTOTAL': `$${formatMoneda(importe)}`
       });
     });
-    
+
     datos.push({
       'SECCIÓN': '',
       'CAMPO': '',
@@ -902,10 +908,10 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': 'SUBTOTAL:',
       'SUBTOTAL': `$${formatMoneda(totalOtros)}`
     });
-    
+
     datos.push({}); // Línea en blanco
   }
-  
+
   // ========== HONORARIOS ==========
   if (presupuesto.honorariosTotal && presupuesto.honorariosTotal > 0) {
     datos.push({
@@ -916,7 +922,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': '',
       'SUBTOTAL': ''
     });
-    
+
     datos.push({
       'SECCIÓN': '',
       'CAMPO': 'Total Honorarios',
@@ -925,10 +931,10 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       'PRECIO UNITARIO': '',
       'SUBTOTAL': `$${formatMoneda(presupuesto.honorariosTotal)}`
     });
-    
+
     datos.push({}); // Línea en blanco
   }
-  
+
   // ========== TOTAL FINAL ==========
   datos.push({
     'SECCIÓN': '═══════════════════════════════════════════════════════════',
@@ -938,7 +944,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   datos.push({
     'SECCIÓN': '💵 TOTAL FINAL',
     'CAMPO': '',
@@ -947,7 +953,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': `$${formatMoneda(presupuesto.montoTotal || 0)}`
   });
-  
+
   datos.push({
     'SECCIÓN': '═══════════════════════════════════════════════════════════',
     'CAMPO': '',
@@ -956,11 +962,11 @@ export const prepararDatosPresupuesto = (presupuesto) => {
     'PRECIO UNITARIO': '',
     'SUBTOTAL': ''
   });
-  
+
   // ========== OBSERVACIONES ==========
   if (presupuesto.descripcion || presupuesto.observaciones) {
     datos.push({}); // Línea en blanco
-    
+
     if (presupuesto.descripcion) {
       datos.push({
         'SECCIÓN': '📝 DESCRIPCIÓN',
@@ -971,7 +977,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
         'SUBTOTAL': ''
       });
     }
-    
+
     if (presupuesto.observaciones) {
       datos.push({
         'SECCIÓN': '💬 OBSERVACIONES',
@@ -983,7 +989,7 @@ export const prepararDatosPresupuesto = (presupuesto) => {
       });
     }
   }
-  
+
   return datos;
 };
 
@@ -995,24 +1001,24 @@ export const prepararDatosPresupuesto = (presupuesto) => {
 export const generarResumenTexto = (presupuesto) => {
   let texto = '📋 PRESUPUESTO\n';
   texto += '═'.repeat(40) + '\n\n';
-  
+
   // Información general
   if (presupuesto.nombreEmpresa) {
     texto += `🏢 Empresa: ${presupuesto.nombreEmpresa}\n`;
   }
-  
+
   if (presupuesto.numeroPresupuesto) {
     texto += `📄 Nº: ${presupuesto.numeroPresupuesto}\n`;
   }
-  
+
   if (presupuesto.version) {
     texto += `📌 Versión: ${presupuesto.version}\n`;
   }
-  
+
   if (presupuesto.estado) {
     texto += `📊 Estado: ${formatEstado(presupuesto.estado)}\n`;
   }
-  
+
   // Dirección de obra
   const direccionParts = [
     presupuesto.direccionObraBarrio,
@@ -1022,21 +1028,21 @@ export const generarResumenTexto = (presupuesto) => {
     presupuesto.direccionObraPiso ? `Piso ${presupuesto.direccionObraPiso}` : '',
     presupuesto.direccionObraDepartamento ? `Depto ${presupuesto.direccionObraDepartamento}` : ''
   ].filter(Boolean);
-  
+
   if (direccionParts.length > 0) {
     texto += `📍 Obra: ${direccionParts.join(' ')}\n`;
   }
-  
+
   if (presupuesto.nombreSolicitante) {
     texto += `👤 Solicitante: ${presupuesto.nombreSolicitante}\n`;
   }
-  
+
   texto += '\n' + '─'.repeat(40) + '\n\n';
-  
+
   // Configuración del Presupuesto (si está visible)
   if (presupuesto.incluirConfiguracion) {
     texto += '⚙️ CONFIGURACIÓN DEL PRESUPUESTO\n\n';
-    
+
     // Configuraciones de Profesionales
     if (presupuesto.configsProfesionales && presupuesto.configsProfesionales.length > 0) {
       texto += '👷 Profesionales:\n';
@@ -1044,13 +1050,13 @@ export const generarResumenTexto = (presupuesto) => {
       presupuesto.configsProfesionales.forEach((config, idx) => {
         const modo = config.modoSeleccionado || 'hora';
         const importe = Number(config[`importe${modo.charAt(0).toUpperCase() + modo.slice(1)}`] || 0);
-        const cantidadKey = modo === 'hora' ? 'cantidadHoras' : 
+        const cantidadKey = modo === 'hora' ? 'cantidadHoras' :
                             modo === 'dia' ? 'cantidadDias' :
                             modo === 'semana' ? 'cantidadSemanas' : 'cantidadMeses';
         const cantidad = Number(config[cantidadKey] || 0);
         const subtotal = importe * cantidad;
         totalProf += subtotal;
-        
+
         const tipo = config.esGeneral ? 'General' : (config.tipoProfesional || 'Sin especificar');
         texto += `  ${idx + 1}. ${tipo}\n`;
         texto += `     Por ${modo}: $${formatMoneda(importe)} × ${cantidad}\n`;
@@ -1058,7 +1064,7 @@ export const generarResumenTexto = (presupuesto) => {
       });
       texto += `  SUBTOTAL: $${formatMoneda(totalProf)}\n\n`;
     }
-    
+
     // Configuraciones de Materiales
     if (presupuesto.configsMateriales && presupuesto.configsMateriales.length > 0) {
       texto += '🧱 Materiales:\n';
@@ -1066,7 +1072,7 @@ export const generarResumenTexto = (presupuesto) => {
       presupuesto.configsMateriales.forEach((config, idx) => {
         const subtotal = Number(config.presupuestoTotal || 0);
         totalMat += subtotal;
-        
+
         const tipo = config.esGeneral ? 'General' : (config.tipoMaterial || 'Sin especificar');
         texto += `  ${idx + 1}. ${tipo}\n`;
         if (config.categoria) texto += `     Categoría: ${config.categoria}\n`;
@@ -1074,7 +1080,7 @@ export const generarResumenTexto = (presupuesto) => {
       });
       texto += `  SUBTOTAL: $${formatMoneda(totalMat)}\n\n`;
     }
-    
+
     // Configuraciones de Otros
     if (presupuesto.configsOtros && presupuesto.configsOtros.length > 0) {
       texto += '💼 Otros Costos:\n';
@@ -1082,17 +1088,17 @@ export const generarResumenTexto = (presupuesto) => {
       presupuesto.configsOtros.forEach((config, idx) => {
         const importe = Number(config.presupuestoTotal || 0);
         totalOtros += importe;
-        
+
         const desc = config.esGeneral ? 'General' : (config.descripcion || 'Sin descripción');
         texto += `  ${idx + 1}. ${desc}\n`;
         texto += `     💵 $${formatMoneda(importe)}\n`;
       });
       texto += `  SUBTOTAL: $${formatMoneda(totalOtros)}\n\n`;
     }
-    
+
     texto += '─'.repeat(40) + '\n\n';
   }
-  
+
   // Profesionales detallados (si está visible)
   if (presupuesto.incluirProfesionales && presupuesto.profesionales && presupuesto.profesionales.length > 0) {
     texto += '👷 PROFESIONALES ASIGNADOS (Detalle)\n\n';
@@ -1100,12 +1106,12 @@ export const generarResumenTexto = (presupuesto) => {
     presupuesto.profesionales.forEach((prof, idx) => {
       const costo = Number(prof.importeCalculado) || 0;
       totalProf += costo;
-      
-      const modo = prof.importeXHora ? 'hora' : 
+
+      const modo = prof.importeXHora ? 'hora' :
                    prof.importeXDia ? 'día' :
                    prof.importeXSemana ? 'semana' :
                    prof.importeXMes ? 'mes' : 'obra';
-      
+
       texto += `  ${idx + 1}. ${prof.tipoProfesional || 'Sin especificar'}\n`;
       texto += `     Modalidad: Por ${modo}\n`;
       texto += `     💵 $${formatMoneda(costo)}\n`;
@@ -1113,7 +1119,7 @@ export const generarResumenTexto = (presupuesto) => {
     texto += `  SUBTOTAL: $${formatMoneda(totalProf)}\n\n`;
     texto += '─'.repeat(40) + '\n\n';
   }
-  
+
   // Materiales detallados (si está visible)
   if (presupuesto.incluirMateriales && presupuesto.materiales && presupuesto.materiales.length > 0) {
     texto += '🧱 MATERIALES (Detalle)\n\n';
@@ -1123,7 +1129,7 @@ export const generarResumenTexto = (presupuesto) => {
       const precioUnit = Number(mat.precioUnitario || 0);
       const subtotal = cantidad * precioUnit;
       totalMat += subtotal;
-      
+
       texto += `  ${idx + 1}. ${mat.tipoMaterial || 'Sin nombre'}\n`;
       texto += `     Cantidad: ${cantidad} ${mat.unidadMedida || ''}\n`;
       texto += `     Precio unitario: $${formatMoneda(precioUnit)}\n`;
@@ -1132,7 +1138,7 @@ export const generarResumenTexto = (presupuesto) => {
     texto += `  SUBTOTAL: $${formatMoneda(totalMat)}\n\n`;
     texto += '─'.repeat(40) + '\n\n';
   }
-  
+
   // Otros Costos detallados (si está visible)
   if (presupuesto.incluirOtrosCostos && presupuesto.otrosCostos && presupuesto.otrosCostos.length > 0) {
     texto += '💼 OTROS COSTOS (Detalle)\n\n';
@@ -1140,7 +1146,7 @@ export const generarResumenTexto = (presupuesto) => {
     presupuesto.otrosCostos.forEach((costo, idx) => {
       const monto = Number(costo.importe) || 0;
       totalOtros += monto;
-      
+
       texto += `  ${idx + 1}. ${costo.descripcion || 'Sin descripción'}\n`;
       if (costo.categoria) texto += `     Categoría: ${costo.categoria}\n`;
       texto += `     💵 $${formatMoneda(monto)}\n`;
@@ -1148,13 +1154,13 @@ export const generarResumenTexto = (presupuesto) => {
     texto += `  SUBTOTAL: $${formatMoneda(totalOtros)}\n\n`;
     texto += '─'.repeat(40) + '\n\n';
   }
-  
+
   // Total
   texto += '═'.repeat(40) + '\n';
   const total = Number(presupuesto.montoTotal) || 0;
   texto += `💰 TOTAL: $${formatMoneda(total)}\n`;
   texto += '═'.repeat(40) + '\n';
-  
+
   return texto;
 };
 
@@ -1166,12 +1172,12 @@ export const generarResumenTexto = (presupuesto) => {
 export const compartirPorWhatsApp = (presupuesto, telefono = '') => {
   const texto = generarResumenTexto(presupuesto);
   const textoEncoded = encodeURIComponent(texto);
-  
+
   // Si hay teléfono, usarlo; si no, abrir selector de contactos
-  const url = telefono 
+  const url = telefono
     ? `https://wa.me/${telefono}?text=${textoEncoded}`
     : `https://wa.me/?text=${textoEncoded}`;
-  
+
   window.open(url, '_blank');
 };
 
@@ -1183,12 +1189,12 @@ export const compartirPorWhatsApp = (presupuesto, telefono = '') => {
 export const compartirPorEmail = (presupuesto, email = '') => {
   const texto = generarResumenTexto(presupuesto);
   const asunto = `Presupuesto ${presupuesto.numeroPresupuesto || 'Nuevo'} - ${presupuesto.nombreEmpresa || ''}`;
-  
+
   const asuntoEncoded = encodeURIComponent(asunto);
   const cuerpoEncoded = encodeURIComponent(texto);
-  
+
   const mailtoUrl = `mailto:${email}?subject=${asuntoEncoded}&body=${cuerpoEncoded}`;
-  
+
   window.location.href = mailtoUrl;
 };
 
@@ -1262,16 +1268,16 @@ export const capturarYExportarVisual = async (elemento, nombreArchivo, formato =
 
       const imgWidth = contentWidth;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
+
       // Calcular número de páginas de forma simple
       const numPages = Math.ceil(imgHeight / usablePageHeight);
-      
+
       // Generar todas las páginas
       for (let i = 0; i < numPages; i++) {
         if (i > 0) {
           pdf.addPage();
         }
-        
+
         // Posicionamiento simple: cada página muestra su porción correspondiente
         const yOffset = -(i * usablePageHeight) + margin;
         pdf.addImage(imgData, 'PNG', margin, yOffset, imgWidth, imgHeight, undefined, 'FAST');
@@ -1282,15 +1288,15 @@ export const capturarYExportarVisual = async (elemento, nombreArchivo, formato =
         pdf.setPage(i);
         pdf.setFontSize(7);
         pdf.setTextColor(120);
-        
+
         // Línea separadora superior del pie
         pdf.setDrawColor(200);
         pdf.setLineWidth(0.1);
         pdf.line(margin, pageHeight - footerHeight + 1, pageWidth - margin, pageHeight - footerHeight + 1);
-        
+
         // Numeración centrada
         pdf.text(`Página ${i} de ${numPages}`, pageWidth / 2, pageHeight - 4, { align: 'center' });
-        
+
         // Fecha en la esquina derecha
         const fechaHora = `${new Date().toLocaleDateString('es-AR')} ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
         pdf.text(fechaHora, pageWidth - margin, pageHeight - 4, { align: 'right' });
@@ -1330,7 +1336,7 @@ export const exportarAPDFReal = async (elemento, nombreArchivo) => {
     // Ajustar estilos temporales
     const anchoOriginal = elemento.style.width;
     const maxWidthOriginal = elemento.style.maxWidth;
-    
+
     elemento.style.width = '210mm';
     elemento.style.maxWidth = '210mm';
 
@@ -1341,11 +1347,11 @@ export const exportarAPDFReal = async (elemento, nombreArchivo) => {
     const opciones = {
       margin: [8, 8, 12, 8], // [top, left, bottom, right] en mm
       filename: `${nombreArchivo}.pdf`,
-      image: { 
-        type: 'jpeg', 
-        quality: 0.98 
+      image: {
+        type: 'jpeg',
+        quality: 0.98
       },
-      html2canvas: { 
+      html2canvas: {
         scale: 2,
         useCORS: true,
         letterRendering: true,
@@ -1353,13 +1359,13 @@ export const exportarAPDFReal = async (elemento, nombreArchivo) => {
         scrollY: 0,
         scrollX: 0
       },
-      jsPDF: { 
-        unit: 'mm', 
-        format: 'a4', 
+      jsPDF: {
+        unit: 'mm',
+        format: 'a4',
         orientation: 'portrait',
         compress: true
       },
-      pagebreak: { 
+      pagebreak: {
         mode: 'css',
         avoid: ['tr', '.card', '.row']
       }
@@ -1399,7 +1405,7 @@ export const exportarAPDFReal = async (elemento, nombreArchivo) => {
 export const descargarPDFDirecto = async (elemento, nombreArchivo) => {
   try {
     const pdfBlob = await exportarAPDFReal(elemento, nombreArchivo);
-    
+
     // Descargar el blob
     const url = window.URL.createObjectURL(pdfBlob);
     const link = document.createElement('a');
@@ -1409,7 +1415,7 @@ export const descargarPDFDirecto = async (elemento, nombreArchivo) => {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
-    
+
     console.log('✅ PDF descargado:', link.download);
   } catch (error) {
     console.error('Error al descargar PDF:', error);

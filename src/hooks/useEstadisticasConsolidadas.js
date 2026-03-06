@@ -315,14 +315,15 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
       let totalTrabajosAdicionales = 0;
       let cantidadTrabajosAdicionales = 0;
 
-      const obraIds = presupuestosUnicos.map(p => p.obraId || p.direccionObraId).filter(Boolean);
+      const obraIds = presupuestosUnicos.map(p => p.obraId || p.obra_id || p.direccionObraId).filter(Boolean);
 
       console.log('🔍 DIAGNÓSTICO TRABAJOS EXTRA - Presupuestos únicos:', presupuestosUnicos.map(p => ({
         id: p.id,
         nombre: p.nombreObra,
         obraId: p.obraId,
+        obra_id: p.obra_id,
         direccionObraId: p.direccionObraId,
-        usado: p.obraId || p.direccionObraId
+        usado: p.obraId || p.obra_id || p.direccionObraId
       })));
       console.log('🔍 DIAGNÓSTICO TRABAJOS EXTRA - ObraIds extraídos:', obraIds);
       console.log('🔍 DIAGNÓSTICO TRABAJOS EXTRA - Cantidad de obras:', obraIds.length);
@@ -660,7 +661,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         // Obtener trabajos extra de esta obra
         let trabajosExtraObra = [];
         try {
-          const obraId = presupuesto.obraId || presupuesto.direccionObraId;
+          const obraId = presupuesto.obraId || presupuesto.obra_id || presupuesto.direccionObraId;
           if (obraId) {
             const responseTE = await api.trabajosExtra.getAll(empresaId, { obraId });
             const trabajos = Array.isArray(responseTE) ? responseTE : responseTE?.data || [];
@@ -751,7 +752,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
         }
 
         // 🆕 Calcular honorarios totales incluyendo trabajos extra
-        const honorariosBase = honorariosPorObra[presupuesto.obraId || presupuesto.direccionObraId] || parseFloat(presupuesto.totalHonorarios || 0);
+        const honorariosBase = honorariosPorObra[presupuesto.obraId || presupuesto.obra_id || presupuesto.direccionObraId] || parseFloat(presupuesto.totalHonorarios || 0);
         const honorariosTrabajosExtra = trabajosExtraObra.reduce((sum, te) => sum + (parseFloat(te.totalHonorarios) || 0), 0);
         const totalHonorariosConTE = honorariosBase + honorariosTrabajosExtra;
 
@@ -768,7 +769,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
         desglosePorObra.push({
           id: presupuesto.id,
-          obraId: presupuesto.obraId || presupuesto.direccionObraId,
+          obraId: presupuesto.obraId || presupuesto.obra_id || presupuesto.direccionObraId,
           nombreObra,
           numeroPresupuesto: presupuesto.numeroPresupuesto,
           estado: presupuesto.estado,
@@ -1077,7 +1078,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
 
       const resumenesPromises = presupuestosUnicos.map(async (presupuesto) => {
         try {
-          const obraId = presupuesto.obraId || presupuesto.direccionObraId;
+          const obraId = presupuesto.obraId || presupuesto.obra_id || presupuesto.direccionObraId;
           const resumen = await api.get(`/api/v1/obras-financiero/${obraId}/resumen`, { empresaId });
           console.log(`  ✅ Obra ${obraId} (${resumen.nombreObra}):`, {
             totalPagadoGeneral: resumen.totalPagadoGeneral,
@@ -1087,7 +1088,7 @@ export const useEstadisticasConsolidadas = (empresaId, refreshTrigger, activo = 
           });
           return resumen;
         } catch (error) {
-          const obraId = presupuesto.obraId || presupuesto.direccionObraId;
+          const obraId = presupuesto.obraId || presupuesto.obra_id || presupuesto.direccionObraId;
           console.error(`  ❌ Error obteniendo resumen de obra ${obraId}:`, error.message);
           return null;
         }

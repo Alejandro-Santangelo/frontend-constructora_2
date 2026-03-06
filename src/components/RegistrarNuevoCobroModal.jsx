@@ -149,7 +149,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
       // 3. Procesar TRABAJOS EXTRA (última versión por obraId)
       const trabajosExtraPorObraId = {};
       presupuestosTrabajosExtra.forEach(p => {
-        const obraId = p.obraId || p.direccionObraId || p.id;
+        const obraId = p.obraId || p.obra_id || p.direccionObraId || p.id;
         const version = p.numeroVersion || p.version || 0;
 
         if (!trabajosExtraPorObraId[obraId] || version > (trabajosExtraPorObraId[obraId].numeroVersion || 0)) {
@@ -160,9 +160,9 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
       const trabajosExtra = Object.values(trabajosExtraPorObraId).map(p => ({
         tipo: 'TRABAJO_EXTRA',
         trabajoExtraId: p.id, // El ID del presupuesto
-        trabajoExtraObraId: p.obraId || p.direccionObraId, // ✅ El ID de la obra del trabajo extra (para vincular trabajos adicionales)
+        trabajoExtraObraId: p.obraId || p.obra_id || p.direccionObraId, // ✅ El ID de la obra del trabajo extra (para vincular trabajos adicionales)
         presupuestoNoClienteId: p.id,
-        obraId: p.obraId || p.direccionObraId,
+        obraId: p.obraId || p.obra_id || p.direccionObraId,
         obraPadreId: p.obra_origen_id || p.obraOrigenId, // 🔍 ID de la obra principal (si existe)
         nombre: p.nombreObra || p.nombre || p.titulo || `Trabajo Extra #${p.id}`,
         nombreObra: p.nombreObra || p.nombre,

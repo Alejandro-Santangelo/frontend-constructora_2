@@ -1,35 +1,35 @@
 /**
- * Constantes de tipos de Obra / tipoEntidad financiero
+ * Constantes de tipos de Obra (campo tipoOrigen del backend)
  *
- * Los valores de string son los exactos que usa el backend en el sistema
- * de entidades financieras (/api/v1/entidades-financieras).
+ * Los valores de string son los exactos que usa el backend en el campo
+ * tipoOrigen de ObraSimpleDTO y ObraResponseDTO.
  * NO modificar sin coordinar con backend.
  *
- * Relación presupuesto → obra:
+ * Relación presupuesto → obra (generación automática al aprobar):
  *
- *   PRESUPUESTO_PRINCIPAL       (PRINCIPAL)    → OBRA_PRINCIPAL
- *   PRESUPUESTO_TRABAJO_DIARIO  (TRABAJO_DIARIO)  → OBRA_TRABAJO_DIARIO
- *   PRESUPUESTO_ADICIONAL_OBRA  (TRABAJO_EXTRA)   → OBRA_ADICIONAL
- *   PRESUPUESTO_TAREA_LEVE      (TAREA_LEVE)      → OBRA_TAREA_LEVE
- *   (creada manualmente, sin presupuesto)          → OBRA_INDEPENDIENTE
+ *   PRESUPUESTO PRINCIPAL       → obra.tipoOrigen = 'PRESUPUESTO_PRINCIPAL'
+ *   PRESUPUESTO TRABAJO_DIARIO  → obra.tipoOrigen = 'PRESUPUESTO_TRABAJO_DIARIO'
+ *   PRESUPUESTO TRABAJO_EXTRA   → obra.tipoOrigen = 'PRESUPUESTO_TRABAJO_EXTRA'
+ *   PRESUPUESTO TAREA_LEVE      → obra.tipoOrigen = 'PRESUPUESTO_TAREA_LEVE'
+ *   Obra creada manualmente     → obra.tipoOrigen = 'OBRA_MANUAL'
  */
 
-// ==================== TIPOS DE OBRA (valores backend) ====================
+// ==================== TIPOS DE OBRA (valores backend para tipoOrigen) ====================
 export const TIPOS_OBRA = {
   /** Obra generada al aprobar un presupuesto PRINCIPAL */
-  OBRA_PRINCIPAL:      'OBRA_PRINCIPAL',
+  OBRA_PRINCIPAL:      'PRESUPUESTO_PRINCIPAL',
 
-  /** Obra generada al aprobar un presupuesto TRABAJO_DIARIO (flujo simplificado: BORRADOR → TERMINADO → APROBADO) */
-  OBRA_TRABAJO_DIARIO: 'OBRA_TRABAJO_DIARIO',
+  /** Obra generada al aprobar un presupuesto TRABAJO_DIARIO */
+  OBRA_TRABAJO_DIARIO: 'PRESUPUESTO_TRABAJO_DIARIO',
 
   /** Trabajo adicional sobre obra existente (desde presupuesto TRABAJO_EXTRA) */
-  OBRA_ADICIONAL:      'TRABAJO_EXTRA',
+  OBRA_ADICIONAL:      'PRESUPUESTO_TRABAJO_EXTRA',
 
   /** Tarea leve sobre obra existente (desde presupuesto TAREA_LEVE) */
-  OBRA_TAREA_LEVE:     'TRABAJO_ADICIONAL',
+  OBRA_TAREA_LEVE:     'PRESUPUESTO_TAREA_LEVE',
 
   /** Obra creada manualmente, sin presupuesto asociado */
-  OBRA_INDEPENDIENTE:  'OBRA_INDEPENDIENTE',
+  OBRA_INDEPENDIENTE:  'OBRA_MANUAL',
 };
 
 // ==================== ALIASES SEMÁNTICOS ====================
@@ -37,22 +37,54 @@ export const TIPOS_OBRA = {
 // para dejar claro el contrato con el backend.
 
 /** Obra formal generada al aprobar un presupuesto principal (PRINCIPAL). */
-export const OBRA_PRINCIPAL      = TIPOS_OBRA.OBRA_PRINCIPAL;      // 'OBRA_PRINCIPAL'
+export const OBRA_PRINCIPAL      = TIPOS_OBRA.OBRA_PRINCIPAL;      // 'PRESUPUESTO_PRINCIPAL'
 
 /** Obra rápida generada automáticamente desde un presupuesto de trabajo diario. */
-export const OBRA_TRABAJO_DIARIO = TIPOS_OBRA.OBRA_TRABAJO_DIARIO; // 'OBRA_TRABAJO_DIARIO'
+export const OBRA_TRABAJO_DIARIO = TIPOS_OBRA.OBRA_TRABAJO_DIARIO; // 'PRESUPUESTO_TRABAJO_DIARIO'
 
-/** Trabajo adicional sobre una obra existente (tipoEntidad: 'TRABAJO_EXTRA'). */
-export const OBRA_ADICIONAL      = TIPOS_OBRA.OBRA_ADICIONAL;      // 'TRABAJO_EXTRA'
+/** Trabajo adicional sobre una obra existente (desde presupuesto TRABAJO_EXTRA). */
+export const OBRA_ADICIONAL      = TIPOS_OBRA.OBRA_ADICIONAL;      // 'PRESUPUESTO_TRABAJO_EXTRA'
 
-/** Tarea leve sobre una obra existente (tipoEntidad: 'TRABAJO_ADICIONAL'). */
-export const OBRA_TAREA_LEVE     = TIPOS_OBRA.OBRA_TAREA_LEVE;    // 'TRABAJO_ADICIONAL'
+/** Tarea leve sobre una obra existente (desde presupuesto TAREA_LEVE). */
+export const OBRA_TAREA_LEVE     = TIPOS_OBRA.OBRA_TAREA_LEVE;    // 'PRESUPUESTO_TAREA_LEVE'
 
 /** Obra creada manualmente sin presupuesto asociado. */
-export const OBRA_INDEPENDIENTE  = TIPOS_OBRA.OBRA_INDEPENDIENTE;  // 'OBRA_INDEPENDIENTE'
+export const OBRA_INDEPENDIENTE  = TIPOS_OBRA.OBRA_INDEPENDIENTE;  // 'OBRA_MANUAL'
 
 
-// ==================== RELACIÓN PRESUPUESTO → OBRA ====================
+// ==================== TIPOS PARA SISTEMA DE ENTIDADES FINANCIERAS ====================
+/**
+ * Valores que acepta el endpoint /api/v1/entidades-financieras/sincronizar
+ * ⚠️ IMPORTANTE: NO confundir con tipoOrigen (campo de solo lectura de las obras)
+ *
+ * TipoEntidadFinanciera (para sincronizar):
+ *   - OBRA_PRINCIPAL: Obra que tiene presupuestoNoClienteId
+ *   - OBRA_INDEPENDIENTE: Obra sin presupuesto (creada manualmente)
+ *   - TRABAJO_EXTRA: Trabajo extra vinculado a obra
+ *   - TRABAJO_ADICIONAL: Tarea leve vinculada a obra
+ */
+export const TIPO_ENTIDAD_FINANCIERA = {
+  OBRA_PRINCIPAL:      'OBRA_PRINCIPAL',
+  OBRA_INDEPENDIENTE:  'OBRA_INDEPENDIENTE',
+  TRABAJO_EXTRA:       'TRABAJO_EXTRA',
+  TRABAJO_ADICIONAL:   'TRABAJO_ADICIONAL',
+};
+
+/**
+ * Mapea una obra a su tipo de entidad financiera según el backend
+ * @param {Object} obra - Obra con presupuestoNoClienteId
+ * @returns {string} OBRA_PRINCIPAL | OBRA_INDEPENDIENTE
+ */
+export const getTipoEntidadFinanciera = (obra) => {
+  const tienePresupuesto = obra.presupuestoNoClienteId != null ||
+                          obra.presupuesto_no_cliente_id != null;
+  return tienePresupuesto
+    ? TIPO_ENTIDAD_FINANCIERA.OBRA_PRINCIPAL
+    : TIPO_ENTIDAD_FINANCIERA.OBRA_INDEPENDIENTE;
+};
+
+
+// ==================== RELACIÓN PRESUPUESTO → OBRA (SOLO PARA REFERENCIA) ====================
 /**
  * Dado un tipoPresupuesto, devuelve el tipoEntidad (obra) que genera.
  * Útil para el payload de sincronización con /api/v1/entidades-financieras.

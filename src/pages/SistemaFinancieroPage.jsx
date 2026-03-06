@@ -235,18 +235,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     // ✅ Incluir TODAS las obras seleccionadas (con presupuesto Y obras independientes) + TRABAJOS EXTRA
     const array = [];
 
-    console.log('🔍 [presupuestosSeleccionadosArray] obrasSeleccionadas IDs:', [...obrasSeleccionadas]);
-    console.log('🔍 [presupuestosSeleccionadosArray] obrasDisponibles:', obrasDisponibles.map(o => ({
-      id: o.id,
-      nombre: o.nombreObra,
-      trabajosExtra: o.trabajosExtra?.map(te => ({ id: te.id, nombre: te.nombre }))
-    })));
-
     obrasDisponibles
       .filter(obra => obrasSeleccionadas.has(obra.id))
       .forEach(obra => {
-        console.log(`🔍 [presupuestosSeleccionadosArray] Procesando obra: ${obra.nombreObra} (ID: ${obra.id})`);
-
         // Agregar la obra principal
         if (obra.presupuestoCompleto) {
           array.push(obra.presupuestoCompleto);
@@ -269,12 +260,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
         // Agregar trabajos extra de esta obra
         if (obra.trabajosExtra && Array.isArray(obra.trabajosExtra)) {
-          console.log(`🔍 [presupuestosSeleccionadosArray] Obra "${obra.nombreObra}" tiene ${obra.trabajosExtra.length} trabajos extra`);
           obra.trabajosExtra.forEach(te => {
             const estaSeleccionado = obrasSeleccionadas.has(te.id) || trabajosExtraSeleccionados.has(te.id);
-            console.log(`  🔍 Trabajo Extra: ${te.nombre} (ID: ${te.id}, obraId: ${te.obraId}), ¿está seleccionado?: ${estaSeleccionado}`);
             if (estaSeleccionado) {
-              console.log(`  ✅ Agregando trabajo extra: ${te.nombre}`);
               if (te.presupuestoCompleto) {
                 array.push(te.presupuestoCompleto);
               } else {
@@ -295,19 +283,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   materialesAsignados: [],
                   gastosGeneralesAsignados: []
                 };
-                console.log(`  📦 Objeto trabajo extra construido:`, teObject);
                 array.push(teObject);
               }
             }
           });
         }
       });
-
-    console.log(`🔍 [presupuestosSeleccionadosArray] Array final (${array.length} elementos):`, array.map(p => ({
-      id: p.id,
-      nombre: p.nombreObra,
-      obraId: p.obraId
-    })));
 
     return array;
   }, [obrasDisponibles, obrasSeleccionadas, trabajosExtraSeleccionados]);
@@ -717,16 +698,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
       const todasLasObras = extractData(response);
 
-      // Filtrar por estado APROBADO, EN_EJECUCION o FINALIZADO (si es TAREA_LEVE)
+      // Filtrar por estado APROBADO, EN_EJECUCION o FINALIZADO (si es PRESUPUESTO_TAREA_LEVE/PRESUPUESTO_TRABAJO_DIARIO)
       // ✅ AHORA INCLUYE OBRAS INDEPENDIENTES (sin presupuesto)
       const obrasFiltradas = todasLasObras.filter(obra => {
         // Incluir obras en APROBADO o EN_EJECUCION
         if (obra.estado === 'APROBADO' || obra.estado === 'EN_EJECUCION') return true;
 
-        // Incluir obras FINALIZADO solo si son TAREA_LEVE
+        // Incluir obras FINALIZADO solo si son PRESUPUESTO_TAREA_LEVE o PRESUPUESTO_TRABAJO_DIARIO
         if (obra.estado === 'FINALIZADO') {
-          const esTareaLeve = obra.tipo_origen === 'TAREA_LEVE' || obra.tipoOrigen === 'TAREA_LEVE';
-          return esTareaLeve;
+          const esTareaLeve = obra.tipoOrigen === 'PRESUPUESTO_TAREA_LEVE' || obra.tipo_origen === 'PRESUPUESTO_TAREA_LEVE';
+          const esTrabajoDiario = obra.tipoOrigen === 'PRESUPUESTO_TRABAJO_DIARIO' || obra.tipo_origen === 'PRESUPUESTO_TRABAJO_DIARIO';
+          return esTareaLeve || esTrabajoDiario;
         }
 
         return false;
@@ -786,7 +768,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           return;
         }
 
-        const idPresupuesto = o.presupuestoCompleto?.id ?? o.presupuestoNoClienteId ?? o.presupuestoNoCliente?.id;
+        const idPresupuesto = o.presupuestoCompleto?.id ?? o.presupuestoNoClienteId ?? o.presupuesto_no_cliente_id ?? o.presupuestoNoCliente?.id;
         if (!idPresupuesto) return;
         if (!presupuestosUnicos.has(idPresupuesto)) {
           const monto = o.totalPresupuesto || 0;
@@ -898,7 +880,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       })[0];
 
       // Si no se encuentra por obraId, usar el presupuestoNoClienteId como fallback
-      const presupuestoId = presupuestoMasReciente?.id || obra.presupuestoNoClienteId || obra.presupuestoNoCliente?.id;
+      const presupuestoId = presupuestoMasReciente?.id || obra.presupuestoNoClienteId || obra.presupuesto_no_cliente_id || obra.presupuestoNoCliente?.id;
 
       // ✅ Detectar obra independiente (sin presupuesto)
       const esObraIndependiente = !presupuestoId;
@@ -1019,29 +1001,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   // 🆕 Cargar obras disponibles cuando se activa el modo consolidado
   useEffect(() => {
     const cargarObras = async () => {
-      if (!modoConsolidado || !empresaSeleccionada) return;
+      console.log('🔍 [SistemaFinanciero] Verificando carga de obras:', {
+        modoConsolidado,
+        empresaSeleccionada: empresaSeleccionada?.id,
+        empresaNombre: empresaSeleccionada?.nombre
+      });
+
+      if (!modoConsolidado || !empresaSeleccionada) {
+        console.warn('⚠️ [SistemaFinanciero] No se cargan obras:', {
+          razon: !empresaSeleccionada ? 'No hay empresa seleccionada' : 'Modo consolidado desactivado'
+        });
+        return;
+      }
 
       setLoadingObras(true);
       try {
-        // 🔧 PASO 0: Cargar TODAS las obras desde /api/obras (incluye obras independientes)
-        const obrasResponse = await apiService.obras.getPorEmpresa(empresaSeleccionada.id);
-        const todasLasObras = Array.isArray(obrasResponse) ? obrasResponse : (obrasResponse?.datos || obrasResponse?.content || []);
-
-        // Filtrar obras activas: APROBADO, EN_EJECUCION o FINALIZADO (si es TAREA_LEVE)
-        const obrasActivas = todasLasObras.filter(o => {
-          if (o.estado === 'CANCELADO') return false;
-          if (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') return true;
-
-          // Incluir obras FINALIZADO solo si son TAREA_LEVE
-          if (o.estado === 'FINALIZADO') {
-            const esTareaLeve = o.tipo_origen === 'TAREA_LEVE' || o.tipoOrigen === 'TAREA_LEVE';
-            return esTareaLeve;
-          }
-
-          return false;
-        });
-
-        // 🔧 PASO 1: Obtener TODOS los presupuestos
+        // 🔧 PASO 0A: Cargar TODOS los presupuestos primero (para verificar tipos)
         const response = await apiService.presupuestosNoCliente.getAll(empresaSeleccionada.id);
 
         const extractData = (response) => {
@@ -1052,15 +1027,60 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           return [];
         };
 
-        // Filtrar CANCELADO
         const todosPresupuestos = extractData(response).filter(p => p.estado !== 'CANCELADO');
 
+        // Crear mapa de presupuestos por ID para consulta rápida
+        const presupuestosPorId = {};
+        todosPresupuestos.forEach(p => {
+          presupuestosPorId[p.id] = p;
+        });
+
+        // 🔧 PASO 0B: Cargar TODAS las obras desde /api/obras
+        const obrasResponse = await apiService.obras.getPorEmpresa(empresaSeleccionada.id);
+        const todasLasObras = Array.isArray(obrasResponse) ? obrasResponse : (obrasResponse?.datos || obrasResponse?.content || []);
+
+        // Filtrar obras activas considerando tipoOrigen Y tipoPresupuesto del presupuesto asociado
+        const obrasActivas = todasLasObras.filter(o => {
+          if (o.estado === 'CANCELADO') return false;
+          if (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') return true;
+
+          // Para obras TERMINADO, verificar si son PRESUPUESTO_TAREA_LEVE o PRESUPUESTO_TRABAJO_DIARIO
+          if (o.estado === 'TERMINADO') {
+            // Intentar identificar tipo por tipoOrigen (obras nuevas)
+            let esTareaLeve = o.tipoOrigen === 'PRESUPUESTO_TAREA_LEVE' || o.tipo_origen === 'PRESUPUESTO_TAREA_LEVE';
+            let esTrabajoDiario = o.tipoOrigen === 'PRESUPUESTO_TRABAJO_DIARIO' || o.tipo_origen === 'PRESUPUESTO_TRABAJO_DIARIO';
+
+            // Si tipoOrigen es null, consultar el presupuesto asociado (obras antiguas)
+            if (!esTareaLeve && !esTrabajoDiario && (o.tipoOrigen === null || o.tipo_origen === null)) {
+              const presupuestoId = o.presupuestoNoClienteId || o.presupuesto_no_cliente_id;
+              const presupuesto = presupuestosPorId[presupuestoId];
+              if (presupuesto) {
+                const tipoPresupuesto = presupuesto.tipoPresupuesto || presupuesto.tipo_presupuesto;
+                esTareaLeve = tipoPresupuesto === 'TAREA_LEVE' || tipoPresupuesto === 'TRABAJO_ADICIONAL';
+                esTrabajoDiario = tipoPresupuesto === 'TRABAJO_DIARIO';
+              }
+            }
+
+            return esTareaLeve || esTrabajoDiario;
+          }
+
+          return false;
+        });
+
         // 🎯 PASO 1: Separar trabajos extra ANTES de agrupar
+      // 🎯 PASO 1: Separar presupuestos por tipo
       const presupuestosNormales = todosPresupuestos.filter(p => {
+        // Excluir trabajos extra
         const esTE = p.esPresupuestoTrabajoExtra === true ||
                      p.esPresupuestoTrabajoExtra === 'V' ||
                      p.es_obra_trabajo_extra === true;
-        return !esTE;
+        if (esTE) return false;
+
+        // Excluir TAREA_LEVE (se agrupan bajo su obra padre, no son obras principales)
+        const esTareaLeve = p.tipoPresupuesto === 'TAREA_LEVE' || p.tipo_presupuesto === 'TAREA_LEVE';
+        if (esTareaLeve) return false;
+
+        return true;
       });
 
       const presupuestosTrabajosExtra = todosPresupuestos.filter(p => {
@@ -1072,8 +1092,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
       // 🎯 PASO 2: Agrupar SOLO obras normales por obraId y obtener la última versión
       const obrasPorObraId = {};
+
       presupuestosNormales.forEach(p => {
-        const obraId = p.obraId || p.direccionObraId;
+        const obraId = p.obraId || p.obra_id || p.direccionObraId;
         if (!obraId) return; // Saltar presupuestos sin obra asociada
 
         const version = p.numeroVersion || p.version || 0;
@@ -1108,6 +1129,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
         // Verificar que sea realmente independiente (sin presupuesto asociado)
         const tienePresupuesto = obra.presupuestoNoClienteId ||
+                                obra.presupuesto_no_cliente_id ||
                                 (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
 
         if (tienePresupuesto) return; // Saltar si tiene presupuesto
@@ -1133,12 +1155,159 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         };
       });
 
+      // 🆕 PASO 2.6: Agregar OBRAS CON PRESUPUESTO que no fueron mapeadas en PASO 2
+      // (por ejemplo, TRABAJO_DIARIO cuyo presupuesto no tiene obraId/direccionObraId actualizado)
+      obrasActivas.forEach(obra => {
+        // Si la obra ya fue procesada, saltarla
+        if (obrasPorObraId[obra.id]) return;
+
+        // Buscar presupuesto por tres métodos (en orden de prioridad):
+        // IMPORTANTE: Buscar en TODOS los presupuestos, no solo presupuestosNormales,
+        // porque puede haber inconsistencias en los datos
+        let presupuesto = null;
+
+        // Método 1: presupuesto.obraId apunta a la obra Y está APROBADO Y NO es TAREA_LEVE
+        presupuesto = todosPresupuestos.find(p => {
+          const esTE = p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_obra_trabajo_extra === true;
+          const esTareaLeve = p.tipoPresupuesto === 'TAREA_LEVE' || p.tipo_presupuesto === 'TAREA_LEVE';
+          return (p.obraId || p.obra_id) === obra.id && p.estado === 'APROBADO' && !esTE && !esTareaLeve;
+        });
+
+        // Método 2: obra.presupuestoNoClienteId apunta al presupuesto Y está APROBADO Y NO es TAREA_LEVE
+        if (!presupuesto) {
+          const presupuestoNoClienteId = obra.presupuestoNoClienteId || obra.presupuesto_no_cliente_id;
+          if (presupuestoNoClienteId) {
+            const tempPresupuesto = todosPresupuestos.find(p => p.id === presupuestoNoClienteId);
+            if (tempPresupuesto && tempPresupuesto.estado === 'APROBADO') {
+              const esTE = tempPresupuesto.esPresupuestoTrabajoExtra === true || tempPresupuesto.esPresupuestoTrabajoExtra === 'V' || tempPresupuesto.es_obra_trabajo_extra === true;
+              const esTareaLeve = tempPresupuesto.tipoPresupuesto === 'TAREA_LEVE' || tempPresupuesto.tipo_presupuesto === 'TAREA_LEVE';
+              if (!esTE && !esTareaLeve) {
+                presupuesto = tempPresupuesto;
+              }
+            }
+          }
+        }
+
+        // Método 3: Cualquier presupuesto asociado (incluso BORRADOR/ENVIADO/TERMINADO) pero NO TAREA_LEVE
+        if (!presupuesto) {
+          const presupuestoNoClienteId = obra.presupuestoNoClienteId || obra.presupuesto_no_cliente_id;
+          if (presupuestoNoClienteId) {
+            const tempPresupuesto = todosPresupuestos.find(p => p.id === presupuestoNoClienteId);
+            const esTE = tempPresupuesto?.esPresupuestoTrabajoExtra === true || tempPresupuesto?.esPresupuestoTrabajoExtra === 'V' || tempPresupuesto?.es_obra_trabajo_extra === true;
+            const esTareaLeve = tempPresupuesto?.tipoPresupuesto === 'TAREA_LEVE' || tempPresupuesto?.tipo_presupuesto === 'TAREA_LEVE';
+            if (tempPresupuesto && !esTE && !esTareaLeve) {
+              presupuesto = tempPresupuesto;
+            }
+          }
+
+          if (!presupuesto) {
+            presupuesto = todosPresupuestos.find(p => {
+              const esTE = p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_obra_trabajo_extra === true;
+              const esTareaLeve = p.tipoPresupuesto === 'TAREA_LEVE' || p.tipo_presupuesto === 'TAREA_LEVE';
+              return (p.obraId || p.obra_id) === obra.id && !esTE && !esTareaLeve;
+            });
+          }
+        }
+
+        // Si no se encuentra el presupuesto pero es TRABAJO_DIARIO, agregar como obra independiente
+        if (!presupuesto) {
+          // Intentar identificar si es TRABAJO_DIARIO por tipoOrigen o por tipoPresupuesto de la obra
+          let esTrabajoDiario = obra.tipoOrigen === 'PRESUPUESTO_TRABAJO_DIARIO' || obra.tipo_origen === 'PRESUPUESTO_TRABAJO_DIARIO';
+
+          // Si tipoOrigen es null, verificar tipoPresupuesto en la obra (campo heredado)
+          if (!esTrabajoDiario && (obra.tipoOrigen === null || obra.tipo_origen === null)) {
+            const tipoPresupuestoObra = obra.tipoPresupuesto || obra.tipo_presupuesto;
+            esTrabajoDiario = tipoPresupuestoObra === 'TRABAJO_DIARIO';
+          }
+
+          if (esTrabajoDiario) {
+            obrasPorObraId[obra.id] = {
+              id: obra.id,
+              obraId: obra.id,
+              nombreObra: obra.nombre || `${obra.direccionObraCalle} ${obra.direccionObraAltura}`,
+              numeroPresupuesto: null,
+              numeroVersion: null,
+              estado: obra.estado,
+              calle: obra.direccionObraCalle || '',
+              altura: obra.direccionObraAltura || '',
+              barrio: obra.direccionObraBarrio || null,
+              torre: obra.direccionObraTorre || null,
+              piso: obra.direccionObraPiso || null,
+              depto: obra.direccionObraDepartamento || null,
+              totalPresupuesto: obra.presupuestoEstimado || 0,
+              cantidadSemanas: 0,
+              presupuestoCompleto: null,
+              esObraIndependiente: true
+            };
+          }
+          return;
+        }
+
+        // Agregar la obra al mapa usando los datos del presupuesto
+        const totalPresupuesto = obtenerTotalPresupuesto(presupuesto);
+        obrasPorObraId[obra.id] = {
+          id: presupuesto.id, // El id es el del presupuesto
+          obraId: obra.id, // ✅ ID de la obra en tabla obras
+          nombreObra: presupuesto.nombreObra || obra.nombre || `${obra.direccionObraCalle} ${obra.direccionObraAltura}`,
+          numeroPresupuesto: presupuesto.numeroPresupuesto,
+          numeroVersion: presupuesto.numeroVersion || presupuesto.version || 0,
+          estado: presupuesto.estado,
+          calle: obra.direccionObraCalle || presupuesto.direccionObraCalle || '',
+          altura: obra.direccionObraAltura || presupuesto.direccionObraAltura || '',
+          barrio: obra.direccionObraBarrio || presupuesto.direccionObraBarrio || null,
+          torre: obra.direccionObraTorre || presupuesto.direccionObraTorre || null,
+          piso: obra.direccionObraPiso || presupuesto.direccionObraPiso || null,
+          depto: obra.direccionObraDepartamento || presupuesto.direccionObraDepartamento || null,
+          totalPresupuesto: totalPresupuesto,
+          presupuestoCompleto: presupuesto, // ✅ Guardar presupuesto completo
+          esObraIndependiente: false // Tiene presupuesto
+        };
+      });
+
+      // 🆕 PASO 2.7: Agregar TAREA_LEVE como obras independientes
+      // Las TAREA_LEVE se agrupan bajo su obra padre en el renderizado, pero deben estar disponibles
+      const presupuestosTareasLeves = todosPresupuestos.filter(p => {
+        const esTE = p.esPresupuestoTrabajoExtra === true || p.esPresupuestoTrabajoExtra === 'V' || p.es_obra_trabajo_extra === true;
+        const esTareaLeve = p.tipoPresupuesto === 'TAREA_LEVE' || p.tipo_presupuesto === 'TAREA_LEVE';
+        return !esTE && esTareaLeve;
+      });
+
+      presupuestosTareasLeves.forEach(p => {
+        const obraId = p.obraId || p.obra_id || p.direccionObraId;
+        if (!obraId) return; // Saltar presupuestos sin obra asociada
+
+        // Verificar si ya existe una obra con este obraId (puede ser la principal)
+        // Si existe, no sobrescribir, crear una entrada separada con el ID del presupuesto
+        const claveUnica = obrasPorObraId[obraId] ? p.id : obraId;
+
+        const totalPresupuesto = obtenerTotalPresupuesto(p);
+
+        obrasPorObraId[claveUnica] = {
+          id: p.id, // El id es el del presupuesto de tarea leve
+          obraId: obraId, // ✅ ID de la obra en tabla obras (para agrupación)
+          nombreObra: p.nombreObra || `${p.direccionObraCalle} ${p.direccionObraAltura}`,
+          numeroPresupuesto: p.numeroPresupuesto,
+          numeroVersion: p.numeroVersion || p.version || 0,
+          estado: p.estado,
+          calle: p.direccionObraCalle || '',
+          altura: p.direccionObraAltura || '',
+          barrio: p.direccionObraBarrio || null,
+          torre: p.direccionObraTorre || null,
+          piso: p.direccionObraPiso || null,
+          depto: p.direccionObraDepartamento || null,
+          totalPresupuesto: totalPresupuesto,
+          presupuestoCompleto: p, // ✅ Guardar presupuesto completo
+          esObraIndependiente: false // Tiene presupuesto
+        };
+      });
+
       const obrasNormales = Object.values(obrasPorObraId);
 
-      // 🎯 PASO 3: Convertir trabajos extra a formato simplificado (última versión por obraId)
+      // 🎯 PASO 3: Agrupar trabajos extra por obraId
       const trabajosExtraPorObraId = {};
+
       presupuestosTrabajosExtra.forEach(p => {
-        const obraId = p.obraId || p.direccionObraId;
+        const obraId = p.obraId || p.obra_id || p.direccionObraId;
         if (!obraId) return;
 
         const version = p.numeroVersion || p.version || 0;
@@ -1163,11 +1332,28 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
       const obrasTrabajoExtra = Object.values(trabajosExtraPorObraId);
 
-      // 🔧 CARGAR trabajos extra SOLO para obras normales
+      // 🔧 CARGAR trabajos extra SOLO para obras normales (NO para tareas leves)
       const obrasConTrabajosExtra = [];
 
       for (const obra of obrasNormales) {
-        const obraId = obra.presupuestoCompleto?.obraId || obra.presupuestoCompleto?.direccionObraId;
+        // ✅ IMPORTANTE: Las tareas leves NO deben tener trabajos extra asociados
+        // Los trabajos extra solo pertenecen a la obra principal, no a sus tareas leves
+        const esTareaLeve = obra.presupuestoCompleto?.tipoPresupuesto === 'TAREA_LEVE' ||
+                           obra.presupuestoCompleto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                           obra.presupuestoCompleto?.tipo_origen === 'TAREA_LEVE' ||
+                           obra.presupuestoCompleto?.tipoOrigen === 'TAREA_LEVE';
+
+        if (esTareaLeve) {
+          // Tareas leves no tienen trabajos extra
+          obrasConTrabajosExtra.push({
+            ...obra,
+            trabajosExtra: [],
+            esTrabajoExtra: false
+          });
+          continue;
+        }
+
+        const obraId = obra.presupuestoCompleto?.obraId || obra.presupuestoCompleto?.obra_id || obra.presupuestoCompleto?.direccionObraId;
 
         if (!obraId) {
           obrasConTrabajosExtra.push({
@@ -1252,9 +1438,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
 
       setObrasDisponibles(obrasConTrabajosExtra);
+      console.log(`✅ [SistemaFinanciero] Obras cargadas: ${obrasConTrabajosExtra.length} obras disponibles`);
+
       // Preservar selección existente (comienza vacío por defecto)
       setObrasSeleccionadas(prevSelected => {
-        // 🔧 Excluir Tareas Leves (se manejan en trabajosAdicionalesSeleccionados)
+        // Excluir Tareas Leves para la selección
         const obrasNormalesSinTareasLeves = obrasConTrabajosExtra.filter(o => {
           const esTareaLeve = o.presupuestoCompleto?.tipoPresupuesto === 'TAREA_LEVE' ||
                              o.presupuestoCompleto?.tipo_presupuesto === 'TAREA_LEVE' ||
@@ -1318,10 +1506,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
               if (o.estado === 'CANCELADO') return false;
               if (o.estado === 'APROBADO' || o.estado === 'EN_EJECUCION') return true;
 
-              // Incluir obras FINALIZADO solo si son TAREA_LEVE
+              // Incluir obras FINALIZADO solo si son PRESUPUESTO_TAREA_LEVE o PRESUPUESTO_TRABAJO_DIARIO
               if (o.estado === 'FINALIZADO') {
-                const esTareaLeve = o.tipo_origen === 'TAREA_LEVE' || o.tipoOrigen === 'TAREA_LEVE';
-                return esTareaLeve;
+                const esTareaLeve = o.tipoOrigen === 'PRESUPUESTO_TAREA_LEVE' || o.tipo_origen === 'PRESUPUESTO_TAREA_LEVE';
+                const esTrabajoDiario = o.tipoOrigen === 'PRESUPUESTO_TRABAJO_DIARIO' || o.tipo_origen === 'PRESUPUESTO_TRABAJO_DIARIO';
+                return esTareaLeve || esTrabajoDiario;
               }
 
               return false;
@@ -1346,7 +1535,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
             const obrasPorObraId = {};
             presupuestosNormales.forEach(p => {
-              const obraId = p.obraId || p.direccionObraId;
+              const obraId = p.obraId || p.obra_id || p.direccionObraId;
               if (!obraId) return;
 
               const version = p.numeroVersion || p.version || 0;
@@ -1374,14 +1563,47 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
               }
             });
 
-            // Agregar obras independientes
+            // Agregar obras que no fueron mapeadas por obraId
+            // Verificar si tienen presupuestoNoClienteId para buscar el presupuesto correcto
             obrasActivas.forEach(obra => {
               if (obrasPorObraId[obra.id]) return;
 
-              const tienePresupuesto = obra.presupuestoNoClienteId ||
-                                      (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object');
-              if (tienePresupuesto) return;
+              // Buscar presupuesto por presupuestoNoClienteId
+              const presupuestoNoClienteId = obra.presupuestoNoClienteId ||
+                                              obra.presupuesto_no_cliente_id ||
+                                              (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object' ? obra.presupuestoNoCliente.id : null);
 
+              if (presupuestoNoClienteId) {
+                // Buscar el presupuesto en todosPresupuestos
+                const presupuesto = presupuestosNormales.find(p => p.id === presupuestoNoClienteId);
+
+                if (presupuesto) {
+                  // La obra SÍ tiene presupuesto, usar el total calculado
+                  const totalPresupuesto = obtenerTotalPresupuesto(presupuesto);
+
+                  obrasPorObraId[obra.id] = {
+                    id: presupuesto.id,
+                    obraId: obra.id,
+                    nombreObra: presupuesto.nombreObra || obra.nombre || `${obra.direccionObraCalle} ${obra.direccionObraAltura}`,
+                    numeroPresupuesto: presupuesto.numeroPresupuesto,
+                    numeroVersion: presupuesto.numeroVersion || presupuesto.version || 0,
+                    estado: presupuesto.estado,
+                    calle: obra.direccionObraCalle || presupuesto.direccionObraCalle || '',
+                    altura: obra.direccionObraAltura || presupuesto.direccionObraAltura || '',
+                    barrio: obra.direccionObraBarrio || presupuesto.direccionObraBarrio || null,
+                    torre: obra.direccionObraTorre || presupuesto.direccionObraTorre || null,
+                    piso: obra.direccionObraPiso || presupuesto.direccionObraPiso || null,
+                    depto: obra.direccionObraDepartamento || presupuesto.direccionObraDepartamento || null,
+                    totalPresupuesto: totalPresupuesto,
+                    cantidadSemanas: presupuesto.cantidadSemanas || presupuesto.cantidad_semanas || 0,
+                    presupuestoCompleto: presupuesto,
+                    esObraIndependiente: false
+                  };
+                  return;
+                }
+              }
+
+              // Si llegamos aquí, la obra NO tiene presupuesto (es independiente)
               obrasPorObraId[obra.id] = {
                 id: obra.id,
                 obraId: obra.id,
@@ -1589,6 +1811,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
   // 🆕 Componente inline para el selector de obras
   const ObrasSelector = () => {
+    console.log('🎨 [ObrasSelector] Renderizando con:', {
+      loadingObras,
+      cantidadObras: obrasDisponibles.length,
+      obrasSeleccionadas: obrasSeleccionadas.size
+    });
+
     if (loadingObras) {
       return (
         <div className="card mb-3">
@@ -1766,20 +1994,6 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   const listaOrdenada = [];
                   let grupoIndex = 0;
 
-                  console.log('🔍 DEBUG Tareas Leves:');
-                  console.log('  tareasLeves encontradas:', tareasLeves.map(tl => ({
-                    id: tl.id,
-                    nombre: tl.nombreObra,
-                    obraId: tl.obraId,
-                    obraPadreId: tl.presupuestoCompleto?.obraPadreId || tl.presupuestoCompleto?.obra_padre_id,
-                    obraOrigenId: tl.presupuestoCompleto?.obraOrigenId || tl.presupuestoCompleto?.obra_origen_id
-                  })));
-                  console.log('  obrasNormales:', obrasNormales.map(o => ({
-                    id: o.id,
-                    obraId: o.obraId,
-                    nombre: o.nombreObra
-                  })));
-
                   // Agregar obras normales CON sus trabajos extra Y tareas leves expandidos
                   obrasNormales.forEach(obra => {
                     const tieneSubObras = obra.trabajosExtra && obra.trabajosExtra.length > 0;
@@ -1807,8 +2021,6 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
                       return false;
                     });
-
-                    console.log(`  🔍 Obra "${obra.nombreObra}" (id=${obra.id}, obraId=${obra.obraId}): ${tareasLevesObra.length} tareas leves`);
 
                     // Contar trabajos adicionales de la obra (NO Tareas Leves - son entidad diferente)
                     const trabajosAdicionalesObra = trabajosAdicionalesDisponibles.filter(ta => {
@@ -2368,6 +2580,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             // Obras con presupuesto (lógica existente)
                             const idPresupuesto = o.presupuestoCompleto?.id
                               ?? o.presupuestoNoClienteId
+                              ?? o.presupuesto_no_cliente_id
                               ?? o.presupuestoNoCliente?.id;
                             if (!idPresupuesto) return;
                             if (!presupuestosUnicos.has(idPresupuesto)) {
@@ -2471,6 +2684,15 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       </div>
 
       {/* Panel de Estadísticas Consolidadas - Visible cuando está activo el modo consolidado */}
+      {(() => {
+        console.log('🎨 [Render] Tarjetas consolidadas:', {
+          modoConsolidado,
+          obrasDisponibles: obrasDisponibles.length,
+          obrasSeleccionadas: obrasSeleccionadas.size,
+          renderizarTarjetas: modoConsolidado
+        });
+        return null;
+      })()}
       {modoConsolidado && (
         <div className="row mb-4">
           <div className="col-12">
@@ -3138,7 +3360,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
                           return listaOrdenada;
                         })().map((obra, index, array) => {
-                          const presupuestoId = obra.presupuestoNoClienteId || obra.presupuestoNoCliente?.id;
+                          const presupuestoId = obra.presupuestoNoClienteId || obra.presupuesto_no_cliente_id || obra.presupuestoNoCliente?.id;
 
                           // 🎨 Determinar información de grupo para estilos visuales
                           const grupoIndex = obra._grupoIndex || 0;

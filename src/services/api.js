@@ -752,18 +752,18 @@ export const apiService = {
     // ✅ DELETE /api/obras/{id}?empresaId=1
     delete: (id, empresaId) => apiService.delete(`/api/obras/${id}`, { empresaId }),
 
-    // ✅ GET /api/obras/empresa/{empresaId}?empresaId=1
+    // ✅ GET /api/obras/empresa/{empresaId}  (empresaId ya está en la ruta)
     getPorEmpresa: (empresaId, soloManuales = false) => {
-      const params = { empresaId };
+      const params = {};
       if (soloManuales) {
         params.soloManuales = true;
       }
       return apiService.get(`/api/obras/empresa/${empresaId}`, params);
     },
 
-    // ✅ GET /api/obras/empresa/{empresaId}?empresaId=1&soloManuales=true
+    // ✅ GET /api/obras/empresa/{empresaId}?soloManuales=true
     getObrasManuales: (empresaId) =>
-      apiService.get(`/api/obras/empresa/${empresaId}`, { empresaId, soloManuales: true }),
+      apiService.get(`/api/obras/empresa/${empresaId}`, { soloManuales: true }),
 
     // ✅ GET /api/obras/cliente/{clienteId}
     getPorCliente: (clienteId) => apiService.get(`/api/obras/cliente/${clienteId}`),

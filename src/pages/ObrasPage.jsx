@@ -33,6 +33,7 @@ import trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import { TIPOS_PRESUPUESTO, getConfigPresupuesto, getNivelJerarquico } from '../constants/presupuestoTypes';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 import { calcularSemanasParaDiasHabiles, convertirDiasHabilesASemanasSimple, esDiaHabil } from '../utils/feriadosArgentina';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 import { fetchClientes } from '../store/slices/clientesSlice';
 import {
   fetchTodasObras,
@@ -67,6 +68,32 @@ import {
   selectEstadisticas
 } from '../store/slices/obrasSlice';
 
+/**
+ * Función helper para obtener el total correcto de un presupuesto
+ * Prioriza totalConDescuentos si existe, sino lo calcula, sino usa totalPresupuestoConHonorarios
+ */
+const obtenerTotalPresupuesto = (presupuesto) => {
+  // Si ya tiene totalConDescuentos calculado, usarlo
+  if (presupuesto.totalConDescuentos != null && presupuesto.totalConDescuentos > 0) {
+    return presupuesto.totalConDescuentos;
+  }
+
+  // Si tiene items y configuración de descuentos, calcular
+  if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora) && presupuesto.itemsCalculadora.length > 0) {
+    try {
+      const resultado = calcularTotalConDescuentosDesdeItems(presupuesto.itemsCalculadora, presupuesto);
+      if (resultado.totalFinal > 0) {
+        return resultado.totalFinal;
+      }
+    } catch (error) {
+      console.warn(`⚠️ Error calculando descuentos para ${presupuesto.nombreObra}:`, error);
+    }
+  }
+
+  // ✅ Priorizar importeTotal (valor con descuentos desde BD), luego otros campos
+  return presupuesto.importeTotal || presupuesto.totalFinal || presupuesto.totalPresupuestoConHonorarios || presupuesto.montoTotal || 0;
+};
+
 const ObrasPage = ({ showNotification }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -93,6 +120,7 @@ const ObrasPage = ({ showNotification }) => {
       // Detectar si es obra independiente (sin presupuesto)
       const tienePresupuesto = obra.presupuestoId ||
                               obra.presupuestoNoClienteId ||
+                              obra.presupuesto_no_cliente_id ||
                               obra.presupuestoNoCliente?.id ||
                               obra.presupuestoCompleto?.id;
 
@@ -104,6 +132,7 @@ const ObrasPage = ({ showNotification }) => {
         esObraIndependiente,
         presupuestoId: obra.presupuestoId,
         presupuestoNoClienteId: obra.presupuestoNoClienteId,
+        presupuesto_no_cliente_id: obra.presupuesto_no_cliente_id,
         presupuestoEstimado: obra.presupuestoEstimado,
         nombre: obra.nombre,
         nombreObra: obra.nombreObra,
@@ -808,10 +837,18 @@ const ObrasPage = ({ showNotification }) => {
             }
           });
 
-          setPresupuestosObras(prev => ({
-            ...prev,
-            ...presupuestosPorObraId
-          }));
+          setPresupuestosObras(prev => {
+            const nuevo = { ...prev };
+            // ⚠️ CRÍTICO: NO sobrescribir presupuestos existentes con tareas leves
+            Object.entries(presupuestosPorObraId).forEach(([obraId, presupuesto]) => {
+              if (!prev[obraId]) {
+                nuevo[obraId] = presupuesto;
+              } else {
+                console.log(`⚠️ Saltando tarea leve para obra ${obraId} - ya existe presupuesto principal`);
+              }
+            });
+            return nuevo;
+          });
         } catch (error) {
           console.error('? Error al cargar tareas leves:', error);
           setTareasLeves([]);
@@ -1368,7 +1405,15 @@ const ObrasPage = ({ showNotification }) => {
           if (obraId) {
             if (!presupuestosPorObra[obraId] || (presupuesto.numeroVersion > (presupuestosPorObra[obraId].numeroVersion || 0))) {
               console.log(`?? Guardando presupuesto ID ${presupuesto.id} ("${presupuesto.nombreObra}") para obra ${obraId}`);
-              presupuestosPorObra[obraId] = presupuesto;
+
+              // ✅ Calcular y guardar el total correcto inmediatamente
+              const totalCalculado = obtenerTotalPresupuesto(presupuesto);
+              presupuestosPorObra[obraId] = {
+                ...presupuesto,
+                totalPresupuestoCalculado: totalCalculado // Guardar total calculado
+              };
+
+              console.log(`   💰 Total calculado: $${totalCalculado.toLocaleString('es-AR')}`);
             } else {
               console.log(`   ?? Saltando presupuesto ID ${presupuesto.id} (versi?n menor o igual)`);
             }
@@ -1383,8 +1428,40 @@ const ObrasPage = ({ showNotification }) => {
           Version: p.numeroVersion
         })));
 
-        // Guardar en estado para que el badge pueda acceder
-        setPresupuestosObras(presupuestosPorObra);
+        // 🆕 PASO 2: Cargar presupuestos para obras que tienen presupuestoNoClienteId pero no fueron mapeados por obraId
+        // (Esto cubre trabajos diarios cuyo presupuesto no tiene obraId configurado correctamente)
+        if (obras && obras.length > 0) {
+          const obrasConPresupuestoFaltante = obras.filter(obra => {
+            const presupuestoId = obra.presupuestoNoClienteId || obra.presupuesto_no_cliente_id;
+            // Si tiene presupuesto pero NO fue cargado en presupuestosPorObra
+            return presupuestoId && !presupuestosPorObra[obra.id];
+          });
+
+          if (obrasConPresupuestoFaltante.length > 0) {
+            console.log(`?? Encontradas ${obrasConPresupuestoFaltante.length} obras con presupuesto no cargado. Cargando...`);
+
+            obrasConPresupuestoFaltante.forEach(obra => {
+              const presupuestoId = obra.presupuestoNoClienteId || obra.presupuesto_no_cliente_id;
+              const presupuestoEncontrado = todosPresupuestos.find(p => p.id === presupuestoId);
+
+              if (presupuestoEncontrado) {
+                console.log(`  ?? Mapeando presupuesto ${presupuestoId} a obra ${obra.id} (${obra.nombre})`);
+                const totalCalculado = obtenerTotalPresupuesto(presupuestoEncontrado);
+                presupuestosPorObra[obra.id] = {
+                  ...presupuestoEncontrado,
+                  totalPresupuestoCalculado: totalCalculado
+                };
+                console.log(`   ?? Total calculado: $${totalCalculado.toLocaleString('es-AR')}`);
+              }
+            });
+          }
+        }
+
+        // Guardar en estado CON MERGE para no sobrescribir presupuestos ya cargados
+        setPresupuestosObras(prev => ({
+          ...prev,
+          ...presupuestosPorObra
+        }));
         console.log('? Presupuestos cargados:', Object.keys(presupuestosPorObra).length);
         console.log('?? Claves del diccionario:', Object.keys(presupuestosPorObra).join(', '));
 
@@ -1395,6 +1472,41 @@ const ObrasPage = ({ showNotification }) => {
 
     enriquecerObrasConPresupuestos();
   }, [obras?.length, empresaId]);
+
+  // Escuchar evento de presupuesto actualizado para refrescar totales en tiempo real
+  useEffect(() => {
+    if (!empresaId) return;
+
+    const handlePresupuestoActualizado = (data) => {
+      const presupuestoId = data?.presupuestoId || data?.id;
+      if (!presupuestoId) return;
+
+      // Buscar en presupuestosObras qué obra tiene este presupuesto
+      setPresupuestosObras(prev => {
+        const obraId = Object.keys(prev).find(key => prev[key]?.id === presupuestoId);
+        if (!obraId) return prev;
+
+        // Recargar el presupuesto actualizado desde el backend
+        fetch(`/api/presupuestos-no-cliente/${presupuestoId}`, {
+          headers: { 'empresaId': empresaId.toString() }
+        })
+          .then(res => res.json())
+          .then(presupuestoActualizado => {
+            const totalCalculado = obtenerTotalPresupuesto(presupuestoActualizado);
+            setPresupuestosObras(p => ({
+              ...p,
+              [obraId]: { ...presupuestoActualizado, totalPresupuestoCalculado: totalCalculado }
+            }));
+          })
+          .catch(() => {});
+
+        return prev;
+      });
+    };
+
+    const unsubscribe = eventBus.on(FINANCIAL_EVENTS.PRESUPUESTO_ACTUALIZADO, handlePresupuestoActualizado);
+    return unsubscribe;
+  }, [empresaId]);
 
   // Cargar configuraci?n desde BD cuando cambia la obra seleccionada
   useEffect(() => {
@@ -1432,9 +1544,15 @@ const ObrasPage = ({ showNotification }) => {
 
         if (!activo || !presupuestoActualizado) return;
 
+        // ✅ Calcular y guardar el total correcto
+        const totalCalculado = obtenerTotalPresupuesto(presupuestoActualizado);
+
         setPresupuestosObras(prev => ({
           ...prev,
-          [obraParaEtapasDiarias.id]: presupuestoActualizado
+          [obraParaEtapasDiarias.id]: {
+            ...presupuestoActualizado,
+            totalPresupuestoCalculado: totalCalculado
+          }
         }));
       } catch (error) {
         console.warn(' No se pudo refrescar presupuesto de la obra seleccionada:', error);
@@ -2939,6 +3057,24 @@ _V?lido por 30 d?as_
     const cargarPresupuestos = async () => {
       if (!obras || obras.length === 0 || !empresaId) return;
 
+      // PRIMERO: Inicializar con presupuestos que ya vienen en las obras
+      const presupuestosIniciales = {};
+      obras.forEach(obra => {
+        if (obra.presupuestoNoCliente && typeof obra.presupuestoNoCliente === 'object') {
+          const totalCalculado = obtenerTotalPresupuesto(obra.presupuestoNoCliente);
+          presupuestosIniciales[obra.id] = {
+            ...obra.presupuestoNoCliente,
+            totalPresupuestoCalculado: totalCalculado
+          };
+        }
+      });
+
+      // Establecer presupuestos iniciales INMEDIATAMENTE
+      setPresupuestosObras(prev => ({
+        ...prev,
+        ...presupuestosIniciales
+      }));
+
       const presupuestos = {};
 
       // Cargar en lotes paralelos para mejorar performance
@@ -2947,6 +3083,26 @@ _V?lido por 30 d?as_
         const batch = obras.slice(i, i + batchSize);
         const promesas = batch.map(async (obra) => {
           try {
+            // Si la obra tiene presupuestoOriginalId, usar endpoint directo que trae cálculos completos
+            if (obra.presupuestoOriginalId) {
+              try {
+                const response = await fetch(
+                  `http://localhost:8080/api/v1/presupuestos-no-cliente/${obra.presupuestoOriginalId}?empresaId=${empresaId}`,
+                  {
+                    headers: { 'Content-Type': 'application/json' }
+                  }
+                );
+                if (response.ok) {
+                  const data = await response.json();
+                  presupuestos[obra.id] = data;
+                  return;
+                }
+              } catch (err) {
+                console.warn(`No se pudo cargar presupuesto ${obra.presupuestoOriginalId}:`, err);
+              }
+            }
+
+            // Fallback: buscar por obra
             const response = await fetch(
               `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
               {
@@ -2967,27 +3123,69 @@ _V?lido por 30 d?as_
                                    data.find(p => p.estado === 'TERMINADO') ||
                                    data.find(p => p.estado === 'ENVIADO') ||
                                    data.find(p => p.estado === 'A_ENVIAR') ||
-                                   data[0]; // Fallback: tomar el primero si existe
-                presupuestos[obra.id] = presupuesto || null;
-                console.log(`📋 Obra ${obra.id} (${obra.nombre}): Cargado presupuesto ID=${presupuesto?.id}, tipo=${presupuesto?.tipoPresupuesto}, estado=${presupuesto?.estado}`);
+                                   data[0];
+
+                // Si encontramos un presupuesto, obtener la versión completa
+                if (presupuesto && presupuesto.id) {
+                  try {
+                    const completeResponse = await fetch(
+                      `http://localhost:8080/api/v1/presupuestos-no-cliente/${presupuesto.id}?empresaId=${empresaId}`,
+                      {
+                        headers: { 'Content-Type': 'application/json' }
+                      }
+                    );
+                    if (completeResponse.ok) {
+                      const completeData = await completeResponse.json();
+                      presupuestos[obra.id] = completeData;
+                    } else {
+                      presupuestos[obra.id] = presupuesto;
+                    }
+                  } catch (err) {
+                    presupuestos[obra.id] = presupuesto;
+                  }
+                }
               } else if (data && data.id) {
                 presupuestos[obra.id] = data;
-              } else {
-                presupuestos[obra.id] = null;
               }
-            } else if (response.status === 404) {
-              presupuestos[obra.id] = null;
+            }
+
+            // Si no se cargó presupuesto pero la obra tiene presupuestoNoCliente, usarlo
+            if (!presupuestos[obra.id] && obra.presupuestoNoCliente) {
+              presupuestos[obra.id] = obra.presupuestoNoCliente;
             }
           } catch (error) {
             console.error(`Error cargando presupuesto para obra ${obra.id}:`, error);
-            presupuestos[obra.id] = null;
+            // Si hay error pero la obra tiene presupuestoNoCliente, usarlo
+            if (obra.presupuestoNoCliente) {
+              presupuestos[obra.id] = obra.presupuestoNoCliente;
+            }
           }
         });
 
         await Promise.allSettled(promesas);
       }
 
-      setPresupuestosObras(presupuestos);
+      // Filtrar para SOLO incluir presupuestos válidos (no null, no undefined)
+      const presupuestosValidos = Object.fromEntries(
+        Object.entries(presupuestos).filter(([_, value]) => value != null && typeof value === 'object')
+      );
+
+      // MERGE inteligente: NUNCA sobrescribir un presupuesto válido con vacío
+      setPresupuestosObras(prev => {
+        const nuevo = { ...prev };
+
+        Object.entries(presupuestosValidos).forEach(([obraId, presupuesto]) => {
+          if (presupuesto && typeof presupuesto === 'object') {
+            const totalCalculado = obtenerTotalPresupuesto(presupuesto);
+            nuevo[obraId] = {
+              ...presupuesto,
+              totalPresupuestoCalculado: totalCalculado
+            };
+          }
+        });
+
+        return nuevo;
+      });
     };
 
     cargarPresupuestos();
@@ -5375,7 +5573,16 @@ _V?lido por 30 d?as_
               // ?? BLOQUEO TOTAL: NUNCA tocar presupuestoNoCliente si es trabajo extra
               if (!obra._esTrabajoExtra) {
                 obraCompleta.presupuestoNoCliente = presupuestoMayorVersion;
-                setPresupuestosObras(prev => ({...prev, [obra.id]: presupuestoMayorVersion}));
+
+                // ✅ Calcular y guardar el total correcto
+                const totalCalculado = obtenerTotalPresupuesto(presupuestoMayorVersion);
+                setPresupuestosObras(prev => ({
+                  ...prev,
+                  [obra.id]: {
+                    ...presupuestoMayorVersion,
+                    totalPresupuestoCalculado: totalCalculado
+                  }
+                }));
               } else {
                 console.log('?? [cargarEtapasDiarias] TRABAJO EXTRA - BLOQUEANDO sobrescritura de presupuestoNoCliente');
               }
@@ -7445,20 +7652,14 @@ _V?lido por 30 d?as_
                               const esTrabajoExtraExplicito = o.esTrabajoExtra;
                               const esSubobraDetectada = subobrasDetectadas.has(o.id);
 
-                              // ✅ EXCLUIR obras que son TAREA_LEVE (usar campo del backend)
-                              const esTareaLeve = o.tipoPresupuesto === 'TAREA_LEVE' || o.tipo_presupuesto === 'TAREA_LEVE';
-
-                              return !esTrabajoExtraExplicito && !esSubobraDetectada && !esTareaLeve;
+                              return !esTrabajoExtraExplicito && !esSubobraDetectada;
                             }).sort((a, b) => a.id - b.id);
 
                             const obrasTrabajoExtra = todasObrasActivas.filter(o => {
                               const esTrabajoExtraExplicito = o.esTrabajoExtra;
                               const esSubobraDetectada = subobrasDetectadas.has(o.id);
 
-                              // ✅ EXCLUIR obras que son TAREA_LEVE (usar campo del backend)
-                              const esTareaLeve = o.tipoPresupuesto === 'TAREA_LEVE' || o.tipo_presupuesto === 'TAREA_LEVE';
-
-                              return (esTrabajoExtraExplicito || esSubobraDetectada) && !esTareaLeve;
+                              return (esTrabajoExtraExplicito || esSubobraDetectada);
                             });
 
                             const listaOrdenada = [];
@@ -7892,25 +8093,28 @@ _V?lido por 30 d?as_
                               </td>
                               <td className="text-end">
                                 {(() => {
-                                  // Obtener presupuesto vinculado
-                                  const presupuesto = presupuestosObras[obra.id] || obra.presupuestoNoCliente;
+                                  // Obtener presupuesto vinculado - usar ?? para no sobrescribir con null
+                                  const presupuesto = presupuestosObras[obra.id] ?? obra.presupuestoNoCliente;
                                   const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
-                                  if (tienePresupuesto) {
-                                    // Obtener total del presupuesto (PRIORIDAD: totalConDescuentos > totalFinal)
-                                    const total = presupuesto.totalConDescuentos ||
-                                                 presupuesto.total_con_descuentos ||
-                                                 presupuesto.totalFinal ||
-                                                 presupuesto.total_presupuesto_con_honorarios ||
-                                                 presupuesto.totalPresupuestoConHonorarios ||
-                                                 presupuesto.montoTotal ||
-                                                 presupuesto.totalGeneral ||
-                                                 0;
+                                  // Obtener total del presupuesto usando la función helper
+                                  let total = 0;
 
+                                  if (tienePresupuesto) {
+                                    // ✅ CALCULAR SIEMPRE usando obtenerTotalPresupuesto() para evitar inconsistencias
+                                    total = obtenerTotalPresupuesto(presupuesto);
+                                  }
+
+                                  // Si el presupuesto no tiene total o es 0, usar presupuestoEstimado de la obra (SOLO como último recurso)
+                                  if (!total || total === 0) {
+                                    total = Number(obra.totalPresupuesto ?? obra.presupuestoEstimado ?? 0);
+                                  }
+
+                                  if (total > 0) {
                                     // Determinar tipo de presupuesto
-                                    const modoPresupuesto = presupuesto.modoPresupuesto || presupuesto.modo_presupuesto;
+                                    const modoPresupuesto = presupuesto?.modoPresupuesto || presupuesto?.modo_presupuesto;
                                     const esGlobal = modoPresupuesto === 'TRADICIONAL';
-                                    const tieneDescuentos = (presupuesto.totalFinal || presupuesto.totalConDescuentos) &&
+                                    const tieneDescuentos = tienePresupuesto && (presupuesto.totalFinal || presupuesto.totalConDescuentos) &&
                                                            total < (presupuesto.totalPresupuestoConHonorarios || presupuesto.total_presupuesto_con_honorarios || total);
 
                                     return (
@@ -7923,18 +8127,20 @@ _V?lido por 30 d?as_
                                             </span>
                                           )}
                                         </div>
-                                        <div className="mt-1">
-                                          <span className={`badge ${esGlobal ? 'bg-secondary' : 'bg-primary'} text-white`} style={{fontSize: '0.7em'}}>
-                                            <i className={`fas fa-${esGlobal ? 'globe' : 'list'} me-1`}></i>
-                                            {esGlobal ? 'Global' : 'Detallado'}
-                                          </span>
-                                        </div>
+                                        {tienePresupuesto && (
+                                          <div className="mt-1">
+                                            <span className={`badge ${esGlobal ? 'bg-secondary' : 'bg-primary'} text-white`} style={{fontSize: '0.7em'}}>
+                                              <i className={`fas fa-${esGlobal ? 'globe' : 'list'} me-1`}></i>
+                                              {esGlobal ? 'Global' : 'Detallado'}
+                                            </span>
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   } else {
                                     return (
                                       <span className="badge bg-warning text-dark" style={{fontSize: '0.65em', padding: '3px 5px'}}>
-                                        <i className="fas fa-hand-paper me-1"></i>Presupuesto Abreviado
+                                        <i className="fas fa-hand-paper me-1"></i>Sin Presupuesto
                                       </span>
                                     );
                                   }
@@ -8847,16 +9053,8 @@ _V?lido por 30 d?as_
                                               const tienePresupuesto = presupuesto && typeof presupuesto === 'object';
 
                                               if (tienePresupuesto) {
-                                                // Obtener total del presupuesto (PRIORIDAD: totalConDescuentos > totalFinal)
-                                                const total = presupuesto.totalConDescuentos ||
-                                                             presupuesto.total_con_descuentos ||
-                                                             presupuesto.totalFinal ||
-                                                             presupuesto.total_presupuesto_con_honorarios ||
-                                                             presupuesto.totalPresupuestoConHonorarios ||
-                                                             presupuesto.montoTotal ||
-                                                             presupuesto.totalGeneral ||
-                                                             tareaLeve.importe ||
-                                                             0;
+                                                // ✅ CALCULAR SIEMPRE usando obtenerTotalPresupuesto()
+                                                const total = obtenerTotalPresupuesto(presupuesto);
 
                                                 // Determinar tipo de presupuesto
                                                 const modoPresupuesto = presupuesto.modoPresupuesto || presupuesto.modo_presupuesto;
