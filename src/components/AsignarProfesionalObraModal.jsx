@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import api from '../services/api';
 
 /**
  * Modal para asignar profesionales del listado general a una obra específica
@@ -69,37 +70,22 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       }
 
       // Usar el endpoint original que funciona
-      const response = await fetch(
-        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId: obra.id });
 
-      console.log('📡 Response status:', response.status, response.statusText);
+      // Si devuelve un objeto único, convertirlo a array
+      let presupuestos = Array.isArray(data) ? data : [data];
 
-      if (response.ok) {
-        let data = await response.json();
+      console.log('✅ Presupuestos cargados (RAW):', presupuestos);
+      console.log('✅ Cantidad de presupuestos:', presupuestos.length);
 
-        // Si devuelve un objeto único, convertirlo a array
-        if (!Array.isArray(data)) {
-          data = [data];
-        }
+      let presupuestoSeleccionado = null;
 
-        console.log('✅ Presupuestos cargados (RAW):', data);
-        console.log('✅ Cantidad de presupuestos:', data.length);
-
-        let presupuestoSeleccionado = null;
-
-        // Si es un array, seleccionar el más apropiado
-        if (Array.isArray(data) && data.length > 0) {
-          console.log('🔍 Analizando presupuestos:', data.map(p => ({
-            id: p.id,
-            numeroPresupuesto: p.numeroPresupuesto,
-            version: p.version || p.numeroVersion,
+      // Si es un array, seleccionar el más apropiado
+      if (presupuestos.length > 0) {
+        console.log('🔍 Analizando presupuestos:', presupuestos.map(p => ({
+          id: p.id,
+          numeroPresupuesto: p.numeroPresupuesto,
+          version: p.version || p.numeroVersion,
             estado: p.estado,
             tiempoEstimado: p.tiempoEstimadoTerminacion
           })));
@@ -178,15 +164,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     try {
       console.log('👥 Cargando profesionales para empresa:', empresaSeleccionada.id);
 
-      const response = await fetch(
-        `http://localhost:8080/api/profesionales`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const response = await api.profesionales.getAll(empresaSeleccionada.id);
 
       console.log('📡 Profesionales response status:', response.status);
 
@@ -208,23 +186,8 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       console.log('📋 Cargando asignaciones para obra:', obra.id, 'empresa:', empresaSeleccionada.id);
 
       // 1. Obtener ASIGNACIONES POR OBRA COMPLETA
-      const response = await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      console.log('📡 Asignaciones por obra response status:', response.status);
-
-      let dataObra = [];
-      if (response.ok) {
-        dataObra = await response.json();
-        console.log('✅ Asignaciones por obra cargadas:', dataObra.length || 0);
-      }
+      const dataObra = await api.get(`/api/obras/${obra.id}/asignaciones-profesionales`, { empresaId: empresaSeleccionada.id }) || [];
+      console.log('✅ Asignaciones por obra cargadas:', dataObra.length || 0);
 
       // 2. Obtener ASIGNACIONES SEMANALES
       let dataSemanal = [];
@@ -242,25 +205,24 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       console.log('✅ Total asignaciones combinadas:', todasLasAsignaciones.length);
 
       const data = todasLasAsignaciones;
-      console.log('📡 Asignaciones response status:', response.status);
 
-        // Log detallado de cada asignación para verificar estructura de IDs
-        if (data && data.length > 0) {
-          console.log('🔍 Estructura completa de primera asignación:', JSON.stringify(data[0], null, 2));
-          data.forEach((asig, idx) => {
-            console.log(`  Asignación ${idx + 1}:`, {
-              id: asig.id,
-              tipoId: typeof asig.id,
-              profesionalId: asig.profesionalId,
-              obraId: asig.obraId,
-              profesionalNombre: asig.profesionalNombre,
-              todosLosCampos: Object.keys(asig)
-            });
+      // Log detallado de cada asignación para verificar estructura de IDs
+      if (data && data.length > 0) {
+        console.log('🔍 Estructura completa de primera asignación:', JSON.stringify(data[0], null, 2));
+        data.forEach((asig, idx) => {
+          console.log(`  Asignación ${idx + 1}:`, {
+            id: asig.id,
+            tipoId: typeof asig.id,
+            profesionalId: asig.profesionalId,
+            obraId: asig.obraId,
+            profesionalNombre: asig.profesionalNombre,
+            todosLosCampos: Object.keys(asig)
           });
-        }
+        });
+      }
 
-        setAsignaciones(data || []);
-      } else {
+      setAsignaciones(data || []);
+    } catch (err) {
         const errorText = await response.text();
         console.warn('⚠️ No se pudieron cargar las asignaciones:', response.status, errorText);
         setAsignaciones([]);
@@ -405,15 +367,16 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
     try {
       console.log('🔍 Cargando obras del profesional:', profesionalId);
 
-      const response = await fetch(
-        `http://localhost:8080/api/profesionales-obras/profesional/${profesionalId}`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const data = await api.profesionalesObras.getPorProfesional(profesionalId, empresaSeleccionada.id) || [];
+      console.log('✅ Obras del profesional cargadas:', data.length || 0);
+      setObrasDelProfesional(data);
+    } catch (err) {
+      console.error('❌ Error cargando obras del profesional:', err);
+      setObrasDelProfesional([]);
+    } finally {
+      setLoadingObras(false);
+    }
+  };
 
       if (response.ok) {
         const data = await response.json();
@@ -591,7 +554,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
       };
 
       console.log('📤 Creando asignación con payload completo:', {
-        url: `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
+        url: `/api/obras/${obra.id}/asignaciones-profesionales`,
         headers: {
           'Content-Type': 'application/json',
           'empresaId': empresaSeleccionada.id.toString()
@@ -617,15 +580,11 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
         }
       });
 
-      const response = await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'empresaId': empresaSeleccionada.id.toString()
-          },
-          body: JSON.stringify(payload)
+      const response = await api.post(
+        `/api/obras/${obra.id}/asignaciones-profesionales`,
+        payload,
+        { empresaId: empresaSeleccionada.id }
+      );
         }
       );
 
@@ -699,7 +658,7 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
   const handleEliminarAsignacion = async (asignacionId) => {
     if (!confirm('¿Está seguro de eliminar esta asignación?')) return;
 
-    const url = `http://localhost:8080/api/obras/${obra.id}/asignaciones-profesionales/${asignacionId}`;
+    const url = `/api/obras/${obra.id}/asignaciones-profesionales/${asignacionId}`;
 
     console.log('🗑️ Eliminando asignación:', {
       asignacionId,

@@ -1405,12 +1405,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       // Cargar nombre del cliente si existe clienteId
       if (clienteId) {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-        fetch(`${apiUrl}/api/clientes/${clienteId}?empresaId=${empresaSeleccionada?.id}`)
-          .then(res => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json();
-          })
+        apiService.clientes.getById(clienteId)
           .then(cliente => {
             // Intentar múltiples formatos de nombre
             const nombreCompleto = `${cliente.nombre || ''} ${cliente.apellido || ''}`.trim();
@@ -1436,12 +1431,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       // Cargar nombre de la obra si existe obraId
       if (obraId) {
         console.log('🏗️ [useEffect-cargarNombres] Cargando nombre de obra ID:', obraId);
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-        fetch(`${apiUrl}/api/obras/${obraId}?empresaId=${empresaSeleccionada?.id}`)
-          .then(res => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json();
-          })
+        apiService.obras.getById(obraId, empresaSeleccionada?.id)
           .then(obra => {
             // 🔧 Priorizar el nombre de la obra por sobre la dirección
             const nombreObra = obra.nombre?.trim() || obra.nombreObra?.trim();
@@ -1475,8 +1465,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   // useEffect para cargar lista de profesionales (para autocompletar honorarios)
   useEffect(() => {
     if (show && empresaSeleccionada?.id) {
-      fetch(`http://localhost:8080/api/profesionales?empresaId=${empresaSeleccionada.id}`)
-        .then(res => res.json())
+      apiService.profesionales.getAll(empresaSeleccionada.id)
         .then(data => {
           const profesionales = Array.isArray(data) ? data : (data?.resultado || data?.data || []);
           setListaProfesionales(profesionales);
@@ -10542,14 +10531,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               // Verificar que se guardó correctamente haciendo una petición GET
                               setTimeout(async () => {
                                 try {
-                                  const verificacion = await fetch(`http://localhost:8080/api/presupuestos-no-cliente/${form.id}?empresaId=${empresaSeleccionada?.id}&_t=${Date.now()}`, {
-                                    headers: {
-                                      'Cache-Control': 'no-cache, no-store, must-revalidate',
-                                      'Pragma': 'no-cache',
-                                      'Expires': '0'
-                                    }
-                                  });
-                                  const datos = await verificacion.json();
+                                  const datos = await apiService.presupuestosNoCliente.getById(form.id, empresaSeleccionada?.id, true);
                                   console.log('🔍 VERIFICACIÓN: fechaProbableInicio en backend después de guardar:', datos.fechaProbableInicio);
                                   if (datos.fechaProbableInicio && datos.fechaProbableInicio.split('T')[0] === e.target.value) {
                                     console.log('✅✅✅ CONFIRMADO: La fecha se guardó correctamente en el backend');
