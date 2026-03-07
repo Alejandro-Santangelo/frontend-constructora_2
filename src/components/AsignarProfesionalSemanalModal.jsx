@@ -643,19 +643,9 @@ getObraId() retorna: ${obraIdReal}
     try {
       // ✅ Siempre usar el ID real de la obra para buscar presupuestos vinculados
       const obraIdReal = getObraId();
-      const response = await fetch(
-        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      let data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId: obraIdReal });
 
-      if (response.ok) {
-        let data = await response.json();
-
+      if (data) {
         if (!Array.isArray(data)) {
           data = [data];
         }
@@ -725,18 +715,9 @@ getObraId() retorna: ${obraIdReal}
         // ✅ OBRA NORMAL: Usar el ID real de la obra para cargar presupuestos
         const obraIdReal = getObraId();
         console.log('🔍 [cargarPresupuestoObra] obraIdReal:', obraIdReal, 'esTrabajoExtra:', obra._esTrabajoExtra);
-        const response = await fetch(
-          `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraIdReal}`,
-          {
-            headers: {
-              'empresaId': empresaSeleccionada.id.toString(),
-              'Content-Type': 'application/json'
-            }
-          }
-        );
+        let data = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId: obraIdReal });
 
-        if (response.ok) {
-          let data = await response.json();
+        if (data) {
 
           if (!Array.isArray(data)) {
             data = [data];

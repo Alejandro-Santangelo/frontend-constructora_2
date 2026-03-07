@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import api from '../services/api';
 
 /**
  * Componente que muestra un badge con el estado de asignaciones de una obra
@@ -28,17 +29,9 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
   const cargarEstadoAsignaciones = async () => {
     try {
       // Cargar presupuesto de la obra
-      const presupuestoResponse = await fetch(
-        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraId}`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      let presupuestoData = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId });
 
-      if (!presupuestoResponse.ok) {
+      if (!presupuestoData) {
         setEstado({
           cargando: false,
           tipo: 'secondary',
@@ -48,8 +41,6 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
         });
         return;
       }
-
-      let presupuestoData = await presupuestoResponse.json();
 
       // Si no es array, convertir a array
       if (!Array.isArray(presupuestoData)) {
@@ -136,17 +127,7 @@ const EstadoAsignacionBadge = ({ obraId, compact = false }) => {
       }
 
       // 2. Cargar asignaciones de la obra
-      const asignacionesResponse = await fetch(
-        `http://localhost:8080/api/obras/${obraId}/asignaciones-profesionales`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      const asignaciones = asignacionesResponse.ok ? await asignacionesResponse.json() : [];
+      const asignaciones = await api.get(`/api/obras/${obraId}/asignaciones-profesionales`, { empresaId: empresaSeleccionada.id }) || [];
 
       // 3. Calcular estado
       calcularEstado(presupuesto, asignaciones);

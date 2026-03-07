@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import api from '../services/api';
 
 /**
  * Componente que muestra el estado del presupuesto APROBADO de una obra
@@ -18,23 +19,13 @@ const EstadoPresupuestoBadge = ({ obraId, estadoObra }) => {
   const cargarEstadoPresupuesto = async () => {
     setCargando(true);
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obraId}`,
-        {
-          headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      let presupuestoData = await api.presupuestosNoCliente.getAll(empresaSeleccionada.id, { obraId });
 
-      if (!response.ok) {
+      if (!presupuestoData) {
         setEstado(null);
         setCargando(false);
         return;
       }
-
-      let presupuestoData = await response.json();
 
       // Si no es array, convertir a array
       if (!Array.isArray(presupuestoData)) {
