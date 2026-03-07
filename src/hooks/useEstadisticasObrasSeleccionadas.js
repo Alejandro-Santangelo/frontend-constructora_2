@@ -169,9 +169,17 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
       // CARGAR PROFESIONALES ASIGNADOS A CADA OBRA
       const profesionalesAsignadosPromises = todasLasObras.map(async (obra) => {
-        const obraId = obra.obraId || obra.obra_id || obra.direccionObraId || obra.id;
+        // ✅ Priorizar direccionObraId para presupuestos normales
+        const obraId = obra.direccionObraId || obra.obraId || obra.obra_id || obra.id;
 
-        if (!obraId) {
+        // Validar que obraId sea un número válido
+        if (!obraId || isNaN(obraId)) {
+          console.warn('⚠️ [useEstadisticasObrasSeleccionadas] Obra sin obraId válido:', { 
+            nombreObra: obra.nombreObra || obra.direccionObraCalle, 
+            direccionObraId: obra.direccionObraId,
+            obraId: obra.obraId,
+            id: obra.id 
+          });
           return [];
         }
 
@@ -179,7 +187,7 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
           const profesionales = await api.get(
             `/api/profesionales-obras/profesionales-por-obra/financiero`,
             { 
-              params: { empresaId, obraId }
+              params: { empresaId: Number(empresaId), obraId: Number(obraId) }
             }
           );
           return profesionales || [];
