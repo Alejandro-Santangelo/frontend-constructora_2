@@ -176,14 +176,12 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         }
 
         try {
-          const url = `/api/profesionales-obras/profesionales-por-obra/financiero?empresaId=${empresaId}&obraId=${obraId}`;
-          const response = await fetch(url);
-
-          if (!response.ok) {
-            console.warn(`Error HTTP ${response.status} al cargar profesionales de obra ${obraId}`);
-            return [];
-          }
-          const profesionales = await response.json();
+          const profesionales = await api.get(
+            `/api/profesionales-obras/profesionales-por-obra/financiero`,
+            { 
+              params: { empresaId, obraId }
+            }
+          );
           return profesionales || [];
         } catch (error) {
           console.error(`Error cargando profesionales de obra ${obraId}:`, error);
