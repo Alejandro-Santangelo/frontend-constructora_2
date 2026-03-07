@@ -86,12 +86,14 @@ const ClientesPage = ({ showNotification }) => {
     setFormData(formData => ({ ...formData, empresaId }));
   }, [dispatch, empresaId, pagination]);
 
+  // NOTA: Estos métodos están comentados porque usan fetch() directo y funciones de estado que no existen
+  // Si se necesitan, deben reescribirse usando Redux thunks
+  /*
   const loadTodosLosClientes = async () => {
     try {
       setLoading(true);
       const response = await fetch(`/api/clientes/todos?empresaId=${empresaId}`);
       const data = await response.json();
-      // Usar la respuesta directa ya que el endpoint devuelve array directo
       setClientes(data || []);
       showNotification('Todos los clientes cargados', 'success');
     } catch (error) {
@@ -106,7 +108,6 @@ const ClientesPage = ({ showNotification }) => {
     try {
       const response = await fetch('/api/clientes/empresas');
       const data = await response.json();
-      // Para esto necesitaríamos un action especial en Redux, por ahora mantener como está
       console.log('Clientes de todas las empresas:', data);
       showNotification('Clientes de todas las empresas cargados', 'success');
     } catch (error) {
@@ -116,6 +117,7 @@ const ClientesPage = ({ showNotification }) => {
       setLoading(false);
     }
   };
+  */
 
   const buscarCliente = async () => {
     if (!searchQuery.trim()) {
@@ -239,18 +241,20 @@ const ClientesPage = ({ showNotification }) => {
                     <input
                       type="text"
                       className="form-control d-inline-block me-2"
-                      style={{width: 'auto', maxWidth: 120}}
+                      style={{width: 'auto', maxWidth: 200}}
                       value={empresaSeleccionada ? (empresaSeleccionada.nombreEmpresa || empresaSeleccionada.nombre || empresaSeleccionada.razonSocial || empresaSeleccionada.cuit || empresaSeleccionada.id) : ''}
                       disabled
                     />
+                    {/* Botones comentados - funcionalidad por implementar con Redux
                     <button className="btn btn-info me-2" onClick={loadTodosLosClientes}>
                       <i className="fas fa-list me-1"></i>Todos (Sin Paginación)
                     </button>
                     <button className="btn btn-warning me-2" onClick={loadClientesTodasEmpresas}>
                       <i className="fas fa-building me-1"></i>Todas las Empresas
                     </button>
+                    */}
                     <button className="btn btn-primary" onClick={() => dispatch(fetchClientes({ empresaId, ...pagination }))}>
-                      <i className="fas fa-sync-alt me-1"></i>Paginado
+                      <i className="fas fa-sync-alt me-1"></i>Recargar
                     </button>
                   </div>
                 </div>
@@ -264,7 +268,7 @@ const ClientesPage = ({ showNotification }) => {
                           className="form-select" 
                           style={{width: 'auto'}}
                           value={pagination.size}
-                          onChange={(e) => setPagination({...pagination, size: parseInt(e.target.value), page: 0})}
+                          onChange={(e) => dispatch(updatePagination({...pagination, size: parseInt(e.target.value), page: 0}))}
                         >
                           <option value="10">10</option>
                           <option value="20">20</option>
@@ -279,7 +283,7 @@ const ClientesPage = ({ showNotification }) => {
                           className="form-select me-2" 
                           style={{width: 'auto'}}
                           value={pagination.sort}
-                          onChange={(e) => setPagination({...pagination, sort: e.target.value})}
+                          onChange={(e) => dispatch(updatePagination({...pagination, sort: e.target.value}))}
                         >
                           <option value="id">ID</option>
                           <option value="nombre">Nombre</option>
@@ -290,7 +294,7 @@ const ClientesPage = ({ showNotification }) => {
                           className="form-select" 
                           style={{width: 'auto'}}
                           value={pagination.direction}
-                          onChange={(e) => setPagination({...pagination, direction: e.target.value})}
+                          onChange={(e) => dispatch(updatePagination({...pagination, direction: e.target.value}))}
                         >
                           <option value="ASC">Ascendente</option>
                           <option value="DESC">Descendente</option>
@@ -373,14 +377,14 @@ const ClientesPage = ({ showNotification }) => {
                     <button 
                       className="btn btn-outline-primary"
                       disabled={pagination.page === 0}
-                      onClick={() => setPagination({...pagination, page: pagination.page - 1})}
+                      onClick={() => dispatch(updatePagination({...pagination, page: pagination.page - 1}))}
                     >
                       <i className="fas fa-chevron-left me-1"></i>Anterior
                     </button>
                     <span>Página {pagination.page + 1}</span>
                     <button 
                       className="btn btn-outline-primary"
-                      onClick={() => setPagination({...pagination, page: pagination.page + 1})}
+                      onClick={() => dispatch(updatePagination({...pagination, page: pagination.page + 1}))}
                     >
                       Siguiente<i className="fas fa-chevron-right ms-1"></i>
                     </button>
