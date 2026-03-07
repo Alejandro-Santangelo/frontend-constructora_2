@@ -39,7 +39,7 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
               <li>
                 <a className="dropdown-item" href="#">
                   <i className="fas fa-server me-2"></i>
-                  Backend: localhost:8080
+                  Backend: {import.meta.env.MODE === 'production' ? 'Railway Cloud' : 'localhost:8080'}
                 </a>
               </li>
               <li><hr className="dropdown-divider" /></li>

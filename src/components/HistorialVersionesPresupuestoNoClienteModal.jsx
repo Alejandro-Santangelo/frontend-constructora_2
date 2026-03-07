@@ -357,7 +357,7 @@ const HistorialVersionesPresupuestoNoClienteModal = ({ show, handleClose, obraId
 
     try {
       const response = await api.post(
-        `http://localhost:8080/api/v1/presupuestos-no-cliente/${detalleVersion.id}/aprobar-y-crear-obra`,
+        `/api/v1/presupuestos-no-cliente/${detalleVersion.id}/aprobar-y-crear-obra`,
         {},
         {
           headers: {

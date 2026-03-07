@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import api from '../services/api';
 
 const PresupuestosPorEstado = () => {
   const [empresaId, setEmpresaId] = useState('');
@@ -9,12 +10,11 @@ const PresupuestosPorEstado = () => {
 
   const buscarPresupuestos = async () => {
     setLoading(true);
-    let url = `http://localhost:8080/api/presupuestos/por-estado?empresaId=${empresaId}&estado=${encodeURIComponent(estado)}`;
+    let url = `/api/presupuestos/por-estado?empresaId=${empresaId}&estado=${encodeURIComponent(estado)}`;
     if (obraId) url += `&obraId=${obraId}`;
     try {
-      const response = await fetch(url);
-      const data = await response.json();
-      setPresupuestos(Array.isArray(data) ? data : []);
+      const response = await api.get(url);
+      setPresupuestos(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
       setPresupuestos([]);
     } finally {

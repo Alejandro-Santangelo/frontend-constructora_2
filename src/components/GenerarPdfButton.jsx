@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
-import axios from 'axios';
+import api from '../services/api';
 
 const GenerarPdfButton = () => {
   const [generando, setGenerando] = useState(false);
@@ -11,8 +11,8 @@ const GenerarPdfButton = () => {
   const handleGenerarPdf = async () => {
     setGenerando(true);
     try {
-      const response = await axios.post(
-        'http://localhost:8080/api/pdf/generar', // URL del endpoint
+      const response = await api.post(
+        '/api/pdf/generar', // URL del endpoint
         datosPresupuesto, // Datos del presupuesto en formato JSON
         {
           headers: {

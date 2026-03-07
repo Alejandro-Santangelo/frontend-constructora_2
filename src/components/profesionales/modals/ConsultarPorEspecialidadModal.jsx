@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 import { useEmpresasYTipos } from './useEmpresasYTipos';
 import { useEmpresa } from '../../../EmpresaContext';
+import api from '../../../services/api';
 
 const ConsultarPorEspecialidadModal = ({ show, onClose }) => {
   const { empresaSeleccionada } = useEmpresa();
@@ -27,20 +28,15 @@ const ConsultarPorEspecialidadModal = ({ show, onClose }) => {
     setError(null);
     setResultados(null);
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/profesionales-obras/tipo/${encodeURIComponent(tipoProfesional)}?empresaId=${empresaSeleccionada.id}`
+      const response = await api.get(
+        `/api/profesionales-obras/tipo/${encodeURIComponent(tipoProfesional)}?empresaId=${empresaSeleccionada.id}`
       );
-      if (!response.ok) {
-        const err = await response.json();
-        setError(err.message || 'Error desconocido');
-      } else {
-        const data = await response.json();
-        setResultados(data);
-      }
+      setResultados(response.data);
     } catch (e) {
-      setError('Error de red o servidor');
+      setError(e.response?.data?.message || 'Error de red o servidor');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleClose = () => {

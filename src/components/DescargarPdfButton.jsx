@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 
 const DescargarPdfButton = () => {
   const [descargando, setDescargando] = useState(false);
@@ -7,7 +7,7 @@ const DescargarPdfButton = () => {
   const handleDescargarPdf = async () => {
     setDescargando(true);
     try {
-      const response = await axios.get('http://localhost:8080/pdf', {
+      const response = await api.get('/pdf', {
         responseType: 'blob', // Importante para recibir el archivo como Blob
       });
 
