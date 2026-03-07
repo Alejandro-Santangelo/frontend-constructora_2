@@ -7,7 +7,8 @@ export const fetchEmpresasActivas = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const data = await api.get('/api/empresas/activas');
-      return data.data || data;
+      console.log('✅ Empresas activas:', data);
+      return data;
     } catch (error) {
       return rejectWithValue(error.message);
     }

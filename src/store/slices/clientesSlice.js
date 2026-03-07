@@ -15,7 +15,8 @@ export const fetchClientes = createAsyncThunk(
       };
       
       const data = await api.get('/api/clientes', params);
-      return data.data || data;
+      console.log('📋 Clientes recibidos del backend:', data);
+      return data;
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -27,7 +28,8 @@ export const createCliente = createAsyncThunk(
   async ({ empresaId, clienteData }, { rejectWithValue }) => {
     try {
       const data = await api.post(`/api/clientes?empresaId=${empresaId}`, clienteData);
-      return data.data || data;
+      console.log('✅ Cliente creado:', data);
+      return data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || error.message);
     }
@@ -42,7 +44,8 @@ export const updateCliente = createAsyncThunk(
       const { empresas, fechaCreacion, ...cleanData } = clienteData;
       
       const data = await api.put(`/api/clientes/${encodeURIComponent(id)}`, cleanData);
-      return data.data || data;
+      console.log('✅ Cliente actualizado:', data);
+      return data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || error.message);
     }
@@ -66,7 +69,8 @@ export const searchClientes = createAsyncThunk(
   async ({ termino, empresaId }, { rejectWithValue }) => {
     try {
       const data = await api.get(`/api/clientes/buscar?termino=${encodeURIComponent(termino)}&empresaId=${empresaId}`);
-      return data.data || data;
+      console.log('🔍 Clientes encontrados:', data);
+      return data;
     } catch (error) {
       return rejectWithValue(error.message);
     }
