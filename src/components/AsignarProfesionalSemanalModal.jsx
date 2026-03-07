@@ -340,20 +340,9 @@ getObraId() retorna: ${obraIdReal}
     try {
       if (!empresaSeleccionada?.id) return;
 
-      const response = await fetch(
-        `http://localhost:8080/api/profesionales?empresaId=${empresaSeleccionada.id}`,
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setTodosProfesionales(data || []);
-        console.log('✅ Cargados todos los profesionales:', data?.length);
-      }
+      const data = await api.get(`/api/profesionales?empresaId=${empresaSeleccionada.id}`);
+      setTodosProfesionales(data || []);
+      console.log('✅ Cargados todos los profesionales:', data?.length);
     } catch (error) {
       console.error('❌ Error cargando todos los profesionales:', error);
     }
@@ -513,20 +502,15 @@ getObraId() retorna: ${obraIdReal}
       // 3. Obtener ASIGNACIONES POR OBRA COMPLETA
       let dataObra = [];
       try {
-        const responseObra = await fetch(
-          `http://localhost:8080/api/obras/${obraIdParaQuery}/asignaciones-profesionales`, // ✅ Usa ID real
+        dataObra = await api.get(
+          `/api/obras/${obraIdParaQuery}/asignaciones-profesionales`, // ✅ Usa ID real
           {
             headers: {
-              'empresaId': empresaSeleccionada.id.toString(),
-              'Content-Type': 'application/json'
+              'empresaId': empresaSeleccionada.id.toString()
             }
           }
         );
-
-        if (responseObra.ok) {
-          dataObra = await responseObra.json();
-          console.log('🔍 Asignaciones por obra completa:', dataObra);
-        }
+        console.log('🔍 Asignaciones por obra completa:', dataObra);
       } catch (error) {
         console.warn('⚠️ No se pudieron cargar asignaciones por obra completa:', error);
       }
@@ -1697,22 +1681,11 @@ getObraId() retorna: ${obraIdReal}
         // ✅ FIX: Usar ID correcto del trabajo extra
         const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
         console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${trabajoExtraId}`);
-        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${trabajoExtraId}`, {
-          method: 'PUT',
+        const resultado = await api.put(`/api/v1/trabajos-extra/${trabajoExtraId}`, payload, {
           headers: {
-            'Content-Type': 'application/json',
             'empresaId': empresaSeleccionada.id.toString()
-          },
-          body: JSON.stringify(payload)
+          }
         });
-
-        if (!response.ok) {
-          const errorData = await response.text();
-          console.error('❌ Error del backend:', errorData);
-          throw new Error(`Error ${response.status}: ${errorData}`);
-        }
-
-        const resultado = await response.json();
         console.log('✅ Respuesta del backend:', resultado);
 
         // 6. Success feedback
@@ -2295,7 +2268,7 @@ getObraId() retorna: ${obraIdReal}
       } else if (error.request) {
         // Request se hizo pero no hubo respuesta
         console.error('No response from server:', error.request);
-        alert('❌ Error de conexión con el servidor\n\nVerifica que el backend esté corriendo en http://localhost:8080');
+        alert('❌ Error de conexión con el servidor\n\nVerifica que el backend esté corriendo');
       } else {
         // Error al configurar la request
         console.error('Error configurando request:', error.message);
@@ -2327,18 +2300,11 @@ getObraId() retorna: ${obraIdReal}
       // 🔥 BIFURCACIÓN: Trabajos extra vs Obras normales
       if (obra._esTrabajoExtra) {
         // Eliminar profesional de trabajo extra usando endpoint DELETE específico
-        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/profesionales/${asignacionId}`, {
-          method: 'DELETE',
+        await api.delete(`/api/v1/trabajos-extra/profesionales/${asignacionId}`, {
           headers: {
             'empresaId': empresaSeleccionada.id.toString()
           }
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Error ${response.status}: ${errorText}`);
-        }
-
         console.log('✅ Profesional eliminado del trabajo extra');
       } else {
         // Obra normal: usar endpoint tradicional
