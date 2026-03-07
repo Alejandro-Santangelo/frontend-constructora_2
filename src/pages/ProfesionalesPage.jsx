@@ -406,9 +406,8 @@ const ProfesionalesPage = ({ showNotification }) => {
   const loadProfesionalesPorEmpresa = async (empresaSeleccionada) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8080/api/profesionales/empresa/${empresaSeleccionada}`);
-      const data = await response.json();
-      setProfesionales(data.resultado || []);
+      const data = await api.profesionales.getAll(empresaSeleccionada);
+      setProfesionales(data.resultado || data || []);
       showNotification(`Profesionales de empresa ${empresaSeleccionada} cargados`, 'success');
     } catch (error) {
       console.error('Error cargando profesionales por empresa:', error);
@@ -421,9 +420,8 @@ const ProfesionalesPage = ({ showNotification }) => {
   const loadProfesionalesDisponibles = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8080/api/profesionales/disponibles?empresaId=${empresaId}`);
-      const data = await response.json();
-      setProfesionales(data.resultado || []);
+      const data = await api.get('/api/profesionales/disponibles', { empresaId });
+      setProfesionales(data.resultado || data ||[]);
       showNotification('Profesionales disponibles cargados', 'success');
     } catch (error) {
       console.error('Error cargando profesionales disponibles:', error);
@@ -436,8 +434,7 @@ const ProfesionalesPage = ({ showNotification }) => {
   const loadProfesionalesEnObra = async (obraId) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8080/api/profesionales/obra/${obraId}?empresaId=${empresaId}`);
-      const data = await response.json();
+      const data = await api.get(`/api/profesionales/obra/${obraId}`, { empresaId });
       setObraProfesionales(data || []);
       showNotification(`Profesionales en obra ${obraId} cargados`, 'success');
     } catch (error) {
@@ -472,17 +469,9 @@ const ProfesionalesPage = ({ showNotification }) => {
       delete dataToSend.idEmpresa;
       delete dataToSend.fecha_creacion;
 
-      const response = await fetch('http://localhost:8080/api/profesionales', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(dataToSend)
-      });
-
-      if (response.ok) {
-        showNotification('Profesional creado exitosamente', 'success');
-        setFormData({
+      await api.profesionales.create(dataToSend);
+      showNotification('Profesional creado exitosamente', 'success');
+      setFormData({
           nombre: '',
           tipoProfesional: 'A Definir',
           email: '',
@@ -506,18 +495,10 @@ const ProfesionalesPage = ({ showNotification }) => {
 
   const actualizarProfesional = async (id, data) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/profesionales/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-
-      if (response.ok) {
-        showNotification('Profesional actualizado exitosamente', 'success');
-        loadProfesionales();
-        setSelectedProfesional(null);
+      await api.profesionales.update(id, data);
+      showNotification('Profesional actualizado exitosamente', 'success');
+      loadProfesionales();
+      setSelectedProfesional(null);
       } else {
         throw new Error('Error en la respuesta del servidor');
       }
@@ -529,17 +510,13 @@ const ProfesionalesPage = ({ showNotification }) => {
 
   const eliminarProfesional = async (id) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/profesionales/${id}?empresaId=${empresaId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        showNotification('Profesional eliminado exitosamente', 'success');
-        loadProfesionales();
-        return true;
-      } else {
-        const errorData = await response.text();
-        console.error('Error del servidor:', errorData);
+      await api.profesionales.delete(id);
+      showNotification('Profesional eliminado exitosamente', 'success');
+      loadProfesionales();
+      return true;
+    } catch (error) {
+      const errorData = error.message || 'Error desconocido';
+      console.error('Error del servidor:', errorData);
         throw new Error(`Error en la respuesta del servidor: ${response.status}`);
       }
     } catch (error) {
@@ -550,16 +527,9 @@ const ProfesionalesPage = ({ showNotification }) => {
 
   const asignarAObra = async (profesionalId, obraId) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/profesionales/${profesionalId}/asignar-obra/${obraId}?empresaId=${empresaId}`, {
-        method: 'POST'
-      });
-
-      if (response.ok) {
-        showNotification('Profesional asignado a obra exitosamente', 'success');
-        loadProfesionales();
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      await api.post(`/api/profesionales/${profesionalId}/asignar-obra/${obraId}`, null, { empresaId });
+      showNotification('Profesional asignado a obra exitosamente', 'success');
+      loadProfesionales();
     } catch (error) {
       console.error('Error asignando profesional a obra:', error);
       showNotification('Error asignando profesional a obra', 'error');
@@ -568,16 +538,9 @@ const ProfesionalesPage = ({ showNotification }) => {
 
   const desasignarDeObra = async (profesionalId, obraId) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/profesionales/${profesionalId}/desasignar-obra/${obraId}?empresaId=${empresaId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        showNotification('Profesional desasignado de obra exitosamente', 'success');
-        loadProfesionales();
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      await api.delete(`/api/profesionales/${profesionalId}/desasignar-obra/${obraId}`, { empresaId });
+      showNotification('Profesional desasignado de obra exitosamente', 'success');
+      loadProfesionales();
     } catch (error) {
       console.error('Error desasignando profesional de obra:', error);
       showNotification('Error desasignando profesional de obra', 'error');
@@ -1229,8 +1192,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                       try {
                         if (modalData.id && !modalData.nombre) {
                           // Buscar por ID y pasar a confirmación
-                          const res = await fetch(`http://localhost:8080/api/profesionales/${modalData.id}`);
-                          data = await res.json();
+                          data = await api.profesionales.getById(modalData.id);
                           if (data && data.id) {
                             setEliminarSeleccionado(data);
                             setEliminarStep(2);
@@ -1239,8 +1201,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                           }
                         } else if (modalData.nombre && !modalData.id) {
                           // Buscar por nombre (parecido) y mostrar lista
-                          const res = await fetch(`http://localhost:8080/api/profesionales/buscar?nombre=${encodeURIComponent(modalData.nombre)}`);
-                          data = await res.json();
+                          data = await api.get(`/api/profesionales/buscar`, { nombre: modalData.nombre });
                           if (Array.isArray(data) && data.length > 0) {
                             setEliminarResultados(data);
                             setEliminarStep(3);
@@ -1345,8 +1306,7 @@ const ProfesionalesPage = ({ showNotification }) => {
           (async () => {
             try {
               setLoading(true);
-              const res = await fetch(`http://localhost:8080/api/profesionales/${selectedProfesionalId}`);
-              const data = await res.json();
+              const data = await api.profesionales.getById(selectedProfesionalId);
               setResultModal(data);
               setSidebarAction(null);
             } catch (err) {
@@ -1373,12 +1333,10 @@ const ProfesionalesPage = ({ showNotification }) => {
                       let data = null;
                       if (modalData.id && !modalData.nombre) {
                         // Buscar por ID
-                        const res = await fetch(`http://localhost:8080/api/profesionales/${modalData.id}`);
-                        data = await res.json();
+                        data = await api.profesionales.getById(modalData.id);
                       } else if (modalData.nombre && !modalData.id) {
                         // Buscar por nombre (parcial, insensible a mayúsculas/minúsculas)
-                        const res = await fetch(`http://localhost:8080/api/profesionales/buscar?nombre=${encodeURIComponent(modalData.nombre)}`);
-                        data = await res.json();
+                        data = await api.get('/api/profesionales/buscar', { nombre: modalData.nombre });
                       } else {
                         showNotification('Por favor, ingrese solo ID o solo Nombre para la búsqueda', 'warning');
                         setLoading(false);
@@ -1430,11 +1388,9 @@ const ProfesionalesPage = ({ showNotification }) => {
                       let data = null;
                       try {
                         if (modalData.id && !modalData.nombre) {
-                          const res = await fetch(`http://localhost:8080/api/profesionales/${modalData.id}`);
-                          data = await res.json();
+                          data = await api.profesionales.getById(modalData.id);
                         } else if (modalData.nombre && !modalData.id) {
-                          const res = await fetch(`http://localhost:8080/api/profesionales/buscar?nombre=${encodeURIComponent(modalData.nombre)}`);
-                          data = await res.json();
+                          data = await api.get('/api/profesionales/buscar', { nombre: modalData.nombre });
                           if (Array.isArray(data) && data.length > 0) {
                             setUpdateData(data);
                             setUpdateStep(2);
@@ -1716,8 +1672,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                           setLoading(true);
                           setResultModal(null); // Limpiar antes de mostrar
                           try {
-                            const res = await fetch(`http://localhost:8080/api/profesionales/por-tipo?tipoProfesional=${encodeURIComponent(tipo)}`);
-                            const data = await res.json();
+                            const data = await api.profesionales.getPorTipo(tipo);
                             setResultModal(data);
                             setSidebarAction(null);
                           } catch (err) {
@@ -1754,8 +1709,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                     try {
                       setLoading(true);
                       setResultModal(null); // Limpiar antes de mostrar
-                      const res2 = await fetch(`http://localhost:8080/api/profesionales/por-tipo?tipoProfesional=${encodeURIComponent(modalData.tipoProfesional)}`);
-                      const data2 = await res2.json();
+                      const data2 = await api.profesionales.getPorTipo(modalData.tipoProfesional);
                       setResultModal(data2);
                       setSidebarAction(null);
                     } catch (err) {
@@ -1792,7 +1746,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                     e.preventDefault();
                     try {
                       setLoading(true);
-                      await fetch(`http://localhost:8080/api/profesionales/actualizar-valor-hora-todos?porcentaje=${modalData.porcentaje}`, { method: 'PUT' });
+                      await api.put(`/api/profesionales/actualizar-valor-hora-todos?porcentaje=${modalData.porcentaje}`);
                       loadProfesionales();
                     } catch (err) {
                       alert('Error actualizando valor jornal de todos');
@@ -1833,8 +1787,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                       let data = null;
                       try {
                         if (modalData.id && !modalData.nombre) {
-                          const res = await fetch(`http://localhost:8080/api/profesionales/${modalData.id}`);
-                          data = await res.json();
+                          data = await api.profesionales.getById(modalData.id);
                           if (data && data.id) {
                             setValorHoraResultados([data]);
                             setValorHoraStep(2);
@@ -1842,8 +1795,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                             showNotification('No se encontró profesional con ese ID', 'error');
                           }
                         } else if (modalData.nombre && !modalData.id) {
-                          const res = await fetch(`http://localhost:8080/api/profesionales/buscar?nombre=${encodeURIComponent(modalData.nombre)}`);
-                          data = await res.json();
+                          data = await api.get(`/api/profesionales/buscar?nombre=${encodeURIComponent(modalData.nombre)}`);
                           if (Array.isArray(data) && data.length > 0) {
                             setValorHoraResultados(data);
                             setValorHoraStep(2);
@@ -1888,7 +1840,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                           e.preventDefault();
                           try {
                             setLoading(true);
-                            await fetch(`http://localhost:8080/api/profesionales/${prof.id}/actualizar-valor-hora?porcentaje=${valorHoraPorcentaje}`, { method: 'PUT' });
+                            await api.put(`/api/profesionales/${prof.id}/actualizar-valor-hora?porcentaje=${valorHoraPorcentaje}`);
                             showNotification('Valor jornal actualizado', 'success');
                             setSidebarAction(null);
                             setValorHoraStep(1);
@@ -1945,7 +1897,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                     e.preventDefault();
                     try {
                       setLoading(true);
-                      await fetch(`http://localhost:8080/api/profesionales/actualizar-porcentaje-ganancia-todos?porcentaje=${modalData.porcentaje}`, { method: 'PUT' });
+                      await api.put(`/api/profesionales/actualizar-porcentaje-ganancia-todos?porcentaje=${modalData.porcentaje}`);
                       loadProfesionales();
                     } catch (err) {
                       alert('Error actualizando porcentaje ganancia');
@@ -1982,8 +1934,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                       let data = null;
                       try {
                         if (modalData.id && !modalData.nombre) {
-                          const res = await fetch(`http://localhost:8080/api/profesionales/${modalData.id}`);
-                          data = await res.json();
+                          data = await api.profesionales.getById(modalData.id);
                           if (data && data.id) {
                             setGananciaResultados([data]);
                             setGananciaStep(2);
@@ -1991,8 +1942,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                             showNotification('No se encontró profesional con ese ID', 'error');
                           }
                         } else if (modalData.nombre && !modalData.id) {
-                          const res = await fetch(`http://localhost:8080/api/profesionales/buscar?nombre=${encodeURIComponent(modalData.nombre)}`);
-                          data = await res.json();
+                          data = await api.get(`/api/profesionales/buscar?nombre=${encodeURIComponent(modalData.nombre)}`);
                           if (Array.isArray(data) && data.length > 0) {
                             setGananciaResultados(data);
                             setGananciaStep(2);
@@ -2036,7 +1986,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                           e.preventDefault();
                           try {
                             setLoading(true);
-                            await fetch(`http://localhost:8080/api/profesionales/${prof.id}/actualizar-porcentaje-ganancia?porcentaje=${gananciaPorcentaje}`, { method: 'PUT' });
+                            await api.put(`/api/profesionales/${prof.id}/actualizar-porcentaje-ganancia?porcentaje=${gananciaPorcentaje}`);
                             showNotification('% ganancia actualizado', 'success');
                             setSidebarAction(null);
                             setGananciaStep(1);
@@ -2096,8 +2046,7 @@ const ProfesionalesPage = ({ showNotification }) => {
                       setResultModal(null); // Limpiar antes de mostrar
                       // Normaliza el texto para buscar de forma permisiva
                       const especialidad = (modalData.especialidad || '').toLowerCase().replace(/a|á/g, '[aá]').replace(/e|é/g, '[eé]').replace(/i|í/g, '[ií]').replace(/o|ó/g, '[oó]').replace(/u|ú/g, '[uú]').replace(/profesional|profesionala|profesionalo|profesionalx/g, 'profesional');
-                      const res = await fetch(`http://localhost:8080/api/profesionales/buscar-por-especialidad?especialidad=${encodeURIComponent(especialidad)}`);
-                      const data = await res.json();
+                      const data = await api.get(`/api/profesionales/buscar-por-especialidad?especialidad=${encodeURIComponent(especialidad)}`);
                       setResultModal(data);
                       setSidebarAction(null);
                     } catch (err) {
@@ -2171,8 +2120,7 @@ const ProfesionalesPage = ({ showNotification }) => {
       if (sidebarAction === 'buscarPorTipo') {
         try {
           setLoading(true);
-          const res = await fetch('http://localhost:8080/api/profesionales');
-          const data = await res.json();
+          const data = await api.profesionales.getAll();
           const tiposUnicos = [...new Set((data.resultado || data || []).map(p => p.tipoProfesional))].filter(Boolean);
           setTiposProfesionalesUnicos(tiposUnicos);
         } catch (err) {
