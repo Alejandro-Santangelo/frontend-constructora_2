@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import api from '../services/api';
 
 /**
  * Modal detallado de un día específico
@@ -30,24 +31,19 @@ const ModalDetalleDia = ({ show, onClose, diaData, obra, onActualizar }) => {
   const cargarDetalleDia = async () => {
     setLoading(true);
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}`,
+      const data = await api.get(
+        `/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}`,
         {
           headers: {
             'empresaId': empresaSeleccionada.id.toString()
           }
         }
       );
-
-      if (response.ok) {
-        const data = await response.json();
-        setEtapa(data);
-        setProfesionales(data.profesionales || []);
-        setMateriales(data.materiales || []);
-        setGastos(data.gastos || []);
-        setObservaciones(data.observaciones || '');
-      } else {
-        // Día sin datos, inicializar vacío
+      setEtapa(data);
+      setProfesionales(data.profesionales || []);
+      setMateriales(data.materiales || []);
+      setGastos(data.gastos || []);
+      setObservaciones(data.observaciones || '');
         setEtapa({ fecha: diaData.fecha });
         setProfesionales([]);
         setMateriales([]);
@@ -64,13 +60,12 @@ const ModalDetalleDia = ({ show, onClose, diaData, obra, onActualizar }) => {
   const marcarComoCompletado = async () => {
     setGuardando(true);
     try {
-      await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/completar`,
+      await api.post(
+        `/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/completar`,
+        null,
         {
-          method: 'POST',
           headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
+            'empresaId': empresaSeleccionada.id.toString()
           }
         }
       );
@@ -87,15 +82,13 @@ const ModalDetalleDia = ({ show, onClose, diaData, obra, onActualizar }) => {
   const guardarObservaciones = async () => {
     setGuardando(true);
     try {
-      await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/observaciones`,
+      await api.put(
+        `/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/observaciones`,
+        { observaciones },
         {
-          method: 'PUT',
           headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ observaciones })
+            'empresaId': empresaSeleccionada.id.toString()
+          }
         }
       );
       
@@ -111,10 +104,9 @@ const ModalDetalleDia = ({ show, onClose, diaData, obra, onActualizar }) => {
     if (!confirm('¿Eliminar este material del día?')) return;
     
     try {
-      await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/materiales/${materialId}`,
+      await api.delete(
+        `/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/materiales/${materialId}`,
         {
-          method: 'DELETE',
           headers: {
             'empresaId': empresaSeleccionada.id.toString()
           }
@@ -132,10 +124,9 @@ const ModalDetalleDia = ({ show, onClose, diaData, obra, onActualizar }) => {
     if (!confirm('¿Eliminar este gasto del día?')) return;
     
     try {
-      await fetch(
-        `http://localhost:8080/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/gastos/${gastoId}`,
+      await api.delete(
+        `/api/obras/${obra.id}/etapas-diarias/${diaData.fecha}/gastos/${gastoId}`,
         {
-          method: 'DELETE',
           headers: {
             'empresaId': empresaSeleccionada.id.toString()
           }
