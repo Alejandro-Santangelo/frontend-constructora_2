@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../services/api';
 
 const UsuariosPage = ({ showNotification }) => {
   const [activeTab, setActiveTab] = useState('lista');
@@ -63,17 +64,16 @@ const UsuariosPage = ({ showNotification }) => {
       
       if (rolFilter === 'todos' && estadoFilter === 'todos') {
         // GET /usuarios con paginación
-        url = `http://localhost:8080/api/usuarios?empresaId=${empresaId}&page=${pagination.page}&size=${pagination.size}&sort=${pagination.sort}&direction=${pagination.direction}`;
+        url = `/api/usuarios?empresaId=${empresaId}&page=${pagination.page}&size=${pagination.size}&sort=${pagination.sort}&direction=${pagination.direction}`;
       } else if (rolFilter !== 'todos') {
         // GET /usuarios/rol/{rol}
-        url = `http://localhost:8080/api/usuarios/rol/${rolFilter}?empresaId=${empresaId}&page=${pagination.page}&size=${pagination.size}`;
+        url = `/api/usuarios/rol/${rolFilter}?empresaId=${empresaId}&page=${pagination.page}&size=${pagination.size}`;
       } else if (estadoFilter !== 'todos') {
         // GET /usuarios/estado/{estado}
-        url = `http://localhost:8080/api/usuarios/estado/${estadoFilter}?empresaId=${empresaId}&page=${pagination.page}&size=${pagination.size}`;
+        url = `/api/usuarios/estado/${estadoFilter}?empresaId=${empresaId}&page=${pagination.page}&size=${pagination.size}`;
       }
 
-      const response = await fetch(url);
-      const data = await response.json();
+      const data = await api.get(url);
       setUsuarios(data.content || data.resultado || []);
       setTotalPages(data.totalPages || 0);
       setTotalElements(data.totalElements || 0);
@@ -88,8 +88,7 @@ const UsuariosPage = ({ showNotification }) => {
   const loadUsuariosPorEmpresa = async (empresaSeleccionada) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8080/api/usuarios/empresa/${empresaSeleccionada}`);
-      const data = await response.json();
+      const data = await api.get(`/api/usuarios/empresa/${empresaSeleccionada}`);
       setUsuarios(data.resultado || []);
       showNotification(`Usuarios de empresa ${empresaSeleccionada} cargados`, 'success');
     } catch (error) {
@@ -103,8 +102,7 @@ const UsuariosPage = ({ showNotification }) => {
   const loadTodosLosUsuarios = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8080/api/usuarios/todos?empresaId=${empresaId}`);
-      const data = await response.json();
+      const data = await api.get(`/api/usuarios/todos?empresaId=${empresaId}`);
       setUsuarios(data || []);
       showNotification('Todos los usuarios cargados', 'success');
     } catch (error) {
@@ -128,8 +126,7 @@ const UsuariosPage = ({ showNotification }) => {
         empresaId: empresaId
       });
       
-      const response = await fetch(`http://localhost:8080/api/usuarios/buscar?${params}`);
-      const data = await response.json();
+      const data = await api.get(`/api/usuarios/buscar?${params}`);
       setSearchResult(data);
       showNotification('Búsqueda realizada', 'success');
     } catch (error) {
@@ -149,20 +146,14 @@ const UsuariosPage = ({ showNotification }) => {
 
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8080/api/usuarios?empresaId=${empresaId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          nombre: formData.nombre,
-          email: formData.email,
-          telefono: formData.telefono,
-          rol: formData.rol,
-          estado: formData.estado,
-          password: formData.password,
-          fechaIngreso: formData.fechaIngreso
-        })
+      const response = await api.post(`/api/usuarios?empresaId=${empresaId}`, {
+        nombre: formData.nombre,
+        email: formData.email,
+        telefono: formData.telefono,
+        rol: formData.rol,
+        estado: formData.estado,
+        password: formData.password,
+        fechaIngreso: formData.fechaIngreso
       });
       
       if (response.ok) {
@@ -192,21 +183,10 @@ const UsuariosPage = ({ showNotification }) => {
 
   const actualizarUsuario = async (id, data) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/usuarios/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-      
-      if (response.ok) {
-        showNotification('Usuario actualizado exitosamente', 'success');
-        loadUsuarios();
-        setSelectedUsuario(null);
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      await api.put(`/api/usuarios/${id}`, data);
+      showNotification('Usuario actualizado exitosamente', 'success');
+      loadUsuarios();
+      setSelectedUsuario(null);
     } catch (error) {
       console.error('Error actualizando usuario:', error);
       showNotification('Error actualizando usuario', 'error');
@@ -215,16 +195,9 @@ const UsuariosPage = ({ showNotification }) => {
 
   const cambiarEstadoUsuario = async (id, nuevoEstado) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/usuarios/${id}/estado?estado=${nuevoEstado}&empresaId=${empresaId}`, {
-        method: 'PATCH'
-      });
-      
-      if (response.ok) {
-        showNotification(`Estado cambiado a ${nuevoEstado}`, 'success');
-        loadUsuarios();
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      await api.patch(`/api/usuarios/${id}/estado?estado=${nuevoEstado}&empresaId=${empresaId}`);
+      showNotification(`Estado cambiado a ${nuevoEstado}`, 'success');
+      loadUsuarios();
     } catch (error) {
       console.error('Error cambiando estado:', error);
       showNotification('Error cambiando estado', 'error');
@@ -235,16 +208,9 @@ const UsuariosPage = ({ showNotification }) => {
     if (!window.confirm('¿Está seguro de eliminar este usuario?')) return;
 
     try {
-      const response = await fetch(`http://localhost:8080/api/usuarios/${id}?empresaId=${empresaId}`, {
-        method: 'DELETE'
-      });
-      
-      if (response.ok) {
-        showNotification('Usuario eliminado exitosamente', 'success');
-        loadUsuarios();
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      await api.delete(`/api/usuarios/${id}?empresaId=${empresaId}`);
+      showNotification('Usuario eliminado exitosamente', 'success');
+      loadUsuarios();
     } catch (error) {
       console.error('Error eliminando usuario:', error);
       showNotification('Error eliminando usuario', 'error');
@@ -255,15 +221,8 @@ const UsuariosPage = ({ showNotification }) => {
     if (!window.confirm('¿Está seguro de resetear la contraseña de este usuario?')) return;
 
     try {
-      const response = await fetch(`http://localhost:8080/api/usuarios/${id}/reset-password?empresaId=${empresaId}`, {
-        method: 'POST'
-      });
-      
-      if (response.ok) {
-        showNotification('Contraseña reseteada exitosamente', 'success');
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+      await api.post(`/api/usuarios/${id}/reset-password?empresaId=${empresaId}`);
+      showNotification('Contraseña reseteada exitosamente', 'success');
     } catch (error) {
       console.error('Error reseteando contraseña:', error);
       showNotification('Error reseteando contraseña', 'error');
