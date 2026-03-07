@@ -509,12 +509,8 @@ const ProfesionalesPage = ({ showNotification }) => {
       loadProfesionales();
       return true;
     } catch (error) {
-      const errorData = error.message || 'Error desconocido';
-      console.error('Error del servidor:', errorData);
-        throw new Error(`Error en la respuesta del servidor: ${response.status}`);
-      }
-    } catch (error) {
       console.error('Error eliminando profesional:', error);
+      showNotification('Error eliminando profesional', 'error');
       throw error;
     }
   };
