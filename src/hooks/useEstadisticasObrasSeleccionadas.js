@@ -184,11 +184,10 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
         }
 
         try {
+          // ✅ apiService.get() espera params directamente como segundo argumento (no { params: {...} })
           const profesionales = await api.get(
             `/api/profesionales-obras/profesionales-por-obra/financiero`,
-            { 
-              params: { empresaId: Number(empresaId), obraId: Number(obraId) }
-            }
+            { empresaId: Number(empresaId), obraId: Number(obraId) }
           );
           return profesionales || [];
         } catch (error) {
