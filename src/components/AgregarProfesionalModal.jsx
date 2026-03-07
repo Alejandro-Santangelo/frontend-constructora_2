@@ -64,38 +64,27 @@ const AgregarProfesionalModal = ({ show, onHide, empresaId, onProfesionalCreado 
 
       console.log('🔍 Creando profesional con payload:', JSON.stringify(payload, null, 2));
 
-      const response = await api.post('/api/profesionales', payload);
-        },
-        body: JSON.stringify(payload)
+      const profesionalCreado = await api.post('/api/profesionales', payload);
+      
+      console.log('✅ Profesional creado:', profesionalCreado);
+
+      // Resetear formulario
+      setFormData({
+        nombre: '',
+        rubro: '',
+        tipoProfesional: '',
+        costoJornal: '',
+        telefono: '',
+        email: ''
       });
 
-      console.log('📡 Response status:', response.status);
-
-      if (response.ok) {
-        const profesionalCreado = await response.json();
-
-        // Resetear formulario
-        setFormData({
-          nombre: '',
-          rubro: '',
-          tipoProfesional: '',
-          costoJornal: '',
-          telefono: '',
-          email: ''
-        });
-
-        // Notificar al padre
-        if (onProfesionalCreado) {
-          onProfesionalCreado(profesionalCreado);
-        }
-
-        alert('✅ Profesional creado exitosamente');
-        onHide();
-      } else {
-        const error = await response.text();
-        console.error('❌ Error del servidor:', error);
-        alert('❌ Error al guardar: ' + error);
+      // Notificar al padre
+      if (onProfesionalCreado) {
+        onProfesionalCreado(profesionalCreado);
       }
+
+      alert('✅ Profesional creado exitosamente');
+      onHide();
     } catch (error) {
       console.error('❌ Error completo:', error);
       alert('❌ Error al crear profesional: ' + error.message);
