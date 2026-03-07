@@ -245,12 +245,12 @@ export const fetchEstadosDisponibles = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const data = await apiService.get('/api/obras/estados');
-      console.log('Estados obtenidos:', data);
+      console.log('✅ Estados obtenidos del backend:', data);
       return data;
     } catch (error) {
-      console.error('Error en fetchEstadosDisponibles:', error);
+      // Silenciar error - este endpoint es opcional
       // Fallback a estados por defecto si el endpoint no existe
-      console.warn('⚠️ Backend de estados no disponible. Usando estados por defecto.');
+      console.log('ℹ️ Usando estados por defecto (endpoint /api/obras/estados no disponible)');
       return [
         'BORRADOR',
         'A_ENVIAR',

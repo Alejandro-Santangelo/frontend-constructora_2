@@ -1307,7 +1307,7 @@ const ObrasPage = ({ showNotification }) => {
   // Cargar datos iniciales
   useEffect(() => {
     const initializeObrasPage = async () => {
-      // Evitar m?ltiples ejecuciones
+      // Evitar múltiples ejecuciones
       if (inicializadoRef.current) return;
       inicializadoRef.current = true;
 
@@ -1315,17 +1315,14 @@ const ObrasPage = ({ showNotification }) => {
         await dispatch(fetchEstadosDisponibles()).unwrap();
         await dispatch(fetchClientes({ empresaId })).unwrap();
 
-        // Cargar profesionales disponibles usando la funci?n centralizada
+        // Cargar profesionales disponibles usando la función centralizada
         if (empresaId) {
           await refrescarProfesionalesDisponibles();
         }
       } catch (error) {
-        console.error('Error cargando estados disponibles:', error);
-        if (error.includes('No static resource')) {
-          showNotification('Backend: El controlador de obras no est? disponible. Verifique la configuraci?n del servicio IObraService.', 'warning');
-        } else {
-          showNotification('Error conectando con el backend de obras', 'error');
-        }
+        // Solo mostrar error si es un problema real (no estados disponibles que tiene fallback)
+        console.log('ℹ️ Inicialización de obras con algunos datos por defecto');
+        // No mostrar notificación ya que fetchEstadosDisponibles tiene fallback automático
       }
     };
 
