@@ -1,24 +1,21 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import api from '../../services/api';
 
 // Async thunks para CRUD de clientes
 export const fetchClientes = createAsyncThunk(
   'clientes/fetchClientes',
   async ({ empresaId, page = 0, size = 20, sort = 'id', direction = 'ASC' }, { rejectWithValue }) => {
     try {
-      const params = new URLSearchParams({
+      const params = {
         empresaId,
         page: page.toString(),
         size: size.toString(),
         sort,
         direction
-      });
+      };
       
-      const response = await fetch(`/api/clientes?${params}`);
-      if (!response.ok) {
-        throw new Error('Error fetching clientes');
-      }
-      const data = await response.json();
-      return data;
+      const data = await api.get('/api/clientes', params);
+      return data.data || data;
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -29,21 +26,10 @@ export const createCliente = createAsyncThunk(
   'clientes/createCliente',
   async ({ empresaId, clienteData }, { rejectWithValue }) => {
     try {
-      const response = await fetch(`/api/clientes?empresaId=${empresaId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(clienteData)
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
-      }
-      
-      const data = await response.json();
-      return data;
+      const data = await api.post(`/api/clientes?empresaId=${empresaId}`, clienteData);
+      return data.data || data;
     } catch (error) {
-      return rejectWithValue(error.message);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );
@@ -55,21 +41,10 @@ export const updateCliente = createAsyncThunk(
       // Limpiar campos que no deben enviarse
       const { empresas, fechaCreacion, ...cleanData } = clienteData;
       
-      const response = await fetch(`/api/clientes/${encodeURIComponent(id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cleanData)
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
-      }
-      
-      const data = await response.json();
-      return data;
+      const data = await api.put(`/api/clientes/${encodeURIComponent(id)}`, cleanData);
+      return data.data || data;
     } catch (error) {
-      return rejectWithValue(error.message);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );
@@ -78,18 +53,10 @@ export const deleteCliente = createAsyncThunk(
   'clientes/deleteCliente',
   async ({ id, empresaId }, { rejectWithValue }) => {
     try {
-      const response = await fetch(`/api/clientes/${encodeURIComponent(id)}?empresaId=${empresaId}`, {
-        method: 'DELETE'
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
-      }
-      
+      await api.delete(`/api/clientes/${encodeURIComponent(id)}?empresaId=${empresaId}`);
       return id; // Retornar el ID para removerlo del state
     } catch (error) {
-      return rejectWithValue(error.message);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );
@@ -98,12 +65,8 @@ export const searchClientes = createAsyncThunk(
   'clientes/searchClientes',
   async ({ termino, empresaId }, { rejectWithValue }) => {
     try {
-      const response = await fetch(`/api/clientes/buscar?termino=${encodeURIComponent(termino)}&empresaId=${empresaId}`);
-      if (!response.ok) {
-        throw new Error('Error searching clientes');
-      }
-      const data = await response.json();
-      return data;
+      const data = await api.get(`/api/clientes/buscar?termino=${encodeURIComponent(termino)}&empresaId=${empresaId}`);
+      return data.data || data;
     } catch (error) {
       return rejectWithValue(error.message);
     }

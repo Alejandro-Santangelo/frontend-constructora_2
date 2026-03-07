@@ -4,7 +4,7 @@ import ObraSelector from './ObraSelector';
 import ClienteSelector from './ClienteSelector';
 import ConfiguracionPresupuestoSection from './ConfiguracionPresupuestoSection';
 import { handlePrint, exportToExcel, exportToCSV, exportToJSON, prepararDatosPresupuesto, compartirPorWhatsApp, compartirPorEmail, generarResumenTexto, capturarYExportarVisual, exportarAPDFReal } from '../utils/exportUtils';
-import apiService from '../services/api';
+import api from '../services/api';
 import { validarTipoItem, agregarNuevoProfesional } from '../utils/validacionProfesionalesMateriales';
 import { crearGastoGeneral } from '../services/gastosGeneralesService';
 import usePromedioHonorarios from '../hooks/usePromedioHonorarios';
@@ -1257,9 +1257,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   useEffect(() => {
     console.log('🚩 [useEffect-948] Ejecutado');
     if (show && form.idEmpresa && !soloLectura) {
-      fetch(`/api/obras/empresa/${form.idEmpresa}`)
-        .then(res => res.json())
-        .then(data => {
+      api.get(`/api/obras/empresa/${form.idEmpresa}`)
+        .then(response => {
+          const data = response.data || response;
           const obras = Array.isArray(data) ? data : [];
 
           // 🔧 FILTRAR: Excluir la obra/subobra actual si estamos editando un trabajo extra
@@ -1330,15 +1330,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         };
 
         // Cargar catálogos en paralelo
-        const [materialesRes, jornalesRes, gastosRes] = await Promise.all([
-          fetch(`/api/materiales?empresaId=${empresaSeleccionada.id}`, { headers }).catch(() => ({ ok: false })),
-          fetch(`/api/jornales/empresa/${empresaSeleccionada.id}`, { headers }).catch(() => ({ ok: false })),
-          fetch(`/api/gastos-generales?empresaId=${empresaSeleccionada.id}`, { headers }).catch(() => ({ ok: false }))
+        const [materialesData, jornalesData, gastosData] = await Promise.all([
+          api.get(`/api/materiales?empresaId=${empresaSeleccionada.id}`).then(r => r.data || r).catch(() => null),
+          api.get(`/api/jornales/empresa/${empresaSeleccionada.id}`).then(r => r.data || r).catch(() => null),
+          api.get(`/api/gastos-generales?empresaId=${empresaSeleccionada.id}`).then(r => r.data || r).catch(() => null)
         ]);
 
         // Procesar materiales
-        if (materialesRes.ok) {
-          const materiales = await materialesRes.json();
+        if (materialesData) {
+          const materiales = materialesData;
           console.log('📦 RAW Response materiales:', materiales);
           console.log('📦 Es Array?:', Array.isArray(materiales));
           console.log('📦 Tiene data?:', materiales?.data);
@@ -1359,19 +1359,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             console.log('📦 Primer material:', materialesArray[0]);
           }
         } else {
-          console.error('❌ Error cargando materiales:', materialesRes.status, materialesRes.statusText);
+          console.log('ℹ️ No hay materiales disponibles');
         }
 
         // Procesar jornales
-        if (jornalesRes.ok) {
-          const jornales = await jornalesRes.json();
+        if (jornalesData) {
+          const jornales = jornalesData;
           setCatalogoJornales(Array.isArray(jornales) ? jornales : []);
           console.log('👷 Catálogo de jornales cargado:', jornales.length);
         }
 
         // Procesar gastos
-        if (gastosRes.ok) {
-          const gastos = await gastosRes.json();
+        if (gastosData) {
+          const gastos = gastosData;
           setCatalogoGastos(Array.isArray(gastos) ? gastos : []);
           console.log('💰 Catálogo de gastos cargado:', gastos.length);
         }
@@ -1405,7 +1405,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       // Cargar nombre del cliente si existe clienteId
       if (clienteId) {
-        apiService.clientes.getById(clienteId)
+        api.clientes.getById(clienteId)
           .then(cliente => {
             // Intentar múltiples formatos de nombre
             const nombreCompleto = `${cliente.nombre || ''} ${cliente.apellido || ''}`.trim();
@@ -1431,7 +1431,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       // Cargar nombre de la obra si existe obraId
       if (obraId) {
         console.log('🏗️ [useEffect-cargarNombres] Cargando nombre de obra ID:', obraId);
-        apiService.obras.getById(obraId, empresaSeleccionada?.id)
+        api.obras.getById(obraId, empresaSeleccionada?.id)
           .then(obra => {
             // 🔧 Priorizar el nombre de la obra por sobre la dirección
             const nombreObra = obra.nombre?.trim() || obra.nombreObra?.trim();
@@ -1465,7 +1465,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   // useEffect para cargar lista de profesionales (para autocompletar honorarios)
   useEffect(() => {
     if (show && empresaSeleccionada?.id) {
-      apiService.profesionales.getAll(empresaSeleccionada.id)
+      api.profesionales.getAll(empresaSeleccionada.id)
         .then(data => {
           const profesionales = Array.isArray(data) ? data : (data?.resultado || data?.data || []);
           setListaProfesionales(profesionales);
@@ -1518,7 +1518,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     if (!clienteIdDeObra && empresaSeleccionada?.id) {
       try {
         console.log('🔍 Consultando clienteId de la obra al backend...');
-        const obraCompleta = await apiService.obras.getById(obraId, empresaSeleccionada.id);
+        const obraCompleta = await api.obras.getById(obraId, empresaSeleccionada.id);
         clienteIdDeObra = obraCompleta?.clienteId || obraCompleta?.cliente_id || obraCompleta?.idCliente;
         console.log('✅ Cliente ID obtenido de la obra:', clienteIdDeObra);
       } catch (error) {
@@ -2126,7 +2126,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       setCargandoGastosStock(true);
       try {
-        const response = await apiService.get(
+        const response = await api.get(
           `/api/v1/presupuestos-no-cliente/${form.id}/gastos-generales`,
           {
             headers: {
@@ -5716,7 +5716,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       // Función async para actualizar totales
       const actualizarTotales = async () => {
         try {
-          const response = await apiService.put(
+          const response = await api.put(
             `/api/v1/presupuestos-no-cliente/${initialData.id}`,
             updatePayload,
             { params: { empresaId: empresaSeleccionada.id } }
@@ -7330,7 +7330,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       const empresaId = form.idEmpresa || empresaSeleccionada?.id;
       if (!empresaId) return;
 
-      const clientesResponse = await apiService.clientes.getAllSimple(empresaId);
+      const clientesResponse = await api.clientes.getAllSimple(empresaId);
       const listaClientes = Array.isArray(clientesResponse) ? clientesResponse : (clientesResponse.datos || clientesResponse.content || []);
 
       let clienteExistente = listaClientes.find(c =>
@@ -7350,10 +7350,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       if (clienteExistente) {
         const clienteId = clienteExistente.id_cliente || clienteExistente.id || clienteExistente.idCliente;
-        await apiService.clientes.update(clienteId, datosCliente);
+        await api.clientes.update(clienteId, datosCliente);
       } else {
         datosCliente.cuit = '00-00000000-0'; // CUIT genérico
-        await apiService.clientes.create(datosCliente, empresaId);
+        await api.clientes.create(datosCliente, empresaId);
       }
     } catch (error) {
     }
@@ -7609,7 +7609,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       });
 
       // Actualizar solo el estado del presupuesto a ENVIADO usando el endpoint específico
-      const response = await apiService.presupuestosNoCliente.actualizarEstado(form.id, 'ENVIADO', empresaSeleccionada.id);
+      const response = await api.presupuestosNoCliente.actualizarEstado(form.id, 'ENVIADO', empresaSeleccionada.id);
       console.log('✅ Respuesta del servidor:', response);
       console.log('✅ Estado actualizado en BD a ENVIADO');
 
@@ -7669,7 +7669,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       // 1. Primero obtener el trabajo extra completo actual
       console.log('📥 GET trabajo extra completo...');
-      const trabajoExtraActual = await apiService.trabajosExtra.getById(
+      const trabajoExtraActual = await api.trabajosExtra.getById(
         form.id,
         empresaSeleccionada.id
       );
@@ -7696,7 +7696,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       });
 
       // 3. Enviar PUT con el objeto completo
-      const response = await apiService.trabajosExtra.update(
+      const response = await api.trabajosExtra.update(
         form.id,
         trabajoExtraActualizado,
         empresaSeleccionada.id
@@ -7711,7 +7711,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
       // 🔍 VERIFICACIÓN ADICIONAL: Hacer GET para confirmar que el estado se persistió correctamente
       console.log('🔍 Verificando que el estado se persistió correctamente...');
-      const trabajoExtraVerificacion = await apiService.trabajosExtra.getById(
+      const trabajoExtraVerificacion = await api.trabajosExtra.getById(
         form.id,
         empresaSeleccionada.id
       );
@@ -7780,7 +7780,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       });
 
       // Actualizar estado de la obra usando el endpoint específico
-      await apiService.obras.cambiarEstado(presupuestoObraId, presupuestoEstado, empresaSeleccionada.id);
+      await api.obras.cambiarEstado(presupuestoObraId, presupuestoEstado, empresaSeleccionada.id);
 
       console.log('✅ Estado de la obra actualizado exitosamente a:', presupuestoEstado);
     } catch (error) {
@@ -10520,7 +10520,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               tiempoEstimadoTerminacion: form.tiempoEstimadoTerminacion || 0
                             };
                             try {
-                              const resultado = await apiService.presupuestosNoCliente.actualizarSoloFechas(
+                              const resultado = await api.presupuestosNoCliente.actualizarSoloFechas(
                                 form.id,
                                 datosActualizarFechas,
                                 empresaSeleccionada?.id
@@ -10531,7 +10531,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               // Verificar que se guardó correctamente haciendo una petición GET
                               setTimeout(async () => {
                                 try {
-                                  const datos = await apiService.presupuestosNoCliente.getById(form.id, empresaSeleccionada?.id, true);
+                                  const datos = await api.presupuestosNoCliente.getById(form.id, empresaSeleccionada?.id, true);
                                   console.log('🔍 VERIFICACIÓN: fechaProbableInicio en backend después de guardar:', datos.fechaProbableInicio);
                                   if (datos.fechaProbableInicio && datos.fechaProbableInicio.split('T')[0] === e.target.value) {
                                     console.log('✅✅✅ CONFIRMADO: La fecha se guardó correctamente en el backend');
@@ -10721,7 +10721,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               tiempoEstimadoTerminacion: parseInt(e.target.value, 10)
                             };
                             try {
-                              const resultado = await apiService.presupuestosNoCliente.actualizarSoloFechas(
+                              const resultado = await api.presupuestosNoCliente.actualizarSoloFechas(
                                 form.id,
                                 datosActualizarFechas,
                                 empresaSeleccionada?.id
@@ -14982,7 +14982,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               tipo: typeof empresaId
                             });
 
-                            const response = await apiService.post(
+                            const response = await api.post(
                               endpoint,
                               formData,
                               { params: { empresaId } }
@@ -15633,7 +15633,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                       if (!window.confirm('¿Confirmar que la tarea está finalizada?\n\nEsto cambiará el estado a TERMINADO y sincronizará la obra asociada.')) return;
                       try {
                         const empresaId = form.idEmpresa || empresaSeleccionada?.id;
-                        await apiService.presupuestosNoCliente.actualizarEstado(form.id, 'TERMINADO', empresaId);
+                        await api.presupuestosNoCliente.actualizarEstado(form.id, 'TERMINADO', empresaId);
                         alert('✅ Tarea finalizada. La obra asociada fue sincronizada a TERMINADO.');
                         onClose();
                         if (onSave) onSave({ ...form, estado: 'TERMINADO' });

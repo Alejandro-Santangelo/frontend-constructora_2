@@ -1,35 +1,13 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-
-// ================================================================================
-// CONFIGURACIÓN DE URL BACKEND
-// ================================================================================
-// Detectar automáticamente el entorno
-const isProduction = import.meta.env.MODE === 'production';
-const RAILWAY_BACKEND_URL = 'https://backend-constructora2-production.up.railway.app';
-
-// En producción: usar URL del backend Railway
-// En desarrollo: vacío (usa proxy de Vite)
-const API_BASE_URL = isProduction ? RAILWAY_BACKEND_URL : '';
-
-console.log('🔧 EmpresasSlice - Modo:', import.meta.env.MODE);
-console.log('🔧 EmpresasSlice - Base URL:', API_BASE_URL || '(usando proxy local)');
+import api from '../../services/api';
 
 // Async thunks para llamadas a la API
 export const fetchEmpresasActivas = createAsyncThunk(
   'empresas/fetchActivas',
   async (_, { rejectWithValue }) => {
     try {
-      const url = `${API_BASE_URL}/api/empresas/activas`;
-      console.log('🔄 Fetching empresas activas desde:', url);
-      
-      const response = await fetch(url, {
-        headers: { 'accept': '*/*' }
-      });
-      if (!response.ok) {
-        throw new Error('Error fetching empresas activas');
-      }
-      const data = await response.json();
-      return data;
+      const data = await api.get('/api/empresas/activas');
+      return data.data || data;
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -40,66 +18,49 @@ export const fetchAllEmpresas = createAsyncThunk(
   'empresas/fetchAll',
   async (_, { rejectWithValue }) => {
     try {
-      const url = `${API_BASE_URL}/api/empresas/simple`;
-      console.log('🔄 EMPRESAS: Obteniendo lista desde:', url);
+      const data = await api.get('/api/empresas/simple');
       
-      const response = await fetch(url, {
-        headers: { 'accept': '*/*' }
-      });
-
-      if (!response.ok) {
-        console.error(`❌ EMPRESAS: Error ${response.status} al cargar empresas. Usando datos de respaldo.`);
-
-        // 🔧 DATOS DE RESPALDO si el backend falla
-        const mockEmpresas = [
-          {
-            id: 1,
-            nombreEmpresa: 'Cacho Construcciones',
-            razonSocial: 'Cacho Construcciones S.R.L.',
-            cuit: '20-12345678-9',
-            activo: true
-          },
-          {
-            id: 2,
-            nombreEmpresa: 'Empresa Cliente Demo',
-            razonSocial: 'Cliente Demo S.A.',
-            cuit: '30-87654321-0',
-            activo: true
-          }
-        ];
-
-        console.warn('⚠️ EMPRESAS: Usando empresas MOCK. El backend debe estar funcionando para ver datos reales.');
-        return mockEmpresas;
-      }
-
-      const data = await response.json();
-      console.log('✅ EMPRESAS: Respuesta de /api/empresas/simple:', data);
-
       // Determinar el array de empresas según el formato de respuesta
       let empresasArray = null;
 
       if (data && Array.isArray(data.resultado)) {
         empresasArray = data.resultado;
-        console.log('📋 EMPRESAS: Formato data.resultado detectado');
       } else if (data && Array.isArray(data.lista)) {
         empresasArray = data.lista;
-        console.log('📋 EMPRESAS: Formato data.lista detectado');
       } else if (Array.isArray(data)) {
         empresasArray = data;
-        console.log('📋 EMPRESAS: Formato array directo detectado');
       } else if (data && Array.isArray(data.data)) {
         empresasArray = data.data;
-        console.log('📋 EMPRESAS: Formato data.data detectado');
       } else {
         console.error('❌ EMPRESAS: Formato inesperado:', data);
         throw new Error('Formato inesperado en la respuesta de empresas simple');
       }
 
-      console.log(`📋 EMPRESAS: Encontradas ${empresasArray.length} empresas:`, empresasArray.map(e => e.nombreEmpresa));
+      console.log(`📋 EMPRESAS: Encontradas ${empresasArray.length} empresas`);
       return empresasArray;
     } catch (error) {
       console.error('❌ EMPRESAS: Error en fetchAllEmpresas:', error);
-      return rejectWithValue(error.message);
+      
+      // 🔧 DATOS DE RESPALDO si el backend falla
+      const mockEmpresas = [
+        {
+          id: 1,
+          nombreEmpresa: 'Cacho Construcciones',
+          razonSocial: 'Cacho Construcciones S.R.L.',
+          cuit: '20-12345678-9',
+          activo: true
+        },
+        {
+          id: 2,
+          nombreEmpresa: 'Empresa Cliente Demo',
+          razonSocial: 'Cliente Demo S.A.',
+          cuit: '30-87654321-0',
+          activo: true
+        }
+      ];
+
+      console.warn('⚠️ EMPRESAS: Usando empresas MOCK. El backend debe estar funcionando para ver datos reales.');
+      return mockEmpresas;
     }
   }
 );
