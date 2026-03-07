@@ -40,7 +40,13 @@ const ClientesPage = ({ showNotification }) => {
   const [clienteParaEditar, setClienteParaEditar] = React.useState(null);
   const [selectedCliente, setSelectedCliente] = React.useState(null); // Cambiado a useState local
   const { empresaSeleccionada } = useEmpresa();
-  const empresaId = empresaSeleccionada ? empresaSeleccionada.id : '';
+  const empresaId = empresaSeleccionada?.id || null;
+  
+  // DEBUG: Ver empresaId
+  React.useEffect(() => {
+    console.log('🏢 ClientesPage - empresaSeleccionada:', empresaSeleccionada);
+    console.log('🏢 ClientesPage - empresaId extraído:', empresaId);
+  }, [empresaSeleccionada, empresaId]);
   
   // DEBUG: Ver valor de selectedCliente
   React.useEffect(() => {
@@ -80,11 +86,24 @@ const ClientesPage = ({ showNotification }) => {
     }
   ] : [];
 
+  // Cargar clientes cuando cambia la empresa
   useEffect(() => {
-    dispatch(fetchClientes({ empresaId, ...pagination }));
-    dispatch(fetchEmpresasActivas());
-    setFormData(formData => ({ ...formData, empresaId }));
-  }, [dispatch, empresaId, pagination]);
+    console.log('🔄 ClientesPage useEffect - empresaId:', empresaId);
+    if (empresaId) {
+      console.log('🔄 Dispatching fetchClientes con:', { empresaId, ...pagination });
+      dispatch(fetchClientes({ empresaId, ...pagination }));
+      dispatch(fetchEmpresasActivas());
+      setFormData(formData => ({ ...formData, empresaId }));
+    }
+  }, [dispatch, empresaId]); // Removida dependencia de pagination para evitar loops
+
+  // Cargar clientes cuando cambia la paginación
+  useEffect(() => {
+    if (empresaId) {
+      console.log('🔄 Paginación cambió, recargando clientes:', pagination);
+      dispatch(fetchClientes({ empresaId, ...pagination }));
+    }
+  }, [dispatch, empresaId, pagination.page, pagination.size, pagination.sort, pagination.direction]); // Solo las propiedades específicas
 
   // NOTA: Estos métodos están comentados porque usan fetch() directo y funciones de estado que no existen
   // Si se necesitan, deben reescribirse usando Redux thunks

@@ -134,12 +134,19 @@ const clientesSlice = createSlice({
     builder
       // Fetch clientes
       .addCase(fetchClientes.pending, (state) => {
+        console.log('⏳ fetchClientes.pending - Cargando clientes...');
         state.loading = true;
         state.error = null;
       })
       .addCase(fetchClientes.fulfilled, (state, action) => {
         state.loading = false;
+        console.log('✅ fetchClientes.fulfilled - payload completo:', action.payload);
+        console.log('✅ Es array?:', Array.isArray(action.payload));
+        console.log('✅ Tiene content?:', action.payload?.content);
+        
         state.clientes = action.payload.content || action.payload || [];
+        console.log('✅ Clientes guardados en state:', state.clientes.length, 'clientes');
+        
         // Actualizar información de paginación si está disponible
         if (action.payload.totalElements !== undefined) {
           state.pagination.totalElements = action.payload.totalElements;
@@ -149,6 +156,8 @@ const clientesSlice = createSlice({
       .addCase(fetchClientes.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
+        console.error('❌ fetchClientes.rejected - Error:', action.payload);
+        console.error('❌ Error completo:', action);
       })
       
       // Create cliente
