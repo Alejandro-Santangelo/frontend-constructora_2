@@ -1919,20 +1919,11 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
         // ✅ FIX: Usar ID correcto del trabajo extra
         const trabajoExtraId = obra._trabajoExtraId || obra._trabajoAdicionalId || obra.presupuestoId;
         console.log(`🌐 Enviando PUT a /api/v1/trabajos-extra/${trabajoExtraId}`);
-        const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/${trabajoExtraId}`, {
-          method: 'PUT',
+        const response = await api.put(`/api/v1/trabajos-extra/${trabajoExtraId}`, payload, {
           headers: {
-            'Content-Type': 'application/json',
             'empresaId': empresaSeleccionada.id.toString()
-          },
-          body: JSON.stringify(payload)
+          }
         });
-
-        if (!response.ok) {
-          const errorData = await response.text();
-          console.error('❌ Error del backend:', errorData);
-          throw new Error(`Error ${response.status}: ${errorData}`);
-        }
 
         const resultado = await response.json();
         console.log('✅ Respuesta del backend:', resultado);
@@ -2155,18 +2146,11 @@ const AsignarOtroCostoObraModal = ({ show, onClose, obra, onAsignacionExitosa, c
     console.log('🗑️ ID del gasto a eliminar:', asignacionId);
 
     // Usar el endpoint DELETE específico del backend
-    const response = await fetch(`http://localhost:8080/api/v1/trabajos-extra/gastos-generales/${asignacionId}`, {
-      method: 'DELETE',
+    await api.delete(`/api/v1/trabajos-extra/gastos-generales/${asignacionId}`, {
       headers: {
         'empresaId': empresaSeleccionada.id.toString()
       }
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Error ${response.status} del backend:`, errorText);
-      throw new Error(`Error ${response.status}: ${errorText}`);
-    }
 
     console.log('✅ Gasto general eliminado del trabajo extra');
   };

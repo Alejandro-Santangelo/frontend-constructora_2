@@ -197,17 +197,16 @@ const RegistrarPagoProfesionalModal = ({ show, onHide, onSuccess, obraDireccion,
   const cargarAsignacionesSemanales = async (obraId) => {
     try {
       // Gastos generales desde el backend (BD tabla: obra_otro_costo)
-      const responseGastos = await fetch(
-        `http://localhost:8080/api/obras/${obraId}/otros-costos`,
+      const gastosAsignados = await apiService.get(
+        `/api/obras/${obraId}/otros-costos`,
         {
           headers: {
             'empresaId': empresaSeleccionada.id.toString()
           }
         }
-      );
+      ).catch(() => { return []; });
 
-      if (responseGastos.ok) {
-        const gastosAsignados = await responseGastos.json();
+      if (gastosAsignados) {
         console.log('✅ [Pago Modal] Gastos generales cargados desde BD:', gastosAsignados);
         setAsignacionesGastosSemana(Array.isArray(gastosAsignados) ? gastosAsignados : []);
       } else {
@@ -348,7 +347,7 @@ const RegistrarPagoProfesionalModal = ({ show, onHide, onSuccess, obraDireccion,
 
       const errorDetails = err.response ?
         `\nCódigo: ${err.response.status}\nDetalles: ${JSON.stringify(err.response.data)}` :
-        '\n\n⚠️ Verifique que el backend esté corriendo correctamente en http://localhost:8080';
+        '\n\n⚠️ Verifique que el backend esté corriendo correctamente';
 
       alert(`❌ Error al registrar pagos: ${errorMsg}${errorDetails}`);
     } finally {

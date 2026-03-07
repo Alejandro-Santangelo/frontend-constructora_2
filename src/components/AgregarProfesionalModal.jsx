@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Modal, Button, Form } from 'react-bootstrap';
+import api from '../services/api';
 
 const AgregarProfesionalModal = ({ show, onHide, empresaId, onProfesionalCreado }) => {
   const [formData, setFormData] = useState({
@@ -62,12 +63,8 @@ const AgregarProfesionalModal = ({ show, onHide, empresaId, onProfesionalCreado 
       }
 
       console.log('🔍 Creando profesional con payload:', JSON.stringify(payload, null, 2));
-      console.log('🔗 URL completa:', `http://localhost:8080/api/profesionales`);
 
-      const response = await fetch(`http://localhost:8080/api/profesionales`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
+      const response = await api.post('/api/profesionales', payload);
         },
         body: JSON.stringify(payload)
       });

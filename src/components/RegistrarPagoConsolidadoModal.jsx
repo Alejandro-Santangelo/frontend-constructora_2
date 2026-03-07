@@ -644,16 +644,12 @@ const RegistrarPagoConsolidadoModal = ({
           if (!obraId) return [];
 
           // Obtener materiales asignados desde /api/obras/{obraId}/materiales
-          const response = await fetch(`http://localhost:8080/api/obras/${obraId}/materiales`, {
+          const materialesAsignados = await apiService.get(`/api/obras/${obraId}/materiales`, {
             headers: { 'empresaId': empresaSeleccionada.id.toString() }
-          });
-
-          if (!response.ok) {
+          }).catch(() => {
             console.warn(`⚠️ No se pudieron cargar materiales de obra ${obraId}`);
             return [];
-          }
-
-          const materialesAsignados = await response.json();
+          });
           const materialesArray = Array.isArray(materialesAsignados) ? materialesAsignados : materialesAsignados?.data || [];
 
           console.log(`📦 Obra ${obraId}: ${materialesArray.length} materiales asignados desde BD`);
@@ -865,16 +861,12 @@ const RegistrarPagoConsolidadoModal = ({
           if (!obraId) return [];
 
           // Obtener otros costos asignados desde /api/obras/{obraId}/otros-costos
-          const response = await fetch(`http://localhost:8080/api/obras/${obraId}/otros-costos`, {
+          const costosAsignados = await apiService.get(`/api/obras/${obraId}/otros-costos`, {
             headers: { 'empresaId': empresaSeleccionada.id.toString() }
-          });
-
-          if (!response.ok) {
+          }).catch(() => {
             console.warn(`⚠️ No se pudieron cargar otros costos de obra ${obraId}`);
             return [];
-          }
-
-          const costosAsignados = await response.json();
+          });
           const costosArray = Array.isArray(costosAsignados) ? costosAsignados : costosAsignados?.data || [];
 
           console.log(`📦 Obra ${obraId}: ${costosArray.length} otros costos asignados desde BD`);
