@@ -432,7 +432,7 @@ const ProfesionalesObrasPage = () => {
   const handleAsignarMultiplesSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post('http://localhost:8080/api/profesionales-obras/asignar-multiples', {
+      await api.post('/api/profesionales-obras/asignar-multiples', {
         empresaId: Number(multiplesForm.empresaId),
         obraId: Number(multiplesForm.obraId),
         profesionalesIds: multiplesForm.profesionalesIds.map(Number)
@@ -467,7 +467,7 @@ const ProfesionalesObrasPage = () => {
   // Cargar empresas al abrir el modal múltiple
   React.useEffect(() => {
     if (showAsignarMultiplesModal) {
-      api.get('http://localhost:8080/api/empresas/simple')
+      api.get('/api/empresas/simple')
         .then(data => {
           let empresas = [];
           if (data && Array.isArray(data.resultado)) {
@@ -674,7 +674,7 @@ const ProfesionalesObrasPage = () => {
   const cargarProfesionalesPresupuesto = async (empresaId, obraId) => {
     setLoadingPresupuesto(true);
     try {
-      const response = await api.get(`http://localhost:8080/api/presupuestos/por-obra-version?empresaId=${empresaId}&obraId=${obraId}`);
+      const response = await api.get(`/api/presupuestos/por-obra-version?empresaId=${empresaId}&obraId=${obraId}`);
       if (response && response.profesionales && Array.isArray(response.profesionales)) {
         setProfesionalesPresupuesto(response.profesionales);
       } else {
@@ -746,7 +746,7 @@ const ProfesionalesObrasPage = () => {
       setAsignarError(null);
 
       // Intentar cargar el presupuesto de la obra seleccionada
-      const response = await api.get(`http://localhost:8080/api/presupuestos/por-obra-version?empresaId=${empresaSeleccionada.id}&obraId=${obraSeleccionada.id}`);
+      const response = await api.get(`/api/presupuestos/por-obra-version?empresaId=${empresaSeleccionada.id}&obraId=${obraSeleccionada.id}`);
 
       console.log('✅ Presupuesto encontrado:', response);
       console.log('📋 Profesionales en presupuesto:', response.profesionales);
@@ -841,7 +841,7 @@ const ProfesionalesObrasPage = () => {
         payload.profesionalId = Number(asignarForm.profesionalId);
       }
 
-      const resp = await api.post('http://localhost:8080/api/profesionales-obras/asignar', payload);
+      const resp = await api.post('/api/profesionales-obras/asignar', payload);
       setAsignarSuccess('Profesional asignado correctamente.');
       setAsignarLoading(false);
       fetchAsignaciones(); // Recargar la tabla
