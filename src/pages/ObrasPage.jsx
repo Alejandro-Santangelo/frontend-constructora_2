@@ -3086,35 +3086,19 @@ _V?lido por 30 d?as_
             // Si la obra tiene presupuestoOriginalId, usar endpoint directo que trae cálculos completos
             if (obra.presupuestoOriginalId) {
               try {
-                const response = await fetch(
-                  `http://localhost:8080/api/v1/presupuestos-no-cliente/${obra.presupuestoOriginalId}?empresaId=${empresaId}`,
-                  {
-                    headers: { 'Content-Type': 'application/json' }
-                  }
-                );
-                if (response.ok) {
-                  const data = await response.json();
-                  presupuestos[obra.id] = data;
-                  return;
-                }
+                const data = await api.presupuestosNoCliente.getById(obra.presupuestoOriginalId, empresaId);
+                presupuestos[obra.id] = data;
+                return;
               } catch (err) {
                 console.warn(`No se pudo cargar presupuesto ${obra.presupuestoOriginalId}:`, err);
               }
             }
 
             // Fallback: buscar por obra
-            const response = await fetch(
-              `http://localhost:8080/api/presupuestos-no-cliente/por-obra/${obra.id}`,
-              {
-                headers: {
-                  'empresaId': empresaId.toString(),
-                  'Content-Type': 'application/json'
-                }
-              }
-            );
+            const data = await api.presupuestosNoCliente.getAll(empresaId, { obraId: obra.id });
 
-            if (response.ok) {
-              let data = await response.json();
+            if (data) {
+              // data ya es el JSON parseado
 
               // Si es array, buscar presupuesto en orden de prioridad
               if (Array.isArray(data)) {
@@ -3128,19 +3112,10 @@ _V?lido por 30 d?as_
                 // Si encontramos un presupuesto, obtener la versión completa
                 if (presupuesto && presupuesto.id) {
                   try {
-                    const completeResponse = await fetch(
-                      `http://localhost:8080/api/v1/presupuestos-no-cliente/${presupuesto.id}?empresaId=${empresaId}`,
-                      {
-                        headers: { 'Content-Type': 'application/json' }
-                      }
-                    );
-                    if (completeResponse.ok) {
-                      const completeData = await completeResponse.json();
-                      presupuestos[obra.id] = completeData;
-                    } else {
-                      presupuestos[obra.id] = presupuesto;
-                    }
+                    const completeData = await api.presupuestosNoCliente.getById(presupuesto.id, empresaId);
+                    presupuestos[obra.id] = completeData;
                   } catch (err) {
+                    console.warn(`Error al obtener presupuesto completo ${presupuesto.id}:`, err);
                     presupuestos[obra.id] = presupuesto;
                   }
                 }
