@@ -26,9 +26,9 @@ import ModalPresupuestoUnificado from '../components/ModalPresupuestoUnificado';
 import api from '../services/api';
 import axios from 'axios';
 import { obtenerAsignacionesSemanalPorObra } from '../services/profesionalesObraService';
-// ? NUEVO: Servicio unificado de presupuestos (reemplaza trabajosAdicionalesService)
+// ✅ NUEVO: Servicio unificado de presupuestos (reemplaza trabajosAdicionalesService)
 import * as presupuestoService from '../services/presupuestoUnificadoService';
-// ?? Todav?a necesario: COLORES_ESTADO e ICONOS_ESTADO se usan en el JSX
+// ⚠️ Todavía necesario: COLORES_ESTADO e ICONOS_ESTADO se usan en el JSX
 import trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import { TIPOS_PRESUPUESTO, getConfigPresupuesto, getNivelJerarquico } from '../constants/presupuestoTypes';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
@@ -7488,7 +7488,7 @@ _V?lido por 30 d?as_
         <div className="col-12">
           <h2>
             <i className="fas fa-building me-2"></i>
-            Gesti?n de Obras
+            Gestión de Obras
           </h2>
         </div>
       </div>
@@ -8645,7 +8645,7 @@ _V?lido por 30 d?as_
                                         <td colSpan="13" className="py-1 px-3 small">
                                           <span className="fw-bold text-primary">
                                             <i className={`fas fa-chevron-${colTrabajosExtra ? 'right' : 'down'} me-2`} style={{fontSize:'0.75em'}}></i>
-                                            ?? Adicionales Obra
+                                            📋 Adicionales Obra
                                             <span className="badge bg-primary ms-2" style={{fontSize:'0.7em'}}>{trabajosExtra.length}</span>
                                           </span>
                                           <span className="text-muted ms-3 small">Clic para {colTrabajosExtra ? 'mostrar' : 'ocultar'}</span>
