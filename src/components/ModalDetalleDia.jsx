@@ -44,12 +44,6 @@ const ModalDetalleDia = ({ show, onClose, diaData, obra, onActualizar }) => {
       setMateriales(data.materiales || []);
       setGastos(data.gastos || []);
       setObservaciones(data.observaciones || '');
-        setEtapa({ fecha: diaData.fecha });
-        setProfesionales([]);
-        setMateriales([]);
-        setGastos([]);
-        setObservaciones('');
-      }
     } catch (error) {
       console.error('Error cargando detalle del día:', error);
     } finally {
