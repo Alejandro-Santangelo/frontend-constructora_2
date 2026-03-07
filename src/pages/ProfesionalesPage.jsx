@@ -472,19 +472,16 @@ const ProfesionalesPage = ({ showNotification }) => {
       await api.profesionales.create(dataToSend);
       showNotification('Profesional creado exitosamente', 'success');
       setFormData({
-          nombre: '',
-          tipoProfesional: 'A Definir',
-          email: '',
-          telefono: '',
-          especialidad: '',
-          honorario_dia: '',
-          idEmpresa: 1,
-          fecha_creacion: new Date().toISOString().slice(0, 10)
-        });
-        loadProfesionales();
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
+        nombre: '',
+        tipoProfesional: 'A Definir',
+        email: '',
+        telefono: '',
+        especialidad: '',
+        honorario_dia: '',
+        idEmpresa: 1,
+        fecha_creacion: new Date().toISOString().slice(0, 10)
+      });
+      loadProfesionales();
     } catch (error) {
       console.error('Error creando profesional:', error);
       showNotification('Error creando profesional', 'error');
@@ -499,9 +496,6 @@ const ProfesionalesPage = ({ showNotification }) => {
       showNotification('Profesional actualizado exitosamente', 'success');
       loadProfesionales();
       setSelectedProfesional(null);
-      } else {
-        throw new Error('Error en la respuesta del servidor');
-      }
     } catch (error) {
       console.error('Error actualizando profesional:', error);
       showNotification('Error actualizando profesional', 'error');
