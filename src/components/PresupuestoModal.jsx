@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import AgregarItemModal from './AgregarItemModal';
 import { useDispatch, useSelector } from 'react-redux';
 import { crearPresupuesto } from '../store/slices/presupuestosSlice';
+import api from '../services/api';
 
 const initialMaterial = { nombre: '', cantidad: '', precioUnitario: '' };
 const initialProfesional = { nombre: '', horas: '', tarifa: '' };
@@ -111,11 +112,9 @@ const PresupuestoModal = ({ show, onClose }) => {
 
   useEffect(() => {
     if (show) {
-      fetch('http://localhost:8080/api/empresas/simple')
-        .then(res => res.json())
+      api.get('/api/empresas/simple')
         .then(data => setEmpresas(Array.isArray(data.resultado || data) ? (data.resultado || data) : []));
-      fetch('http://localhost:8080/api/api/obras/todas')
-        .then(res => res.json())
+      api.get('/api/api/obras/todas')
         .then(data => setObras(Array.isArray(data.resultado || data) ? (data.resultado || data) : []));
     }
   }, [show]);
