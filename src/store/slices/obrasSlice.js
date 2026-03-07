@@ -10,19 +10,7 @@ export const crearPresupuesto = createAsyncThunk(
   'obras/crearPresupuesto',
   async (presupuestoData, { rejectWithValue }) => {
     try {
-  const response = await fetch('/api/presupuestos', {
-        method: 'POST',
-        headers: {
-          'accept': '*/*',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(presupuestoData)
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText || 'Error creando presupuesto'}`);
-      }
-      const data = await response.json();
+      const data = await apiService.post('/api/presupuestos', presupuestoData);
       return data;
     } catch (error) {
       return rejectWithValue(error.message);
@@ -178,15 +166,7 @@ export const deleteObra = createAsyncThunk(
   'obras/deleteObra',
   async (id, { rejectWithValue }) => {
     try {
-  const response = await fetch(`/api/obras/${id}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
-      }
-
+      await apiService.delete(`/api/obras/${id}`);
       return id; // Retornar el ID para removerlo del state
     } catch (error) {
       return rejectWithValue(error.message);
@@ -200,16 +180,7 @@ export const cambiarEstadoObra = createAsyncThunk(
   async ({ id, estado }, { rejectWithValue, getState }) => {
     try {
       // 1. Cambiar estado de la obra
-      const response = await fetch(`/api/obras/${id}/estado?estado=${encodeURIComponent(estado)}`, {
-        method: 'PATCH'
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
-      }
-
-      const obraActualizada = await response.json();
+      const obraActualizada = await apiService.patch(`/api/obras/${id}/estado`, null, { estado });
 
       // 2. 🔄 Sincronizar estado con presupuestos vinculados a esta obra
       try {
@@ -261,11 +232,7 @@ export const fetchEstadisticasObras = createAsyncThunk(
   'obras/fetchEstadisticasObras',
   async (_, { rejectWithValue }) => {
     try {
-  const response = await fetch('/api/obras/estadisticas');
-      if (!response.ok) {
-        throw new Error('Error fetching estadísticas');
-      }
-      return await response.json();
+      return await apiService.get('/api/obras/estadisticas');
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -277,57 +244,13 @@ export const fetchEstadosDisponibles = createAsyncThunk(
   'obras/fetchEstadosDisponibles',
   async (_, { rejectWithValue }) => {
     try {
-  const response = await fetch('/api/obras/estados');
-      if (!response.ok) {
-        const errorText = await response.text();
-
-        // Si es error 500 y el mensaje contiene "No static resource", endpoint no existe
-        if (response.status === 500 && errorText.includes('No static resource')) {
-          console.warn('⚠️ Endpoint de estados de obras no implementado. Usando estados por defecto.');
-          return [
-            'BORRADOR',
-            'A_ENVIAR',
-            'ENVIADO',
-            'APROBADO',
-            'EN_EJECUCION',
-            'TERMINADO',
-            'SUSPENDIDO',
-            'CANCELADO'
-          ];
-        }
-
-        console.error('Error fetching estados:', response.status, errorText);
-        // Si falla por otra razón, usar los estados por defecto
-        return [
-          'BORRADOR',
-          'A_ENVIAR',
-          'ENVIADO',
-          'APROBADO',
-          'EN_EJECUCION',
-          'TERMINADO',
-          'SUSPENDIDO',
-          'CANCELADO'
-        ];
-      }
-      const data = await response.json();
+      const data = await apiService.get('/api/obras/estados');
       console.log('Estados obtenidos:', data);
       return data;
     } catch (error) {
       console.error('Error en fetchEstadosDisponibles:', error);
-      // Fallback a estados por defecto sin mostrar error
-      if (error.message.includes('No static resource') || error.message.includes('fetch')) {
-        console.warn('⚠️ Backend de estados no disponible. Usando estados por defecto.');
-        return [
-          'BORRADOR',
-          'A_ENVIAR',
-          'ENVIADO',
-          'APROBADO',
-          'EN_EJECUCION',
-          'TERMINADO',
-          'SUSPENDIDO',
-          'CANCELADO'
-        ];
-      }
+      // Fallback a estados por defecto si el endpoint no existe
+      console.warn('⚠️ Backend de estados no disponible. Usando estados por defecto.');
       return [
         'BORRADOR',
         'A_ENVIAR',
@@ -347,11 +270,7 @@ export const fetchProfesionalesAsignados = createAsyncThunk(
   'obras/fetchProfesionalesAsignados',
   async ({ obraId, empresaId }, { rejectWithValue }) => {
     try {
-      const response = await fetch(`/api/profesionales-obras/profesionales-por-obra?empresaId=${empresaId}&obraId=${obraId}`);
-      if (!response.ok) {
-        throw new Error('Error fetching profesionales asignados');
-      }
-      return await response.json();
+      return await apiService.get('/api/profesionales-obras/profesionales-por-obra', { empresaId, obraId });
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -363,15 +282,7 @@ export const actualizarPorcentajeGananciaTodos = createAsyncThunk(
   'obras/actualizarPorcentajeGananciaTodos',
   async ({ obraId, porcentaje }, { rejectWithValue }) => {
     try {
-  const response = await fetch(`/api/obras/${obraId}/actualizar-porcentaje-ganancia-todos?porcentaje=${porcentaje}`, {
-        method: 'PUT'
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
-      }
-      return await response.json();
+      return await apiService.put(`/api/obras/${obraId}/actualizar-porcentaje-ganancia-todos`, null, { porcentaje });
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -383,15 +294,7 @@ export const actualizarPorcentajeGananciaProfesional = createAsyncThunk(
   'obras/actualizarPorcentajeGananciaProfesional',
   async ({ obraId, profesionalId, porcentaje }, { rejectWithValue }) => {
     try {
-  const response = await fetch(`/api/obras/${obraId}/actualizar-porcentaje-ganancia-profesional?profesionalId=${profesionalId}&porcentaje=${porcentaje}`, {
-        method: 'PUT'
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
-      }
-      return await response.json();
+      return await apiService.put(`/api/obras/${obraId}/actualizar-porcentaje-ganancia-profesional`, null, { profesionalId, porcentaje });
     } catch (error) {
       return rejectWithValue(error.message);
     }
