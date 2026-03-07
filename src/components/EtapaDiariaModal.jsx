@@ -242,23 +242,14 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
       console.log('🔍 [EtapaDiariaModal] Cargando profesionales asignados a obra:', obra?.id);
 
       // Obtener profesionales asignados a esta obra específica
-      const response = await fetch(
-        `http://localhost:8080/api/profesionales/asignaciones/${obra._esTrabajoExtra ? (obra._obraId || obra._obraOriginalId || obra.obraId) : obra.id}`,
+      const asignaciones = await api.get(
+        `/api/profesionales/asignaciones/${obra._esTrabajoExtra ? (obra._obraId || obra._obraOriginalId || obra.obraId) : obra.id}`,
         {
           headers: {
-            'empresaId': empresaSeleccionada.id.toString(),
-            'Content-Type': 'application/json'
+            'empresaId': empresaSeleccionada.id.toString()
           }
         }
       );
-
-      if (!response.ok) {
-        console.warn('⚠️ No se pudieron cargar asignaciones de profesionales');
-        setProfesionalesDisponibles([]);
-        return;
-      }
-
-      const asignaciones = await response.json();
       console.log('🔍 [EtapaDiariaModal] Asignaciones recibidas:', asignaciones);
       console.log('🔍 [EtapaDiariaModal] Es array?', Array.isArray(asignaciones));
       console.log('🔍 [EtapaDiariaModal] Tipo:', typeof asignaciones);
@@ -609,7 +600,7 @@ const EtapaDiariaModal = ({ show, onClose, obra, configuracionObra = null, etapa
       if (error.message?.includes('No static resource') || error.message?.includes('etapas-diarias')) {
         setError('⚠️ Error al conectar con el módulo de Cronograma.\n\n' +
                'El endpoint POST /api/etapas-diarias no responde correctamente.\n\n' +
-               'Verifique que el servidor backend esté ejecutándose en http://localhost:8080');
+               'Verifique que el servidor backend esté ejecutándose');
       } else if (error.status === 404 || error.response?.status === 404 || error.message?.includes('404')) {
         setError('⚠️ El módulo de Cronograma aún no está disponible en el backend.\n\n' +
                'Los datos se están preparando correctamente en el frontend, pero el servidor aún no tiene implementado este endpoint.\n\n' +

@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
+import api from '../../services/api';
 // Thunk para filtrar presupuestos por estado
 export const filtrarPresupuestosPorEstado = createAsyncThunk(
   'presupuestos/filtrarPorEstado',
@@ -49,18 +50,11 @@ export const descargarPDF = createAsyncThunk(
   'presupuestos/descargarPDF',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await fetch('http://localhost:8080/api/pdf', {
-        method: 'GET',
+      const blob = await api.getBlob('/api/pdf', {
         headers: {
           Accept: 'application/pdf',
         },
       });
-
-      if (!response.ok) {
-        throw new Error('Error al generar el PDF');
-      }
-
-      const blob = await response.blob();
 
       // Forzamos el tipo MIME correcto
       const file = new Blob([blob], { type: 'application/pdf' });
@@ -86,18 +80,12 @@ export const abrirPDFEnNavegador = createAsyncThunk(
   'presupuestos/abrirPDFEnNavegador',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await fetch('http://localhost:8080/api/pdf', {
-        method: 'GET',
+      const blob = await api.getBlob('/api/pdf', {
         headers: {
           Accept: 'application/pdf',
         },
       });
 
-      if (!response.ok) {
-        throw new Error('Error al generar el PDF');
-      }
-
-      const blob = await response.blob();
       const file = new Blob([blob], { type: 'application/pdf' });
       const url = URL.createObjectURL(file);
 
