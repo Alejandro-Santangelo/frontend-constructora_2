@@ -19,11 +19,17 @@ import axios from 'axios';
 const isProduction = import.meta.env.MODE === 'production';
 const RAILWAY_BACKEND_URL = 'https://backend-constructora2-production.up.railway.app';
 
-// En producción: usar URL del backend Railway
-// En desarrollo: vacío (usa proxy de Vite)
-const API_BASE_URL = isProduction ? RAILWAY_BACKEND_URL : '';
+// Leer configuración de variables de entorno
+const ENV_API_URL = import.meta.env.VITE_API_URL;
+
+// Determinar la URL base:
+// 1. Si hay VITE_API_URL en .env, usarla (permite trabajar con Railway en desarrollo)
+// 2. Si es producción, usar RAILWAY_BACKEND_URL
+// 3. Si es desarrollo sin VITE_API_URL, usar '' (proxy de Vite a localhost:8080)
+const API_BASE_URL = ENV_API_URL || (isProduction ? RAILWAY_BACKEND_URL : '');
 
 console.log('🔧 API Service - Modo:', import.meta.env.MODE);
+console.log('🔧 API Service - VITE_API_URL:', ENV_API_URL || 'no configurada');
 console.log('🔧 API Service - Base URL:', API_BASE_URL || '(usando proxy local)');
 
 // Variable global para el tenant actual
