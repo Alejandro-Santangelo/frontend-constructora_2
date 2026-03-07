@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ROLES_ENUM } from '../constants/rolesProfesionales';
+import api from '../services/api';
 
 /**
  * Hook personalizado para manejar el autocompletado de honorarios basado en promedios
@@ -15,8 +16,7 @@ export const usePromedioHonorarios = (empresaId) => {
     if (!empresaId) return;
     
     setLoading(true);
-    fetch(`http://localhost:8080/api/profesionales?empresaId=${empresaId}`)
-      .then(res => res.json())
+    api.get(`/api/profesionales?empresaId=${empresaId}`)
       .then(data => {
         const profesionales = Array.isArray(data) ? data : (data?.resultado || data?.data || []);
         setListaProfesionales(profesionales);

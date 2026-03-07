@@ -558,7 +558,12 @@ const FunctionalDashboard = ({ showNotification }) => {
               </Link>
             </div>
             <div className="col-md-4">
-              <div className="card border-info cursor-pointer" onClick={() => window.open('http://localhost:8080/api/swagger-ui/index.html', '_blank')}>
+              <div className="card border-info cursor-pointer" onClick={() => {
+                const swaggerUrl = import.meta.env.MODE === 'production' 
+                  ? 'https://backend-constructora2-production.up.railway.app/api/swagger-ui/index.html'
+                  : 'http://localhost:8080/api/swagger-ui/index.html';
+                window.open(swaggerUrl, '_blank');
+              }}>
                 <div className="card-body text-center">
                   <i className="fas fa-external-link-alt fa-2x text-info mb-2"></i>
                   <h6>Ver Swagger</h6>

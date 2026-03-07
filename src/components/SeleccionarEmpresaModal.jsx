@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchAllEmpresas } from '../store/slices/empresasSlice';
+import api from '../services/api';
 
 export default function SeleccionarEmpresaModal({ onSelect }) {
   const dispatch = useDispatch();
@@ -72,22 +73,13 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
 
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8080/api/empresas', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      });
+      const nuevaEmpresa = await api.post('/api/empresas', formData);
+      console.log('✅ Empresa creada:', nuevaEmpresa);
       
-      if (response.ok) {
-        const nuevaEmpresa = await response.json();
-        console.log('✅ Empresa creada:', nuevaEmpresa);
-        
-        // Recargar lista de empresas
-        await loadEmpresas();
-        
-        // Cerrar formulario
+      // Recargar lista de empresas
+      await loadEmpresas();
+      
+      // Cerrar formulario
         setShowCreateForm(false);
         
         // Resetear formulario

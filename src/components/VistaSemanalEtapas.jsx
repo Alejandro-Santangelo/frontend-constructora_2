@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useEmpresa } from '../EmpresaContext';
+import api from '../services/api';
 
 /**
  * Vista semanal de etapas diarias
@@ -135,18 +136,11 @@ const VistaSemanalEtapas = ({ obra, onVerDetalleDia }) => {
 
       // Cargar SOLO las etapas de los días de esta semana
       const obraIdReal = obra.obraId || obra.id;
-      const fechasStr = nuevasDias.map(d => d.fecha).join(',');
-      const response = await fetch(`http://localhost:8080/api/etapas-diarias?obraId=${obraIdReal}`, {
+      const todasLasEtapas = await api.get(`/api/etapas-diarias?obraId=${obraIdReal}`, {
         headers: {
           'empresaId': empresaSeleccionada.id.toString()
         }
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const todasLasEtapas = await response.json();
 
       // Crear un mapa de etapas por fecha SOLO para esta semana
       const etapasPorFecha = new Map();
