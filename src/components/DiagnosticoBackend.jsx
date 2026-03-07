@@ -179,12 +179,12 @@ const DiagnosticoBackend = () => {
               Información del Test
             </h6>
             <ul className="mb-0">
-              <li><strong>Backend URL:</strong> http://localhost:8080</li>
+              <li><strong>Backend URL:</strong> {import.meta.env.MODE === 'production' ? 'Railway Backend' : 'http://localhost:8080'}</li>
               <li><strong>Base Path:</strong> /api/v1</li>
               <li><strong>Empresa ID:</strong> {empresaId}</li>
-              <li><strong>Proxy Vite:</strong> /api → http://localhost:8080/api</li>
+              <li><strong>Proxy Vite:</strong> {import.meta.env.MODE === 'production' ? 'N/A (producción)' : '/api → http://localhost:8080/api'}</li>
               <li><strong>Context Path (Backend):</strong> /api (configurado)</li>
-              <li><strong>URLs Esperadas:</strong> http://localhost:8080/api/v1/...</li>
+              <li><strong>URLs Esperadas:</strong> {import.meta.env.MODE === 'production' ? 'https://backend.../api/v1/...' : 'http://localhost:8080/api/v1/...'}</li>
             </ul>
           </div>
 
@@ -343,7 +343,7 @@ const DiagnosticoBackend = () => {
               <br />
               <span className="badge bg-danger">Solución: Ver PROMPT-BACKEND-FIX-CORS.md</span>
             </li>
-            <li><strong>Verifica el backend:</strong> Debe estar corriendo en <code>http://localhost:8080</code></li>
+            <li><strong>Verifica el backend:</strong> {import.meta.env.MODE === 'production' ? 'Debe estar corriendo en Railway' : 'Debe estar corriendo en http://localhost:8080'}</li>
             <li><strong>Verifica los endpoints:</strong> Deben estar implementados con el prefijo <code>/api/v1/</code></li>
             <li><strong>Verifica la base de datos:</strong> Empresa ID=3 debe existir</li>
             <li><strong>Revisa la consola del navegador (F12):</strong> Busca errores de red o CORS</li>

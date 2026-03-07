@@ -8,11 +8,15 @@ const QuickApiTest = ({ showNotification }) => {
     setLoading(true);
     setResults('🚀 Iniciando pruebas...\n\n');
     
+    const baseUrl = import.meta.env.MODE === 'production' 
+      ? 'https://backend-constructora2-production.up.railway.app' 
+      : 'http://localhost:8080';
+    
     const endpoints = [
-      { name: 'Empresas /empresas', url: 'http://localhost:8080/empresas' },
-      { name: 'Empresas /api/empresas', url: 'http://localhost:8080/api/empresas' },
-      { name: 'Empresas /empresas/activas', url: 'http://localhost:8080/empresas/activas' },
-      { name: 'Swagger-UI', url: 'http://localhost:8080/api/swagger-ui/index.html' },
+      { name: 'Empresas /empresas', url: `${baseUrl}/empresas` },
+      { name: 'Empresas /api/empresas', url: `${baseUrl}/api/empresas` },
+      { name: 'Empresas /empresas/activas', url: `${baseUrl}/empresas/activas` },
+      { name: 'Swagger-UI', url: `${baseUrl}/api/swagger-ui/index.html` },
     ];
 
     for (let endpoint of endpoints) {
