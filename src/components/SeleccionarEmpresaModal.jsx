@@ -80,25 +80,20 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
       await loadEmpresas();
       
       // Cerrar formulario
-        setShowCreateForm(false);
-        
-        // Resetear formulario
-        setFormData({
-          nombreEmpresa: '',
-          cuit: '',
-          direccionFiscal: '',
-          telefono: '',
-          email: '',
-          representanteLegal: '',
-          activa: true
-        });
-        
-        alert('Empresa creada exitosamente');
-      } else {
-        const errorData = await response.json();
-        console.error('Error del servidor:', errorData);
-        alert('Error creando empresa: ' + (errorData.message || 'Error desconocido'));
-      }
+      setShowCreateForm(false);
+      
+      // Resetear formulario
+      setFormData({
+        nombreEmpresa: '',
+        cuit: '',
+        direccionFiscal: '',
+        telefono: '',
+        email: '',
+        representanteLegal: '',
+        activa: true
+      });
+      
+      alert('Empresa creada exitosamente');
     } catch (error) {
       console.error('Error creando empresa:', error);
       alert('Error de conexión al crear la empresa');
