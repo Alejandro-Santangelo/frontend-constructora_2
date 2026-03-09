@@ -212,6 +212,13 @@
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
+  /* En móviles, sidebar colapsado por defecto y más estrecho */
+  .sidebar-primary {
+    width: 200px !important;
+    min-width: 200px !important;
+    max-width: 200px !important;
+  }
+
   .sidebar-primary,
   .sidebar-secondary {
     position: fixed !important;
@@ -220,7 +227,7 @@
     transform: translateX(-100%);
     transition: transform 0.3s ease;
   }
-  
+
   .sidebar-primary.show,
   .sidebar-secondary.show {
     transform: translateX(0);
