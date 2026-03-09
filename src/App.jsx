@@ -7,6 +7,7 @@ import Navbar from './components/NavbarNew';
 import Sidebar from './components/SidebarNew';
 import FunctionalDashboard from './pages/FunctionalDashboard';
 import NotificationToast from './components/NotificationToast';
+import OrientationGuide from './components/OrientationGuide';
 
 // 🚀 LAZY LOADING: Cargar páginas solo cuando se necesitan
 const EmpresasPage = lazy(() => import('./pages/EmpresasPage'));
@@ -68,6 +69,7 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
   // const sidebarWidth = location.pathname !== '/presupuestos' ? (sidebarCollapsed ? 64 : 260) : 0;
   return (
     <div className="App" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <OrientationGuide />
       <Navbar
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         collapsed={sidebarCollapsed}
@@ -97,7 +99,8 @@ function AppLayout({ showNotification, notification, hideNotification, sidebarCo
             minWidth: 0,
             minHeight: '100vh',
             background: '#f6f7f9',
-            overflowX: 'hidden',
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
           }}
         >
           <div className="fade-in">
