@@ -127,14 +127,14 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
             <Link
               className="btn btn-light btn-sm"
               to="/"
-              style={{ ...actionButtonStyle, marginLeft: '120px' }}
+              style={{ ...actionButtonStyle, marginLeft: '8px' }}
               onMouseEnter={(e) => makePersistBlack(e.currentTarget)}
             >
               <i className="fas fa-arrow-left me-1"></i>
               Volver al inicio
             </Link>
 
-            <div className="d-none d-md-flex" style={{ flexWrap: 'wrap', maxWidth: 760, gap: 6, marginLeft: '120px' }}>
+            <div className="d-none d-md-flex" style={{ flexWrap: 'wrap', maxWidth: 760, gap: 6, marginLeft: '8px' }}>
               {quickLinks.map((link) => (
                 <Link
                   key={link.path}
