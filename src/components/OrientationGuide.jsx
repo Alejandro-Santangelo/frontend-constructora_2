@@ -5,17 +5,22 @@ export default function OrientationGuide() {
 
   useEffect(() => {
     const checkOrientation = () => {
-      // Detectar dispositivos móviles por ancho físico real
-      const isMobile = window.innerWidth < 768 || window.screen.width < 768;
+      // IMPORTANTE: Usar window.screen.width porque viewport está fijo en 1200px
+      // window.innerWidth siempre reportará 1200px, no el tamaño real del dispositivo
+      const screenWidth = window.screen.width;
+      const screenHeight = window.screen.height;
 
-      // Detectar dispositivos móviles por user agent (fallback)
+      // Detectar dispositivos móviles por ancho físico real de pantalla
+      const isMobile = screenWidth < 768;
+
+      // Detectar dispositivos móviles por user agent
       const isMobileUserAgent = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
       // Detectar si tiene touch (dispositivo táctil)
       const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-      // Verificar si está en portrait (vertical)
-      const isPortrait = window.innerHeight > window.innerWidth;
+      // Verificar si está en portrait (vertical) usando dimensiones de pantalla física
+      const isPortrait = screenHeight > screenWidth;
 
       // Mostrar guía si es móvil Y está en vertical
       const shouldShow = (isMobile || isMobileUserAgent || isTouchDevice) && isPortrait;
