@@ -149,12 +149,28 @@ input[type=number] {
   font-weight: 400;
 }
 
+/* Forzar ancho mínimo desktop en TODOS los dispositivos móviles */
+html {
+  min-width: 1200px;
+  overflow-x: auto;
+  /* iOS Safari */
+  -webkit-overflow-scrolling: touch;
+  /* Prevenir zoom en doble tap en iOS */
+  -webkit-text-size-adjust: 100%;
+  /* Prevenir ajuste de texto en Android */
+  -ms-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 1200px;
   min-height: 100vh;
   background-color: #f8f9fa;
   color: #212529;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 }
 
 #root {
@@ -169,6 +185,19 @@ body {
 
 .main-content {
   min-height: calc(100vh - 80px);
+  overflow-x: auto;
+  /* Scroll suave en iOS */
+  -webkit-overflow-scrolling: touch;
+  /* Forzar scroll en todos los navegadores móviles */
+  overscroll-behavior-x: contain;
+}
+
+/* Asegurar scroll horizontal en todos los contenedores */
+.container,
+.container-fluid {
+  min-width: 1200px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .card {
