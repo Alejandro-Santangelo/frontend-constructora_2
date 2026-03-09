@@ -5,22 +5,18 @@ export default function OrientationGuide() {
 
   useEffect(() => {
     const checkOrientation = () => {
-      // IMPORTANTE: Usar window.screen.width porque viewport está fijo en 1200px
-      // window.innerWidth siempre reportará 1200px, no el tamaño real del dispositivo
-      const screenWidth = window.screen.width;
-      const screenHeight = window.screen.height;
-
-      // Detectar dispositivos móviles por ancho físico real de pantalla
-      const isMobile = screenWidth < 768;
-
       // Detectar dispositivos móviles por user agent
       const isMobileUserAgent = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
       // Detectar si tiene touch (dispositivo táctil)
       const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-      // Verificar si está en portrait (vertical) usando dimensiones de pantalla física
-      const isPortrait = screenHeight > screenWidth;
+      // Detectar dispositivos móviles por ancho físico real de pantalla
+      const isMobile = window.screen.width < 768 || window.screen.height < 768;
+
+      // ✅ DETECCIÓN DE ORIENTACIÓN: usar innerWidth/innerHeight que SÍ cambian al rotar
+      // window.screen.width/height son fijos en iOS, no sirven para detectar rotación
+      const isPortrait = window.innerHeight > window.innerWidth;
 
       // Mostrar guía si es móvil Y está en vertical
       const shouldShow = (isMobile || isMobileUserAgent || isTouchDevice) && isPortrait;
@@ -28,14 +24,33 @@ export default function OrientationGuide() {
       setShowGuide(shouldShow);
     };
 
+    // MediaQuery listener para iOS (más confiable que orientationchange)
+    const mediaQuery = window.matchMedia('(orientation: portrait)');
+    const handleOrientationChange = (e) => {
+      checkOrientation();
+    };
+
     // Verificar al cargar
     checkOrientation();
 
-    // Verificar cuando cambia la orientación o el tamaño
+    // Listener moderno (iOS Safari 14+)
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleOrientationChange);
+    } else {
+      // Fallback para iOS más antiguos
+      mediaQuery.addListener(handleOrientationChange);
+    }
+
+    // Eventos adicionales
     window.addEventListener('resize', checkOrientation);
     window.addEventListener('orientationchange', checkOrientation);
 
     return () => {
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', handleOrientationChange);
+      } else {
+        mediaQuery.removeListener(handleOrientationChange);
+      }
       window.removeEventListener('resize', checkOrientation);
       window.removeEventListener('orientationchange', checkOrientation);
     };
