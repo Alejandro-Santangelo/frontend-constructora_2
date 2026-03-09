@@ -427,25 +427,7 @@ const FunctionalDashboard = ({ showNotification }) => {
   };
 
   return (
-    <div className="container-fluid fade-in">
-      {/* Header */}
-      <div className="row">
-        <div className="col-12">
-          {/* Bloque de accesos rápidos eliminado por solicitud */}
-        </div>
-      </div>
-
-      {/* Label simple de estado del frontend (eliminado) */}
-
-      {/* Quick API Test Panel - Temporalmente comentado */}
-      {/*
-      <div className="row mb-4">
-        <div className="col-12">
-          <QuickApiTest showNotification={showNotification} />
-        </div>
-      </div>
-      */}
-
+    <div className="container-fluid fade-in" style={{ minWidth: '1100px' }}>
 
       {/* Tarjetas de entidades */}
       <div className="row mb-4">
@@ -464,7 +446,7 @@ const FunctionalDashboard = ({ showNotification }) => {
           const borderColor = card.customColor || colorMap[card.color] || '#007bff';
 
           return (
-          <div className="col-xl-3 col-lg-4 col-md-6 mb-4" key={card.title}>
+          <div className="col-3 col-md-6 col-lg-4 col-xl-3 mb-4" key={card.title}>
             <Link
               to={card.link}
               target="_blank"
@@ -559,7 +541,7 @@ const FunctionalDashboard = ({ showNotification }) => {
             </div>
             <div className="col-md-4">
               <div className="card border-info cursor-pointer" onClick={() => {
-                const swaggerUrl = import.meta.env.MODE === 'production' 
+                const swaggerUrl = import.meta.env.MODE === 'production'
                   ? 'https://backend-constructora2-production.up.railway.app/api/swagger-ui/index.html'
                   : 'http://localhost:8080/api/swagger-ui/index.html';
                 window.open(swaggerUrl, '_blank');

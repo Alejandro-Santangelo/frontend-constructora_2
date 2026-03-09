@@ -70,3 +70,7 @@ $RECYCLE.BIN/
 # Dist of Vite preview
 .preview
 
+# Cleanup
+# Carpeta temporal de archivos a eliminar
+_to_delete/
+

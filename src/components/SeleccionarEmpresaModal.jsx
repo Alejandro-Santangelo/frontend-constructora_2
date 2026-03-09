@@ -35,21 +35,21 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
 
   const getEmpresaTipo = (empresa) => {
     const nombre = (empresa.nombreEmpresa || empresa.nombre || '').toLowerCase();
-    
+
     if (nombre.includes('cacho') || nombre.includes('propia') || nombre.includes('mi empresa')) {
       return { tipo: 'propia', icon: '🏠', color: '#10b981', gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', displayName: 'Mi Empresa' };
     }
-    
-    if (nombre.includes('gestión') || nombre.includes('administración') || 
+
+    if (nombre.includes('gestión') || nombre.includes('administración') ||
         nombre.includes('servicios') || nombre.includes('group') || nombre.includes('s.a')) {
       return { tipo: 'cliente-empresa', icon: '🏢', color: '#3b82f6', gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' };
     }
-    
-    if (nombre.includes('constructora') || nombre.includes('obra') || 
+
+    if (nombre.includes('constructora') || nombre.includes('obra') ||
         nombre.includes('construcción') || nombre.includes('proyecto')) {
       return { tipo: 'obra-directa', icon: '🏗️', color: '#f59e0b', gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' };
     }
-    
+
     return { tipo: 'general', icon: '🏗️', color: '#6b7280', gradient: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)' };
   };
 
@@ -60,7 +60,7 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
 
   const handleCreateEmpresa = async (e) => {
     e.preventDefault();
-    
+
     // Validaciones básicas
     if (!formData.nombreEmpresa.trim()) {
       alert('El nombre de la empresa es obligatorio');
@@ -75,13 +75,13 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
       setLoading(true);
       const nuevaEmpresa = await api.post('/api/empresas', formData);
       console.log('✅ Empresa creada:', nuevaEmpresa);
-      
+
       // Recargar lista de empresas
       await loadEmpresas();
-      
+
       // Cerrar formulario
       setShowCreateForm(false);
-      
+
       // Resetear formulario
       setFormData({
         nombreEmpresa: '',
@@ -92,7 +92,7 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
         representanteLegal: '',
         activa: true
       });
-      
+
       alert('Empresa creada exitosamente');
     } catch (error) {
       console.error('Error creando empresa:', error);
@@ -111,26 +111,26 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
   };
 
   return (
-    <div style={{ 
-      position: 'fixed', 
-      top: 0, 
-      left: 0, 
-      width: '100vw', 
-      height: '100vh', 
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100vw',
+      height: '100vh',
       background: 'linear-gradient(135deg, rgba(20, 30, 48, 0.92) 0%, rgba(36, 59, 85, 0.95) 100%)',
       backdropFilter: 'blur(8px)',
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center', 
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
       zIndex: 9999,
       animation: 'fadeIn 0.3s ease-in-out',
       padding: '20px'
     }}>
-      <div style={{ 
+      <div style={{
         background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
-        padding: '48px 40px', 
-        borderRadius: '20px', 
-        minWidth: '520px',
+        padding: '48px 40px',
+        borderRadius: '20px',
+        minWidth: '700px',
         maxWidth: '700px',
         maxHeight: '90vh',
         overflowY: 'auto',
@@ -140,7 +140,7 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
         transform: 'translateY(0)'
       }}>
         {/* Header - Mi Empresa */}
-        <div style={{ 
+        <div style={{
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
@@ -152,16 +152,16 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
         }}>
           <div style={{ fontSize: '32px' }}>🏠</div>
           <div style={{ flex: 1 }}>
-            <div style={{ 
-              fontSize: '18px', 
-              fontWeight: '700', 
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '700',
               color: '#fff',
               marginBottom: '2px'
             }}>
               Mi Empresa
             </div>
-            <div style={{ 
-              fontSize: '13px', 
+            <div style={{
+              fontSize: '13px',
               color: 'rgba(255, 255, 255, 0.9)',
               fontWeight: '500'
             }}>
@@ -170,14 +170,14 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
           </div>
         </div>
 
-        <div style={{ 
-          textAlign: 'center', 
+        <div style={{
+          textAlign: 'center',
           marginBottom: '32px',
           borderBottom: '2px solid #e9ecef',
           paddingBottom: '24px'
         }}>
-          <h2 style={{ 
-            marginBottom: '12px', 
+          <h2 style={{
+            marginBottom: '12px',
             color: '#2c3e50',
             fontSize: '28px',
             fontWeight: '700',
@@ -285,15 +285,15 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
             </div>
 
             <div className="d-flex gap-2 mt-4">
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="btn btn-primary flex-grow-1"
                 disabled={loading}
               >
                 {loading ? 'Creando...' : '✓ Crear Empresa'}
               </button>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="btn btn-secondary"
                 onClick={() => setShowCreateForm(false)}
                 disabled={loading}
@@ -310,7 +310,7 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
             <p style={{ color: '#6c757d', marginBottom: '24px' }}>
               Para comenzar, necesitas crear tu primer contratista
             </p>
-            <button 
+            <button
               className="btn btn-primary btn-lg"
               onClick={() => setShowCreateForm(true)}
             >
@@ -321,7 +321,7 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
         ) : (
           // Lista de Empresas
           <>
-            <div style={{ 
+            <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(3, 1fr)',
               gap: '12px',
@@ -329,7 +329,7 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
             }}>
               {empresas.filter(empresa => empresa && empresa.id).map(empresa => {
               const tipo = getEmpresaTipo(empresa);
-              
+
               return (
                 <div
                   key={`empresa-${empresa.id}`}
@@ -375,9 +375,9 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
                   </div>
 
                   {/* Nombre empresa */}
-                  <div style={{ 
-                    fontWeight: '700', 
-                    color: '#2c3e50', 
+                  <div style={{
+                    fontWeight: '700',
+                    color: '#2c3e50',
                     fontSize: '16px',
                     paddingRight: '40px',
                     lineHeight: '1.3',
@@ -389,15 +389,15 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
                   </div>
 
                   {/* ID */}
-                  <div style={{ 
-                    fontSize: '11px', 
+                  <div style={{
+                    fontSize: '11px',
                     color: '#6c757d',
                     fontWeight: '600',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px'
                   }}>
-                    <span style={{ 
+                    <span style={{
                       background: '#f1f3f5',
                       padding: '3px 6px',
                       borderRadius: '4px',
@@ -429,10 +429,10 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
               );
             })}
             </div>
-            
+
             {/* Botón para agregar nueva empresa */}
             <div style={{ marginTop: '24px', textAlign: 'center' }}>
-              <button 
+              <button
                 className="btn btn-outline-primary"
                 onClick={() => setShowCreateForm(true)}
               >
