@@ -45,15 +45,22 @@ export const crearPresupuesto = async (datos, empresaId) => {
         datos.tipoPresupuesto === TIPOS_PRESUPUESTO.TAREA_LEVE
     };
 
-    console.log(`📝 [PresupuestoService] Creando ${config.label}:`, payload);
+    // 🔧 Detectar si es CREACIÓN (POST) o EDICIÓN (PUT)
+    const esEdicion = !!datos.id;
 
-    const response = await api.presupuestosNoCliente.create(payload, empresaId);
-
-    console.log(`✅ [PresupuestoService] ${config.label} creado:`, response);
-
-    return response;
+    if (esEdicion) {
+      console.log(`✏️ [PresupuestoService] Actualizando ${config.label} ID ${datos.id}:`, payload);
+      const response = await api.presupuestosNoCliente.update(datos.id, payload, empresaId);
+      console.log(`✅ [PresupuestoService] ${config.label} actualizado:`, response);
+      return response;
+    } else {
+      console.log(`📝 [PresupuestoService] Creando ${config.label}:`, payload);
+      const response = await api.presupuestosNoCliente.create(payload, empresaId);
+      console.log(`✅ [PresupuestoService] ${config.label} creado:`, response);
+      return response;
+    }
   } catch (error) {
-    console.error(`❌ [PresupuestoService] Error al crear presupuesto:`, error);
+    console.error(`❌ [PresupuestoService] Error al ${datos.id ? 'actualizar' : 'crear'} presupuesto:`, error);
     throw error;
   }
 };

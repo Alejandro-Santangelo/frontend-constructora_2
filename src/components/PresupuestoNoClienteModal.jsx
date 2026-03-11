@@ -956,7 +956,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         return false;
       })(),
       version: safeData.version || safeData.numeroVersion || 1,
-      numeroPresupuesto: safeData.numeroPresupuesto ?? null,
+      numeroPresupuesto: (() => {
+        const valor = safeData.numeroPresupuesto ?? null;
+        console.log('📥 Cargando numeroPresupuesto desde BD:', { valor, tipo: typeof valor });
+        return valor;
+      })(),
       estado: safeData.estado ?? 'BORRADOR',
       tipoPresupuesto: safeData.tipoPresupuesto || 'PRINCIPAL',
       honorarioSeleccion: safeData.honorarioSeleccion || '',
@@ -8838,7 +8842,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   };
 
   const prepararDatosParaEnvio = () => {
-    // 🔧 Determinar tipoPresupuesto efectivo con prioridad correcta:
+    // � DEBUG CRÍTICO: Verificar numeroPresupuesto en form ANTES de preparar payload
+    console.log('🔍🔍🔍 [PREPARAR DATOS] numeroPresupuesto en form:', {
+      'form.numeroPresupuesto': form.numeroPresupuesto,
+      'tipo': typeof form.numeroPresupuesto,
+      'form.id': form.id,
+      'initialData?.numeroPresupuesto': initialData?.numeroPresupuesto
+    });
+
+    // �🔧 Determinar tipoPresupuesto efectivo con prioridad correcta:
     // 1. Si modoTrabajoExtra y NO es TAREA_LEVE → forzar TRABAJO_EXTRA
     // 2. Si form.tipoPresupuesto existe → usarlo (preserva TAREA_LEVE, TRABAJO_EXTRA, etc.)
     // 3. Si initialData.tipoPresupuesto existe → usarlo
@@ -9112,6 +9124,22 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     } else {
       payload.version = parseInt(payload.version, 10);
       if (Number.isNaN(payload.version) || payload.version < 1) payload.version = 1;
+    }
+
+    // ✅ Número Presupuesto: Si es null o vacío, no incluir (backend auto-genera con ID)
+    if (payload.numeroPresupuesto === null || payload.numeroPresupuesto === '' || payload.numeroPresupuesto === undefined) {
+      delete payload.numeroPresupuesto;
+      console.log('ℹ️ numeroPresupuesto vacío - backend auto-generará con ID');
+    } else {
+      // ✅ Convertir a Number (Long en backend) sin parseInt para evitar int en lugar de Long
+      const numeroParseado = Number(payload.numeroPresupuesto);
+      if (isNaN(numeroParseado) || numeroParseado < 0) {
+        console.warn('⚠️ numeroPresupuesto no es un número válido:', payload.numeroPresupuesto);
+        delete payload.numeroPresupuesto;
+      } else {
+        payload.numeroPresupuesto = numeroParseado;
+        console.log('✅ numeroPresupuesto incluido en payload:', payload.numeroPresupuesto, '(tipo:', typeof payload.numeroPresupuesto + ')');
+      }
     }
 
     payload.tipoProfesionalPresupuesto = valoresPresupuesto.tipoProfesional || null;
@@ -11000,6 +11028,30 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             <form ref={modalContentRef} onSubmit={handleSubmit} style={{ padding: '8px 10px' }}>
               <div className="row g-2">
                     {/* Eliminado label de Fecha creación fuera del bloque de fechas */}
+
+                {/* Campo: Número Presupuesto */}
+                <div className="col-12 mb-3">
+                  <label htmlFor="numeroPresupuesto" className="form-label" style={{ fontWeight: '600', color: '#495057' }}>
+                    <i className="fas fa-hashtag me-2"></i>Número Presupuesto
+                  </label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    id="numeroPresupuesto"
+                    name="numeroPresupuesto"
+                    value={form.numeroPresupuesto || ''}
+                    onChange={e => {
+                      const valor = e.target.value === '' ? null : Number(e.target.value);
+                      setForm({ ...form, numeroPresupuesto: valor });
+                    }}
+                    placeholder="Dejar vacío para auto-generar con ID"
+                    style={{ borderRadius: '0.375rem' }}
+                    disabled={soloLectura}
+                  />
+                  <small className="form-text text-muted">
+                    Si no ingresas un número, se generará automáticamente usando el ID del presupuesto
+                  </small>
+                </div>
 
                 {/* Título: Presupuesto destinado a */}
                 <div className="col-12 mb-3">

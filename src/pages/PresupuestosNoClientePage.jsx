@@ -1736,7 +1736,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         presupuesto.id = presupuestoData.id;
         presupuesto.estado = estadoOriginal; // Mantener estado original
         presupuesto.numeroVersion = presupuestoData.numeroVersion || presupuestoData.version || 1;
-        presupuesto.numeroPresupuesto = presupuestoData.numeroPresupuesto;
+
+        // ✅ numeroPresupuesto: Si viene null/undefined/vacío desde el modal, NO incluir el campo
+        // El backend auto-generará con el ID del presupuesto
+        if (!presupuesto.numeroPresupuesto) {
+          delete presupuesto.numeroPresupuesto;
+          console.log('📌 numeroPresupuesto vacío - backend auto-generará con ID:', presupuestoData.id);
+        } else {
+          console.log('✅ numeroPresupuesto incluido:', presupuesto.numeroPresupuesto);
+        }
 
         // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra e idObra del presupuesto original
         if (presupuestoData.esPresupuestoTrabajoExtra) {
