@@ -108,7 +108,7 @@ const ConfiguracionPresupuestoSection = ({
   const guardarValoresHonorarios = (tipoProfesional, valores) => {
     if (!tipoProfesional) return;
     try {
-      const clave = `honorarios_${tipoProfesional.toLowerCase().replace(/\s+/g, '_')}`;
+      const clave = `honorarios_${tipoProfesional.trim().toLowerCase().replace(/\s+/g, '_')}`;
       localStorage.setItem(clave, JSON.stringify(valores));
       console.log(`💾 Valores de honorarios guardados para ${tipoProfesional}:`, valores);
     } catch (error) {
@@ -130,6 +130,9 @@ const ConfiguracionPresupuestoSection = ({
 
   // console.log('🎯 HONORARIOS RECIBIDOS EN ConfiguracionPresupuestoSection:', honorarios);
   // console.log('🎯 Jornales desde props:', honorarios?.jornales);
+  console.log('🔍 CARGA INICIAL - honorarios.porRubro:', honorarios?.porRubro);
+  console.log('🔍 CARGA INICIAL - honorarios.porRubro es objeto?:', typeof honorarios?.porRubro);
+  console.log('🔍 CARGA INICIAL - Keys en porRubro:', Object.keys(honorarios?.porRubro || {}));
 
   const honorariosActual = {
     ...defaultsHonorarios,
@@ -143,10 +146,19 @@ const ConfiguracionPresupuestoSection = ({
     profesionales: { ...defaultsHonorarios.profesionales, ...(honorarios?.profesionales || {}) },
     materiales: { ...defaultsHonorarios.materiales, ...(honorarios?.materiales || {}) },
     otrosCostos: { ...defaultsHonorarios.otrosCostos, ...(honorarios?.otrosCostos || {}) },
-    configuracionPresupuesto: { ...defaultsHonorarios.configuracionPresupuesto, ...(honorarios?.configuracionPresupuesto || {}) }
+    configuracionPresupuesto: { ...defaultsHonorarios.configuracionPresupuesto, ...(honorarios?.configuracionPresupuesto || {}) },
+    // 🆕 HONORARIOS POR RUBRO - Preservar desde props
+    porRubro: honorarios?.porRubro || {}
   };
 
-  // console.log('🎯 honorariosActual.jornales DESPUÉS DEL MERGE:', honorariosActual.jornales);
+  console.log('✅ DESPUÉS DEL MERGE - honorariosActual.porRubro:', honorariosActual.porRubro);
+
+  console.log('🎯 honorariosActual.jornales DESPUÉS DEL MERGE:', {
+    activo: honorariosActual.jornales?.activo,
+    tipo: honorariosActual.jornales?.tipo,
+    valor: honorariosActual.jornales?.valor,
+    modoAplicacion: honorariosActual.jornales?.modoAplicacion
+  });
 
   // ========== FUNCIONES Y DEFAULTS PARA MAYORES COSTOS (CLON EXACTO DE HONORARIOS) ==========
 
@@ -1005,35 +1017,52 @@ const ConfiguracionPresupuestoSection = ({
         const totalMatRubro = parseFloat(rubroItem.subtotalMateriales) || 0;
         const totalGastosRubro = parseFloat(rubroItem.subtotalGastosGenerales) || 0;
 
-        // Calcular honorarios/mayores costos para cada sección del rubro usando la configuración correcta
-        const honorarioProf = calcularHonorarioSeccion(totalProfRubro, 'profesionales', configAUsar);
-        const honorarioMat = calcularHonorarioSeccion(totalMatRubro, 'materiales', configAUsar);
-        const honorarioGastos = calcularHonorarioSeccion(totalGastosRubro, 'otrosCostos', configAUsar);
+        // 🆕 NUEVA LÓGICA: Usar configuración específica del rubro si existe
+        let honorarioProf = 0;
+        let honorarioMat = 0;
+        let honorarioGastos = 0;
+
+        // Verificar si hay configuración específica para este rubro en la nueva estructura
+        const rubroId = rubroItem.id || itemsCalculadora.indexOf(rubroItem);
+        const honorariosRubroEspecifico = honorariosActual.porRubro?.[rubroId];
+
+        if (honorariosRubroEspecifico && honorariosRubroEspecifico.activo) {
+          // Usar configuración específica del rubro
+          if (totalProfRubro > 0 && honorariosRubroEspecifico.profesionales?.valor) {
+            const valor = Number(honorariosRubroEspecifico.profesionales.valor);
+            if (honorariosRubroEspecifico.profesionales.tipo === 'porcentaje') {
+              honorarioProf = (totalProfRubro * valor) / 100;
+            } else {
+              honorarioProf = valor;
+            }
+          }
+
+          if (totalMatRubro > 0 && honorariosRubroEspecifico.materiales?.valor) {
+            const valor = Number(honorariosRubroEspecifico.materiales.valor);
+            if (honorariosRubroEspecifico.materiales.tipo === 'porcentaje') {
+              honorarioMat = (totalMatRubro * valor) / 100;
+            } else {
+              honorarioMat = valor;
+            }
+          }
+
+          if (totalGastosRubro > 0 && honorariosRubroEspecifico.otrosCostos?.valor) {
+            const valor = Number(honorariosRubroEspecifico.otrosCostos.valor);
+            if (honorariosRubroEspecifico.otrosCostos.tipo === 'porcentaje') {
+              honorarioGastos = (totalGastosRubro * valor) / 100;
+            } else {
+              honorarioGastos = valor;
+            }
+          }
+        } else {
+          // Fallback: usar configuración global (comportamiento anterior)
+          honorarioProf = calcularHonorarioSeccion(totalProfRubro, 'profesionales', configAUsar);
+          honorarioMat = calcularHonorarioSeccion(totalMatRubro, 'materiales', configAUsar);
+          honorarioGastos = calcularHonorarioSeccion(totalGastosRubro, 'otrosCostos', configAUsar);
+        }
 
         // 🔥 CALCULAR HONORARIOS DEL RUBRO usando configuración principal de honorarios
-        let totalHonorariosRubro = 0;
-        if (honorarios) {
-          if (honorarios.profesionales?.activo && honorarios.profesionales?.valor) {
-            const valor = Number(honorarios.profesionales.valor);
-            if (honorarios.profesionales.tipo === 'porcentaje') {
-              totalHonorariosRubro += (totalProfRubro * valor) / 100;
-            }
-          }
-
-          if (honorarios.materiales?.activo && honorarios.materiales?.valor) {
-            const valor = Number(honorarios.materiales.valor);
-            if (honorarios.materiales.tipo === 'porcentaje') {
-              totalHonorariosRubro += (totalMatRubro * valor) / 100;
-            }
-          }
-
-          if (honorarios.otrosCostos?.activo && honorarios.otrosCostos?.valor) {
-            const valor = Number(honorarios.otrosCostos.valor);
-            if (honorarios.otrosCostos.tipo === 'porcentaje') {
-              totalHonorariosRubro += (totalGastosRubro * valor) / 100;
-            }
-          }
-        }
+        let totalHonorariosRubro = honorarioProf + honorarioMat + honorarioGastos;
 
         // Aplicar mayores costos sobre los honorarios del rubro
         const mayorCostoSobreHonorarios = calcularHonorarioSeccion(totalHonorariosRubro, 'honorarios', configAUsar);
@@ -1111,6 +1140,72 @@ const ConfiguracionPresupuestoSection = ({
     const honorarioCalculadora = calcularHonorarioSeccion(totalCalculadoraSinDesglozar, 'configuracionPresupuesto', configAUsar);
     const honorarioGastosGenerales = calcularHonorarioSeccion(totalGastosGenerales, 'otrosCostos', configAUsar); // 🆕 Usar configuración de "otrosCostos"
 
+    // 🆕 NUEVA LÓGICA: Calcular honorarios específicos por rubro y sumarlos
+    let honorariosDeRubrosEspecificos = 0;
+    if (honorariosActual.porRubro && itemsCalculadora && Array.isArray(itemsCalculadora)) {
+      // 🔥 DEDUPLICAR rubros primero (combinar rubros con el mismo nombre)
+      const rubrosMap = new Map();
+      itemsCalculadora.forEach((item, index) => {
+        const rubroNombre = (item.tipoProfesional || `Rubro ${index + 1}`).trim().toLowerCase();
+        if (rubrosMap.has(rubroNombre)) {
+          const existente = rubrosMap.get(rubroNombre);
+          existente.subtotalManoObra = (existente.subtotalManoObra || 0) + (item.subtotalManoObra || 0);
+          existente.subtotalMateriales = (existente.subtotalMateriales || 0) + (item.subtotalMateriales || 0);
+          existente.subtotalGastosGenerales = (existente.subtotalGastosGenerales || 0) + (item.subtotalGastosGenerales || 0);
+        } else {
+          rubrosMap.set(rubroNombre, {
+            ...item,
+            _nombreOriginal: (item.tipoProfesional || `Rubro ${index + 1}`).trim()
+          });
+        }
+      });
+
+      // Calcular honorarios sobre rubros deduplicados
+      Array.from(rubrosMap.values()).forEach(item => {
+        // 🔑 BUSCAR NOMBRE DEL RUBRO (case-insensitive)
+        const rubroNombre = item._nombreOriginal.trim();
+        const honorariosKey = Object.keys(honorariosActual.porRubro || {}).find(
+          key => key.toLowerCase() === rubroNombre.toLowerCase()
+        );
+        const honorariosRubro = honorariosKey ? honorariosActual.porRubro[honorariosKey] : null;
+
+        // Solo calcular si el rubro tiene configuración activa
+        if (honorariosRubro && honorariosRubro.activo) {
+          const totalProfRubro = parseFloat(item.subtotalManoObra) || 0;
+          const totalMatRubro = parseFloat(item.subtotalMateriales) || 0;
+          const totalGastosRubro = parseFloat(item.subtotalGastosGenerales) || 0;
+
+          // Calcular honorarios del rubro
+          if (totalProfRubro > 0 && honorariosRubro.profesionales?.valor) {
+            const valor = Number(honorariosRubro.profesionales.valor);
+            if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+              honorariosDeRubrosEspecificos += (totalProfRubro * valor) / 100;
+            } else {
+              honorariosDeRubrosEspecificos += valor;
+            }
+          }
+
+          if (totalMatRubro > 0 && honorariosRubro.materiales?.valor) {
+            const valor = Number(honorariosRubro.materiales.valor);
+            if (honorariosRubro.materiales.tipo === 'porcentaje') {
+              honorariosDeRubrosEspecificos += (totalMatRubro * valor) / 100;
+            } else {
+              honorariosDeRubrosEspecificos += valor;
+            }
+          }
+
+          if (totalGastosRubro > 0 && honorariosRubro.otrosCostos?.valor) {
+            const valor = Number(honorariosRubro.otrosCostos.valor);
+            if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+              honorariosDeRubrosEspecificos += (totalGastosRubro * valor) / 100;
+            } else {
+              honorariosDeRubrosEspecificos += valor;
+            }
+          }
+        }
+      });
+    }
+
     // 🆕 NUEVA SECCIÓN: Calcular honorarios sobre honorarios (para mayores costos)
     let totalHonorariosBase = 0;
     let honorarioSobreHonorarios = 0;
@@ -1135,7 +1230,8 @@ const ConfiguracionPresupuestoSection = ({
     }
 
     const totalSinHonorarios = totalJornales + totalProf + totalMat + totalOtros + totalCalculadoraSinDesglozar + totalGastosGenerales;
-    const totalHonorarios = honorarioJornales + honorarioProf + honorarioMat + honorarioOtros + honorarioCalculadora + honorarioGastosGenerales + honorarioSobreHonorarios;
+    // 🆕 Incluir honorarios de rubros específicos en el total
+    const totalHonorarios = honorarioJornales + honorarioProf + honorarioMat + honorarioOtros + honorarioCalculadora + honorarioGastosGenerales + honorarioSobreHonorarios + honorariosDeRubrosEspecificos;
     const totalConHonorarios = totalSinHonorarios + totalHonorarios;
 
     // 🔥 Detectar si estamos calculando MAYORES COSTOS (configuracion pasada como parámetro)
@@ -3246,133 +3342,634 @@ const ConfiguracionPresupuestoSection = ({
 
           {mostrarHonorarios && honorariosActual && (
             <div className="border rounded p-3" style={{backgroundColor: '#f8d7da'}}>
-              {/* Solo selector de rubro e importar datos */}
-              <div className="d-flex align-items-center mb-3">
-                <h6 className="text-primary mb-0 me-3">📊 Importar Datos de Rubro</h6>
-
-                {/* Selector de rubros para importar datos */}
-                <select
-                  className="form-select form-select-sm me-2"
-                  style={{ width: '200px' }}
-                  value={rubroSeleccionado}
-                  onChange={(e) => setRubroSeleccionado(e.target.value)}
-                >
-                  <option value="">Seleccionar rubro...</option>
-                  {itemsCalculadora && itemsCalculadora.length > 0 && itemsCalculadora.map((item, index) => (
-                    <option key={item.id || index} value={item.id || index}>
-                      {item.tipoProfesional || `Rubro ${index + 1}`}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                    type="button"
-                    className={`btn btn-sm ${honorariosActual.generalImportado ? 'btn-warning' : 'btn-outline-primary'}`}
-                    onClick={() => {
-                      if (!honorariosActual.generalImportado) {
-                        // Lógica para importar datos del rubro seleccionado
-                        if (rubroSeleccionado) {
-                          const rubroItem = itemsCalculadora.find(item => (item.id || itemsCalculadora.indexOf(item)) == rubroSeleccionado);
-                          if (rubroItem) {
-                            // Cargar valores guardados para este rubro específico
-                            const valoresGuardadosRubro = cargarValoresGuardadosHonorarios(rubroItem.tipoProfesional);
-
-                            setHonorarios(prev => ({
-                              ...prev,
-                              generalImportado: true,
-                              rubroImportado: rubroSeleccionado,
-                              nombreRubroImportado: rubroItem.tipoProfesional,
-                              // Activar todas las secciones y usar valores guardados si existen, sino defaults
-                              profesionales: {
-                                ...prev.profesionales,
-                                activo: true,
-                                tipo: valoresGuardadosRubro?.profesionales?.tipo || prev.profesionales.tipo || 'porcentaje',
-                                valor: valoresGuardadosRubro?.profesionales?.valor || prev.profesionales.valor || '10'
-                              },
-                              materiales: {
-                                ...prev.materiales,
-                                activo: true,
-                                tipo: valoresGuardadosRubro?.materiales?.tipo || prev.materiales.tipo || 'porcentaje',
-                                valor: valoresGuardadosRubro?.materiales?.valor || prev.materiales.valor || '10'
-                              },
-                              otrosCostos: {
-                                ...prev.otrosCostos,
-                                activo: true,
-                                tipo: valoresGuardadosRubro?.otrosCostos?.tipo || prev.otrosCostos.tipo || 'porcentaje',
-                                valor: valoresGuardadosRubro?.otrosCostos?.valor || prev.otrosCostos.valor || '10'
-                              },
-                              configuracionPresupuesto: {
-                                ...prev.configuracionPresupuesto,
-                                activo: true,
-                                tipo: valoresGuardadosRubro?.configuracionPresupuesto?.tipo || prev.configuracionPresupuesto.tipo || 'porcentaje',
-                                valor: valoresGuardadosRubro?.configuracionPresupuesto?.valor || prev.configuracionPresupuesto.valor || '10'
-                              }
-                            }));
-
-                            console.log('📊 Datos importados del rubro:', rubroItem.tipoProfesional);
-                            if (valoresGuardadosRubro) {
-                              console.log('💾 Valores guardados cargados:', valoresGuardadosRubro);
-                            }
-                            console.log('💰 Totales del rubro:', {
-                              profesionales: rubroItem.subtotalManoObra,
-                              materiales: rubroItem.subtotalMateriales,
-                              gastosGenerales: rubroItem.subtotalGastosGenerales
-                            });
-                          } else {
-                            alert('⚠️ No se encontró el rubro seleccionado');
-                          }
-                        } else {
-                          // Comportamiento original si no hay rubro seleccionado
-                          setHonorarios(prev => ({
-                            ...prev,
-                            generalImportado: true,
-                            rubroImportado: null,
-                            nombreRubroImportado: null,
-                            profesionales: { ...prev.profesionales, activo: true, valor: prev.profesionales.valor || '10' },
-                            materiales: { ...prev.materiales, activo: true, valor: prev.materiales.valor || '10' },
-                            otrosCostos: { ...prev.otrosCostos, activo: true, valor: prev.otrosCostos.valor || '10' },
-                            configuracionPresupuesto: { ...prev.configuracionPresupuesto, activo: true, valor: prev.configuracionPresupuesto.valor || '10' }
-                          }));
-                        }
-                      } else {
-                        setHonorarios(prev => ({
-                          ...prev,
-                          generalImportado: false,
-                          rubroImportado: null,
-                          nombreRubroImportado: null,
-                          profesionales: { ...prev.profesionales, activo: false, valor: '' },
-                          materiales: { ...prev.materiales, activo: false, valor: '' },
-                          otrosCostos: { ...prev.otrosCostos, activo: false, valor: '' },
-                          configuracionPresupuesto: { ...prev.configuracionPresupuesto, activo: false, valor: '' }
-                        }));
-                        setRubroSeleccionado('');
-                      }
-                    }}
-                    disabled={!honorariosActual.generalImportado && !rubroSeleccionado}
-                    >
-                    <i className={`fas ${honorariosActual.generalImportado ? 'fa-undo' : 'fa-download'} me-1`}></i>
-                    {honorariosActual.generalImportado ? 'Quitar datos' : 'Importar datos'}
-                  </button>
-              </div>
-
-              {/* Mensaje informativo */}
-              {honorariosActual.generalImportado && (
+              {/* 🆕 NUEVA INTERFAZ: Lista de todos los rubros con configuración individual */}
+              <div className="mb-3">
                 <div className="alert alert-info py-2 px-3 mb-3">
                   <small>
                     <i className="fas fa-info-circle me-2"></i>
-                    <strong>Datos importados:</strong> Configure los honorarios específicos en cada tarjeta individual.
-                    {honorariosActual.nombreRubroImportado && (
-                      <span className="ms-2 badge bg-primary">{honorariosActual.nombreRubroImportado}</span>
-                    )}
-                    {valoresGuardados && (
-                      <span className="ms-2 badge bg-success">
-                        <i className="fas fa-history me-1"></i>Valores previos cargados
-                      </span>
-                    )}
+                    <strong>Configuración de Honorarios por Rubro:</strong> Configure los honorarios de forma independiente para cada rubro creado en "Configuración de Presupuesto".
                   </small>
                 </div>
-              )}
 
+                {/* Mostrar lista de rubros si existen */}
+                {itemsCalculadora && itemsCalculadora.length > 0 ? (
+                  <div className="row g-3">
+                    {(() => {
+                      // 🔥 DEDUPLICAR rubros por nombre (tipoProfesional)
+                      // Si hay múltiples rubros con el mismo nombre, combinar sus totales
+                      const rubrosMap = new Map();
+
+                      itemsCalculadora.forEach((rubro, index) => {
+                        // 🔧 NORMALIZAR nombre: trim, lowercase, quitar acentos y espacios múltiples
+                        const nombreOriginal = (rubro.tipoProfesional || `Rubro ${index + 1}`).trim();
+                        const rubroNombre = nombreOriginal
+                          .toLowerCase()
+                          .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+                          .replace(/\s+/g, ' '); // Normalizar espacios múltiples a uno solo
+
+                        if (rubrosMap.has(rubroNombre)) {
+                          // Ya existe, combinar totales
+                          const existente = rubrosMap.get(rubroNombre);
+                          existente.subtotalManoObra = (existente.subtotalManoObra || 0) + (rubro.subtotalManoObra || 0);
+                          existente.subtotalMateriales = (existente.subtotalMateriales || 0) + (rubro.subtotalMateriales || 0);
+                          existente.subtotalGastosGenerales = (existente.subtotalGastosGenerales || 0) + (rubro.subtotalGastosGenerales || 0);
+                          existente.total = (existente.total || 0) + (rubro.total || 0);
+                          // Guardar el índice del último rubro duplicado para logging
+                          existente._duplicadoIndices = [...(existente._duplicadoIndices || [existente._index]), index];
+                        } else {
+                          // Primer rubro con este nombre
+                          rubrosMap.set(rubroNombre, {
+                            ...rubro,
+                            _index: index,
+                            _nombreOriginal: nombreOriginal
+                          });
+                        }
+                      });
+
+                      // Convertir Map a array
+                      const rubrosUnicos = Array.from(rubrosMap.values());
+
+                      // Log de deduplicación si se encontraron duplicados
+                      if (rubrosUnicos.length < itemsCalculadora.length) {
+                        console.warn(`⚠️ Se encontraron ${itemsCalculadora.length - rubrosUnicos.length} rubros duplicados. Mostrando ${rubrosUnicos.length} rubros únicos combinados.`);
+                        rubrosUnicos.forEach(rubro => {
+                          if (rubro._duplicadoIndices) {
+                            console.log(`  📊 Rubro "${rubro._nombreOriginal}" combinado desde índices: ${rubro._duplicadoIndices.join(', ')}`);
+                          }
+                        });
+                      }
+
+                      return rubrosUnicos.map((rubro, uniqueIndex) => {
+                        // 🔑 BUSCAR O CREAR CON NOMBRE ORIGINAL
+                        const rubroNombre = rubro._nombreOriginal.trim();
+
+                        // Buscar key existente (case-insensitive) o usar nombre original
+                        const honorariosKey = Object.keys(honorariosActual.porRubro || {}).find(
+                          key => key.toLowerCase() === rubroNombre.toLowerCase()
+                        ) || rubroNombre;
+
+                        // Inicializar honorarios para este rubro si no existe
+                        if (!honorariosActual.porRubro) {
+                          honorariosActual.porRubro = {};
+                        }
+                        if (!honorariosActual.porRubro[honorariosKey]) {
+                          honorariosActual.porRubro[honorariosKey] = {
+                            activo: false,
+                            tipo: 'porcentaje',
+                            valor: '',
+                            // Configuración por sub-sección
+                            profesionales: { activo: true, tipo: 'porcentaje', valor: '' },
+                            materiales: { activo: true, tipo: 'porcentaje', valor: '' },
+                            otrosCostos: { activo: true, tipo: 'porcentaje', valor: '' }
+                          };
+                        }
+
+                      const honorariosRubro = honorariosActual.porRubro[honorariosKey];
+
+                      return (
+                        <div key={honorariosKey} className="col-md-6">
+                          <div className="card border-primary">
+                            <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                              <h6 className="mb-0">{rubroNombre}</h6>
+                              <div className="form-check form-switch mb-0">
+                                <input
+                                  className="form-check-input"
+                                  type="checkbox"
+                                  id={`honorario-activo-${honorariosKey}`}
+                                  checked={honorariosRubro.activo || false}
+                                  onChange={(e) => {
+                                    setHonorarios(prev => ({
+                                      ...prev,
+                                      porRubro: {
+                                        ...prev.porRubro,
+                                        [honorariosKey]: {
+                                          ...prev.porRubro[honorariosKey],
+                                          activo: e.target.checked
+                                        }
+                                      }
+                                    }));
+                                  }}
+                                  disabled={soloLectura}
+                                />
+                                <label className="form-check-label text-white small" htmlFor={`honorario-activo-${honorariosKey}`}>
+                                  Aplicar honorarios
+                                </label>
+                              </div>
+                            </div>
+
+                            {honorariosRubro.activo && (
+                              <div className="card-body">
+                                {/* Totales del rubro */}
+                                <div className="mb-3 p-2 bg-light rounded">
+                                  <small className="text-muted d-block mb-1">💰 Totales del Rubro:</small>
+                                  {rubro.subtotalManoObra > 0 && (
+                                    <div className="d-flex justify-content-between">
+                                      <span className="small">Mano de Obra:</span>
+                                      <span className="small fw-bold">${(rubro.subtotalManoObra || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                  )}
+                                  {rubro.subtotalMateriales > 0 && (
+                                    <div className="d-flex justify-content-between">
+                                      <span className="small">Materiales:</span>
+                                      <span className="small fw-bold">${(rubro.subtotalMateriales || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                  )}
+                                  {rubro.subtotalGastosGenerales > 0 && (
+                                    <div className="d-flex justify-content-between">
+                                      <span className="small">Gastos Generales:</span>
+                                      <span className="small fw-bold">${(rubro.subtotalGastosGenerales || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Configuración de honorarios por sub-sección */}
+                                {rubro.subtotalManoObra > 0 && (
+                                  <div className="mb-2 p-2 border rounded">
+                                    <small className="text-muted d-block mb-1">🏗️ Mano de Obra</small>
+                                    <div className="d-flex gap-1 align-items-center">
+                                      <select
+                                        className="form-select form-select-sm"
+                                        style={{ fontSize: '10px', padding: '4px', width: '60px' }}
+                                        value={honorariosRubro.profesionales?.tipo || 'porcentaje'}
+                                        onChange={(e) => setHonorarios(prev => ({
+                                          ...prev,
+                                          porRubro: {
+                                            ...prev.porRubro,
+                                            [honorariosKey]: {
+                                              ...prev.porRubro[honorariosKey],
+                                              profesionales: {
+                                                ...prev.porRubro[honorariosKey].profesionales,
+                                                tipo: e.target.value
+                                              }
+                                            }
+                                          }
+                                        }))}
+                                        disabled={soloLectura}
+                                      >
+                                        <option value="porcentaje">%</option>
+                                        <option value="fijo">$</option>
+                                      </select>
+                                      <input
+                                        type="number"
+                                        className="form-control form-control-sm"
+                                        style={{ fontSize: '11px', padding: '4px' }}
+                                        placeholder={honorariosRubro.profesionales?.tipo === 'porcentaje' ? '10' : '1000'}
+                                        value={honorariosRubro.profesionales?.valor || ''}
+                                        onChange={(e) => setHonorarios(prev => ({
+                                          ...prev,
+                                          porRubro: {
+                                            ...prev.porRubro,
+                                            [honorariosKey]: {
+                                              ...prev.porRubro[honorariosKey],
+                                              profesionales: {
+                                                ...prev.porRubro[honorariosKey].profesionales,
+                                                valor: e.target.value
+                                              }
+                                            }
+                                          }
+                                        }))}
+                                        disabled={soloLectura}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {rubro.subtotalMateriales > 0 && (
+                                  <div className="mb-2 p-2 border rounded">
+                                    <small className="text-muted d-block mb-1">📦 Materiales</small>
+                                    <div className="d-flex gap-1 align-items-center">
+                                      <select
+                                        className="form-select form-select-sm"
+                                        style={{ fontSize: '10px', padding: '4px', width: '60px' }}
+                                        value={honorariosRubro.materiales?.tipo || 'porcentaje'}
+                                        onChange={(e) => setHonorarios(prev => ({
+                                          ...prev,
+                                          porRubro: {
+                                            ...prev.porRubro,
+                                            [honorariosKey]: {
+                                              ...prev.porRubro[honorariosKey],
+                                              materiales: {
+                                                ...prev.porRubro[honorariosKey].materiales,
+                                                tipo: e.target.value
+                                              }
+                                            }
+                                          }
+                                        }))}
+                                        disabled={soloLectura}
+                                      >
+                                        <option value="porcentaje">%</option>
+                                        <option value="fijo">$</option>
+                                      </select>
+                                      <input
+                                        type="number"
+                                        className="form-control form-control-sm"
+                                        style={{ fontSize: '11px', padding: '4px' }}
+                                        placeholder={honorariosRubro.materiales?.tipo === 'porcentaje' ? '10' : '1000'}
+                                        value={honorariosRubro.materiales?.valor || ''}
+                                        onChange={(e) => setHonorarios(prev => ({
+                                          ...prev,
+                                          porRubro: {
+                                            ...prev.porRubro,
+                                            [honorariosKey]: {
+                                              ...prev.porRubro[honorariosKey],
+                                              materiales: {
+                                                ...prev.porRubro[honorariosKey].materiales,
+                                                valor: e.target.value
+                                              }
+                                            }
+                                          }
+                                        }))}
+                                        disabled={soloLectura}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {rubro.subtotalGastosGenerales > 0 && (
+                                  <div className="mb-2 p-2 border rounded">
+                                    <small className="text-muted d-block mb-1">💼 Gastos Generales</small>
+                                    <div className="d-flex gap-1 align-items-center">
+                                      <select
+                                        className="form-select form-select-sm"
+                                        style={{ fontSize: '10px', padding: '4px', width: '60px' }}
+                                        value={honorariosRubro.otrosCostos?.tipo || 'porcentaje'}
+                                        onChange={(e) => setHonorarios(prev => ({
+                                          ...prev,
+                                          porRubro: {
+                                            ...prev.porRubro,
+                                            [honorariosKey]: {
+                                              ...prev.porRubro[honorariosKey],
+                                              otrosCostos: {
+                                                ...prev.porRubro[honorariosKey].otrosCostos,
+                                                tipo: e.target.value
+                                              }
+                                            }
+                                          }
+                                        }))}
+                                        disabled={soloLectura}
+                                      >
+                                        <option value="porcentaje">%</option>
+                                        <option value="fijo">$</option>
+                                      </select>
+                                      <input
+                                        type="number"
+                                        className="form-control form-control-sm"
+                                        style={{ fontSize: '11px', padding: '4px' }}
+                                        placeholder={honorariosRubro.otrosCostos?.tipo === 'porcentaje' ? '10' : '1000'}
+                                        value={honorariosRubro.otrosCostos?.valor || ''}
+                                        onChange={(e) => setHonorarios(prev => ({
+                                          ...prev,
+                                          porRubro: {
+                                            ...prev.porRubro,
+                                            [honorariosKey]: {
+                                              ...prev.porRubro[honorariosKey],
+                                              otrosCostos: {
+                                                ...prev.porRubro[honorariosKey].otrosCostos,
+                                                valor: e.target.value
+                                              }
+                                            }
+                                          }
+                                        }))}
+                                        disabled={soloLectura}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Mostrar cálculo de honorarios */}
+                                {(() => {
+                                  let totalHonorarios = 0;
+
+                                  if (rubro.subtotalManoObra > 0 && honorariosRubro.profesionales?.valor) {
+                                    const valor = Number(honorariosRubro.profesionales.valor);
+                                    if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+                                      totalHonorarios += (rubro.subtotalManoObra * valor) / 100;
+                                    } else {
+                                      totalHonorarios += valor;
+                                    }
+                                  }
+
+                                  if (rubro.subtotalMateriales > 0 && honorariosRubro.materiales?.valor) {
+                                    const valor = Number(honorariosRubro.materiales.valor);
+                                    if (honorariosRubro.materiales.tipo === 'porcentaje') {
+                                      totalHonorarios += (rubro.subtotalMateriales * valor) / 100;
+                                    } else {
+                                      totalHonorarios += valor;
+                                    }
+                                  }
+
+                                  if (rubro.subtotalGastosGenerales > 0 && honorariosRubro.otrosCostos?.valor) {
+                                    const valor = Number(honorariosRubro.otrosCostos.valor);
+                                    if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+                                      totalHonorarios += (rubro.subtotalGastosGenerales * valor) / 100;
+                                    } else {
+                                      totalHonorarios += valor;
+                                    }
+                                  }
+
+                                  return totalHonorarios > 0 && (
+                                    <div className="mt-2 p-2 bg-success bg-opacity-10 rounded">
+                                      <div className="d-flex justify-content-between align-items-center">
+                                        <span className="small fw-bold text-success">💰 Total Honorarios:</span>
+                                        <span className="small fw-bold text-success">${totalHonorarios.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }); // Cierre del map de rubrosUnicos
+                  })()}
+                  </div>
+                ) : (
+                  <div className="alert alert-warning py-2 px-3">
+                    <small>
+                      <i className="fas fa-exclamation-triangle me-2"></i>
+                      <strong>No hay rubros creados.</strong> Primero cree rubros en la sección "Configuración de Presupuesto".
+                    </small>
+                  </div>
+                )}
+
+                {/* 🆕 RESUMEN TOTAL DE HONORARIOS POR RUBRO */}
+                {itemsCalculadora && itemsCalculadora.length > 0 && honorariosActual.porRubro && (
+                  <div className="mt-3 p-3 border rounded bg-light">
+                    <h6 className="text-primary mb-3">
+                      <i className="fas fa-chart-bar me-2"></i>
+                      Resumen Total de Honorarios por Rubro
+                    </h6>
+                    <table className="table table-sm table-bordered mb-0">
+                      <thead className="table-primary">
+                        <tr>
+                          <th>Rubro</th>
+                          <th className="text-end">Base</th>
+                          <th className="text-end">Honorarios</th>
+                          <th className="text-end">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          // 🔥 USAR LA MISMA LÓGICA DE DEDUPLICACIÓN
+                          const rubrosMap = new Map();
+
+                          itemsCalculadora.forEach((rubro, index) => {
+                            const rubroNombre = (rubro.tipoProfesional || `Rubro ${index + 1}`).trim().toLowerCase();
+
+                            if (rubrosMap.has(rubroNombre)) {
+                              const existente = rubrosMap.get(rubroNombre);
+                              existente.subtotalManoObra = (existente.subtotalManoObra || 0) + (rubro.subtotalManoObra || 0);
+                              existente.subtotalMateriales = (existente.subtotalMateriales || 0) + (rubro.subtotalMateriales || 0);
+                              existente.subtotalGastosGenerales = (existente.subtotalGastosGenerales || 0) + (rubro.subtotalGastosGenerales || 0);
+                            } else {
+                              rubrosMap.set(rubroNombre, {
+                                ...rubro,
+                                _index: index,
+                                _nombreOriginal: (rubro.tipoProfesional || `Rubro ${index + 1}`).trim()
+                              });
+                            }
+                          });
+
+                          const rubrosUnicos = Array.from(rubrosMap.values());
+
+                          // 🐛 DEBUG: Ver qué keys están disponibles en honorarios
+                          console.log('🗝️ HONORARIOS DISPONIBLES:', Object.keys(honorariosActual.porRubro || {}));
+
+                          return rubrosUnicos.map((rubro, uniqueIndex) => {
+                            // 🔑 BUSCAR NOMBRE DEL RUBRO (case-insensitive)
+                            const rubroNombre = rubro._nombreOriginal.trim();
+
+                            // Buscar la key correcta ignorando mayúsculas/minúsculas
+                            const honorariosKey = Object.keys(honorariosActual.porRubro || {}).find(
+                              key => key.toLowerCase() === rubroNombre.toLowerCase()
+                            );
+                            const honorariosRubro = honorariosKey ? honorariosActual.porRubro[honorariosKey] : null;
+
+                            // 🐛 DEBUG: Ver qué nombres se están comparando
+                            console.log('🔍 TABLA RESUMEN - Rubro:', rubroNombre, 'Key encontrada:', honorariosKey, 'Activo:', honorariosRubro?.activo);
+                            if (!honorariosRubro || !honorariosRubro.activo) return null;
+
+                            const totalProfRubro = parseFloat(rubro.subtotalManoObra) || 0;
+                            const totalMatRubro = parseFloat(rubro.subtotalMateriales) || 0;
+                            const totalGastosRubro = parseFloat(rubro.subtotalGastosGenerales) || 0;
+                            const baseRubro = totalProfRubro + totalMatRubro + totalGastosRubro;
+
+                            let honorariosTotal = 0;
+
+                            if (totalProfRubro > 0 && honorariosRubro.profesionales?.valor) {
+                              const valor = Number(honorariosRubro.profesionales.valor);
+                              if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+                                honorariosTotal += (totalProfRubro * valor) / 100;
+                              } else {
+                                honorariosTotal += valor;
+                              }
+                            }
+
+                            if (totalMatRubro > 0 && honorariosRubro.materiales?.valor) {
+                              const valor = Number(honorariosRubro.materiales.valor);
+                              if (honorariosRubro.materiales.tipo === 'porcentaje') {
+                                honorariosTotal += (totalMatRubro * valor) / 100;
+                              } else {
+                                honorariosTotal += valor;
+                              }
+                            }
+
+                            if (totalGastosRubro > 0 && honorariosRubro.otrosCostos?.valor) {
+                              const valor = Number(honorariosRubro.otrosCostos.valor);
+                              if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+                                honorariosTotal += (totalGastosRubro * valor) / 100;
+                              } else {
+                                honorariosTotal += valor;
+                              }
+                            }
+
+                            return (
+                              <tr key={rubroNombre}>
+                                <td>{rubro._nombreOriginal}</td>
+                                <td className="text-end">${baseRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="text-end text-success fw-bold">${honorariosTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="text-end fw-bold">${(baseRubro + honorariosTotal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                        {/* Fila de totales */}
+                        <tr className="table-success fw-bold">
+                          <td>TOTAL GENERAL</td>
+                          <td className="text-end">
+                            ${(() => {
+                              // 🔥 DEDUPLICAR para totales también
+                              const rubrosMap = new Map();
+                              itemsCalculadora.forEach((rubro, index) => {
+                                const rubroNombre = (rubro.tipoProfesional || `Rubro ${index + 1}`).trim().toLowerCase();
+                                if (rubrosMap.has(rubroNombre)) {
+                                  const existente = rubrosMap.get(rubroNombre);
+                                  existente.subtotalManoObra = (existente.subtotalManoObra || 0) + (rubro.subtotalManoObra || 0);
+                                  existente.subtotalMateriales = (existente.subtotalMateriales || 0) + (rubro.subtotalMateriales || 0);
+                                  existente.subtotalGastosGenerales = (existente.subtotalGastosGenerales || 0) + (rubro.subtotalGastosGenerales || 0);
+                                } else {
+                                  rubrosMap.set(rubroNombre, {
+                                    ...rubro,
+                                    _index: index
+                                  });
+                                }
+                              });
+
+                              return Array.from(rubrosMap.values()).reduce((sum, rubro) => {
+                                // 🔑 BUSCAR NOMBRE DEL RUBRO (case-insensitive)
+                                const rubroNombre = (rubro.tipoProfesional || `Rubro ${rubro._index + 1}`).trim();
+                                const honorariosKey = Object.keys(honorariosActual.porRubro || {}).find(
+                                  key => key.toLowerCase() === rubroNombre.toLowerCase()
+                                );
+                                const honorariosRubro = honorariosKey ? honorariosActual.porRubro[honorariosKey] : null;
+                                if (!honorariosRubro || !honorariosRubro.activo) return sum;
+                                const totalProfRubro = parseFloat(rubro.subtotalManoObra) || 0;
+                                const totalMatRubro = parseFloat(rubro.subtotalMateriales) || 0;
+                                const totalGastosRubro = parseFloat(rubro.subtotalGastosGenerales) || 0;
+                                return sum + totalProfRubro + totalMatRubro + totalGastosRubro;
+                              }, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}
+                          </td>
+                          <td className="text-end text-success">
+                            ${(() => {
+                              // 🔥 DEDUPLICAR para totales también
+                              const rubrosMap = new Map();
+                              itemsCalculadora.forEach((rubro, index) => {
+                                const rubroNombre = (rubro.tipoProfesional || `Rubro ${index + 1}`).trim().toLowerCase();
+                                if (rubrosMap.has(rubroNombre)) {
+                                  const existente = rubrosMap.get(rubroNombre);
+                                  existente.subtotalManoObra = (existente.subtotalManoObra || 0) + (rubro.subtotalManoObra || 0);
+                                  existente.subtotalMateriales = (existente.subtotalMateriales || 0) + (rubro.subtotalMateriales || 0);
+                                  existente.subtotalGastosGenerales = (existente.subtotalGastosGenerales || 0) + (rubro.subtotalGastosGenerales || 0);
+                                } else {
+                                  rubrosMap.set(rubroNombre, {
+                                    ...rubro,
+                                    _index: index
+                                  });
+                                }
+                              });
+
+                              return Array.from(rubrosMap.values()).reduce((sum, rubro) => {
+                                // 🔑 BUSCAR NOMBRE DEL RUBRO (case-insensitive)
+                                const rubroNombre = (rubro.tipoProfesional || `Rubro ${rubro._index + 1}`).trim();
+                                const honorariosKey = Object.keys(honorariosActual.porRubro || {}).find(
+                                  key => key.toLowerCase() === rubroNombre.toLowerCase()
+                                );
+                                const honorariosRubro = honorariosKey ? honorariosActual.porRubro[honorariosKey] : null;
+                                if (!honorariosRubro || !honorariosRubro.activo) return sum;
+
+                                const totalProfRubro = parseFloat(rubro.subtotalManoObra) || 0;
+                                const totalMatRubro = parseFloat(rubro.subtotalMateriales) || 0;
+                                const totalGastosRubro = parseFloat(rubro.subtotalGastosGenerales) || 0;
+
+                                let honorariosTotal = 0;
+
+                                if (totalProfRubro > 0 && honorariosRubro.profesionales?.valor) {
+                                  const valor = Number(honorariosRubro.profesionales.valor);
+                                  if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+                                    honorariosTotal += (totalProfRubro * valor) / 100;
+                                  } else {
+                                    honorariosTotal += valor;
+                                  }
+                                }
+
+                                if (totalMatRubro > 0 && honorariosRubro.materiales?.valor) {
+                                  const valor = Number(honorariosRubro.materiales.valor);
+                                  if (honorariosRubro.materiales.tipo === 'porcentaje') {
+                                    honorariosTotal += (totalMatRubro * valor) / 100;
+                                  } else {
+                                    honorariosTotal += valor;
+                                  }
+                                }
+
+                                if (totalGastosRubro > 0 && honorariosRubro.otrosCostos?.valor) {
+                                  const valor = Number(honorariosRubro.otrosCostos.valor);
+                                  if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+                                    honorariosTotal += (totalGastosRubro * valor) / 100;
+                                  } else {
+                                    honorariosTotal += valor;
+                                  }
+                                }
+
+                                return sum + honorariosTotal;
+                              }, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}
+                          </td>
+                          <td className="text-end">
+                            ${(() => {
+                              // 🔥 DEDUPLICAR para totales también
+                              const rubrosMap = new Map();
+                              itemsCalculadora.forEach((rubro, index) => {
+                                const rubroNombre = (rubro.tipoProfesional || `Rubro ${index + 1}`).trim().toLowerCase();
+                                if (rubrosMap.has(rubroNombre)) {
+                                  const existente = rubrosMap.get(rubroNombre);
+                                  existente.subtotalManoObra = (existente.subtotalManoObra || 0) + (rubro.subtotalManoObra || 0);
+                                  existente.subtotalMateriales = (existente.subtotalMateriales || 0) + (rubro.subtotalMateriales || 0);
+                                  existente.subtotalGastosGenerales = (existente.subtotalGastosGenerales || 0) + (rubro.subtotalGastosGenerales || 0);
+                                } else {
+                                  rubrosMap.set(rubroNombre, {
+                                    ...rubro,
+                                    _index: index
+                                  });
+                                }
+                              });
+
+                              return Array.from(rubrosMap.values()).reduce((sum, rubro) => {
+                                // 🔑 BUSCAR NOMBRE DEL RUBRO (case-insensitive)
+                                const rubroNombre = (rubro.tipoProfesional || `Rubro ${rubro._index + 1}`).trim();
+                                const honorariosKey = Object.keys(honorariosActual.porRubro || {}).find(
+                                  key => key.toLowerCase() === rubroNombre.toLowerCase()
+                                );
+                                const honorariosRubro = honorariosKey ? honorariosActual.porRubro[honorariosKey] : null;
+                                if (!honorariosRubro || !honorariosRubro.activo) return sum;
+
+                                const totalProfRubro = parseFloat(rubro.subtotalManoObra) || 0;
+                                const totalMatRubro = parseFloat(rubro.subtotalMateriales) || 0;
+                                const totalGastosRubro = parseFloat(rubro.subtotalGastosGenerales) || 0;
+                                const baseRubro = totalProfRubro + totalMatRubro + totalGastosRubro;
+
+                                let honorariosTotal = 0;
+
+                                if (totalProfRubro > 0 && honorariosRubro.profesionales?.valor) {
+                                  const valor = Number(honorariosRubro.profesionales.valor);
+                                  if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+                                    honorariosTotal += (totalProfRubro * valor) / 100;
+                                  } else {
+                                    honorariosTotal += valor;
+                                  }
+                                }
+
+                                if (totalMatRubro > 0 && honorariosRubro.materiales?.valor) {
+                                  const valor = Number(honorariosRubro.materiales.valor);
+                                  if (honorariosRubro.materiales.tipo === 'porcentaje') {
+                                    honorariosTotal += (totalMatRubro * valor) / 100;
+                                  } else {
+                                    honorariosTotal += valor;
+                                  }
+                                }
+
+                                if (totalGastosRubro > 0 && honorariosRubro.otrosCostos?.valor) {
+                                  const valor = Number(honorariosRubro.otrosCostos.valor);
+                                  if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+                                    honorariosTotal += (totalGastosRubro * valor) / 100;
+                                  } else {
+                                    honorariosTotal += valor;
+                                  }
+                                }
+
+                                return sum + baseRubro + honorariosTotal;
+                              }, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+                            })()}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* 🔧 Configuración de Honorarios Globales (mantener para items fuera de rubros específicos) */}
               {/* Configuración Individual para cada categoría */}
               {/* Nota: Las tarjetas de configuración individual se han eliminado ya que
                   ahora los controles están integrados directamente en las tarjetas del resumen */}
@@ -5802,7 +6399,8 @@ const ConfiguracionPresupuestoSection = ({
                           }
                         }
 
-                        return totalMayoresCostos > 0 && (
+                        // ✅ Mostrar siempre la tarjeta de Mayores Costos (incluso si es $0)
+                        return (
                       <div className="col-md-3">
                         <div className="border rounded p-2 bg-light">
                           <div className="d-flex justify-content-between align-items-center mb-2">

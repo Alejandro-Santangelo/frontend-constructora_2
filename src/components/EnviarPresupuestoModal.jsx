@@ -27,9 +27,9 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
       return [];
     }
 
-    console.log('✅ SÍ HAY itemsCalculadora - RETORNANDO SIN AGRUPAR (ya vienen consolidados del backend)');
+    console.log('✅ SÍ HAY itemsCalculadora - RETORNANDO SIN AGRUPAR (mostrando todos los rubros individuales)');
 
-    // NO AGRUPAR - los items ya vienen consolidados con sus totales calculados
+    // NO AGRUPAR NI DEDUPLICAR - Mostrar todos los rubros tal como vienen del backend
     const items = presupuestoSeleccionado.itemsCalculadora.map(item => ({
       ...item,
       // ✅ Calcular subtotales BASE SIEMPRE desde arrays cuando estén poblados.
@@ -48,7 +48,7 @@ const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = nu
         : Number(item.subtotalGastosGenerales || 0),
     }));
 
-    console.log('✅ ITEMS SIN AGRUPAR:', items.length, 'items');
+    console.log('✅ ITEMS SIN DEDUPLICAR:', items.length, 'items');
     items.forEach((g, i) => {
       console.log(`  ${i+1}. ${g.tipoProfesional}: $${Number(g.total || 0).toLocaleString('es-AR')}`);
     });
