@@ -787,10 +787,10 @@ export const apiService = {
   // Header obligatorio: empresaId: "1"
   // Query param obligatorio: empresaId=1
   obras: {
-    // ✅ ENDPOINT PRINCIPAL - TODAS LAS OBRAS (RECOMENDADO)
-    // GET /api/obras/todas?empresaId=1
-    // Devuelve TODAS las obras (cualquier estado) con 33 campos completos
-    getAll: (empresaId) => apiService.get('/api/obras/todas', { empresaId }),
+    // ✅ ENDPOINT PRINCIPAL - TODAS LAS OBRAS POR EMPRESA
+    // GET /api/obras/empresa/{empresaId}
+    // Devuelve TODAS las obras (cualquier estado) de la empresa
+    getAll: (empresaId) => apiService.get(`/api/obras/empresa/${empresaId}`),
 
     // ✅ GET /api/obras/{id}
     getById: (id, empresaId) => apiService.get(`/api/obras/${id}`, { empresaId }),
