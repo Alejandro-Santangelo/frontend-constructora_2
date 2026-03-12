@@ -4,17 +4,19 @@ import { setCurrentEmpresaId } from './services/api';
 const EmpresaContext = createContext();
 
 const STORAGE_KEY = 'empresaSeleccionada';
-const USER_KEY = 'usuarioAutenticado'; // ⚠️ Ya no se usa - el usuario NO se persiste para forzar login
+const USER_KEY = 'usuarioAutenticado';
 
 export function EmpresaProvider({ children }) {
-  // 🔐 Usuario autenticado - SIEMPRE comienza en null para forzar login con PIN
-  // NO se carga desde localStorage para garantizar autenticación en cada sesión
-  const [usuarioAutenticado, setUsuarioAutenticadoState] = useState(null);
-
-  // Limpiar cualquier dato de usuario previo del localStorage
-  useEffect(() => {
-    localStorage.removeItem(USER_KEY);
-  }, []);
+  // 🔐 Usuario autenticado - cargado desde localStorage
+  const [usuarioAutenticado, setUsuarioAutenticadoState] = useState(() => {
+    try {
+      const stored = localStorage.getItem(USER_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error cargando usuario desde localStorage:', error);
+      return null;
+    }
+  });
 
   // Cargar empresa desde localStorage (solo si hay usuario autenticado)
   const [empresaSeleccionada, setEmpresaSeleccionadaState] = useState(() => {
@@ -71,14 +73,22 @@ export function EmpresaProvider({ children }) {
   const setUsuarioAutenticado = (usuario) => {
     console.log('👤 Usuario autenticado:', usuario);
     setUsuarioAutenticadoState(usuario);
-    // ❌ NO guardamos el usuario en localStorage para forzar login con PIN en cada sesión
+    
+    // Guardar usuario en localStorage para persistir sesión
+    if (usuario) {
+      localStorage.setItem(USER_KEY, JSON.stringify(usuario));
+    } else {
+      localStorage.removeItem(USER_KEY);
+    }
   };
 
   const logout = () => {
-    console.log('🚪 Cerrando sesión...');
+    console.log('🚪 Cerrando sesión y limpiando localStorage...');
     setUsuarioAutenticadoState(null);
     setEmpresaSeleccionadaState(null);
-    localStorage.removeItem(STORAGE_KEY); // Solo limpiamos la empresa
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(USER_KEY);
+    setCurrentEmpresaId(null);
   };
 
   return (
