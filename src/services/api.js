@@ -72,9 +72,16 @@ const getEmpresaSeleccionada = () => {
 
 // 🔐 HELPERS DE AUTORIZACION
 
-// Verificar si el usuario actual es super admin (empresaId = 3 = "TNT")
+// Verificar si el usuario actual es super admin (rol = "SUPER_ADMIN")
 export const isSuperAdmin = () => {
-  return currentEmpresaId === 3;
+  try {
+    const stored = localStorage.getItem('usuarioAutenticado');
+    if (!stored) return false;
+    const usuario = JSON.parse(stored);
+    return usuario?.rol === 'SUPER_ADMIN';
+  } catch (error) {
+    return false;
+  }
 };
 
 // Obtener empresa desde localStorage (objeto completo con nombre, cuit, etc.)
@@ -250,6 +257,12 @@ apiClient.interceptors.request.use(
       // 4️⃣ Agregar X-Tenant-ID header como respaldo
       config.headers['X-Tenant-ID'] = empresaIdFinal;
       config.headers['x-tenant-id'] = empresaIdFinal; // Minúsculas por si acaso
+      
+      // 5️⃣ Agregar X-Super-Admin header si el usuario es super admin
+      if (isSuperAdmin()) {
+        config.headers['X-Super-Admin'] = 'true';
+        console.log('🔓 Header X-Super-Admin agregado - usuario es SUPER_ADMIN');
+      }
     }
 
     // 🔍 DEBUG: Log final del interceptor - OBRAS BORRADOR SIEMPRE
