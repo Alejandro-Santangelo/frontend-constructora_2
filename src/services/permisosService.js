@@ -43,14 +43,15 @@ export async function obtenerSeccionesPermitidas(rol) {
                     'profesionales-por-obra',
                     'trabajos-diarios',
                     'nuevos-clientes',
-                    'reportes'
+                    'reportes',
+                    'usuarios'
                 ],
                 esSuperAdmin: true
             };
         } else {
             return {
                 rol: 'CONTRATISTA',
-                secciones: ['presupuestos', 'obras'],
+                secciones: ['presupuestos', 'obras', 'usuarios'], // CONTRATISTA puede gestionar su propio perfil
                 esSuperAdmin: false
             };
         }
