@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { setCurrentEmpresaId } from './services/api';
+import { obtenerSeccionesPermitidas, guardarPermisos, limpiarPermisos } from './services/permisosService';
 
 const EmpresaContext = createContext();
 
@@ -70,15 +71,26 @@ export function EmpresaProvider({ children }) {
     }
   };
 
-  const setUsuarioAutenticado = (usuario) => {
+  const setUsuarioAutenticado = async (usuario) => {
     console.log('👤 Usuario autenticado:', usuario);
     setUsuarioAutenticadoState(usuario);
     
     // Guardar usuario en localStorage para persistir sesión
     if (usuario) {
       localStorage.setItem(USER_KEY, JSON.stringify(usuario));
+      
+      // 🔐 Cargar permisos desde el backend según el rol del usuario
+      try {
+        console.log('🔐 Cargando permisos para rol:', usuario.rol);
+        const permisos = await obtenerSeccionesPermitidas(usuario.rol);
+        guardarPermisos(permisos);
+        console.log('✅ Permisos cargados:', permisos);
+      } catch (error) {
+        console.error('❌ Error al cargar permisos:', error);
+      }
     } else {
       localStorage.removeItem(USER_KEY);
+      limpiarPermisos();
     }
   };
 
@@ -88,6 +100,7 @@ export function EmpresaProvider({ children }) {
     setEmpresaSeleccionadaState(null);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(USER_KEY);
+    limpiarPermisos(); // 🔐 Limpiar permisos guardados
     setCurrentEmpresaId(null);
   };
 
