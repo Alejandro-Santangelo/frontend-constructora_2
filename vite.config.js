@@ -40,5 +40,22 @@ export default defineConfig({
       // Estas son rutas del FRONTEND (React Router), NO del backend
       // Solo /api/* debe ir al backend (incluyendo /api/etapas-diarias)
     }
+  },
+  build: {
+    // Asegurar charset UTF-8 en todos los archivos generados
+    charset: 'utf8',
+    rollupOptions: {
+      output: {
+        // Preservar caracteres especiales en los archivos JS generados
+        manualChunks: undefined,
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js'
+      }
+    }
+  },
+  esbuild: {
+    // Asegurar que esbuild preserve UTF-8
+    charset: 'utf8'
   }
 })
