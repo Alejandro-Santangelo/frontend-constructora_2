@@ -592,8 +592,15 @@ const AsignarProfesionalObraModal = ({ show, onClose, obra, onAsignacionExitosa 
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Asignación creada:', data);
+        console.log('✅ Asignación creada exitosamente:');
+        console.log('  - ID de la asignación:', data.id);
+        console.log('  - Profesional:', data.profesionalNombre);
+        console.log('  - Rubro:', data.rubroNombre);
+        console.log('  - Tipo:', data.tipoAsignacion);
+        console.log('  - Objeto completo:', data);
         alert('✅ Profesional asignado exitosamente');
+        
+        console.log('🔄 Recargando lista de asignaciones...');
         await cargarAsignacionesActuales();
 
         // Resetear formulario
