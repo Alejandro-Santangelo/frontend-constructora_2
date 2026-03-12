@@ -10,7 +10,7 @@ import * as trabajosAdicionalesService from '../services/trabajosAdicionalesServ
 import { tieneAccesoASeccion } from '../services/permisosService';
 
 const FunctionalDashboard = ({ showNotification }) => {
-  const { empresaSeleccionada } = useEmpresa();
+  const { empresaSeleccionada, permisosLoaded } = useEmpresa();
   const [stats, setStats] = useState({
     empresas: 0,
     clientes: 0,
@@ -395,7 +395,7 @@ const FunctionalDashboard = ({ showNotification }) => {
       link: '/usuarios',
       description: 'Gestión de usuarios',
       customColor: '#6f42c1',
-      seccion: 'empresas' // Usuarios solo para super admin (misma que empresas)
+      seccion: 'usuarios' // CONTRATISTA puede crear usuarios nuevos para su empresa
     },
     {
       title: 'Profesionales por Obra',
@@ -447,7 +447,19 @@ const FunctionalDashboard = ({ showNotification }) => {
 
   return (
     <div className="container-fluid fade-in" style={{ minWidth: '1100px' }}>
+      {/* 🔐 Mostrar loading mientras se cargan permisos */}
+      {!permisosLoaded && (
+        <div className="text-center py-5">
+          <div className="spinner-border text-primary" role="status">
+            <span className="visually-hidden">Cargando permisos...</span>
+          </div>
+          <p className="mt-3">Cargando permisos del usuario...</p>
+        </div>
+      )}
 
+      {/* 🔐 Dashboard completo una vez que los permisos están listos */}
+      {permisosLoaded && (
+        <>
       {/* Tarjetas de entidades */}
       <div className="row mb-4">
         <div className="col-12 mb-3">
@@ -588,6 +600,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       {/* Botón y modal para obtener todas las versiones de presupuesto eliminado por solicitud */}
 
       {/* Instrucciones */}
+      </>
+      )}
 
     </div>
   );

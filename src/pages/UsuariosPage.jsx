@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import { useEmpresa } from '../EmpresaContext';
+import { esSuperAdmin } from '../services/permisosService';
 
 const UsuariosPage = ({ showNotification }) => {
+  const { usuarioAutenticado } = useEmpresa();
+  const isSuperAdmin = esSuperAdmin();
+  
   const [activeTab, setActiveTab] = useState('lista');
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -74,7 +79,14 @@ const UsuariosPage = ({ showNotification }) => {
       }
 
       const data = await api.get(url);
-      setUsuarios(data.content || data.resultado || []);
+      let usuariosList = data.content || data.resultado || [];
+      
+      // 🔐 Si NO es SUPER_ADMIN, solo mostrar el usuario autenticado actual
+      if (!isSuperAdmin && usuarioAutenticado) {
+        usuariosList = usuariosList.filter(u => u.id === usuarioAutenticado.id);
+      }
+      
+      setUsuarios(usuariosList);
       setTotalPages(data.totalPages || 0);
       setTotalElements(data.totalElements || 0);
     } catch (error) {
@@ -267,41 +279,46 @@ const UsuariosPage = ({ showNotification }) => {
                 <div className="card-header d-flex justify-content-between align-items-center">
                   <h5>Lista de Usuarios</h5>
                   <div className="d-flex align-items-center">
-                    <select 
-                      className="form-select me-2" 
-                      style={{width: 'auto'}}
-                      value={empresaId}
-                      onChange={(e) => setEmpresaId(e.target.value)}
-                    >
-                      <option value="1">Empresa 1</option>
-                      <option value="2">Empresa 2</option>
-                      <option value="3">Empresa 3</option>
-                    </select>
-                    <select 
-                      className="form-select me-2" 
-                      style={{width: 'auto'}}
-                      value={rolFilter}
-                      onChange={(e) => setRolFilter(e.target.value)}
-                    >
-                      <option value="todos">Todos los roles</option>
-                      {rolesDisponibles.map(rol => (
-                        <option key={rol} value={rol}>{rol}</option>
-                      ))}
-                    </select>
-                    <select 
-                      className="form-select me-2" 
-                      style={{width: 'auto'}}
-                      value={estadoFilter}
-                      onChange={(e) => setEstadoFilter(e.target.value)}
-                    >
-                      <option value="todos">Todos los estados</option>
-                      {estadosDisponibles.map(estado => (
-                        <option key={estado} value={estado}>{estado}</option>
-                      ))}
-                    </select>
-                    <button className="btn btn-info me-2" onClick={loadTodosLosUsuarios}>
-                      <i className="fas fa-users me-1"></i>Todos
-                    </button>
+                    {/* 🔐 Filtros solo visibles para SUPER_ADMIN */}
+                    {isSuperAdmin && (
+                      <>
+                        <select 
+                          className="form-select me-2" 
+                          style={{width: 'auto'}}
+                          value={empresaId}
+                          onChange={(e) => setEmpresaId(e.target.value)}
+                        >
+                          <option value="1">Empresa 1</option>
+                          <option value="2">Empresa 2</option>
+                          <option value="3">Empresa 3</option>
+                        </select>
+                        <select 
+                          className="form-select me-2" 
+                          style={{width: 'auto'}}
+                          value={rolFilter}
+                          onChange={(e) => setRolFilter(e.target.value)}
+                        >
+                          <option value="todos">Todos los roles</option>
+                          {rolesDisponibles.map(rol => (
+                            <option key={rol} value={rol}>{rol}</option>
+                          ))}
+                        </select>
+                        <select 
+                          className="form-select me-2" 
+                          style={{width: 'auto'}}
+                          value={estadoFilter}
+                          onChange={(e) => setEstadoFilter(e.target.value)}
+                        >
+                          <option value="todos">Todos los estados</option>
+                          {estadosDisponibles.map(estado => (
+                            <option key={estado} value={estado}>{estado}</option>
+                          ))}
+                        </select>
+                        <button className="btn btn-info me-2" onClick={loadTodosLosUsuarios}>
+                          <i className="fas fa-users me-1"></i>Todos
+                        </button>
+                      </>
+                    )}
                     <button className="btn btn-primary" onClick={loadUsuarios}>
                       <i className="fas fa-sync-alt me-1"></i>Recargar
                     </button>
@@ -353,41 +370,50 @@ const UsuariosPage = ({ showNotification }) => {
                                     <button 
                                       className="btn btn-sm btn-outline-primary"
                                       onClick={() => setSelectedUsuario(usuario)}
+                                      title="Editar usuario"
                                     >
                                       <i className="fas fa-edit"></i>
                                     </button>
-                                    <div className="btn-group" role="group">
-                                      <button 
-                                        className="btn btn-sm btn-outline-warning dropdown-toggle"
-                                        data-bs-toggle="dropdown"
-                                      >
-                                        <i className="fas fa-exchange-alt"></i>
-                                      </button>
-                                      <ul className="dropdown-menu">
-                                        {estadosDisponibles.map(estado => (
-                                          <li key={estado}>
-                                            <button 
-                                              className="dropdown-item"
-                                              onClick={() => cambiarEstadoUsuario(usuario.id, estado)}
-                                            >
-                                              {estado}
-                                            </button>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                    <button 
-                                      className="btn btn-sm btn-outline-info"
-                                      onClick={() => resetearPassword(usuario.id)}
-                                    >
-                                      <i className="fas fa-key"></i>
-                                    </button>
-                                    <button 
-                                      className="btn btn-sm btn-outline-danger"
-                                      onClick={() => eliminarUsuario(usuario.id)}
-                                    >
-                                      <i className="fas fa-trash"></i>
-                                    </button>
+                                    {/* 🔐 Botones de administración solo para SUPER_ADMIN */}
+                                    {isSuperAdmin && (
+                                      <>
+                                        <div className="btn-group" role="group">
+                                          <button 
+                                            className="btn btn-sm btn-outline-warning dropdown-toggle"
+                                            data-bs-toggle="dropdown"
+                                            title="Cambiar estado"
+                                          >
+                                            <i className="fas fa-exchange-alt"></i>
+                                          </button>
+                                          <ul className="dropdown-menu">
+                                            {estadosDisponibles.map(estado => (
+                                              <li key={estado}>
+                                                <button 
+                                                  className="dropdown-item"
+                                                  onClick={() => cambiarEstadoUsuario(usuario.id, estado)}
+                                                >
+                                                  {estado}
+                                                </button>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                        <button 
+                                          className="btn btn-sm btn-outline-info"
+                                          onClick={() => resetearPassword(usuario.id)}
+                                          title="Resetear contraseña"
+                                        >
+                                          <i className="fas fa-key"></i>
+                                        </button>
+                                        <button 
+                                          className="btn btn-sm btn-outline-danger"
+                                          onClick={() => eliminarUsuario(usuario.id)}
+                                          title="Eliminar usuario"
+                                        >
+                                          <i className="fas fa-trash"></i>
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -702,14 +728,17 @@ const UsuariosPage = ({ showNotification }) => {
             <i className="fas fa-list me-1"></i>Lista de Usuarios
           </button>
         </li>
-        <li className="nav-item">
-          <button 
-            className={`nav-link ${activeTab === 'crear' ? 'active' : ''}`}
-            onClick={() => setActiveTab('crear')}
-          >
-            <i className="fas fa-plus me-1"></i>Crear Usuario
-          </button>
-        </li>
+        {/* 🔐 Tab "Crear Usuario" solo visible para SUPER_ADMIN */}
+        {isSuperAdmin && (
+          <li className="nav-item">
+            <button 
+              className={`nav-link ${activeTab === 'crear' ? 'active' : ''}`}
+              onClick={() => setActiveTab('crear')}
+            >
+              <i className="fas fa-plus me-1"></i>Crear Usuario
+            </button>
+          </li>
+        )}
         <li className="nav-item">
           <button 
             className={`nav-link ${activeTab === 'busqueda' ? 'active' : ''}`}

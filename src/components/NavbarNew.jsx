@@ -31,7 +31,7 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
     { path: '/proveedores', icon: 'fas fa-truck', label: 'Proveedores', seccion: 'proveedores' },
     { path: '/stock', icon: 'fas fa-warehouse', label: 'Stock', seccion: 'materiales' }, // usa mismo permiso que materiales
     { path: '/presupuestos-no-cliente', icon: 'fas fa-file-signature', label: 'Presupuestos', seccion: 'presupuestos' },
-    { path: '/usuarios', icon: 'fas fa-user-cog', label: 'Usuarios', seccion: 'empresas' }, // usuarios está bajo empresas
+    { path: '/usuarios', icon: 'fas fa-user-cog', label: 'Usuarios', seccion: 'usuarios' },
   ];
 
   // 🔐 Filtrar quick links según permisos del usuario
