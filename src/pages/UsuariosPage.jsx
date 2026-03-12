@@ -57,6 +57,13 @@ const UsuariosPage = ({ showNotification }) => {
   const [totalElements, setTotalElements] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
+  
+  // 🔐 Estado para cambio de PIN
+  const [pinData, setPinData] = useState({
+    pinActual: '',
+    pinNuevo: '',
+    confirmarPinNuevo: ''
+  });
 
   useEffect(() => {
     loadUsuarios();
@@ -239,6 +246,53 @@ const UsuariosPage = ({ showNotification }) => {
       console.error('Error reseteando contraseña:', error);
       showNotification('Error reseteando contraseña', 'error');
     }
+  };
+
+  // 🔐 Cambiar PIN del usuario autenticado
+  const cambiarPin = async () => {
+    // Validaciones
+    if (!pinData.pinActual || !pinData.pinNuevo || !pinData.confirmarPinNuevo) {
+      showNotification('Complete todos los campos de PIN', 'warning');
+      return;
+    }
+
+    if (pinData.pinNuevo !== pinData.confirmarPinNuevo) {
+      showNotification('El PIN nuevo y la confirmación no coinciden', 'error');
+      return;
+    }
+
+    if (!/^\d{4}$/.test(pinData.pinNuevo)) {
+      showNotification('El PIN debe ser de 4 dígitos numéricos', 'error');
+      return;
+    }
+
+    if (pinData.pinActual === pinData.pinNuevo) {
+      showNotification('El PIN nuevo debe ser diferente al actual', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.put(`/api/auth/cambiar-pin/${selectedUsuario.id}`, {
+        pinActual: pinData.pinActual,
+        pinNuevo: pinData.pinNuevo
+      });
+      
+      showNotification('PIN cambiado exitosamente', 'success');
+      setPinData({ pinActual: '', pinNuevo: '', confirmarPinNuevo: '' });
+    } catch (error) {
+      console.error('Error cambiando PIN:', error);
+      const errorMsg = error.response?.data || error.message || 'Error cambiando PIN';
+      showNotification(errorMsg, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔧 Función para cerrar modal y limpiar estados
+  const cerrarModal = () => {
+    setSelectedUsuario(null);
+    setPinData({ pinActual: '', pinNuevo: '', confirmarPinNuevo: '' });
   };
 
   const getRolBadgeClass = (rol) => {
@@ -762,7 +816,7 @@ const UsuariosPage = ({ showNotification }) => {
                 <button 
                   type="button" 
                   className="btn-close"
-                  onClick={() => setSelectedUsuario(null)}
+                  onClick={cerrarModal}
                 ></button>
               </div>
               <div className="modal-body">
@@ -843,15 +897,73 @@ const UsuariosPage = ({ showNotification }) => {
                     <button 
                       type="button" 
                       className="btn btn-secondary me-2"
-                      onClick={() => setSelectedUsuario(null)}
+                      onClick={cerrarModal}
                     >
                       Cancelar
                     </button>
                     <button type="submit" className="btn btn-primary">
-                      <i className="fas fa-save me-1"></i>Guardar
+                      <i className="fas fa-save me-1"></i>Guardar Cambios
                     </button>
                   </div>
                 </form>
+
+                {/* 🔐 Sección de Cambio de PIN - Solo visible cuando edita su propio usuario */}
+                {selectedUsuario.id === usuarioAutenticado?.id && (
+                  <>
+                    <hr className="my-4" />
+                    <h6 className="mb-3"><i className="fas fa-key me-2"></i>Cambiar PIN de Acceso</h6>
+                    <div className="alert alert-info">
+                      <i className="fas fa-info-circle me-2"></i>
+                      El PIN debe ser de 4 dígitos numéricos. Lo usarás para iniciar sesión.
+                    </div>
+                    <div className="row">
+                      <div className="col-md-4 mb-3">
+                        <label className="form-label">PIN Actual *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          placeholder="****"
+                          maxLength="4"
+                          value={pinData.pinActual}
+                          onChange={(e) => setPinData({...pinData, pinActual: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+                      <div className="col-md-4 mb-3">
+                        <label className="form-label">PIN Nuevo *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          placeholder="****"
+                          maxLength="4"
+                          value={pinData.pinNuevo}
+                          onChange={(e) => setPinData({...pinData, pinNuevo: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+                      <div className="col-md-4 mb-3">
+                        <label className="form-label">Confirmar PIN Nuevo *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          placeholder="****"
+                          maxLength="4"
+                          value={pinData.confirmarPinNuevo}
+                          onChange={(e) => setPinData({...pinData, confirmarPinNuevo: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+                    </div>
+                    <div className="d-flex justify-content-end">
+                      <button 
+                        type="button" 
+                        className="btn btn-warning"
+                        onClick={cambiarPin}
+                        disabled={loading}
+                      >
+                        <i className="fas fa-key me-1"></i>
+                        {loading ? 'Cambiando...' : 'Cambiar PIN'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
