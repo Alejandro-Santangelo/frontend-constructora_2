@@ -7,9 +7,10 @@ import QuickApiTest from '../components/QuickApiTest';
 import VersionesPorObraModal from '../components/VersionesPorObraModal';
 import { useEmpresa } from '../EmpresaContext';
 import * as trabajosAdicionalesService from '../services/trabajosAdicionalesService';
+import { tieneAccesoASeccion } from '../services/permisosService';
 
 const FunctionalDashboard = ({ showNotification }) => {
-  const { empresaSeleccionada } = useEmpresa();
+  const { empresaSeleccionada, permisosLoaded } = useEmpresa();
   const [stats, setStats] = useState({
     empresas: 0,
     clientes: 0,
@@ -308,7 +309,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       icon: 'fas fa-building',
       color: 'primary',
       link: '/empresas',
-      description: 'Gestión multi-tenant'
+      description: 'Gestión multi-tenant',
+      seccion: 'empresas'
     },
     {
       title: 'Clientes',
@@ -316,7 +318,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       icon: 'fas fa-users',
       color: 'success',
       link: '/clientes',
-      description: 'Base de datos de clientes'
+      description: 'Base de datos de clientes',
+      seccion: 'clientes'
     },
     {
       title: 'Obras',
@@ -324,7 +327,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       icon: 'fas fa-hard-hat',
       color: 'warning',
       link: '/obras',
-      description: 'Proyectos de construcción'
+      description: 'Proyectos de construcción',
+      seccion: 'obras'
     },
     {
       title: 'Profesionales',
@@ -333,7 +337,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'info',
       link: '/profesionales',
       description: 'Arquitectos e ingenieros',
-      customColor: '#e83e8c'
+      customColor: '#e83e8c',
+      seccion: 'profesionales'
     },
     {
       title: 'Materiales',
@@ -341,7 +346,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       icon: 'fas fa-boxes',
       color: 'secondary',
       link: '/materiales',
-      description: 'Catálogo de materiales'
+      description: 'Catálogo de materiales',
+      seccion: 'materiales'
     },
     {
       title: 'Gastos Generales',
@@ -350,7 +356,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'warning',
       link: '/gastos-generales',
       description: 'Otros costos y gastos',
-      customColor: '#20c997'
+      customColor: '#20c997',
+      seccion: 'gastos-generales'
     },
     {
       title: 'Proveedores',
@@ -358,7 +365,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       icon: 'fas fa-truck',
       color: 'danger',
       link: '/proveedores',
-      description: 'Red de proveedores'
+      description: 'Red de proveedores',
+      seccion: 'proveedores'
     },
     {
       title: 'Presupuestos',
@@ -366,7 +374,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       icon: 'fas fa-file-signature',
       color: 'dark',
       link: '/presupuestos-no-cliente',
-      description: 'Gestión de presupuestos'
+      description: 'Gestión de presupuestos',
+      seccion: 'presupuestos'
     },
     {
       title: 'Pagos - Cobros - Retiros',
@@ -375,7 +384,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'success',
       link: '/sistema-financiero',
       description: 'Cobros, Pagos y Retiros de Obras',
-      customColor: '#17a2b8'
+      customColor: '#17a2b8',
+      seccion: 'pagos-cobros-retiros'
     },
     {
       title: 'Usuarios',
@@ -384,7 +394,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'warning',
       link: '/usuarios',
       description: 'Gestión de usuarios',
-      customColor: '#6f42c1'
+      customColor: '#6f42c1',
+      seccion: 'usuarios' // CONTRATISTA puede crear usuarios nuevos para su empresa
     },
     {
       title: 'Profesionales por Obra',
@@ -393,7 +404,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'primary',
       link: '/profesionales-obra',
       description: 'Asignación de profesionales',
-      customColor: '#fd7e14'
+      customColor: '#fd7e14',
+      seccion: 'profesionales-por-obra'
     },
     {
       title: 'Trabajos Diarios|Nuevos Clientes',
@@ -402,7 +414,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'success',
       link: '/presupuestos-no-cliente',
       description: 'Crear presupuestos para nuevos clientes',
-      customColor: '#ff8c42'
+      customColor: '#ff8c42',
+      seccion: 'trabajos-diarios'
     },
     {
       title: 'Reportes del Sistema',
@@ -411,9 +424,15 @@ const FunctionalDashboard = ({ showNotification }) => {
       color: 'info',
       link: '/reportes-sistema',
       description: 'Auditorías y backups automáticos',
-      customColor: '#667eea'
+      customColor: '#667eea',
+      seccion: 'reportes'
     }
   ], [stats]);
+
+  // 🔐 Filtrar tarjetas según permisos del usuario
+  const tarjetasPermitidas = useMemo(() => {
+    return entityCards.filter(card => tieneAccesoASeccion(card.seccion));
+  }, [entityCards]);
 
   // Mapeo de colores Bootstrap a hexadecimal
   const colorMap = {
@@ -428,21 +447,33 @@ const FunctionalDashboard = ({ showNotification }) => {
 
   return (
     <div className="container-fluid fade-in" style={{ minWidth: '1100px' }}>
+      {/* 🔐 Mostrar loading mientras se cargan permisos */}
+      {!permisosLoaded && (
+        <div className="text-center py-5">
+          <div className="spinner-border text-primary" role="status">
+            <span className="visually-hidden">Cargando permisos...</span>
+          </div>
+          <p className="mt-3">Cargando permisos del usuario...</p>
+        </div>
+      )}
 
+      {/* 🔐 Dashboard completo una vez que los permisos están listos */}
+      {permisosLoaded && (
+        <>
       {/* Tarjetas de entidades */}
       <div className="row mb-4">
         <div className="col-12 mb-3">
           <h3>
             <i className="fas fa-th-large me-2"></i>
-            Controladores del Sistema ({entityCards.length})
+            Controladores del Sistema ({tarjetasPermitidas.length})
           </h3>
-          {entityCards.length === 0 && (
+          {tarjetasPermitidas.length === 0 && (
             <div className="alert alert-warning">
-              ⚠️ No se encontraron tarjetas de controladores
+              ⚠️ No tienes acceso a ninguna sección del sistema
             </div>
           )}
         </div>
-        {entityCards.map((card) => {
+        {tarjetasPermitidas.map((card) => {
           const borderColor = card.customColor || colorMap[card.color] || '#007bff';
 
           return (
@@ -569,6 +600,8 @@ const FunctionalDashboard = ({ showNotification }) => {
       {/* Botón y modal para obtener todas las versiones de presupuesto eliminado por solicitud */}
 
       {/* Instrucciones */}
+      </>
+      )}
 
     </div>
   );

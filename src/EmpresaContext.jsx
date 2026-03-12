@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { setCurrentEmpresaId } from './services/api';
+import { obtenerSeccionesPermitidas, guardarPermisos, limpiarPermisos } from './services/permisosService';
 
 const EmpresaContext = createContext();
 
@@ -17,6 +18,30 @@ export function EmpresaProvider({ children }) {
       return null;
     }
   });
+
+  // 🔐 useEffect: Cargar permisos si el usuario ya está en localStorage (sesión restaurada)
+  useEffect(() => {
+    const cargarPermisosIniciales = async () => {
+      if (usuarioAutenticado?.rol) {
+        console.log('🔐 Usuario restaurado desde localStorage - cargando permisos para rol:', usuarioAutenticado.rol);
+        setPermisosLoaded(false);
+        try {
+          const permisos = await obtenerSeccionesPermitidas(usuarioAutenticado.rol);
+          guardarPermisos(permisos);
+          console.log('✅ Permisos iniciales cargados:', permisos);
+          setPermisosLoaded(true);
+        } catch (error) {
+          console.error('❌ Error al cargar permisos iniciales:', error);
+          setPermisosLoaded(true); // Marcar como cargado incluso en error para evitar loading infinito
+        }
+      } else {
+        // No hay usuario, permisos están "cargados" (vacíos)
+        setPermisosLoaded(true);
+      }
+    };
+
+    cargarPermisosIniciales();
+  }, []); // Solo ejecutar una vez al montar el componente
 
   // Cargar empresa desde localStorage (solo si hay usuario autenticado)
   const [empresaSeleccionada, setEmpresaSeleccionadaState] = useState(() => {
@@ -39,6 +64,7 @@ export function EmpresaProvider({ children }) {
   });
 
   const [loading, setLoading] = useState(false);
+  const [permisosLoaded, setPermisosLoaded] = useState(false); // 🔐 Estado para saber si los permisos están cargados
 
   // 🔐 Validar que no haya empresa sin usuario autenticado (limpiar datos viejos)
   useEffect(() => {
@@ -70,15 +96,30 @@ export function EmpresaProvider({ children }) {
     }
   };
 
-  const setUsuarioAutenticado = (usuario) => {
+  const setUsuarioAutenticado = async (usuario) => {
     console.log('👤 Usuario autenticado:', usuario);
     setUsuarioAutenticadoState(usuario);
     
     // Guardar usuario en localStorage para persistir sesión
     if (usuario) {
       localStorage.setItem(USER_KEY, JSON.stringify(usuario));
+      
+      // 🔐 Cargar permisos desde el backend según el rol del usuario
+      setPermisosLoaded(false); // Marcar como no cargado mientras hace la petición
+      try {
+        console.log('🔐 Cargando permisos para rol:', usuario.rol);
+        const permisos = await obtenerSeccionesPermitidas(usuario.rol);
+        guardarPermisos(permisos);
+        console.log('✅ Permisos cargados:', permisos);
+        setPermisosLoaded(true); // Marcar como cargado
+      } catch (error) {
+        console.error('❌ Error al cargar permisos:', error);
+        setPermisosLoaded(true); // Marcar como cargado incluso en error
+      }
     } else {
       localStorage.removeItem(USER_KEY);
+      limpiarPermisos();
+      setPermisosLoaded(true); // Sin usuario, los permisos están "listos" (vacíos)
     }
   };
 
@@ -88,6 +129,8 @@ export function EmpresaProvider({ children }) {
     setEmpresaSeleccionadaState(null);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(USER_KEY);
+    limpiarPermisos(); // 🔐 Limpiar permisos guardados
+    setPermisosLoaded(true); // Los permisos están "listos" (vacíos)
     setCurrentEmpresaId(null);
   };
 
@@ -98,7 +141,8 @@ export function EmpresaProvider({ children }) {
       usuarioAutenticado,
       setUsuarioAutenticado,
       logout,
-      loading
+      loading,
+      permisosLoaded // 🔐 Exponer estado de carga de permisos
     }}>
       {children}
     </EmpresaContext.Provider>

@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import { useEmpresa } from '../EmpresaContext';
+import { esSuperAdmin } from '../services/permisosService';
 
 const UsuariosPage = ({ showNotification }) => {
+  const { usuarioAutenticado } = useEmpresa();
+  const isSuperAdmin = esSuperAdmin();
+  
   const [activeTab, setActiveTab] = useState('lista');
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -52,6 +57,13 @@ const UsuariosPage = ({ showNotification }) => {
   const [totalElements, setTotalElements] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
+  
+  // 🔐 Estado para cambio de PIN
+  const [pinData, setPinData] = useState({
+    pinActual: '',
+    pinNuevo: '',
+    confirmarPinNuevo: ''
+  });
 
   useEffect(() => {
     loadUsuarios();
@@ -74,7 +86,21 @@ const UsuariosPage = ({ showNotification }) => {
       }
 
       const data = await api.get(url);
-      setUsuarios(data.content || data.resultado || []);
+      let usuariosList = data.content || data.resultado || [];
+      
+      console.log('🔐 UsuariosPage - usuarioAutenticado:', usuarioAutenticado);
+      console.log('🔐 UsuariosPage - usuariosList ANTES de filtrar:', usuariosList);
+      
+      // 🔐 Si NO es SUPER_ADMIN, solo mostrar el usuario autenticado actual
+      if (!isSuperAdmin && usuarioAutenticado) {
+        // LoginResponse tiene userId, no id
+        const userIdToFilter = usuarioAutenticado.userId || usuarioAutenticado.id;
+        usuariosList = usuariosList.filter(u => u.id === userIdToFilter);
+        console.log('🔐 UsuariosPage - Filtrando por userId:', userIdToFilter);
+        console.log('🔐 UsuariosPage - usuariosList DESPUÉS de filtrar:', usuariosList);
+      }
+      
+      setUsuarios(usuariosList);
       setTotalPages(data.totalPages || 0);
       setTotalElements(data.totalElements || 0);
     } catch (error) {
@@ -229,6 +255,53 @@ const UsuariosPage = ({ showNotification }) => {
     }
   };
 
+  // 🔐 Cambiar PIN del usuario autenticado
+  const cambiarPin = async () => {
+    // Validaciones
+    if (!pinData.pinActual || !pinData.pinNuevo || !pinData.confirmarPinNuevo) {
+      showNotification('Complete todos los campos de PIN', 'warning');
+      return;
+    }
+
+    if (pinData.pinNuevo !== pinData.confirmarPinNuevo) {
+      showNotification('El PIN nuevo y la confirmación no coinciden', 'error');
+      return;
+    }
+
+    if (!/^\d{4}$/.test(pinData.pinNuevo)) {
+      showNotification('El PIN debe ser de 4 dígitos numéricos', 'error');
+      return;
+    }
+
+    if (pinData.pinActual === pinData.pinNuevo) {
+      showNotification('El PIN nuevo debe ser diferente al actual', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.put(`/api/auth/cambiar-pin/${selectedUsuario.id}`, {
+        pinActual: pinData.pinActual,
+        pinNuevo: pinData.pinNuevo
+      });
+      
+      showNotification('PIN cambiado exitosamente', 'success');
+      setPinData({ pinActual: '', pinNuevo: '', confirmarPinNuevo: '' });
+    } catch (error) {
+      console.error('Error cambiando PIN:', error);
+      const errorMsg = error.response?.data || error.message || 'Error cambiando PIN';
+      showNotification(errorMsg, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔧 Función para cerrar modal y limpiar estados
+  const cerrarModal = () => {
+    setSelectedUsuario(null);
+    setPinData({ pinActual: '', pinNuevo: '', confirmarPinNuevo: '' });
+  };
+
   const getRolBadgeClass = (rol) => {
     switch (rol) {
       case 'ADMIN': return 'bg-danger';
@@ -267,41 +340,46 @@ const UsuariosPage = ({ showNotification }) => {
                 <div className="card-header d-flex justify-content-between align-items-center">
                   <h5>Lista de Usuarios</h5>
                   <div className="d-flex align-items-center">
-                    <select 
-                      className="form-select me-2" 
-                      style={{width: 'auto'}}
-                      value={empresaId}
-                      onChange={(e) => setEmpresaId(e.target.value)}
-                    >
-                      <option value="1">Empresa 1</option>
-                      <option value="2">Empresa 2</option>
-                      <option value="3">Empresa 3</option>
-                    </select>
-                    <select 
-                      className="form-select me-2" 
-                      style={{width: 'auto'}}
-                      value={rolFilter}
-                      onChange={(e) => setRolFilter(e.target.value)}
-                    >
-                      <option value="todos">Todos los roles</option>
-                      {rolesDisponibles.map(rol => (
-                        <option key={rol} value={rol}>{rol}</option>
-                      ))}
-                    </select>
-                    <select 
-                      className="form-select me-2" 
-                      style={{width: 'auto'}}
-                      value={estadoFilter}
-                      onChange={(e) => setEstadoFilter(e.target.value)}
-                    >
-                      <option value="todos">Todos los estados</option>
-                      {estadosDisponibles.map(estado => (
-                        <option key={estado} value={estado}>{estado}</option>
-                      ))}
-                    </select>
-                    <button className="btn btn-info me-2" onClick={loadTodosLosUsuarios}>
-                      <i className="fas fa-users me-1"></i>Todos
-                    </button>
+                    {/* 🔐 Filtros solo visibles para SUPER_ADMIN */}
+                    {isSuperAdmin && (
+                      <>
+                        <select 
+                          className="form-select me-2" 
+                          style={{width: 'auto'}}
+                          value={empresaId}
+                          onChange={(e) => setEmpresaId(e.target.value)}
+                        >
+                          <option value="1">Empresa 1</option>
+                          <option value="2">Empresa 2</option>
+                          <option value="3">Empresa 3</option>
+                        </select>
+                        <select 
+                          className="form-select me-2" 
+                          style={{width: 'auto'}}
+                          value={rolFilter}
+                          onChange={(e) => setRolFilter(e.target.value)}
+                        >
+                          <option value="todos">Todos los roles</option>
+                          {rolesDisponibles.map(rol => (
+                            <option key={rol} value={rol}>{rol}</option>
+                          ))}
+                        </select>
+                        <select 
+                          className="form-select me-2" 
+                          style={{width: 'auto'}}
+                          value={estadoFilter}
+                          onChange={(e) => setEstadoFilter(e.target.value)}
+                        >
+                          <option value="todos">Todos los estados</option>
+                          {estadosDisponibles.map(estado => (
+                            <option key={estado} value={estado}>{estado}</option>
+                          ))}
+                        </select>
+                        <button className="btn btn-info me-2" onClick={loadTodosLosUsuarios}>
+                          <i className="fas fa-users me-1"></i>Todos
+                        </button>
+                      </>
+                    )}
                     <button className="btn btn-primary" onClick={loadUsuarios}>
                       <i className="fas fa-sync-alt me-1"></i>Recargar
                     </button>
@@ -353,41 +431,50 @@ const UsuariosPage = ({ showNotification }) => {
                                     <button 
                                       className="btn btn-sm btn-outline-primary"
                                       onClick={() => setSelectedUsuario(usuario)}
+                                      title="Editar usuario"
                                     >
                                       <i className="fas fa-edit"></i>
                                     </button>
-                                    <div className="btn-group" role="group">
-                                      <button 
-                                        className="btn btn-sm btn-outline-warning dropdown-toggle"
-                                        data-bs-toggle="dropdown"
-                                      >
-                                        <i className="fas fa-exchange-alt"></i>
-                                      </button>
-                                      <ul className="dropdown-menu">
-                                        {estadosDisponibles.map(estado => (
-                                          <li key={estado}>
-                                            <button 
-                                              className="dropdown-item"
-                                              onClick={() => cambiarEstadoUsuario(usuario.id, estado)}
-                                            >
-                                              {estado}
-                                            </button>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                    <button 
-                                      className="btn btn-sm btn-outline-info"
-                                      onClick={() => resetearPassword(usuario.id)}
-                                    >
-                                      <i className="fas fa-key"></i>
-                                    </button>
-                                    <button 
-                                      className="btn btn-sm btn-outline-danger"
-                                      onClick={() => eliminarUsuario(usuario.id)}
-                                    >
-                                      <i className="fas fa-trash"></i>
-                                    </button>
+                                    {/* 🔐 Botones de administración solo para SUPER_ADMIN */}
+                                    {isSuperAdmin && (
+                                      <>
+                                        <div className="btn-group" role="group">
+                                          <button 
+                                            className="btn btn-sm btn-outline-warning dropdown-toggle"
+                                            data-bs-toggle="dropdown"
+                                            title="Cambiar estado"
+                                          >
+                                            <i className="fas fa-exchange-alt"></i>
+                                          </button>
+                                          <ul className="dropdown-menu">
+                                            {estadosDisponibles.map(estado => (
+                                              <li key={estado}>
+                                                <button 
+                                                  className="dropdown-item"
+                                                  onClick={() => cambiarEstadoUsuario(usuario.id, estado)}
+                                                >
+                                                  {estado}
+                                                </button>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                        <button 
+                                          className="btn btn-sm btn-outline-info"
+                                          onClick={() => resetearPassword(usuario.id)}
+                                          title="Resetear contraseña"
+                                        >
+                                          <i className="fas fa-key"></i>
+                                        </button>
+                                        <button 
+                                          className="btn btn-sm btn-outline-danger"
+                                          onClick={() => eliminarUsuario(usuario.id)}
+                                          title="Eliminar usuario"
+                                        >
+                                          <i className="fas fa-trash"></i>
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -702,14 +789,17 @@ const UsuariosPage = ({ showNotification }) => {
             <i className="fas fa-list me-1"></i>Lista de Usuarios
           </button>
         </li>
-        <li className="nav-item">
-          <button 
-            className={`nav-link ${activeTab === 'crear' ? 'active' : ''}`}
-            onClick={() => setActiveTab('crear')}
-          >
-            <i className="fas fa-plus me-1"></i>Crear Usuario
-          </button>
-        </li>
+        {/* 🔐 Tab "Crear Usuario" solo visible para SUPER_ADMIN */}
+        {isSuperAdmin && (
+          <li className="nav-item">
+            <button 
+              className={`nav-link ${activeTab === 'crear' ? 'active' : ''}`}
+              onClick={() => setActiveTab('crear')}
+            >
+              <i className="fas fa-plus me-1"></i>Crear Usuario
+            </button>
+          </li>
+        )}
         <li className="nav-item">
           <button 
             className={`nav-link ${activeTab === 'busqueda' ? 'active' : ''}`}
@@ -733,7 +823,7 @@ const UsuariosPage = ({ showNotification }) => {
                 <button 
                   type="button" 
                   className="btn-close"
-                  onClick={() => setSelectedUsuario(null)}
+                  onClick={cerrarModal}
                 ></button>
               </div>
               <div className="modal-body">
@@ -814,15 +904,73 @@ const UsuariosPage = ({ showNotification }) => {
                     <button 
                       type="button" 
                       className="btn btn-secondary me-2"
-                      onClick={() => setSelectedUsuario(null)}
+                      onClick={cerrarModal}
                     >
                       Cancelar
                     </button>
                     <button type="submit" className="btn btn-primary">
-                      <i className="fas fa-save me-1"></i>Guardar
+                      <i className="fas fa-save me-1"></i>Guardar Cambios
                     </button>
                   </div>
                 </form>
+
+                {/* 🔐 Sección de Cambio de PIN - Solo visible cuando edita su propio usuario */}
+                {selectedUsuario.id === (usuarioAutenticado?.userId || usuarioAutenticado?.id) && (
+                  <>
+                    <hr className="my-4" />
+                    <h6 className="mb-3"><i className="fas fa-key me-2"></i>Cambiar PIN de Acceso</h6>
+                    <div className="alert alert-info">
+                      <i className="fas fa-info-circle me-2"></i>
+                      El PIN debe ser de 4 dígitos numéricos. Lo usarás para iniciar sesión.
+                    </div>
+                    <div className="row">
+                      <div className="col-md-4 mb-3">
+                        <label className="form-label">PIN Actual *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          placeholder="****"
+                          maxLength="4"
+                          value={pinData.pinActual}
+                          onChange={(e) => setPinData({...pinData, pinActual: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+                      <div className="col-md-4 mb-3">
+                        <label className="form-label">PIN Nuevo *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          placeholder="****"
+                          maxLength="4"
+                          value={pinData.pinNuevo}
+                          onChange={(e) => setPinData({...pinData, pinNuevo: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+                      <div className="col-md-4 mb-3">
+                        <label className="form-label">Confirmar PIN Nuevo *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          placeholder="****"
+                          maxLength="4"
+                          value={pinData.confirmarPinNuevo}
+                          onChange={(e) => setPinData({...pinData, confirmarPinNuevo: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+                    </div>
+                    <div className="d-flex justify-content-end">
+                      <button 
+                        type="button" 
+                        className="btn btn-warning"
+                        onClick={cambiarPin}
+                        disabled={loading}
+                      >
+                        <i className="fas fa-key me-1"></i>
+                        {loading ? 'Cambiando...' : 'Cambiar PIN'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

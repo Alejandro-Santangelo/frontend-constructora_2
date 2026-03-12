@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { tieneAccesoASeccion } from '../services/permisosService';
 
 const Sidebar = ({ collapsed, onToggleSidebar }) => {
   const location = useLocation();
@@ -9,65 +10,85 @@ const Sidebar = ({ collapsed, onToggleSidebar }) => {
       path: '/',
       icon: 'fas fa-chart-line',
       label: 'Dashboard',
-      description: 'Vista general del sistema'
+      description: 'Vista general del sistema',
+      seccion: 'dashboard' // Siempre visible
     },
     {
       path: '/empresas',
       icon: 'fas fa-building',
       label: 'Empresas',
       description: 'Gestión de tenants',
-      badge: 'MULTI-TENANT'
+      badge: 'MULTI-TENANT',
+      seccion: 'empresas'
     },
     {
       path: '/clientes',
       icon: 'fas fa-users',
       label: 'Clientes',
-      description: 'Gestión de clientes'
+      description: 'Gestión de clientes',
+      seccion: 'clientes'
     },
     {
       path: '/obras',
       icon: 'fas fa-hard-hat',
       label: 'Obras',
-      description: 'Proyectos de construcción'
+      description: 'Proyectos de construcción',
+      seccion: 'obras'
     },
     {
       path: '/profesionales',
       icon: 'fas fa-user-tie',
       label: 'Profesionales',
-      description: 'Arquitectos, ingenieros, etc.'
+      description: 'Arquitectos, ingenieros, etc.',
+      seccion: 'profesionales'
     },
     {
       path: '/materiales',
       icon: 'fas fa-boxes',
       label: 'Materiales',
-      description: 'Catálogo de materiales'
+      description: 'Catálogo de materiales',
+      seccion: 'materiales'
     },
     {
       path: '/proveedores',
       icon: 'fas fa-truck',
       label: 'Proveedores',
-      description: 'Gestión de proveedores'
+      description: 'Gestión de proveedores',
+      seccion: 'proveedores'
     },
     {
       path: '/stock',
       icon: 'fas fa-warehouse',
       label: 'Stock',
-      description: 'Control de inventario'
+      description: 'Control de inventario',
+      seccion: 'materiales' // Mismo permiso que materiales
     },
     {
       path: '/presupuestos',
       icon: 'fas fa-file-alt',
       label: 'Presupuestos',
-      description: 'Cotizaciones y presupuestos'
+      description: 'Cotizaciones y presupuestos',
+      seccion: 'presupuestos'
     },
     {
       path: '/api-tester',
       icon: 'fas fa-flask',
       label: 'API Tester',
       description: 'Pruebas de endpoints',
-      badge: 'RÁPIDO'
+      badge: 'RÁPIDO',
+      seccion: 'dashboard' // Siempre visible para debug
     }
   ];
+
+  // 🔐 Filtrar menú según permisos del usuario
+  const menuItemsPermitidos = useMemo(() => {
+    return menuItems.filter(item => {
+      // Dashboard siempre visible
+      if (item.seccion === 'dashboard') return true;
+      // Verificar permiso para otras secciones
+      return tieneAccesoASeccion(item.seccion);
+    });
+  }, []);
 
   if (collapsed) {
     return (
@@ -84,7 +105,7 @@ const Sidebar = ({ collapsed, onToggleSidebar }) => {
             </button>
           </div>
           <ul className="nav flex-column">
-            {menuItems.map((item) => (
+            {menuItemsPermitidos.map((item) => (
               <li className="nav-item mb-2" key={item.path}>
                 <Link
                   to={item.path}
@@ -121,7 +142,7 @@ const Sidebar = ({ collapsed, onToggleSidebar }) => {
         </h6>
         
         <ul className="nav flex-column">
-          {menuItems.map((item) => (
+          {menuItemsPermitidos.map((item) => (
             <li className="nav-item" key={item.path}>
               <Link
                 to={item.path}

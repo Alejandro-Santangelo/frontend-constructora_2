@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useEmpresa } from '../EmpresaContext';
+import { tieneAccesoASeccion } from '../services/permisosService';
 // SimpleTenantSelector eliminado del navbar para mejorar el layout
 
 const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
@@ -17,21 +18,31 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
   };
 
   const quickLinks = [
-    { path: '/', icon: 'fas fa-chart-line', label: 'Dashboard' },
-    { path: '/empresas', icon: 'fas fa-building', label: 'Empresas' },
-    { path: '/clientes', icon: 'fas fa-users', label: 'Clientes' },
-    { path: '/obras', icon: 'fas fa-hard-hat', label: 'Obras' },
-    { path: '/profesionales', icon: 'fas fa-user-tie', label: 'Profesionales' },
-    { path: '/profesionales-obra', icon: 'fas fa-users-cog', label: 'Profesionales por Obra' },
-    { path: '/materiales', icon: 'fas fa-boxes', label: 'Materiales' },
-    { path: '/gastos-generales', icon: 'fas fa-receipt', label: 'Gastos Generales' },
-    { path: '/sistema-financiero', icon: 'fas fa-money-bill-wave', label: 'Pagos - Cobros - Retiros' },
-    { path: '/reportes-sistema', icon: 'fas fa-shield-alt', label: 'Reportes del Sistema' },
-    { path: '/proveedores', icon: 'fas fa-truck', label: 'Proveedores' },
-    { path: '/stock', icon: 'fas fa-warehouse', label: 'Stock' },
-    { path: '/presupuestos-no-cliente', icon: 'fas fa-file-signature', label: 'Presupuestos' },
-    { path: '/usuarios', icon: 'fas fa-user-cog', label: 'Usuarios' },
+    { path: '/', icon: 'fas fa-chart-line', label: 'Dashboard', seccion: 'dashboard' },
+    { path: '/empresas', icon: 'fas fa-building', label: 'Empresas', seccion: 'empresas' },
+    { path: '/clientes', icon: 'fas fa-users', label: 'Clientes', seccion: 'clientes' },
+    { path: '/obras', icon: 'fas fa-hard-hat', label: 'Obras', seccion: 'obras' },
+    { path: '/profesionales', icon: 'fas fa-user-tie', label: 'Profesionales', seccion: 'profesionales' },
+    { path: '/profesionales-obra', icon: 'fas fa-users-cog', label: 'Profesionales por Obra', seccion: 'profesionales-por-obra' },
+    { path: '/materiales', icon: 'fas fa-boxes', label: 'Materiales', seccion: 'materiales' },
+    { path: '/gastos-generales', icon: 'fas fa-receipt', label: 'Gastos Generales', seccion: 'gastos-generales' },
+    { path: '/sistema-financiero', icon: 'fas fa-money-bill-wave', label: 'Pagos - Cobros - Retiros', seccion: 'pagos-cobros-retiros' },
+    { path: '/reportes-sistema', icon: 'fas fa-shield-alt', label: 'Reportes del Sistema', seccion: 'reportes' },
+    { path: '/proveedores', icon: 'fas fa-truck', label: 'Proveedores', seccion: 'proveedores' },
+    { path: '/stock', icon: 'fas fa-warehouse', label: 'Stock', seccion: 'materiales' }, // usa mismo permiso que materiales
+    { path: '/presupuestos-no-cliente', icon: 'fas fa-file-signature', label: 'Presupuestos', seccion: 'presupuestos' },
+    { path: '/usuarios', icon: 'fas fa-user-cog', label: 'Usuarios', seccion: 'usuarios' },
   ];
+
+  // 🔐 Filtrar quick links según permisos del usuario
+  const quickLinksPermitidos = useMemo(() => {
+    return quickLinks.filter(link => {
+      // Dashboard siempre visible
+      if (link.seccion === 'dashboard') return true;
+      // Verificar permiso para otras secciones
+      return tieneAccesoASeccion(link.seccion);
+    });
+  }, []);
 
   const openInNewTab = (path) => {
     window.open(window.location.origin + path, '_blank');
@@ -135,7 +146,7 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
             </Link>
 
             <div className="d-none d-md-flex" style={{ flexWrap: 'wrap', maxWidth: 760, gap: 6, marginLeft: '8px' }}>
-              {quickLinks.map((link) => (
+              {quickLinksPermitidos.map((link) => (
                 <Link
                   key={link.path}
                   to={link.path}
@@ -165,7 +176,7 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
                 <i className="fas fa-th-list"></i>
               </button>
               <ul className="dropdown-menu dropdown-menu-end" aria-labelledby="quickLinksDropdown">
-                {quickLinks.map((link) => (
+                {quickLinksPermitidos.map((link) => (
                   <li key={link.path}>
                     <Link
                       to={link.path}
