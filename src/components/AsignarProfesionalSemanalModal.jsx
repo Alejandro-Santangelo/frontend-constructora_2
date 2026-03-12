@@ -1567,7 +1567,7 @@ getObraId() retorna: ${obraIdReal}
     });
   };
 
-  const handleAsignar = async () => {
+  const handleAsignar = async (eliminarExistentes = false) => {
     // 🔥 TRABAJO EXTRA: Guardado especial con PUT a /api/v1/trabajos-extra/{id}
     if (obra._esTrabajoExtra) {
       console.log('🔥 [TRABAJO EXTRA] Iniciando guardado de profesionales...');
@@ -1760,71 +1760,75 @@ getObraId() retorna: ${obraIdReal}
         return;
       }
 
-      // PASO 1: SIEMPRE eliminar asignaciones existentes para evitar conflictos 409
-      console.log('🗑️ Limpiando asignaciones existentes de la obra (bulk delete):', obraIdParaQuery);
-
-      try {
-        await eliminarAsignacionesPorObra(obraIdParaQuery, empresaSeleccionada.id);
-        console.log('✅ Asignaciones eliminadas correctamente en lote');
-      } catch (error) {
-        console.warn('⚠️ Error en eliminación por lote (puede no haber asignaciones o endpoint no soportado):', error.message);
-        console.warn('🔄 Intentando eliminación individual como fallback...');
+      // PASO 1: Eliminar asignaciones existentes SOLO si se solicita explícitamente
+      if (eliminarExistentes) {
+        console.log('🗑️ [MODO REEMPLAZAR] Limpiando asignaciones existentes de la obra (bulk delete):', obraIdParaQuery);
 
         try {
-          // Fallback: Intentar obtener asignaciones actuales y eliminar una por una
-          const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
-          console.log('📋 Respuesta completa fetch asignaciones:', responseAsignaciones);
+          await eliminarAsignacionesPorObra(obraIdParaQuery, empresaSeleccionada.id);
+          console.log('✅ Asignaciones eliminadas correctamente en lote');
+        } catch (error) {
+          console.warn('⚠️ Error en eliminación por lote (puede no haber asignaciones o endpoint no soportado):', error.message);
+          console.warn('🔄 Intentando eliminación individual como fallback...');
 
-          // Manejar posibles estructuras de respuesta (Array directo, objeto con data, Pageable con content)
-          let asignacionesArray = [];
-          if (Array.isArray(responseAsignaciones)) {
-             asignacionesArray = responseAsignaciones;
-          } else if (Array.isArray(responseAsignaciones?.data)) {
-             asignacionesArray = responseAsignaciones.data;
-          } else if (Array.isArray(responseAsignaciones?.data?.content)) {
-             // Soporte para Spring Pageable
-             asignacionesArray = responseAsignaciones.data.content;
-          } else if (Array.isArray(responseAsignaciones?.content)) {
-             asignacionesArray = responseAsignaciones.content;
-          }
+          try {
+            // Fallback: Intentar obtener asignaciones actuales y eliminar una por una
+            const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
+            console.log('📋 Respuesta completa fetch asignaciones:', responseAsignaciones);
 
-          console.log(`📋 Fallback: Encontradas ${asignacionesArray.length} asignaciones para eliminar.`);
-
-          if (asignacionesArray.length > 0) {
-            console.log(`🗑️ Iniciando eliminación secuencial de ${asignacionesArray.length} registros...`);
-            let eliminadosCount = 0;
-
-            for (const asignacion of asignacionesArray) {
-              // Validar ID
-              const idParaBorrar = asignacion.id || asignacion.asignacionId;
-
-              if (idParaBorrar) {
-                try {
-                  console.log(`🗑️ Eliminando asignación ID: ${idParaBorrar}...`);
-                  await eliminarAsignacionSemanal(idParaBorrar, empresaSeleccionada.id);
-                  console.log(`✅ Asignación ${idParaBorrar} eliminada.`);
-                  eliminadosCount++;
-                } catch (error) {
-                  console.warn(`⚠️ Falló eliminación de ID ${idParaBorrar}:`, error.message);
-
-                  // Intento desesperado: probar ruta antigua por si acaso
-                  try {
-                      // Importar dinámicamente o usar apiClient directo si fuera posible,
-                      // pero asumiremos que el error es definitivo por ahora.
-                  } catch (e) {}
-                }
-              } else {
-                 console.warn('⚠️ Objeto asignación sin ID reconocido:', asignacion);
-              }
+            // Manejar posibles estructuras de respuesta (Array directo, objeto con data, Pageable con content)
+            let asignacionesArray = [];
+            if (Array.isArray(responseAsignaciones)) {
+               asignacionesArray = responseAsignaciones;
+            } else if (Array.isArray(responseAsignaciones?.data)) {
+               asignacionesArray = responseAsignaciones.data;
+            } else if (Array.isArray(responseAsignaciones?.data?.content)) {
+               // Soporte para Spring Pageable
+               asignacionesArray = responseAsignaciones.data.content;
+            } else if (Array.isArray(responseAsignaciones?.content)) {
+               asignacionesArray = responseAsignaciones.content;
             }
-            console.log(`🏁 Proceso de eliminación finalizado. Borrados: ${eliminadosCount}/${asignacionesArray.length}`);
-          } else {
-            console.log('✅ No pareció haber asignaciones previas que eliminar (Array vacío o formato desconocido).');
+
+            console.log(`📋 Fallback: Encontradas ${asignacionesArray.length} asignaciones para eliminar.`);
+
+            if (asignacionesArray.length > 0) {
+              console.log(`🗑️ Iniciando eliminación secuencial de ${asignacionesArray.length} registros...`);
+              let eliminadosCount = 0;
+
+              for (const asignacion of asignacionesArray) {
+                // Validar ID
+                const idParaBorrar = asignacion.id || asignacion.asignacionId;
+
+                if (idParaBorrar) {
+                  try {
+                    console.log(`🗑️ Eliminando asignación ID: ${idParaBorrar}...`);
+                    await eliminarAsignacionSemanal(idParaBorrar, empresaSeleccionada.id);
+                    console.log(`✅ Asignación ${idParaBorrar} eliminada.`);
+                    eliminadosCount++;
+                  } catch (error) {
+                    console.warn(`⚠️ Falló eliminación de ID ${idParaBorrar}:`, error.message);
+
+                    // Intento desesperado: probar ruta antigua por si acaso
+                    try {
+                        // Importar dinámicamente o usar apiClient directo si fuera posible,
+                        // pero asumiremos que el error es definitivo por ahora.
+                    } catch (e) {}
+                  }
+                } else {
+                   console.warn('⚠️ Objeto asignación sin ID reconocido:', asignacion);
+                }
+              }
+              console.log(`🏁 Proceso de eliminación finalizado. Borrados: ${eliminadosCount}/${asignacionesArray.length}`);
+            } else {
+              console.log('✅ No pareció haber asignaciones previas que eliminar (Array vacío o formato desconocido).');
+            }
+          } catch (errorFallback) {
+            console.warn('⚠️ Error en fallback de eliminación:', errorFallback.message);
+            // Continuar de todas formas - puede que no haya asignaciones previas
           }
-        } catch (errorFallback) {
-          console.warn('⚠️ Error en fallback de eliminación:', errorFallback.message);
-          // Continuar de todas formas - puede que no haya asignaciones previas
         }
+      } else {
+        console.log('➕ [MODO AGREGAR] Conservando asignaciones existentes - agregando nuevos profesionales');
       }
 
       // PASO 2: Guardar profesionales adhoc (temporales) en el catálogo antes de asignar
@@ -3469,12 +3473,38 @@ getObraId() retorna: ${obraIdReal}
               Cancelar
             </button>
 
-            {/* Botón guarda en el backend y cierra el modal */}
+            {/* Botón para REEMPLAZAR (elimina existentes y guarda nuevos) */}
+            <button
+              type="button"
+              className="btn btn-warning"
+              onClick={() => {
+                if (confirm('⚠️ ¿Estás seguro de REEMPLAZAR todas las asignaciones existentes?\n\nEsto ELIMINARÁ todos los profesionales ya asignados y guardará SOLO los nuevos.\n\nSi quieres AGREGAR sin eliminar, usa el botón verde.')) {
+                  handleAsignar(true);
+                }
+              }}
+              disabled={cargando}
+              title="Elimina todas las asignaciones actuales y guarda solo los nuevos profesionales seleccionados"
+            >
+              {cargando ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2"></span>
+                  Reemplazando...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-sync-alt me-2"></i>
+                  Reemplazar Todos
+                </>
+              )}
+            </button>
+
+            {/* Botón para AGREGAR (conserva existentes y agrega nuevos) */}
             <button
               type="button"
               className="btn btn-success"
-              onClick={handleAsignar}
+              onClick={() => handleAsignar(false)}
               disabled={cargando}
+              title="Agrega los nuevos profesionales sin eliminar los ya asignados"
             >
               {cargando ? (
                 <>
@@ -3483,8 +3513,8 @@ getObraId() retorna: ${obraIdReal}
                 </>
               ) : (
                 <>
-                  <i className="fas fa-check-circle me-2"></i>
-                  Guardar y Cerrar
+                  <i className="fas fa-plus-circle me-2"></i>
+                  Agregar Profesionales
                 </>
               )}
             </button>

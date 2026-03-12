@@ -13,6 +13,7 @@ import ListarPagosProfesionalModal from '../components/ListarPagosProfesionalMod
 import ResumenFinancieroObraModal from '../components/ResumenFinancieroObraModal';
 import RegistrarPagoConsolidadoModal from '../components/RegistrarPagoConsolidadoModal';
 import DarAdelantoModal from '../components/DarAdelantoModal';
+import PagoCuentaModal from '../components/PagoCuentaModal';
 import SistemaFinancieroConsolidadoModal from '../components/SistemaFinancieroConsolidadoModal';
 import DetalleConsolidadoPorObraModal from '../components/DetalleConsolidadoPorObraModal';
 import DetalleDistribucionCobrosModal from '../components/DetalleDistribucionCobrosModal';
@@ -149,6 +150,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const [showConsolidarPagosGeneral, setShowConsolidarPagosGeneral] = useState(false);
   const [showDarAdelanto, setShowDarAdelanto] = useState(false);
   const [profesionalParaAdelanto, setProfesionalParaAdelanto] = useState(null);
+  const [showPagoCuenta, setShowPagoCuenta] = useState(false);
+  const [presupuestoParaPagoCuenta, setPresupuestoParaPagoCuenta] = useState(null);
 
   // Estados para modal de desglose por obra
   const [showDesglose, setShowDesglose] = useState(false);
@@ -838,6 +841,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     setShowRegistrarNuevoCobro(false);
     setShowAsignarCobroDisponible(false);
     setShowDarAdelanto(false);
+    setShowPagoCuenta(false);
 
     // ✅ Recargar datos usando el contexto financiero
     recargarDatos();
@@ -3129,6 +3133,83 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             </div>
           </div>
         </div>
+
+        {/* 💰 NUEVO: Pagos a Cuenta (sobre rubros del presupuesto) */}
+        <div className="col-md-6 mb-3">
+          <div className="card h-100 border-info shadow-sm hover-shadow" style={{borderLeft: '4px solid #17a2b8'}}>
+            <div className="card-header" style={{backgroundColor: '#17a2b8', color: 'white'}}>
+              <h5 className="mb-0">
+                <i className="bi bi-cash-coin"></i> 💰 Pagos a Cuenta
+              </h5>
+            </div>
+            <div className="card-body">
+              <p className="text-muted mb-0">
+                Registre pagos parciales sobre items de rubros (Jornales, Materiales, Gastos Generales)
+              </p>
+            </div>
+            <div className="card-footer bg-transparent">
+              <button
+                className="btn btn-info w-100" 
+                style={{backgroundColor: '#17a2b8', borderColor: '#17a2b8', color: 'white'}}
+                onClick={async () => {
+                  try {
+                    // Intentar usar obra seleccionada singular
+                    let obraParaUsar = obraSeleccionada;
+                    
+                    // Si no hay obra singular pero hay selección múltiple, usar la primera
+                    if (!obraParaUsar && obrasSeleccionadas.size > 0) {
+                      const primeraObraId = Array.from(obrasSeleccionadas)[0];
+                      obraParaUsar = obrasDisponibles.find(o => o.id === primeraObraId);
+                    }
+                    
+                    if (!obraParaUsar) {
+                      alert('Por favor, seleccione una obra primero');
+                      return;
+                    }
+
+                    // Verificar si ya tiene el presupuesto completo (obras de obrasDisponibles)
+                    let presupuestoCompleto = obraParaUsar.presupuestoCompleto;
+                    
+                    // Si no tiene el objeto completo, intentar obtenerlo por ID
+                    if (!presupuestoCompleto) {
+                      const presupuestoId = obraParaUsar.presupuestoNoClienteId || obraParaUsar.presupuesto_no_cliente_id;
+                      
+                      if (!presupuestoId) {
+                        alert('Esta obra no tiene presupuesto asociado. Los pagos a cuenta solo aplican a obras con presupuesto.');
+                        return;
+                      }
+
+                      // Cargar presupuesto completo con itemsCalculadora
+                      presupuestoCompleto = await apiService.presupuestosNoCliente.getById(presupuestoId, empresaSeleccionada.id);
+                    }
+                    
+                    if (!presupuestoCompleto) {
+                      alert('No se pudo cargar el presupuesto');
+                      return;
+                    }
+
+                    // Agregar información de la obra al presupuesto si no la tiene
+                    if (!presupuestoCompleto.nombreObra) {
+                      presupuestoCompleto.nombreObra = obraParaUsar.nombreObra || obraParaUsar.nombre;
+                    }
+                    if (!presupuestoCompleto.obraId) {
+                      presupuestoCompleto.obraId = obraParaUsar.id || obraParaUsar.obraId;
+                    }
+                    
+                    setPresupuestoParaPagoCuenta(presupuestoCompleto);
+                    setShowPagoCuenta(true);
+                  } catch (error) {
+                    console.error('Error cargando presupuesto:', error);
+                    alert('Error al cargar el presupuesto: ' + error.message);
+                  }
+                }}
+                disabled={!obraSeleccionada && obrasSeleccionadas.size === 0}
+              >
+                <i className="bi bi-cash-coin"></i> Abrir Tarjeta
+              </button>
+            </div>
+          </div>
+        </div>
           </>
         )}
       </div>
@@ -3246,6 +3327,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         obrasSeleccionadas={presupuestosSeleccionadosArray}
         empresaId={empresaSeleccionada?.id}
         modoMultiple={!profesionalParaAdelanto}
+        onSuccess={handleSuccess}
+      />
+
+      {/* 💰 NUEVO: Modal de Pagos a Cuenta (sobre rubros del presupuesto) */}
+      <PagoCuentaModal
+        show={showPagoCuenta}
+        onHide={() => {
+          setShowPagoCuenta(false);
+          setPresupuestoParaPagoCuenta(null);
+        }}
+        presupuesto={presupuestoParaPagoCuenta || obraSeleccionada}
         onSuccess={handleSuccess}
       />
 
