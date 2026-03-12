@@ -6,12 +6,12 @@ import { useEmpresa } from '../EmpresaContext';
 const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
   const location = useLocation();
   const isHome = location.pathname === '/';
-  const { empresaSeleccionada, setEmpresaSeleccionada } = useEmpresa();
+  const { empresaSeleccionada, logout } = useEmpresa();
   const [navbarCollapsed, setNavbarCollapsed] = useState(false);
 
   const handleCambiarContratista = () => {
-    if (confirm('¿Deseas cambiar de contratista? Esto recargará la página.')) {
-      setEmpresaSeleccionada(null);
+    if (confirm('¿Deseas cambiar de contratista? Esto cerrará tu sesión.')) {
+      logout(); // Limpia usuario y empresa, forzando login con PIN
       window.location.href = '/';
     }
   };

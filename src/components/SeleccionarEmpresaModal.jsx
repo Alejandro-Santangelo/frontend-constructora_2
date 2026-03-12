@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { fetchAllEmpresas } from '../store/slices/empresasSlice';
 import api from '../services/api';
 
-export default function SeleccionarEmpresaModal({ onSelect }) {
+export default function SeleccionarEmpresaModal({ onSelect, usuarioAutenticado }) {
   const dispatch = useDispatch();
   const empresas = useSelector(state => state.empresas.empresas);
   const [loading, setLoading] = useState(false);
@@ -17,6 +17,27 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
     representanteLegal: '',
     activa: true
   });
+
+  // 🔐 Determinar si es super admin
+  const esSuperAdmin = usuarioAutenticado?.rol === 'SUPER_ADMIN' || usuarioAutenticado?.esSuperAdmin;
+
+  // 🔐 Filtrar empresas según permisos
+  const empresasPermitidas = React.useMemo(() => {
+    if (!usuarioAutenticado) return [];
+
+    // Si viene empresasPermitidas del backend, usar esas
+    if (usuarioAutenticado.empresasPermitidas && usuarioAutenticado.empresasPermitidas.length > 0) {
+      const idsPermitidos = usuarioAutenticado.empresasPermitidas.map(e => e.id);
+      return empresas.filter(emp => idsPermitidos.includes(emp.id));
+    }
+
+    // Fallback: Si es super admin, mostrar todas; sino, solo la suya
+    if (esSuperAdmin) {
+      return empresas;
+    } else {
+      return empresas.filter(emp => emp.id === usuarioAutenticado.empresaId);
+    }
+  }, [empresas, usuarioAutenticado, esSuperAdmin]);
 
   useEffect(() => {
     loadEmpresas();
@@ -139,18 +160,24 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
         animation: 'slideUp 0.4s ease-out',
         transform: 'translateY(0)'
       }}>
-        {/* Header - Mi Empresa */}
+        {/* Header - Info del usuario */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
           marginBottom: '24px',
           padding: '16px 20px',
-          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          background: esSuperAdmin
+            ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+            : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
           borderRadius: '12px',
-          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+          boxShadow: esSuperAdmin
+            ? '0 4px 12px rgba(245, 158, 11, 0.3)'
+            : '0 4px 12px rgba(16, 185, 129, 0.3)'
         }}>
-          <div style={{ fontSize: '32px' }}>🏠</div>
+          <div style={{ fontSize: '32px' }}>
+            {esSuperAdmin ? '👑' : '🏠'}
+          </div>
           <div style={{ flex: 1 }}>
             <div style={{
               fontSize: '18px',
@@ -158,14 +185,14 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
               color: '#fff',
               marginBottom: '2px'
             }}>
-              Mi Empresa
+              {usuarioAutenticado?.nombre || 'Usuario'}
             </div>
             <div style={{
               fontSize: '13px',
               color: 'rgba(255, 255, 255, 0.9)',
               fontWeight: '500'
             }}>
-              Administrador
+              {esSuperAdmin ? 'Super Administrador' : 'Contratista'}
             </div>
           </div>
         </div>
@@ -183,7 +210,9 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
             fontWeight: '700',
             letterSpacing: '-0.5px'
           }}>
-            Selecciona el Contratista con el que vas a Trabajar
+            {esSuperAdmin
+              ? 'Selecciona el Contratista con el que vas a Trabajar'
+              : 'Acceder a tu Empresa'}
           </h2>
         </div>
 
@@ -319,15 +348,16 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
             </button>
           </div>
         ) : (
-          // Lista de Empresas
+          // Lista de Empresas permitidas según rol del usuario
           <>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
+              gridTemplateColumns: esSuperAdmin ? 'repeat(3, 1fr)' : 'repeat(1, 1fr)',
               gap: '12px',
-              marginTop: '24px'
+              marginTop: '24px',
+              justifyItems: esSuperAdmin ? 'stretch' : 'center'
             }}>
-              {empresas.filter(empresa => empresa && empresa.id).map(empresa => {
+              {empresasPermitidas.filter(empresa => empresa && empresa.id).map(empresa => {
               const tipo = getEmpresaTipo(empresa);
 
               return (

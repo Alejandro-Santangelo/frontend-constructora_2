@@ -70,6 +70,23 @@ const getEmpresaSeleccionada = () => {
   return currentEmpresaId;
 };
 
+// 🔐 HELPERS DE AUTORIZACION
+
+// Verificar si el usuario actual es super admin (empresaId = 3 = "TNT")
+export const isSuperAdmin = () => {
+  return currentEmpresaId === 3;
+};
+
+// Obtener empresa desde localStorage (objeto completo con nombre, cuit, etc.)
+export const getEmpresaObject = () => {
+  try {
+    const stored = localStorage.getItem('empresaSeleccionada');
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    return null;
+  }
+};
+
 // Crear instancia de axios con configuración optimizada
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
