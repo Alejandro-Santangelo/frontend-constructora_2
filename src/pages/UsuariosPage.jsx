@@ -88,9 +88,16 @@ const UsuariosPage = ({ showNotification }) => {
       const data = await api.get(url);
       let usuariosList = data.content || data.resultado || [];
       
+      console.log('🔐 UsuariosPage - usuarioAutenticado:', usuarioAutenticado);
+      console.log('🔐 UsuariosPage - usuariosList ANTES de filtrar:', usuariosList);
+      
       // 🔐 Si NO es SUPER_ADMIN, solo mostrar el usuario autenticado actual
       if (!isSuperAdmin && usuarioAutenticado) {
-        usuariosList = usuariosList.filter(u => u.id === usuarioAutenticado.id);
+        // LoginResponse tiene userId, no id
+        const userIdToFilter = usuarioAutenticado.userId || usuarioAutenticado.id;
+        usuariosList = usuariosList.filter(u => u.id === userIdToFilter);
+        console.log('🔐 UsuariosPage - Filtrando por userId:', userIdToFilter);
+        console.log('🔐 UsuariosPage - usuariosList DESPUÉS de filtrar:', usuariosList);
       }
       
       setUsuarios(usuariosList);
@@ -908,7 +915,7 @@ const UsuariosPage = ({ showNotification }) => {
                 </form>
 
                 {/* 🔐 Sección de Cambio de PIN - Solo visible cuando edita su propio usuario */}
-                {selectedUsuario.id === usuarioAutenticado?.id && (
+                {selectedUsuario.id === (usuarioAutenticado?.userId || usuarioAutenticado?.id) && (
                   <>
                     <hr className="my-4" />
                     <h6 className="mb-3"><i className="fas fa-key me-2"></i>Cambiar PIN de Acceso</h6>
