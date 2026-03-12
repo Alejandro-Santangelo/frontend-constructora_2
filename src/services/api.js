@@ -26,11 +26,11 @@ const ENV_API_URL = import.meta.env.VITE_API_URL;
 
 // Determinar la URL base:
 // PRODUCCIÓN: Siempre usar Railway backend
-// DESARROLLO: 
+// DESARROLLO:
 //   - Si hay VITE_API_URL en .env.development, usarla (permite conectar a Railway desde local)
 //   - Si no, usar '' (proxy de Vite a localhost:8080)
-const API_BASE_URL = isProduction 
-  ? RAILWAY_BACKEND_URL 
+const API_BASE_URL = isProduction
+  ? RAILWAY_BACKEND_URL
   : (ENV_API_URL || '');
 
 console.log('🔧 API Service - Modo:', import.meta.env.MODE);

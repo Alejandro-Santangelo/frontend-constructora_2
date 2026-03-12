@@ -1736,7 +1736,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         presupuesto.id = presupuestoData.id;
         presupuesto.estado = estadoOriginal; // Mantener estado original
         presupuesto.numeroVersion = presupuestoData.numeroVersion || presupuestoData.version || 1;
-        presupuesto.numeroPresupuesto = presupuestoData.numeroPresupuesto;
+
+        // ✅ numeroPresupuesto: Si viene null/undefined/vacío desde el modal, NO incluir el campo
+        // El backend auto-generará con el ID del presupuesto
+        if (!presupuesto.numeroPresupuesto) {
+          delete presupuesto.numeroPresupuesto;
+          console.log('📌 numeroPresupuesto vacío - backend auto-generará con ID:', presupuestoData.id);
+        } else {
+          console.log('✅ numeroPresupuesto incluido:', presupuesto.numeroPresupuesto);
+        }
 
         // 🔧 CRÍTICO: Preservar esPresupuestoTrabajoExtra e idObra del presupuesto original
         if (presupuestoData.esPresupuestoTrabajoExtra) {
@@ -1767,6 +1775,21 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         console.log(`✅ Presupuesto completo obtenido:`, presupuestoCompleto);
 
         // Hacer merge: presupuestoCompleto (todos los campos) + presupuesto (cambios del usuario)
+        console.log('🔍 [MERGE] ANTES DEL MERGE - Totales que llegan del modal:', {
+          totalPresupuestoConHonorarios: presupuesto.totalPresupuestoConHonorarios,
+          totalFinal: presupuesto.totalFinal,
+          totalConDescuentos: presupuesto.totalConDescuentos,
+          totalGeneral: presupuesto.totalGeneral,
+          montoTotal: presupuesto.montoTotal
+        });
+        console.log('🔍 [MERGE] ANTES DEL MERGE - Totales del backend:', {
+          totalPresupuestoConHonorarios: presupuestoCompleto.totalPresupuestoConHonorarios,
+          totalFinal: presupuestoCompleto.totalFinal,
+          totalConDescuentos: presupuestoCompleto.totalConDescuentos,
+          totalGeneral: presupuestoCompleto.totalGeneral,
+          montoTotal: presupuestoCompleto.montoTotal
+        });
+
         const presupuestoFinal = {
           ...presupuestoCompleto,  // ← Todos los campos existentes del backend
           ...presupuesto,          // ← Cambios del usuario (sobrescribe solo lo que cambió)
@@ -1780,6 +1803,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           totalGeneral: presupuesto.totalGeneral || presupuestoCompleto.totalGeneral,
           montoTotal: presupuesto.montoTotal || presupuestoCompleto.montoTotal
         };
+
+        console.log('🔍 [MERGE] DESPUÉS DEL MERGE - Totales finales:', {
+          totalPresupuestoConHonorarios: presupuestoFinal.totalPresupuestoConHonorarios,
+          totalFinal: presupuestoFinal.totalFinal,
+          totalConDescuentos: presupuestoFinal.totalConDescuentos,
+          totalGeneral: presupuestoFinal.totalGeneral,
+          montoTotal: presupuestoFinal.montoTotal
+        });
 
         console.log(`📤 Enviando presupuesto COMPLETO con merge al backend:`, {
           id: presupuestoFinal.id,
@@ -2893,23 +2924,52 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         <div>
                           <div className="fw-bold text-primary">
                             {(() => {
-                              //✅ PRIORIDAD 1: totalConDescuentos (incluye descuentos, honorarios y mayores costos)
-                              // Este es el total REAL que debe mostrarse cuando hay descuentos aplicados
-                              if (row.totalConDescuentos != null && Number(row.totalConDescuentos) > 0) {
+                              // 🔍 VALIDACIÓN ROBUSTA: Detectar si totalConDescuentos está mal calculado
+                              const totalFinal = row.totalFinal;
+                              const totalConDescuentos = row.totalConDescuentos;
+                              const totalDescuentos = row.totalDescuentos;
+                              const hayDescuentos = totalDescuentos && Number(totalDescuentos) > 0;
+
+                              // ✅ PRIORIDAD 1: Si hay descuentos, usar totalConDescuentos
+                              if (hayDescuentos && totalConDescuentos != null && Number(totalConDescuentos) > 0) {
                                 return (
                                   <>
-                                    {`$${Number(row.totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                    {`$${Number(totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                                     <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
                                   </>
                                 );
                               }
 
-                              // PRIORIDAD 2: totalFinal (incluye honorarios y mayores costos, pero SIN descuentos)
-                              if (row.totalFinal != null && Number(row.totalFinal) > 0) {
-                                return `$${Number(row.totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                              // ✅ PRIORIDAD 2: Si NO hay descuentos, validar coherencia
+                              if (!hayDescuentos && totalFinal != null && totalConDescuentos != null) {
+                                const diferencia = Math.abs(Number(totalFinal) - Number(totalConDescuentos));
+
+                                // Si son iguales (o casi), usar totalConDescuentos
+                                if (diferencia < 10) { // Tolerancia de $10 por redondeos
+                                  return `$${Number(totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                                }
+
+                                // 🚨 INCONSISTENCIA DETECTADA: totalConDescuentos mal calculado
+                                // Usar totalFinal que es el correcto
+                                console.warn('⚠️ Presupuesto', row.numeroPresupuesto, '- totalConDescuentos inconsistente. Usando totalFinal.', {
+                                  totalFinal: Number(totalFinal).toLocaleString('es-AR'),
+                                  totalConDescuentos: Number(totalConDescuentos).toLocaleString('es-AR'),
+                                  diferencia: diferencia.toLocaleString('es-AR')
+                                });
+                                return `$${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
                               }
 
-                              // PRIORIDAD 3: Recalcular desde itemsCalculadora (si no hay totales precalculados)
+                              // ✅ PRIORIDAD 3: Solo hay totalFinal
+                              if (totalFinal != null && Number(totalFinal) > 0) {
+                                return `$${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                              }
+
+                              // ✅ PRIORIDAD 4: Solo hay totalConDescuentos
+                              if (totalConDescuentos != null && Number(totalConDescuentos) > 0) {
+                                return `$${Number(totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                              }
+
+                              // PRIORIDAD 5: Recalcular desde itemsCalculadora (si no hay totales precalculados)
                               const items = row.itemsCalculadora;
                               if (items && Array.isArray(items) && items.length > 0) {
                                 const { totalFinal, totalDescuentos } = calcularTotalConDescuentosDesdeItems(items, row);
@@ -2925,12 +2985,36 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                 }
                               }
 
-                              // PRIORIDAD 4: Fallback a otros campos legacy
+                              // PRIORIDAD 6: Fallback a otros campos legacy
                               const total = row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
                               if (total > 0) return `$${Number(total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
 
                               return <span className="text-muted">Sin datos</span>;
                             })()}
+                          </div>
+
+                          {/* 🏷️ BADGES: Mayores Costos y Descuentos por Rubro */}
+                          <div className="mt-1">
+                            {row.mayoresCostosPorRubro && Array.isArray(row.mayoresCostosPorRubro) && row.mayoresCostosPorRubro.length > 0 && (
+                              <span
+                                className="badge bg-warning bg-opacity-75 text-dark me-1"
+                                style={{fontSize: '0.65em', padding: '2px 5px', cursor: 'help'}}
+                                title={`Mayores Costos: ${row.mayoresCostosPorRubro.map(r => r.nombreRubro).join(', ')}`}
+                              >
+                                <i className="fas fa-plus-circle me-1"></i>
+                                MC: {row.mayoresCostosPorRubro.length} {row.mayoresCostosPorRubro.length === 1 ? 'rubro' : 'rubros'}
+                              </span>
+                            )}
+                            {row.descuentosPorRubro && Array.isArray(row.descuentosPorRubro) && row.descuentosPorRubro.length > 0 && (
+                              <span
+                                className="badge bg-danger bg-opacity-75 text-white"
+                                style={{fontSize: '0.65em', padding: '2px 5px', cursor: 'help'}}
+                                title={`Descuentos: ${row.descuentosPorRubro.map(r => r.nombreRubro).join(', ')}`}
+                              >
+                                <i className="fas fa-minus-circle me-1"></i>
+                                Desc: {row.descuentosPorRubro.length} {row.descuentosPorRubro.length === 1 ? 'rubro' : 'rubros'}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>

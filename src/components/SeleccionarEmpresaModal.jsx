@@ -430,8 +430,8 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
             })}
             </div>
 
-            {/* Botón para agregar nueva empresa */}
-            <div style={{ marginTop: '24px', textAlign: 'center' }}>
+            {/* Botón para agregar nueva empresa - OCULTO */}
+            {/* <div style={{ marginTop: '24px', textAlign: 'center' }}>
               <button
                 className="btn btn-outline-primary"
                 onClick={() => setShowCreateForm(true)}
@@ -439,7 +439,7 @@ export default function SeleccionarEmpresaModal({ onSelect }) {
                 <i className="fas fa-plus me-2"></i>
                 Agregar Nueva Empresa
               </button>
-            </div>
+            </div> */}
           </>
         )}
       </div>

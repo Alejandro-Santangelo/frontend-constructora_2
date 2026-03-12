@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import ObraSelector from './ObraSelector';
 import ClienteSelector from './ClienteSelector';
@@ -726,12 +726,143 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     }
   }, [tipoProfesionalCalc]);
 
+  // ========== 🆕 MAYORES COSTOS POR RUBRO ==========
+  const [mayoresCostosPorRubro, setMayoresCostosPorRubro] = useState([]);
+  const [mostrarMayoresCostosPorRubro, setMostrarMayoresCostosPorRubro] = useState(false); // Colapsado por defecto
+  const [ocultarMayoresCostosEnPDF, setOcultarMayoresCostosEnPDF] = useState(true); // Ocultar en PDF por defecto
+
+  // Agregar nuevo mayor costo por rubro
+  const agregarMayorCostoPorRubro = () => {
+    setMayoresCostosPorRubro([
+      ...mayoresCostosPorRubro,
+      {
+        nombreRubro: '',
+        activo: true,
+        tipo: 'PORCENTAJE',
+        valor: '',
+        profesionalesActivo: false,
+        profesionalesTipo: 'PORCENTAJE',
+        profesionalesValor: '',
+        materialesActivo: false,
+        materialesTipo: 'PORCENTAJE',
+        materialesValor: '',
+        otrosCostosActivo: false,
+        otrosCostosTipo: 'PORCENTAJE',
+        otrosCostosValor: '',
+        honorariosActivo: false,
+        honorariosTipo: 'PORCENTAJE',
+        honorariosValor: ''
+      }
+    ]);
+  };
+
+  // Eliminar mayor costo por rubro por índice
+  const eliminarMayorCostoPorRubro = (index) => {
+    setMayoresCostosPorRubro(mayoresCostosPorRubro.filter((_, i) => i !== index));
+  };
+
+  // Actualizar campo de mayor costo por rubro
+  const actualizarMayorCostoPorRubro = (index, campo, valor) => {
+    const nuevosRubros = [...mayoresCostosPorRubro];
+    nuevosRubros[index] = {
+      ...nuevosRubros[index],
+      [campo]: valor
+    };
+    setMayoresCostosPorRubro(nuevosRubros);
+  };
+
+  // ========== 🆕 DESCUENTOS POR RUBRO ==========
+  const [descuentosPorRubro, setDescuentosPorRubro] = useState([]);
+  const [mostrarDescuentosPorRubro, setMostrarDescuentosPorRubro] = useState(false); // Colapsado por defecto
+  const [ocultarDescuentosEnPDF, setOcultarDescuentosEnPDF] = useState(true); // Ocultar en PDF por defecto
+
+  // Agregar nuevo descuento por rubro
+  const agregarDescuentoPorRubro = () => {
+    setDescuentosPorRubro([
+      ...descuentosPorRubro,
+      {
+        nombreRubro: '',
+        activo: true,
+        tipo: 'PORCENTAJE',
+        valor: '',
+        profesionalesActivo: false,
+        profesionalesTipo: 'PORCENTAJE',
+        profesionalesValor: '',
+        materialesActivo: false,
+        materialesTipo: 'PORCENTAJE',
+        materialesValor: '',
+        otrosCostosActivo: false,
+        otrosCostosTipo: 'PORCENTAJE',
+        otrosCostosValor: '',
+        honorariosActivo: false,
+        honorariosTipo: 'PORCENTAJE',
+        honorariosValor: '',
+        mayoresCostosActivo: false,
+        mayoresCostosTipo: 'PORCENTAJE',
+        mayoresCostosValor: ''
+      }
+    ]);
+  };
+
+  // Eliminar descuento por rubro por índice
+  const eliminarDescuentoPorRubro = (index) => {
+    setDescuentosPorRubro(descuentosPorRubro.filter((_, i) => i !== index));
+  };
+
+  // Actualizar campo de descuento por rubro
+  const actualizarDescuentoPorRubro = (index, campo, valor) => {
+    const nuevosRubros = [...descuentosPorRubro];
+    nuevosRubros[index] = {
+      ...nuevosRubros[index],
+      [campo]: valor
+    };
+    setDescuentosPorRubro(nuevosRubros);
+  };
+
+  // ========== 🆕 ESTADOS CONFIGURACIÓN ACEPTADA ==========
+  const [configuracionMayoresCostosAceptada, setConfiguracionMayoresCostosAceptada] = useState(false);
+  const [configuracionDescuentosAceptada, setConfiguracionDescuentosAceptada] = useState(false);
+
+  // Resetear estado aceptada cuando se modifican los valores
+  useEffect(() => {
+    if (configuracionMayoresCostosAceptada && mayoresCostosPorRubro.length > 0) {
+      setConfiguracionMayoresCostosAceptada(false);
+    }
+  }, [mayoresCostosPorRubro]);
+
+  useEffect(() => {
+    if (configuracionDescuentosAceptada && descuentosPorRubro.length > 0) {
+      setConfiguracionDescuentosAceptada(false);
+    }
+  }, [descuentosPorRubro]);
+
   // useEffect para actualizar form cuando cambian los initialData (al abrir para editar)
   useEffect(() => {
     console.log('🚩 [useEffect-442] Ejecutado');
     if (!initialData || !initialData.id) return;
 
-    // 🚫 BLOQUEAR todos los useEffect durante la carga inicial
+    // � DIAGNÓSTICO: Consultar backend directamente para ver valores reales
+    api.get(`/api/presupuestos-no-cliente/${initialData.id}`)
+      .then(response => {
+        const datos = response.data || response;
+        console.log('🔍 CONSULTA DIRECTA AL BACKEND - Presupuesto ID:', initialData.id);
+        console.log('📊 HONORARIOS GLOBALES desde BD:', {
+          jornalesActivo: datos.honorariosJornalesActivo,
+          jornalesValor: datos.honorariosJornalesValor,
+          jornalesTipo: datos.honorariosJornalesTipo,
+          materialesActivo: datos.honorariosMaterialesActivo,
+          materialesValor: datos.honorariosMaterialesValor,
+          materialesTipo: datos.honorariosMaterialesTipo,
+          otrosCostosActivo: datos.honorariosOtrosCostosActivo,
+          otrosCostosValor: datos.honorariosOtrosCostosValor,
+          profesionalesActivo: datos.honorariosProfesionalesActivo,
+          profesionalesValor: datos.honorariosProfesionalesValor
+        });
+        console.log('📊 HONORARIOS POR RUBRO desde BD:', datos.honorariosPorRubro);
+      })
+      .catch(err => console.error('❌ Error consultando backend:', err));
+
+    // �🚫 BLOQUEAR todos los useEffect durante la carga inicial
     estaCargandoInicialRef.current = true;
     console.log('🚫 BLOQUEANDO useEffects - cargando initialData');
 
@@ -825,17 +956,81 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         return false;
       })(),
       version: safeData.version || safeData.numeroVersion || 1,
-      numeroPresupuesto: safeData.numeroPresupuesto ?? null,
+      numeroPresupuesto: (() => {
+        const valor = safeData.numeroPresupuesto ?? null;
+        console.log('📥 Cargando numeroPresupuesto desde BD:', { valor, tipo: typeof valor });
+        return valor;
+      })(),
       estado: safeData.estado ?? 'BORRADOR',
       tipoPresupuesto: safeData.tipoPresupuesto || 'PRINCIPAL',
       honorarioSeleccion: safeData.honorarioSeleccion || '',
       honorarioDireccionValorFijo: safeData.honorarioDireccionValorFijo ?? '',
       honorarioDireccionPorcentaje: safeData.honorarioDireccionPorcentaje ?? '',
       honorarioDireccionImporte: safeData.honorarioDireccionImporte ?? '',
-      honorarios: safeData.honorarios || (() => {
+      honorarios: (() => {
         // ✅ Reconstruir desde campos individuales si no viene el objeto completo
         console.log('🔧 RECONSTRUYENDO HONORARIOS desde BD');
 
+        // 🆕 MIGRACIÓN: Backend ahora devuelve ARRAY de objetos (no JSON string)
+        // Convertir de array [{nombreRubro, ...campos}, ...] a objeto {nombreRubro: {...campos}}
+        const porRubroDesdeBackend = (() => {
+          if (!safeData.honorariosPorRubro) {
+            console.log('⚠️ No hay honorariosPorRubro en la respuesta');
+            return {};
+          }
+
+          // Backend devuelve ARRAY de objetos
+          if (Array.isArray(safeData.honorariosPorRubro)) {
+            console.log('📥 Cargando honorarios por rubro (formato ARRAY):', safeData.honorariosPorRubro);
+
+            const porRubroObjeto = {};
+            safeData.honorariosPorRubro.forEach(item => {
+              // ✅ IMPORTANTE: Usar nombre original del rubro como key (con mayúsculas y tildes)
+              const rubroKey = item.nombreRubro.trim(); // "Albañilería", "Pintura", etc.
+
+              // Convertir estructura plana del backend a estructura anidada del frontend
+              porRubroObjeto[rubroKey] = {
+                id: item.id, // ✅ Preservar ID del backend para actualizaciones
+                activo: item.activo ?? true,
+                tipo: item.tipo || 'porcentaje',
+                valor: item.valor,
+                profesionales: {
+                  activo: item.profesionalesActivo ?? true,
+                  tipo: item.profesionalesTipo || 'porcentaje',
+                  valor: item.profesionalesValor
+                },
+                materiales: {
+                  activo: item.materialesActivo ?? true,
+                  tipo: item.materialesTipo || 'porcentaje',
+                  valor: item.materialesValor
+                },
+                otrosCostos: {
+                  activo: item.otrosCostosActivo ?? true,
+                  tipo: item.otrosCostosTipo || 'porcentaje',
+                  valor: item.otrosCostosValor
+                }
+              };
+            });
+
+            console.log('✅ Honorarios convertidos a objeto:', porRubroObjeto);
+            return porRubroObjeto;
+          }
+
+          // Fallback: Si viene en formato viejo (JSON string) - DEPRECATED
+          if (typeof safeData.honorariosPorRubro === 'string') {
+            console.warn('⚠️ DEPRECATED: Backend devolvió JSON string (formato viejo)');
+            try {
+              return JSON.parse(safeData.honorariosPorRubro);
+            } catch (error) {
+              console.error('❌ Error parseando JSON viejo:', error);
+              return {};
+            }
+          }
+
+          // Si ya viene como objeto (caso raro)
+          console.log('📥 Honorarios ya en formato objeto:', safeData.honorariosPorRubro);
+          return safeData.honorariosPorRubro;
+        })();
         // ✅ CRÍTICO: El backend puede devolver honorarios con dos formatos:
         // 1. Presupuestos: honorariosJornalesActivo, honorariosJornalesValor, etc.
         // 2. Trabajos Extra: jornalesActivo, jornalesValor, etc. (dentro del objeto honorarios)
@@ -875,7 +1070,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               valor: safeData.honorarios.jornalesValor ?? '',
               modoAplicacion: 'todos',
               porRol: {}
-            }
+            },
+            // 🆕 HONORARIOS POR RUBRO
+            porRubro: safeData.honorarios.porRubro || porRubroDesdeBackend
           };
         }
 
@@ -917,7 +1114,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             valor: safeData.honorariosJornalesValor || '', // ✅ incluir valor guardado en BD
             modoAplicacion: safeData.honorariosJornalesModoAplicacion || 'todos',
             porRol: safeData.honorariosJornalesPorRol || {}
-          }
+          },
+          // 🆕 HONORARIOS POR RUBRO
+          porRubro: porRubroDesdeBackend
         };
 
         // 🆕 CARGA DE VALORES POR DEFECTO (si es presupuesto nuevo)
@@ -965,6 +1164,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
         console.log('✅ Honorarios reconstruidos - Jornales:', honorariosReconstruido.jornales);
         console.log('✅ Honorarios reconstruidos COMPLETO:', honorariosReconstruido);
+        console.log('🔍 VERIFICAR porRubro ANTES DE RETURN:', honorariosReconstruido.porRubro);  console.log('🔍 porRubro tiene datos?:', Object.keys(honorariosReconstruido.porRubro || {}).length, 'keys:', Object.keys(honorariosReconstruido.porRubro || {}));
+        console.log('🔍 STRINGIFY porRubro:', JSON.stringify(honorariosReconstruido.porRubro));
 
         return honorariosReconstruido;
       })(),
@@ -1119,6 +1320,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       })(),
     });
 
+    console.log('🔍 INMEDIATAMENTE DESPUÉS DE setForm - form debería tener honorarios.porRubro now');
+    // Note: form.honorarios won't be updated yet because setForm is async
+    // We need to use a separate useEffect to check this
+
     // Colapsar secciones automáticamente si ya tienen items agregados (modo edición)
     // -----------------------------------------------------------------------------
     // 🆕 LÓGICA DE CARGA DE ITEMS y DETECCIÓN DE MODO GLOBAL
@@ -1233,6 +1438,45 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     // Profesionales y Mano de Obra/Materiales SIEMPRE colapsadas - REFORZAR ESTADO
     setProfesionalesAgregados(true);
     setManoObraMaterialesAgregados(true);
+
+    // 🆕 CARGAR MAYORES COSTOS POR RUBRO desde backend
+    if (safeData.mayoresCostosPorRubro && Array.isArray(safeData.mayoresCostosPorRubro)) {
+      setMayoresCostosPorRubro(safeData.mayoresCostosPorRubro);
+    } else {
+      setMayoresCostosPorRubro([]);
+    }
+
+    // 🆕 CARGAR DESCUENTOS POR RUBRO desde backend
+    if (safeData.descuentosPorRubro && Array.isArray(safeData.descuentosPorRubro)) {
+      console.log('📥 Cargando descuentos por rubro desde BD:', safeData.descuentosPorRubro);
+      // ✅ Mapear con valores por defecto para asegurar compatibilidad
+      const descuentosMapeados = safeData.descuentosPorRubro.map(d => ({
+        nombreRubro: d.nombreRubro,
+        activo: d.activo ?? true,
+        tipo: d.tipo || 'PORCENTAJE',
+        valor: d.valor ?? 0,
+        profesionalesActivo: d.profesionalesActivo ?? false,
+        profesionalesTipo: d.profesionalesTipo || 'PORCENTAJE',
+        profesionalesValor: d.profesionalesValor ?? 0,
+        materialesActivo: d.materialesActivo ?? false,
+        materialesTipo: d.materialesTipo || 'PORCENTAJE',
+        materialesValor: d.materialesValor ?? 0,
+        otrosCostosActivo: d.otrosCostosActivo ?? false,
+        otrosCostosTipo: d.otrosCostosTipo || 'PORCENTAJE',
+        otrosCostosValor: d.otrosCostosValor ?? 0,
+        honorariosActivo: d.honorariosActivo ?? false,
+        honorariosTipo: d.honorariosTipo || 'PORCENTAJE',
+        honorariosValor: d.honorariosValor ?? 0,
+        mayoresCostosActivo: d.mayoresCostosActivo ?? false,
+        mayoresCostosTipo: d.mayoresCostosTipo || 'PORCENTAJE',
+        mayoresCostosValor: d.mayoresCostosValor ?? 0,
+        id: d.id // Preservar ID para actualizaciones
+      }));
+      setDescuentosPorRubro(descuentosMapeados);
+      console.log('✅ Descuentos mapeados con valores por defecto:', descuentosMapeados);
+    } else {
+      setDescuentosPorRubro([]);
+    }
 
     // Datos cargados correctamente desde initialData
 
@@ -5195,6 +5439,17 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       si.direccionObraDepartamento
     );
 
+    // 🔍 LOG DIAGNÓSTICO - Honorarios globales desde backend (useEffect2)
+    console.log('🔍 [useEffect2] Honorarios globales desde backend:', {
+      jornalesActivo: si.honorariosJornalesActivo,
+      jornalesValor: si.honorariosJornalesValor,
+      materialesActivo: si.honorariosMaterialesActivo,
+      materialesValor: si.honorariosMaterialesValor,
+      otrosCostosActivo: si.honorariosOtrosCostosActivo,
+      otrosCostosValor: si.honorariosOtrosCostosValor,
+      porRubroCount: Array.isArray(si.honorariosPorRubro) ? si.honorariosPorRubro.length : 'N/A'
+    });
+
     setForm({
       id: si.id || null,
 
@@ -5265,7 +5520,29 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           valor: si.honorariosJornalesValor ?? si.honorarios_jornales_valor ?? '',
           modoAplicacion: si.honorariosJornalesModoAplicacion ?? si.honorarios_jornales_modo_aplicacion ?? 'todos',
           porRol: si.honorariosJornalesPorRol ?? si.honorarios_jornales_por_rol ?? {}
-        }
+        },
+        // 🆕 HONORARIOS POR RUBRO - Convertir array del backend a objeto
+        porRubro: (() => {
+          if (!si.honorariosPorRubro) return {};
+          if (Array.isArray(si.honorariosPorRubro)) {
+            const obj = {};
+            si.honorariosPorRubro.forEach(item => {
+              const key = item.nombreRubro?.trim();
+              if (!key) return;
+              obj[key] = {
+                id: item.id,
+                activo: item.activo ?? true,
+                tipo: item.tipo || 'porcentaje',
+                valor: item.valor ?? null,
+                profesionales: { activo: item.profesionalesActivo ?? true, tipo: item.profesionalesTipo || 'porcentaje', valor: item.profesionalesValor },
+                materiales: { activo: item.materialesActivo ?? true, tipo: item.materialesTipo || 'porcentaje', valor: item.materialesValor },
+                otrosCostos: { activo: item.otrosCostosActivo ?? true, tipo: item.otrosCostosTipo || 'porcentaje', valor: item.otrosCostosValor }
+              };
+            });
+            return obj;
+          }
+          return {};
+        })()
       },
 
       mayoresCostos: (() => {
@@ -6372,13 +6649,81 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       }
     }
 
+    // 🆕 CALCULAR HONORARIOS POR RUBRO (específicos de cada rubro)
+    let honorariosPorRubro = 0;
+    if (form.honorarios.porRubro && itemsValidosParaHonorarios.length > 0) {
+      // Deduplicar rubros (combinar items con mismo nombre de rubro)
+      const rubrosMap = new Map();
+      itemsValidosParaHonorarios.forEach((item, index) => {
+        const rubroNombre = (item.tipoProfesional || `Rubro ${index + 1}`).trim().toLowerCase();
+        if (rubrosMap.has(rubroNombre)) {
+          const existente = rubrosMap.get(rubroNombre);
+          existente.subtotalManoObra = (existente.subtotalManoObra || 0) + (item.subtotalManoObra || 0);
+          existente.subtotalMateriales = (existente.subtotalMateriales || 0) + (item.subtotalMateriales || 0);
+          existente.subtotalGastosGenerales = (existente.subtotalGastosGenerales || 0) + (item.subtotalGastosGenerales || 0);
+        } else {
+          rubrosMap.set(rubroNombre, {
+            ...item,
+            _nombreOriginal: (item.tipoProfesional || `Rubro ${index + 1}`).trim()
+          });
+        }
+      });
+
+      // Calcular honorarios de cada rubro
+      Array.from(rubrosMap.values()).forEach(item => {
+        const rubroNombre = item._nombreOriginal.trim();
+        // Case-insensitive lookup
+        const honorariosKey = Object.keys(form.honorarios.porRubro || {}).find(
+          key => key.toLowerCase() === rubroNombre.toLowerCase()
+        );
+        const honorariosRubro = honorariosKey ? form.honorarios.porRubro[honorariosKey] : null;
+
+        if (honorariosRubro && honorariosRubro.activo) {
+          const totalProfRubro = parseFloat(item.subtotalManoObra) || 0;
+          const totalMatRubro = parseFloat(item.subtotalMateriales) || 0;
+          const totalGastosRubro = parseFloat(item.subtotalGastosGenerales) || 0;
+
+          // Profesionales/Mano de Obra
+          if (totalProfRubro > 0 && honorariosRubro.profesionales?.valor) {
+            const valor = Number(honorariosRubro.profesionales.valor);
+            if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+              honorariosPorRubro += (totalProfRubro * valor) / 100;
+            } else {
+              honorariosPorRubro += valor;
+            }
+          }
+
+          // Materiales
+          if (totalMatRubro > 0 && honorariosRubro.materiales?.valor) {
+            const valor = Number(honorariosRubro.materiales.valor);
+            if (honorariosRubro.materiales.tipo === 'porcentaje') {
+              honorariosPorRubro += (totalMatRubro * valor) / 100;
+            } else {
+              honorariosPorRubro += valor;
+            }
+          }
+
+          // Gastos Generales/Otros Costos
+          if (totalGastosRubro > 0 && honorariosRubro.otrosCostos?.valor) {
+            const valor = Number(honorariosRubro.otrosCostos.valor);
+            if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+              honorariosPorRubro += (totalGastosRubro * valor) / 100;
+            } else {
+              honorariosPorRubro += valor;
+            }
+          }
+        }
+      });
+    }
+
     return {
       profesionales: honorarioProf,
       materiales: honorarioMat,
       otrosCostos: honorarioOtros,
       configuracionPresupuesto: honorarioCalculadora,
       jornales: honorarioJornales,
-      total: honorarioProf + honorarioMat + honorarioOtros + honorarioCalculadora + honorarioJornales
+      porRubro: honorariosPorRubro, // 🆕 Honorarios específicos por rubro
+      total: honorarioProf + honorarioMat + honorarioOtros + honorarioCalculadora + honorarioJornales + honorariosPorRubro // ← Incluir honorarios por rubro
     };
   };
 
@@ -6577,6 +6922,367 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     };
   };
 
+  // 🆕 NUEVA LÓGICA: Calcular Mayores Costos por Rubro (auto-detección desde itemsCalculadora)
+  const calcularMayoresCostosPorRubro = () => {
+    if (!mayoresCostosPorRubro || mayoresCostosPorRubro.length === 0) {
+      return { total: 0, detallesPorRubro: [] };
+    }
+
+    // 1. Auto-detectar rubros desde itemsCalculadora
+    const rubrosMap = new Map();
+    (itemsCalculadora || []).forEach((item, index) => {
+      const rubroNombre = (item.tipoProfesional || `Rubro ${index + 1}`).trim();
+      if (rubrosMap.has(rubroNombre)) {
+        const existente = rubrosMap.get(rubroNombre);
+        existente.manoObra += (item.subtotalManoObra || 0);
+        existente.materiales += (item.subtotalMateriales || 0);
+        existente.gastosGenerales += (item.subtotalGastosGenerales || 0);
+      } else {
+        rubrosMap.set(rubroNombre, {
+          nombre: rubroNombre,
+          manoObra: item.subtotalManoObra || 0,
+          materiales: item.subtotalMateriales || 0,
+          gastosGenerales: item.subtotalGastosGenerales || 0
+        });
+      }
+    });
+
+    const rubrosArray = Array.from(rubrosMap.values());
+
+    // Calcular honorarios por rubro (necesario para aplicar mayores costos sobre honorarios)
+    const honorariosPorRubro = {};
+    if (form.honorarios?.porRubro) {
+      rubrosArray.forEach(rubro => {
+        const honorariosKey = Object.keys(form.honorarios.porRubro || {}).find(
+          key => key.toLowerCase() === rubro.nombre.toLowerCase()
+        );
+        const honorariosRubro = honorariosKey ? form.honorarios.porRubro[honorariosKey] : null;
+
+        let totalHonorariosRubro = 0;
+        if (honorariosRubro && honorariosRubro.activo) {
+          if (rubro.manoObra > 0 && honorariosRubro.profesionales?.valor) {
+            const valor = Number(honorariosRubro.profesionales.valor);
+            if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+              totalHonorariosRubro += (rubro.manoObra * valor) / 100;
+            } else {
+              totalHonorariosRubro += valor;
+            }
+          }
+          if (rubro.materiales > 0 && honorariosRubro.materiales?.valor) {
+            const valor = Number(honorariosRubro.materiales.valor);
+            if (honorariosRubro.materiales.tipo === 'porcentaje') {
+              totalHonorariosRubro += (rubro.materiales * valor) / 100;
+            } else {
+              totalHonorariosRubro += valor;
+            }
+          }
+          if (rubro.gastosGenerales > 0 && honorariosRubro.otrosCostos?.valor) {
+            const valor = Number(honorariosRubro.otrosCostos.valor);
+            if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+              totalHonorariosRubro += (rubro.gastosGenerales * valor) / 100;
+            } else {
+              totalHonorariosRubro += valor;
+            }
+          }
+        }
+        honorariosPorRubro[rubro.nombre] = totalHonorariosRubro;
+      });
+    }
+
+    // 2. Helper: obtener config de un rubro
+    const getConfigRubro = (nombreRubro) => {
+      return mayoresCostosPorRubro.find(r => r.nombreRubro?.toLowerCase() === nombreRubro.toLowerCase()) || {
+        activo: false,
+        profesionalesActivo: false,
+        materialesActivo: false,
+        otrosCostosActivo: false,
+        honorariosActivo: false
+      };
+    };
+
+    // 3. Helper: calcular mayores costos para UN rubro
+    const calcularMayoresCostosRubro = (rubro, config) => {
+      if (!config.activo) return 0;
+
+      let total = 0;
+
+      // Mano de Obra
+      if (config.profesionalesValor > 0 && rubro.manoObra > 0) {
+        const esPorcentaje = String(config.profesionalesTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.manoObra * (config.profesionalesValor || 0)) / 100;
+        } else {
+          total += (config.profesionalesValor || 0);
+        }
+      }
+
+      // Materiales
+      if (config.materialesValor > 0 && rubro.materiales > 0) {
+        const esPorcentaje = String(config.materialesTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.materiales * (config.materialesValor || 0)) / 100;
+        } else {
+          total += (config.materialesValor || 0);
+        }
+      }
+
+      // Gastos Generales / Otros Costos
+      if (config.otrosCostosValor > 0 && rubro.gastosGenerales > 0) {
+        const esPorcentaje = String(config.otrosCostosTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.gastosGenerales * (config.otrosCostosValor || 0)) / 100;
+        } else {
+          total += (config.otrosCostosValor || 0);
+        }
+      }
+
+      // 🆕 HONORARIOS
+      if (config.honorariosValor > 0 && honorariosPorRubro[rubro.nombre] > 0) {
+        const esPorcentaje = String(config.honorariosTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (honorariosPorRubro[rubro.nombre] * (config.honorariosValor || 0)) / 100;
+        } else {
+          total += (config.honorariosValor || 0);
+        }
+      }
+
+      return total;
+    };
+
+    // 4. Calcular total y detalles
+    let total = 0;
+    const detallesPorRubro = [];
+
+    rubrosArray.forEach(rubro => {
+      const config = getConfigRubro(rubro.nombre);
+      const monto = calcularMayoresCostosRubro(rubro, config);
+
+      if (monto > 0) {
+        total += monto;
+        detallesPorRubro.push({
+          nombreRubro: rubro.nombre,
+          monto: monto
+        });
+      }
+    });
+
+    return { total, detallesPorRubro };
+  };
+
+  // 🆕 NUEVA LÓGICA: Calcular Descuentos por Rubro (auto-detección desde itemsCalculadora)
+  const calcularDescuentosPorRubro = () => {
+    if (!descuentosPorRubro || descuentosPorRubro.length === 0) {
+      return { total: 0, detallesPorRubro: [] };
+    }
+
+    // 1. Auto-detectar rubros desde itemsCalculadora
+    const rubrosMap = new Map();
+    (itemsCalculadora || []).forEach((item, index) => {
+      const rubroNombre = (item.tipoProfesional || `Rubro ${index + 1}`).trim();
+      if (rubrosMap.has(rubroNombre)) {
+        const existente = rubrosMap.get(rubroNombre);
+        existente.manoObra += (item.subtotalManoObra || 0);
+        existente.materiales += (item.subtotalMateriales || 0);
+        existente.gastosGenerales += (item.subtotalGastosGenerales || 0);
+      } else {
+        rubrosMap.set(rubroNombre, {
+          nombre: rubroNombre,
+          manoObra: item.subtotalManoObra || 0,
+          materiales: item.subtotalMateriales || 0,
+          gastosGenerales: item.subtotalGastosGenerales || 0
+        });
+      }
+    });
+
+    const rubrosArray = Array.from(rubrosMap.values());
+
+    // Calcular honorarios por rubro (necesario para aplicar descuentos sobre honorarios)
+    const honorariosPorRubro = {};
+    if (form.honorarios?.porRubro) {
+      rubrosArray.forEach(rubro => {
+        const honorariosKey = Object.keys(form.honorarios.porRubro || {}).find(
+          key => key.toLowerCase() === rubro.nombre.toLowerCase()
+        );
+        const honorariosRubro = honorariosKey ? form.honorarios.porRubro[honorariosKey] : null;
+
+        let totalHonorariosRubro = 0;
+        if (honorariosRubro && honorariosRubro.activo) {
+          if (rubro.manoObra > 0 && honorariosRubro.profesionales?.valor) {
+            const valor = Number(honorariosRubro.profesionales.valor);
+            if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+              totalHonorariosRubro += (rubro.manoObra * valor) / 100;
+            } else {
+              totalHonorariosRubro += valor;
+            }
+          }
+          if (rubro.materiales > 0 && honorariosRubro.materiales?.valor) {
+            const valor = Number(honorariosRubro.materiales.valor);
+            if (honorariosRubro.materiales.tipo === 'porcentaje') {
+              totalHonorariosRubro += (rubro.materiales * valor) / 100;
+            } else {
+              totalHonorariosRubro += valor;
+            }
+          }
+          if (rubro.gastosGenerales > 0 && honorariosRubro.otrosCostos?.valor) {
+            const valor = Number(honorariosRubro.otrosCostos.valor);
+            if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+              totalHonorariosRubro += (rubro.gastosGenerales * valor) / 100;
+            } else {
+              totalHonorariosRubro += valor;
+            }
+          }
+        }
+        honorariosPorRubro[rubro.nombre] = totalHonorariosRubro;
+      });
+    }
+
+    // 2. Helper: obtener config de un rubro
+    const getConfigRubro = (nombreRubro) => {
+      return descuentosPorRubro.find(r => r.nombreRubro?.toLowerCase() === nombreRubro.toLowerCase()) || {
+        activo: false,
+        profesionalesActivo: false,
+        materialesActivo: false,
+        otrosCostosActivo: false,
+        honorariosActivo: false
+      };
+    };
+
+    // 2.5. Helper: calcular mayores costos para UN rubro (necesario para descuentos sobre mayores costos)
+    const calcularMayoresCostosRubro = (rubro, config) => {
+      // Buscar configuración de mayores costos para este rubro
+      const mayorCostoConfig = mayoresCostosPorRubro.find(mc =>
+        mc.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase()
+      );
+
+      if (!mayorCostoConfig || !mayorCostoConfig.activo) return 0;
+
+      let total = 0;
+
+      // Mano de Obra
+      if (mayorCostoConfig.profesionalesValor > 0 && rubro.manoObra > 0) {
+        const esPorcentaje = String(mayorCostoConfig.profesionalesTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.manoObra * (mayorCostoConfig.profesionalesValor || 0)) / 100;
+        } else {
+          total += (mayorCostoConfig.profesionalesValor || 0);
+        }
+      }
+
+      // Materiales
+      if (mayorCostoConfig.materialesValor > 0 && rubro.materiales > 0) {
+        const esPorcentaje = String(mayorCostoConfig.materialesTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.materiales * (mayorCostoConfig.materialesValor || 0)) / 100;
+        } else {
+          total += (mayorCostoConfig.materialesValor || 0);
+        }
+      }
+
+      // Gastos Generales / Otros Costos
+      if (mayorCostoConfig.otrosCostosValor > 0 && rubro.gastosGenerales > 0) {
+        const esPorcentaje = String(mayorCostoConfig.otrosCostosTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.gastosGenerales * (mayorCostoConfig.otrosCostosValor || 0)) / 100;
+        } else {
+          total += (mayorCostoConfig.otrosCostosValor || 0);
+        }
+      }
+
+      // Honorarios
+      if (mayorCostoConfig.honorariosValor > 0 && honorariosPorRubro[rubro.nombre] > 0) {
+        const esPorcentaje = String(mayorCostoConfig.honorariosTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (honorariosPorRubro[rubro.nombre] * (mayorCostoConfig.honorariosValor || 0)) / 100;
+        } else {
+          total += (mayorCostoConfig.honorariosValor || 0);
+        }
+      }
+
+      return total;
+    };
+
+    // 3. Helper: calcular descuentos para UN rubro
+    const calcularDescuentosRubro = (rubro, config) => {
+      if (!config.activo) return 0;
+
+      let total = 0;
+
+      // Mano de Obra
+      if (config.profesionalesValor > 0 && rubro.manoObra > 0) {
+        const esPorcentaje = String(config.profesionalesTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.manoObra * (config.profesionalesValor || 0)) / 100;
+        } else {
+          total += (config.profesionalesValor || 0);
+        }
+      }
+
+      // Materiales
+      if (config.materialesValor > 0 && rubro.materiales > 0) {
+        const esPorcentaje = String(config.materialesTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.materiales * (config.materialesValor || 0)) / 100;
+        } else {
+          total += (config.materialesValor || 0);
+        }
+      }
+
+      // Gastos Generales / Otros Costos
+      if (config.otrosCostosValor > 0 && rubro.gastosGenerales > 0) {
+        const esPorcentaje = String(config.otrosCostosTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (rubro.gastosGenerales * (config.otrosCostosValor || 0)) / 100;
+        } else {
+          total += (config.otrosCostosValor || 0);
+        }
+      }
+
+      // 🆕 HONORARIOS
+      if (config.honorariosValor > 0 && honorariosPorRubro[rubro.nombre] > 0) {
+        const esPorcentaje = String(config.honorariosTipo || '').toUpperCase() === 'PORCENTAJE';
+        if (esPorcentaje) {
+          total += (honorariosPorRubro[rubro.nombre] * (config.honorariosValor || 0)) / 100;
+        } else {
+          total += (config.honorariosValor || 0);
+        }
+      }
+
+      // 🆕 MAYORES COSTOS - Calcular el total de mayores costos y aplicar descuentos
+      if (config.mayoresCostosValor > 0) {
+        const mayoresCostosRubro = calcularMayoresCostosRubro(rubro, config);
+        if (mayoresCostosRubro > 0) {
+          const esPorcentaje = String(config.mayoresCostosTipo || '').toUpperCase() === 'PORCENTAJE';
+          if (esPorcentaje) {
+            total += (mayoresCostosRubro * (config.mayoresCostosValor || 0)) / 100;
+          } else {
+            total += (config.mayoresCostosValor || 0);
+          }
+        }
+      }
+
+      return total;
+    };
+
+    // 4. Calcular total y detalles
+    let total = 0;
+    const detallesPorRubro = [];
+
+    rubrosArray.forEach(rubro => {
+      const config = getConfigRubro(rubro.nombre);
+      const monto = calcularDescuentosRubro(rubro, config);
+
+      if (monto > 0) {
+        total += monto;
+        detallesPorRubro.push({
+          nombreRubro: rubro.nombre,
+          monto: monto
+        });
+      }
+    });
+
+    return { total, detallesPorRubro };
+  };
+
 
 
   const totalBaseProfesionales = (form.profesionales || []).reduce((sum, p) => sum + (Number(p.importeCalculado) || 0), 0);
@@ -6595,7 +7301,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   const honorariosActuales = calcularHonorarios();
 
-  const totalFinalConTodo = totalGeneralBase + honorariosActuales.total + mayoresCostosActuales.total;
+  // 🆕 INCLUIR MAYORES COSTOS Y DESCUENTOS POR RUBRO
+  const mayoresCostosPorRubroActuales = calcularMayoresCostosPorRubro();
+  const descuentosPorRubroActuales = calcularDescuentosPorRubro();
+
+  const totalFinalConTodo = totalGeneralBase
+    + honorariosActuales.total
+    + mayoresCostosActuales.total
+    + mayoresCostosPorRubroActuales.total
+    - descuentosPorRubroActuales.total;
 
   const itemsCalculadoraConsolidados = React.useMemo(() => {
 
@@ -7229,8 +7943,14 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   // Este es el valor REAL que debe guardarse en el backend
   const totalUIVisible = React.useMemo(() => {
     const items = itemsCalculadoraConsolidados || [];
-    // Este es EXACTAMENTE el mismo cálculo que muestra la UI en el "TOTAL FINAL"
-    return items.reduce((acc, ic) => acc + (ic.total || 0) - (ic.descuentosAplicados || 0), 0);
+    // ✅ CALCULAR EXACTAMENTE COMO LA UI: total base + honorarios + mayores costos - descuentos
+    return items.reduce((acc, ic) => {
+      const totalBase = ic.total || 0;
+      const honorarios = ic.honorariosAplicados || 0;
+      const mayoresCostos = ic.mayoresCostosAplicados || 0;
+      const descuentos = ic.descuentosAplicados || 0;
+      return acc + totalBase + honorarios + mayoresCostos - descuentos;
+    }, 0);
   }, [itemsCalculadoraConsolidados]);
 
   // ✅ TOTALES SIN DESCUENTOS (para backend)
@@ -7238,6 +7958,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     const items = itemsCalculadoraConsolidados || [];
     const totalSinDescuento = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
     const totalDescuentos = items.reduce((sum, item) => sum + (Number(item.descuentosAplicados) || 0), 0);
+
     return {
       total: totalSinDescuento,
       descuentos: totalDescuentos,
@@ -7896,15 +8617,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     estaGuardandoRef.current = true; // 🚫 Evitar loops
     setSaving(true);
-    console.log('📦 PAYLOAD COMPLETO JSON:', JSON.stringify(datosCompletos, null, 2));
-
-    // ✅ VERIFICACIÓN FINAL: Lo que ve el usuario ES lo que se guarda
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('📺 CONFIRMACIÓN: GUARDANDO EXACTAMENTE LO QUE VE EN LA UI');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('💰 TOTAL FINAL VISIBLE EN UI:', totalUIVisible.toLocaleString('es-AR'));
-    console.log('💾 TOTAL QUE SE GUARDARÁ:', datosCompletos.totalConDescuentos?.toLocaleString('es-AR'));
-    console.log('✅ ¿COINCIDEN?', totalUIVisible === datosCompletos.totalConDescuentos ? 'SÍ ✓' : 'NO ✗');
 
     // 🏗️ VERIFICACIÓN: Campos para creación automática de obra
     if (datosCompletos.tipoPresupuesto === 'TRABAJO_DIARIO' || datosCompletos.tipoPresupuesto === 'PRINCIPAL') {
@@ -8130,7 +8842,15 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   };
 
   const prepararDatosParaEnvio = () => {
-    // 🔧 Determinar tipoPresupuesto efectivo con prioridad correcta:
+    // � DEBUG CRÍTICO: Verificar numeroPresupuesto en form ANTES de preparar payload
+    console.log('🔍🔍🔍 [PREPARAR DATOS] numeroPresupuesto en form:', {
+      'form.numeroPresupuesto': form.numeroPresupuesto,
+      'tipo': typeof form.numeroPresupuesto,
+      'form.id': form.id,
+      'initialData?.numeroPresupuesto': initialData?.numeroPresupuesto
+    });
+
+    // �🔧 Determinar tipoPresupuesto efectivo con prioridad correcta:
     // 1. Si modoTrabajoExtra y NO es TAREA_LEVE → forzar TRABAJO_EXTRA
     // 2. Si form.tipoPresupuesto existe → usarlo (preserva TAREA_LEVE, TRABAJO_EXTRA, etc.)
     // 3. Si initialData.tipoPresupuesto existe → usarlo
@@ -8406,6 +9126,22 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       if (Number.isNaN(payload.version) || payload.version < 1) payload.version = 1;
     }
 
+    // ✅ Número Presupuesto: Si es null o vacío, no incluir (backend auto-genera con ID)
+    if (payload.numeroPresupuesto === null || payload.numeroPresupuesto === '' || payload.numeroPresupuesto === undefined) {
+      delete payload.numeroPresupuesto;
+      console.log('ℹ️ numeroPresupuesto vacío - backend auto-generará con ID');
+    } else {
+      // ✅ Convertir a Number (Long en backend) sin parseInt para evitar int en lugar de Long
+      const numeroParseado = Number(payload.numeroPresupuesto);
+      if (isNaN(numeroParseado) || numeroParseado < 0) {
+        console.warn('⚠️ numeroPresupuesto no es un número válido:', payload.numeroPresupuesto);
+        delete payload.numeroPresupuesto;
+      } else {
+        payload.numeroPresupuesto = numeroParseado;
+        console.log('✅ numeroPresupuesto incluido en payload:', payload.numeroPresupuesto, '(tipo:', typeof payload.numeroPresupuesto + ')');
+      }
+    }
+
     payload.tipoProfesionalPresupuesto = valoresPresupuesto.tipoProfesional || null;
     // 🔧 CRÍTICO: modoPresupuesto es NOT NULL en la BD.
     // Debe ser igual al tipoPresupuesto (ej: 'PRINCIPAL', 'TRABAJO_EXTRA', 'TAREA_LEVE').
@@ -8503,6 +9239,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       honorariosDesglosados = calcularHonorarios();
       totalHonorarios = honorariosDesglosados.total;
 
+      // 🔍 LOG DIAGNÓSTICO
+      console.log('💰 HONORARIOS CALCULADOS:', {
+        globales: {
+          jornales: honorariosDesglosados.jornales,
+          profesionales: honorariosDesglosados.profesionales,
+          materiales: honorariosDesglosados.materiales,
+          otrosCostos: honorariosDesglosados.otrosCostos,
+          configuracionPresupuesto: honorariosDesglosados.configuracionPresupuesto
+        },
+        porRubro: honorariosDesglosados.porRubro,
+        total: honorariosDesglosados.total
+      });
+
     } else {
       const totalGastos = payload.montoTotal || 0;
 
@@ -8572,9 +9321,31 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     payload.totalPresupuesto = totalBase;
     payload.totalHonorarios = totalHonorarios;
     payload.totalMayoresCostos = totalMayoresCostos;
-    payload.totalMateriales = totalGlobalMat; // ← Total de materiales
-    payload.honorarioDireccionImporte = totalHonorarios; // ← Guardar el importe calculado
-    payload.totalPresupuestoConHonorarios = totalBase + totalHonorarios + totalMayoresCostos;
+    payload.totalMayoresCostosPorRubro = mayoresCostosPorRubroActuales.total || 0;
+    payload.totalDescuentosPorRubro = descuentosPorRubroActuales.total || 0;
+    payload.totalMateriales = totalGlobalMat;
+
+    // ✅ TOTAL FINAL = Base + Honorarios + Mayores Costos + Mayores Costos por Rubro - Descuentos por Rubro
+    const totalFinalCalculado = totalBase
+      + totalHonorarios
+      + totalMayoresCostos
+      + mayoresCostosPorRubroActuales.total
+      - descuentosPorRubroActuales.total;
+
+    payload.honorarioDireccionImporte = totalFinalCalculado; // ✅ TOTAL FINAL (no solo honorarios)
+    payload.totalPresupuestoConHonorarios = totalFinalCalculado;
+    payload.totalFinal = totalFinalCalculado;
+    payload.montoTotal = totalFinalCalculado;
+    payload.totalGeneral = totalFinalCalculado;
+
+    console.log('📊 TOTALES PARA GUARDAR:', {
+      totalBase: totalBase.toLocaleString('es-AR'),
+      totalHonorarios: totalHonorarios.toLocaleString('es-AR'),
+      totalMayoresCostos: totalMayoresCostos.toLocaleString('es-AR'),
+      totalMayoresCostosPorRubro: mayoresCostosPorRubroActuales.total.toLocaleString('es-AR'),
+      totalDescuentosPorRubro: descuentosPorRubroActuales.total.toLocaleString('es-AR'),
+      '✅ TOTAL FINAL': payload.totalPresupuestoConHonorarios.toLocaleString('es-AR')
+    });
 
     payload.honorariosDesglosados = honorariosDesglosados;
 
@@ -8620,6 +9391,48 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       payload.honorariosConfiguracionPresupuestoActivo = honorariosConfig.configuracionPresupuesto?.activo ?? null;
       payload.honorariosConfiguracionPresupuestoTipo = honorariosConfig.configuracionPresupuesto?.tipo || null;
       payload.honorariosConfiguracionPresupuestoValor = honorariosConfig.configuracionPresupuesto?.valor && honorariosConfig.configuracionPresupuesto.valor !== '' ? Number(honorariosConfig.configuracionPresupuesto.valor) : null;
+
+      // 🆕 HONORARIOS POR RUBRO (configuración específica para cada rubro)
+      // MIGRACIÓN: Backend ahora espera ARRAY de objetos (no JSON string)
+      if (honorariosConfig.porRubro && Object.keys(honorariosConfig.porRubro).length > 0) {
+        const honorariosArray = [];
+
+        Object.entries(honorariosConfig.porRubro).forEach(([nombreRubro, config]) => {
+          // Convertir de estructura anidada del frontend a estructura plana del backend
+          // ⚠️ IMPORTANTE: Preservar nombre del rubro con mayúsculas y tildes
+          const honorarioDTO = {
+            nombreRubro: nombreRubro.trim(), // ✅ SIN normalizar - preserva "Albañilería", "Pintura", etc.
+            activo: config.activo ?? true,
+            tipo: config.tipo || 'porcentaje',
+            valor: config.valor ?? null,
+
+            profesionalesActivo: config.profesionales?.activo ?? true,
+            profesionalesTipo: config.profesionales?.tipo || 'porcentaje',
+            profesionalesValor: config.profesionales?.valor ?? null,
+
+            materialesActivo: config.materiales?.activo ?? true,
+            materialesTipo: config.materiales?.tipo || 'porcentaje',
+            materialesValor: config.materiales?.valor ?? null,
+
+            otrosCostosActivo: config.otrosCostos?.activo ?? true,
+            otrosCostosTipo: config.otrosCostos?.tipo || 'porcentaje',
+            otrosCostosValor: config.otrosCostos?.valor ?? null
+          };
+
+          // ✅ Preservar ID si existe (para actualizaciones)
+          if (config.id) {
+            honorarioDTO.id = config.id;
+          }
+
+          honorariosArray.push(honorarioDTO);
+        });
+
+        payload.honorariosPorRubro = honorariosArray;
+        console.log('💾 Guardando honorarios por rubro (formato ARRAY):', honorariosArray);
+      } else {
+        payload.honorariosPorRubro = [];
+        console.log('💾 No hay honorarios por rubro - enviando array vacío');
+      }
     } else {
       payload.honorariosAplicarATodos = null;
       payload.honorariosValorGeneral = null;
@@ -8639,6 +9452,141 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       payload.honorariosConfiguracionPresupuestoActivo = null;
       payload.honorariosConfiguracionPresupuestoTipo = null;
       payload.honorariosConfiguracionPresupuestoValor = null;
+      payload.honorariosJornalesModoAplicacion =null;
+      payload.honorariosJornalesPorRol = null;
+      payload.honorariosPorRubro = [];  // Array vacío en lugar de null
+    }
+
+    // 🆕 MAYORES COSTOS POR RUBRO - Nuevo sistema independiente
+    if (mayoresCostosPorRubro && mayoresCostosPorRubro.length > 0) {
+      console.log('🔍 DEBUG ANTES DE GUARDAR - Estado mayoresCostosPorRubro:', JSON.stringify(mayoresCostosPorRubro, null, 2));
+
+      // Validar duplicados de nombreRubro
+      const nombresRubros = {};
+      let hayDuplicados = false;
+      mayoresCostosPorRubro.forEach((rubro, index) => {
+        const nombreTrimmed = (rubro.nombreRubro || '').trim();
+        if (!nombreTrimmed) {
+          alert(`⚠️ El rubro #${index + 1} de mayores costos no tiene nombre. Por favor, complete todos los nombres.`);
+          hayDuplicados = true;
+          return;
+        }
+        const nombreNormalizado = nombreTrimmed.toLowerCase();
+        if (nombresRubros[nombreNormalizado]) {
+          alert(`⚠️ Hay dos rubros de mayores costos con el mismo nombre: "${nombreTrimmed}". Los nombres deben ser únicos.`);
+          hayDuplicados = true;
+        }
+        nombresRubros[nombreNormalizado] = true;
+      });
+
+      if (hayDuplicados) {
+        throw new Error('Validación fallida: nombres duplicados o vacíos en mayores costos por rubro');
+      }
+
+      // Convertir a formato DTO esperado por backend
+      const mayoresCostosArray = mayoresCostosPorRubro.map(rubro => {
+        const dto = {
+          nombreRubro: rubro.nombreRubro.trim(),
+          activo: rubro.activo ?? true,
+          tipo: rubro.tipo || 'PORCENTAJE',
+          valor: rubro.valor ?? 0,
+          profesionalesActivo: rubro.profesionalesActivo ?? false,
+          profesionalesTipo: rubro.profesionalesTipo || 'PORCENTAJE',
+          profesionalesValor: rubro.profesionalesValor ?? 0,
+          materialesActivo: rubro.materialesActivo ?? false,
+          materialesTipo: rubro.materialesTipo || 'PORCENTAJE',
+          materialesValor: rubro.materialesValor ?? 0,
+          otrosCostosActivo: rubro.otrosCostosActivo ?? false,
+          otrosCostosTipo: rubro.otrosCostosTipo || 'PORCENTAJE',
+          otrosCostosValor: rubro.otrosCostosValor ?? 0,
+          honorariosActivo: rubro.honorariosActivo ?? false,
+          honorariosTipo: rubro.honorariosTipo || 'PORCENTAJE',
+          honorariosValor: rubro.honorariosValor ?? 0
+        };
+
+        // ✅ Preservar ID si existe (para actualizaciones)
+        if (rubro.id) {
+          dto.id = rubro.id;
+        }
+
+        return dto;
+      });
+
+      payload.mayoresCostosPorRubro = mayoresCostosArray;
+    } else {
+      payload.mayoresCostosPorRubro = [];
+      console.log('💾 No hay mayores costos por rubro - enviando array vacío');
+    }
+
+    // 🆕 DESCUENTOS POR RUBRO - Nuevo sistema independiente
+    if (descuentosPorRubro && descuentosPorRubro.length > 0) {
+      // Validar duplicados de nombreRubro
+      const nombresRubros = {};
+      let hayDuplicados = false;
+      descuentosPorRubro.forEach((rubro, index) => {
+        const nombreTrimmed = (rubro.nombreRubro || '').trim();
+        if (!nombreTrimmed) {
+          alert(`⚠️ El rubro #${index + 1} de descuentos no tiene nombre. Por favor, complete todos los nombres.`);
+          hayDuplicados = true;
+          return;
+        }
+        const nombreNormalizado = nombreTrimmed.toLowerCase();
+        if (nombresRubros[nombreNormalizado]) {
+          alert(`⚠️ Hay dos rubros de descuentos con el mismo nombre: "${nombreTrimmed}". Los nombres deben ser únicos.`);
+          hayDuplicados = true;
+        }
+        nombresRubros[nombreNormalizado] = true;
+      });
+
+      if (hayDuplicados) {
+        throw new Error('Validación fallida: nombres duplicados o vacíos en descuentos por rubro');
+      }
+
+      // Convertir a formato DTO esperado por backend
+      const descuentosArray = descuentosPorRubro.map(rubro => {
+        const dto = {
+          nombreRubro: rubro.nombreRubro.trim(),
+          activo: rubro.activo ?? true,
+          tipo: rubro.tipo || 'PORCENTAJE',
+          valor: rubro.valor ?? 0,
+          profesionalesActivo: rubro.profesionalesActivo ?? false,
+          profesionalesTipo: rubro.profesionalesTipo || 'PORCENTAJE',
+          profesionalesValor: rubro.profesionalesValor ?? 0,
+          materialesActivo: rubro.materialesActivo ?? false,
+          materialesTipo: rubro.materialesTipo || 'PORCENTAJE',
+          materialesValor: rubro.materialesValor ?? 0,
+          otrosCostosActivo: rubro.otrosCostosActivo ?? false,
+          otrosCostosTipo: rubro.otrosCostosTipo || 'PORCENTAJE',
+          otrosCostosValor: rubro.otrosCostosValor ?? 0,
+          honorariosActivo: rubro.honorariosActivo ?? false,
+          honorariosTipo: rubro.honorariosTipo || 'PORCENTAJE',
+          honorariosValor: rubro.honorariosValor ?? 0,
+          mayoresCostosActivo: rubro.mayoresCostosActivo ?? false,
+          mayoresCostosTipo: rubro.mayoresCostosTipo || 'PORCENTAJE',
+          mayoresCostosValor: rubro.mayoresCostosValor ?? 0
+        };
+
+        // ✅ Preservar ID si existe (para actualizaciones)
+        if (rubro.id) {
+          dto.id = rubro.id;
+        }
+
+        return dto;
+      });
+
+      payload.descuentosPorRubro = descuentosArray;
+      console.log('💾 Guardando descuentos por rubro (formato ARRAY):', descuentosArray);
+      console.log('✅ VERIFICACIÓN - Primer descuento tiene todos los campos:', descuentosArray[0] && {
+        honorariosActivo: descuentosArray[0].honorariosActivo,
+        honorariosTipo: descuentosArray[0].honorariosTipo,
+        honorariosValor: descuentosArray[0].honorariosValor,
+        mayoresCostosActivo: descuentosArray[0].mayoresCostosActivo,
+        mayoresCostosTipo: descuentosArray[0].mayoresCostosTipo,
+        mayoresCostosValor: descuentosArray[0].mayoresCostosValor
+      });
+    } else {
+      payload.descuentosPorRubro = [];
+      console.log('💾 No hay descuentos por rubro - enviando array vacío');
     }
 
     if (form.mayoresCostos) {
@@ -9396,21 +10344,31 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     console.log('💰 Total BASE calculado (filtrando legacy):', totalCalculadoraBaseRecalculado, 'de', payload.itemsCalculadora?.length, 'items (', itemsValidosParaTotal.length, 'válidos)');
 
+    // ❌ COMENTADO: Este bloque SOBRESCRIBE los totales correctos calculados arriba (línea 8791)
     // ✅ PASO 1: Total BASE (sin honorarios, sin mayores costos, sin descuentos)
-    payload.totalPresupuesto = totalProfItemsBase + totalMatItemsBase + totalOtrosItemsBase + totalCalculadoraBaseRecalculado;
+    // payload.totalPresupuesto = totalProfItemsBase + totalMatItemsBase + totalOtrosItemsBase + totalCalculadoraBaseRecalculado;
 
     // ✅ PASO 2: Total CON HONORARIOS Y MAYORES COSTOS (sin descuentos)
-    const totalFinalCalculado = payload.totalPresupuesto + totalHonorarios + totalMayoresCostos;
-    payload.totalPresupuestoConHonorarios = totalFinalCalculado;
-    payload.montoTotal = totalFinalCalculado;
-    payload.totalFinal = totalFinalCalculado;
-    payload.totalGeneral = totalFinalCalculado;
+    // const totalFinalCalculado = payload.totalPresupuesto + totalHonorarios + totalMayoresCostos;
+    // payload.totalPresupuestoConHonorarios = totalFinalCalculado;
+    // payload.montoTotal = totalFinalCalculado;
+    // payload.totalFinal = totalFinalCalculado;
+    // payload.totalGeneral = totalFinalCalculado;
 
-    console.log('💵 TOTALES CALCULADOS A GUARDAR:', {
+    console.log('💵 TOTALES QUE SE ENVIARÁN (desde línea 8791):', {
       totalPresupuesto: payload.totalPresupuesto.toLocaleString('es-AR'),
-      totalHonorarios: totalHonorarios.toLocaleString('es-AR'),
-      totalMayoresCostos: totalMayoresCostos.toLocaleString('es-AR'),
-      totalFinal: totalFinalCalculado.toLocaleString('es-AR')
+      totalHonorarios: payload.totalHonorarios.toLocaleString('es-AR'),
+      totalMayoresCostos: payload.totalMayoresCostos.toLocaleString('es-AR'),
+      totalPresupuestoConHonorarios: payload.totalPresupuestoConHonorarios.toLocaleString('es-AR')
+    });
+
+    console.log('💵 (Las líneas 9669-9675 están comentadas para NO sobrescribir)');
+
+    console.log('💵 VERIFICACIÓN FINAL - Valor que se guardará:', {
+      totalPresupuesto: payload.totalPresupuesto.toLocaleString('es-AR'),
+      totalHonorarios: payload.totalHonorarios.toLocaleString('es-AR'),
+      totalMayoresCostos: payload.totalMayoresCostos.toLocaleString('es-AR'),
+      totalPresupuestoConHonorarios: payload.totalPresupuestoConHonorarios.toLocaleString('es-AR')
     });
 
     payload.descripcionProfesionales = descripcionProfesionales || null;
@@ -9565,7 +10523,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
     console.log('📦 PAYLOAD FINAL A ENVIAR:', JSON.stringify(payload, null, 2));
 
-    // 🚨 VERIFICACIÓN CRÍTICA: HONORARIOS JORNALES
+    // � DEBUG CRÍTICO: Verificar TOTALES en payload final
+    console.log('🔥 TOTALES EN PAYLOAD FINAL (justo antes de enviar):', {
+      totalPresupuesto: payload.totalPresupuesto,
+      totalHonorarios: payload.totalHonorarios,
+      totalMayoresCostos: payload.totalMayoresCostos,
+      honorarioDireccionImporte: payload.honorarioDireccionImporte,
+      totalPresupuestoConHonorarios: payload.totalPresupuestoConHonorarios,
+      totalFinal: payload.totalFinal,
+      montoTotal: payload.montoTotal,
+      totalGeneral: payload.totalGeneral
+    });
+
+    // �🚨 VERIFICACIÓN CRÍTICA: HONORARIOS JORNALES
     if (payload.honorariosJornalesActivo !== undefined) {
       console.log('💰 HONORARIOS JORNALES → Backend:', {
         activo: payload.honorariosJornalesActivo,
@@ -9678,18 +10648,20 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('💸 Sin descuentos configurados');
     }
 
-    // ✅ GUARDAR EXACTAMENTE LO QUE MUESTRA LA UI - SIN RECALCULAR
-    payload.totalConDescuentos = totalUIVisible;
-    payload.totalPresupuestoConHonorarios = totalesSinDescuentos.total;
-    payload.totalFinal = totalesSinDescuentos.total;
-    payload.montoTotal = totalesSinDescuentos.total;
-    payload.totalGeneral = totalesSinDescuentos.total;
+    // ✅ USAR EL TOTAL FINAL CORRECTO (que YA incluye honorarios por rubro)
+    // totalUIVisible NO incluye honorarios por rubro porque no están distribuidos por item
+    payload.totalConDescuentos = payload.totalPresupuestoConHonorarios; // ✅ Ya calculado correctamente arriba
+    // ❌ COMENTADO: totalesSinDescuentos.total NO incluye honorarios, usa el valor ya calculado arriba
+    // payload.totalPresupuestoConHonorarios = totalesSinDescuentos.total;
+    // payload.totalFinal = totalesSinDescuentos.total;
+    // payload.montoTotal = totalesSinDescuentos.total;
+    // payload.totalGeneral = totalesSinDescuentos.total;
 
-    console.log('💾 GUARDANDO EXACTAMENTE LO QUE MUESTRA LA UI:', {
-      '📺 TOTAL VISIBLE EN UI': totalUIVisible.toLocaleString('es-AR'),
-      '🔢 Total sin descuentos': totalesSinDescuentos.total.toLocaleString('es-AR'),
-      '💸 Descuentos aplicados': totalesSinDescuentos.descuentos.toLocaleString('es-AR'),
-      '✅ VALIDACIÓN': totalUIVisible === totalesSinDescuentos.conDescuentos ? 'CORRECTO' : 'ERROR'
+    console.log('💾 GUARDANDO TOTAL FINAL CORRECTO:', {
+      'totalConDescuentos (usado en lista)': payload.totalConDescuentos.toLocaleString('es-AR'),
+      'totalPresupuestoConHonorarios': payload.totalPresupuestoConHonorarios.toLocaleString('es-AR'),
+      'totalFinal': payload.totalFinal.toLocaleString('es-AR'),
+      '✅ TODOS IGUALES': payload.totalConDescuentos === payload.totalPresupuestoConHonorarios && payload.totalPresupuestoConHonorarios === payload.totalFinal ? 'SÍ' : 'NO'
     });
 
     // ✅ VALIDACIÓN SIMPLE: El total con descuentos debe ser menor o igual al total sin descuentos
@@ -9730,7 +10702,51 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('📥 RESULTADO COMPLETO DEL BACKEND:', resultado);
       console.log('📥 ¿Tiene itemsCalculadora?', !!resultado?.itemsCalculadora, 'Cantidad:', resultado?.itemsCalculadora?.length);
 
-      // � Emitir evento para actualizar otras páginas
+      // 🔍 VALIDACIÓN ROBUSTA: Verificar coherencia de totales retornados por el backend
+      if (resultado) {
+        const totalFinalEnviado = datosParaEnviar.totalPresupuestoConHonorarios;
+        const totalFinalRecibido = resultado.totalFinal || resultado.totalPresupuestoConHonorarios;
+        const totalConDescuentosRecibido = resultado.totalConDescuentos;
+        const hayDescuentos = resultado.totalDescuentos && Number(resultado.totalDescuentos) > 0;
+
+        console.log('🔍 VALIDACIÓN DE TOTALES:', {
+          'Enviado al backend': totalFinalEnviado?.toLocaleString('es-AR'),
+          'totalFinal recibido': totalFinalRecibido?.toLocaleString('es-AR'),
+          'totalConDescuentos recibido': totalConDescuentosRecibido?.toLocaleString('es-AR'),
+          'Hay descuentos': hayDescuentos,
+          'Descuentos': resultado.totalDescuentos?.toLocaleString('es-AR') || '0'
+        });
+
+        // ✅ Si NO hay descuentos, totalConDescuentos DEBE ser igual a totalFinal
+        if (!hayDescuentos && totalConDescuentosRecibido && totalFinalRecibido) {
+          const diferencia = Math.abs(Number(totalConDescuentosRecibido) - Number(totalFinalRecibido));
+          if (diferencia > 1) { // Tolerancia de $1 por redondeos
+            console.error('❌ INCONSISTENCIA DETECTADA EN BACKEND:', {
+              'totalFinal (correcto)': totalFinalRecibido.toLocaleString('es-AR'),
+              'totalConDescuentos (incorrecto)': totalConDescuentosRecibido.toLocaleString('es-AR'),
+              'Diferencia': diferencia.toLocaleString('es-AR'),
+              'CAUSA': 'El backend está recalculando totalConDescuentos incorrectamente (no incluye honorarios por rubro)',
+              'SOLUCIÓN': 'El backend debe usar totalFinal cuando no hay descuentos, o recalcular correctamente'
+            });
+          }
+        }
+
+        // ✅ Verificar que el backend no modificó el total que enviamos
+        if (totalFinalEnviado && totalFinalRecibido) {
+          const diferencia = Math.abs(Number(totalFinalEnviado) - Number(totalFinalRecibido));
+          if (diferencia > 1) {
+            console.warn('⚠️ El backend modificó el total final:', {
+              'Enviado': totalFinalEnviado.toLocaleString('es-AR'),
+              'Recibido': totalFinalRecibido.toLocaleString('es-AR'),
+              'Diferencia': diferencia.toLocaleString('es-AR')
+            });
+          } else {
+            console.log('✅ Total final guardado correctamente');
+          }
+        }
+      }
+
+      // Emitir evento para actualizar otras páginas
       eventBus.emit(FINANCIAL_EVENTS.PRESUPUESTO_ACTUALIZADO, {
         presupuestoId: datosParaEnviar.id,
         tipo: 'guardado',
@@ -10012,6 +11028,30 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
             <form ref={modalContentRef} onSubmit={handleSubmit} style={{ padding: '8px 10px' }}>
               <div className="row g-2">
                     {/* Eliminado label de Fecha creación fuera del bloque de fechas */}
+
+                {/* Campo: Número Presupuesto */}
+                <div className="col-12 mb-3">
+                  <label htmlFor="numeroPresupuesto" className="form-label" style={{ fontWeight: '600', color: '#495057' }}>
+                    <i className="fas fa-hashtag me-2"></i>Número Presupuesto
+                  </label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    id="numeroPresupuesto"
+                    name="numeroPresupuesto"
+                    value={form.numeroPresupuesto || ''}
+                    onChange={e => {
+                      const valor = e.target.value === '' ? null : Number(e.target.value);
+                      setForm({ ...form, numeroPresupuesto: valor });
+                    }}
+                    placeholder="Dejar vacío para auto-generar con ID"
+                    style={{ borderRadius: '0.375rem' }}
+                    disabled={soloLectura}
+                  />
+                  <small className="form-text text-muted">
+                    Si no ingresas un número, se generará automáticamente usando el ID del presupuesto
+                  </small>
+                </div>
 
                 {/* Título: Presupuesto destinado a */}
                 <div className="col-12 mb-3">
@@ -14797,6 +15837,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   if (!estaCargandoInicialRef.current) {
                     console.log('🚨 PASANDO HONORARIOS AL COMPONENTE:', form.honorarios);
                     console.log('🚨 form.honorarios.jornales:', form.honorarios?.jornales);
+                    console.log('🚨 form.honorarios.porRubro:', form.honorarios?.porRubro);
                   }
                   return form.honorarios;
                 })()}
@@ -14808,52 +15849,1482 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
               <hr className="my-5" style={{border: '3px solid #6c757d', order: 4}} />
 
-              {/* Configuración de Mayores Costos (clon exacto de Honorarios) */}
+              {/* 🆕 MAYORES COSTOS POR RUBRO - Nueva sección tipo Honorarios */}
               <div style={{order: 5}}>
-              <ConfiguracionPresupuestoSection
-                configsProfesionales={configsProfesionales}
-                configsMateriales={configsMateriales}
-                configsOtros={configsOtros}
-                profesionalesAgregados={form.profesionales}
-                materialesAgregados={form.materiales}
-                otrosCostosAgregados={form.otrosCostos}
-                itemsCalculadora={itemsCalculadora}
-                onConfigsChange={handleConfigsChange}
-                soloLectura={soloLectura}
-                mostrarSolo="mayoresCostos"
-                honorarios={form.honorarios}
-                mayoresCostos={form.mayoresCostos}
-                onMayoresCostosChange={(nuevoMayoresCostos) => {
-                  setForm(prev => ({ ...prev, mayoresCostos: nuevoMayoresCostos }));
-                }}
-              />
+                <div className="border rounded p-3" style={{backgroundColor: '#f8f9fa'}}>
+                  <div className={`mt-3 border rounded p-3 ${ocultarMayoresCostosEnPDF ? 'ocultar-en-pdf' : ''}`} style={{backgroundColor: '#f8f9fa'}}>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h6
+                        className="mb-0"
+                        style={{cursor: 'pointer', fontWeight: 'bold', color: '#f0ad4e'}}
+                        onClick={() => setMostrarMayoresCostosPorRubro(!mostrarMayoresCostosPorRubro)}
+                      >
+                        💰 Configuración de Mayores Costos por Rubro
+                        <span className="ms-2 small">{mostrarMayoresCostosPorRubro ? '▼' : '▶'}</span>
+                      </h6>
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="ocultarMayoresCostosEnPDF"
+                          checked={ocultarMayoresCostosEnPDF}
+                          onChange={(e) => setOcultarMayoresCostosEnPDF(e.target.checked)}
+                          title="Si está marcado, esta sección NO aparecerá en el PDF"
+                        />
+                        <label
+                          className="form-check-label small text-muted"
+                          htmlFor="ocultarMayoresCostosEnPDF"
+                          title="Si está marcado, esta sección NO aparecerá en el PDF"
+                        >
+                          🔒 Ocultar en PDF
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {mostrarMayoresCostosPorRubro && (
+                <div className="border rounded p-3 mt-3" style={{backgroundColor: '#fff3cd'}}>
+                  {(() => {
+                    // Auto-detectar rubros desde itemsCalculadora
+                    const rubrosMap = new Map();
+                    itemsCalculadora.forEach((item, index) => {
+                      const rubroNombre = (item.tipoProfesional || `Rubro ${index + 1}`).trim();
+                      if (rubrosMap.has(rubroNombre)) {
+                        const existente = rubrosMap.get(rubroNombre);
+                        existente.manoObra += (item.subtotalManoObra || 0);
+                        existente.materiales += (item.subtotalMateriales || 0);
+                        existente.gastosGenerales += (item.subtotalGastosGenerales || 0);
+                      } else {
+                        rubrosMap.set(rubroNombre, {
+                          nombre: rubroNombre,
+                          manoObra: item.subtotalManoObra || 0,
+                          materiales: item.subtotalMateriales || 0,
+                          gastosGenerales: item.subtotalGastosGenerales || 0
+                        });
+                      }
+                    });
+
+                    const rubrosArray = Array.from(rubrosMap.values());
+
+                    // Constantes
+                    const TIPO_DEFAULT = 'PORCENTAJE';
+
+                    // Función helper para obtener configuración de un rubro
+                    const getConfigRubro = (nombreRubro) => {
+                      const config = mayoresCostosPorRubro.find(r => r.nombreRubro?.toLowerCase() === nombreRubro.toLowerCase());
+                      return config || {
+                        nombreRubro: nombreRubro,
+                        activo: true,
+                        profesionalesActivo: false,
+                        profesionalesTipo: TIPO_DEFAULT,
+                        profesionalesValor: undefined,
+                        materialesActivo: false,
+                        materialesTipo: TIPO_DEFAULT,
+                        materialesValor: undefined,
+                        otrosCostosActivo: false,
+                        otrosCostosTipo: TIPO_DEFAULT,
+                        otrosCostosValor: undefined,
+                        honorariosActivo: false,
+                        honorariosTipo: TIPO_DEFAULT,
+                        honorariosValor: undefined
+                      };
+                    };
+
+                    // Helper para calcular honorarios de un rubro específico
+                    const calcularHonorariosRubro = (rubro) => {
+                      if (!form.honorarios?.porRubro) return 0;
+
+                      const honorariosKey = Object.keys(form.honorarios.porRubro || {}).find(
+                        key => key.toLowerCase() === rubro.nombre.toLowerCase()
+                      );
+                      const honorariosRubro = honorariosKey ? form.honorarios.porRubro[honorariosKey] : null;
+
+                      let total = 0;
+                      if (honorariosRubro && honorariosRubro.activo) {
+                        if (rubro.manoObra > 0 && honorariosRubro.profesionales?.valor) {
+                          const valor = Number(honorariosRubro.profesionales.valor);
+                          if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+                            total += (rubro.manoObra * valor) / 100;
+                          } else {
+                            total += valor;
+                          }
+                        }
+                        if (rubro.materiales > 0 && honorariosRubro.materiales?.valor) {
+                          const valor = Number(honorariosRubro.materiales.valor);
+                          if (honorariosRubro.materiales.tipo === 'porcentaje') {
+                            total += (rubro.materiales * valor) / 100;
+                          } else {
+                            total += valor;
+                          }
+                        }
+                        if (rubro.gastosGenerales > 0 && honorariosRubro.otrosCostos?.valor) {
+                          const valor = Number(honorariosRubro.otrosCostos.valor);
+                          if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+                            total += (rubro.gastosGenerales * valor) / 100;
+                          } else {
+                            total += valor;
+                          }
+                        }
+                      }
+                      return total;
+                    };
+
+                    // Función para calcular mayores costos de un rubro
+                    const calcularMayoresCostosRubro = (rubro, config) => {
+                      if (!config.activo) return 0;
+
+                      let total = 0;
+
+                      // Mano de Obra
+                      const profesionalesValorNum = Number(config.profesionalesValor);
+                      if (profesionalesValorNum > 0 && rubro.manoObra > 0) {
+                        const esPorcentaje = String(config.profesionalesTipo || TIPO_DEFAULT).toUpperCase() === TIPO_DEFAULT;
+                        total += esPorcentaje
+                          ? (rubro.manoObra * profesionalesValorNum) / 100
+                          : profesionalesValorNum;
+                      }
+
+                      // Materiales
+                      const materialesValorNum = Number(config.materialesValor);
+                      if (materialesValorNum > 0 && rubro.materiales > 0) {
+                        const esPorcentaje = String(config.materialesTipo || TIPO_DEFAULT).toUpperCase() === TIPO_DEFAULT;
+                        total += esPorcentaje
+                          ? (rubro.materiales * materialesValorNum) / 100
+                          : materialesValorNum;
+                      }
+
+                      // Gastos Generales
+                      const otrosCostosValorNum = Number(config.otrosCostosValor);
+                      if (otrosCostosValorNum > 0 && rubro.gastosGenerales > 0) {
+                        const esPorcentaje = String(config.otrosCostosTipo || TIPO_DEFAULT).toUpperCase() === TIPO_DEFAULT;
+                        total += esPorcentaje
+                          ? (rubro.gastosGenerales * otrosCostosValorNum) / 100
+                          : otrosCostosValorNum;
+                      }
+
+                      // Honorarios
+                      const honorariosValorNum = Number(config.honorariosValor);
+                      if (honorariosValorNum > 0) {
+                        const honorariosRubro = calcularHonorariosRubro(rubro);
+                        if (honorariosRubro > 0) {
+                          const esPorcentaje = String(config.honorariosTipo || TIPO_DEFAULT).toUpperCase() === TIPO_DEFAULT;
+                          total += esPorcentaje
+                            ? (honorariosRubro * honorariosValorNum) / 100
+                            : honorariosValorNum;
+                        }
+                      }
+
+                      return total;
+                    };
+
+                    const totalGeneralBase = rubrosArray.reduce((sum, r) => sum + r.manoObra + r.materiales + r.gastosGenerales, 0);
+                    const totalGeneralHonorariosMC = rubrosArray.reduce((sum, r) => sum + calcularHonorariosRubro(r), 0);
+                    const totalGeneralMayoresCostos = rubrosArray.reduce((sum, r) => {
+                      const config = getConfigRubro(r.nombre);
+                      return sum + calcularMayoresCostosRubro(r, config);
+                    }, 0);
+
+                    // Calcular mayores costos aplicados SOLO sobre honorarios
+                    const mayoresCostosSobreHonorarios = rubrosArray.reduce((sum, r) => {
+                      const config = getConfigRubro(r.nombre);
+                      if (config.honorariosValor > 0) {
+                        const honorariosRubro = calcularHonorariosRubro(r);
+                        if (honorariosRubro > 0) {
+                          if (config.honorariosTipo === 'PORCENTAJE') {
+                            return sum + (honorariosRubro * (config.honorariosValor || 0)) / 100;
+                          } else {
+                            return sum + (config.honorariosValor || 0);
+                          }
+                        }
+                      }
+                      return sum;
+                    }, 0);
+
+                    return (
+                      <div className="mb-3">
+                        <div className="alert alert-warning py-2 px-3 mb-3">
+                          <small>
+                            <i className="fas fa-info-circle me-2"></i>
+                            <strong>Configuración de Mayores Costos por Rubro:</strong> Configure los mayores costos de forma independiente para cada rubro creado en "Configuración de Presupuesto".
+                          </small>
+                        </div>
+
+                        {rubrosArray.length === 0 ? (
+                          <div className="alert alert-info">
+                            <i className="bi bi-info-circle me-2"></i>
+                            No hay rubros configurados. Agregue items en "Configuración de Presupuesto" para comenzar.
+                          </div>
+                        ) : (
+                          <>
+                            <div className="row g-3">
+                              {rubrosArray.map((rubro, idx) => {
+                                const config = getConfigRubro(rubro.nombre);
+                                const mayoresCostos = calcularMayoresCostosRubro(rubro, config);
+                                const baseTotal = rubro.manoObra + rubro.materiales + rubro.gastosGenerales;
+
+                                return (
+                                  <div key={idx} className="col-md-6">
+                                    <div className="card border-warning">
+                                      <div className="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                                        <h6 className="mb-0">{rubro.nombre}</h6>
+                                        <div className="form-check form-switch mb-0">
+                                          <input
+                                            className="form-check-input"
+                                            type="checkbox"
+                                            id={`mc-activo-${idx}`}
+                                            checked={config.activo}
+                                            onChange={(e) => {
+                                              const nuevoArray = [...mayoresCostosPorRubro];
+                                              const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                              if (existenteIdx >= 0) {
+                                                nuevoArray[existenteIdx].activo = e.target.checked;
+                                              } else {
+                                                nuevoArray.push({
+                                                  nombreRubro: rubro.nombre,
+                                                  activo: e.target.checked,
+                                                  profesionalesTipo: 'PORCENTAJE',
+                                                  profesionalesValor: undefined,
+                                                  materialesTipo: 'PORCENTAJE',
+                                                  materialesValor: undefined,
+                                                  otrosCostosTipo: 'PORCENTAJE',
+                                                  otrosCostosValor: undefined,
+                                                  honorariosTipo: 'PORCENTAJE',
+                                                  honorariosValor: undefined
+                                                });
+                                              }
+                                              setMayoresCostosPorRubro(nuevoArray);
+                                            }}
+                                            disabled={soloLectura}
+                                          />
+                                          <label className="form-check-label text-dark small" htmlFor={`mc-activo-${idx}`}>
+                                            Aplicar mayores costos
+                                          </label>
+                                        </div>
+                                      </div>
+                                      <div className="card-body">
+                                        {/* Totales del Rubro */}
+                                        <div className="mb-3 p-2 bg-light rounded">
+                                          <small className="text-muted d-block mb-1">💰 Totales del Rubro:</small>
+                                          <div className="d-flex justify-content-between">
+                                            <span className="small">Mano de Obra:</span>
+                                            <span className="small fw-bold">${rubro.manoObra.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                          </div>
+                                          <div className="d-flex justify-content-between">
+                                            <span className="small">Materiales:</span>
+                                            <span className="small fw-bold">${rubro.materiales.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                          </div>
+                                          {rubro.gastosGenerales > 0 && (
+                                            <div className="d-flex justify-content-between">
+                                              <span className="small">Gastos Generales:</span>
+                                              <span className="small fw-bold">${rubro.gastosGenerales.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                            </div>
+                                          )}
+                                          {(() => {
+                                            const honorarios = calcularHonorariosRubro(rubro);
+                                            if (honorarios > 0) {
+                                              return (
+                                                <div className="d-flex justify-content-between">
+                                                  <span className="small">Honorarios:</span>
+                                                  <span className="small fw-bold">${honorarios.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                                </div>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                        </div>
+
+                                        {/* Configuración Mano de Obra */}
+                                        <div className="mb-2 p-2 border rounded">
+                                          <small className="text-muted d-block mb-2">🏗️ Mano de Obra</small>
+                                          <div className="d-flex gap-1 align-items-center">
+                                            <select
+                                              className="form-select form-select-sm"
+                                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                              value={config.profesionalesTipo}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...mayoresCostosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].profesionalesTipo = e.target.value;
+                                                } else {
+                                                  nuevoArray.push({
+                                                    nombreRubro: rubro.nombre,
+                                                    activo: config.activo ?? true,
+                                                    profesionalesActivo: config.profesionalesActivo ?? false,
+                                                    profesionalesTipo: e.target.value,
+                                                    profesionalesValor: config.profesionalesValor,
+                                                    materialesActivo: config.materialesActivo ?? false,
+                                                    materialesTipo: config.materialesTipo || 'PORCENTAJE',
+                                                    materialesValor: config.materialesValor,
+                                                    otrosCostosActivo: config.otrosCostosActivo ?? false,
+                                                    otrosCostosTipo: config.otrosCostosTipo || 'PORCENTAJE',
+                                                    otrosCostosValor: config.otrosCostosValor,
+                                                    honorariosActivo: config.honorariosActivo ?? false,
+                                                    honorariosTipo: config.honorariosTipo || 'PORCENTAJE',
+                                                    honorariosValor: config.honorariosValor
+                                                  });
+                                                }
+                                                setMayoresCostosPorRubro(nuevoArray);
+                                              }}
+                                              disabled={soloLectura || !config.activo}
+                                            >
+                                              <option value="PORCENTAJE">%</option>
+                                              <option value="IMPORTE_FIJO">$</option>
+                                            </select>
+                                            <input
+                                              type="number"
+                                              className="form-control form-control-sm"
+                                              value={config.profesionalesValor > 0 ? config.profesionalesValor : ''}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...mayoresCostosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                console.log(`📝 onChange profesionales ${rubro.nombre}:`, {valor, existenteIdx, arrayActual: JSON.parse(JSON.stringify(nuevoArray))});
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].profesionalesValor = valor;
+                                                  // ✅ Si se ingresa un valor > 0, marcar como activo
+                                                  if (valor && valor > 0) {
+                                                    nuevoArray[existenteIdx].profesionalesActivo = true;
+                                                  }
+                                                } else {
+                                                  // Crear objeto completo con valores por defecto
+                                                  nuevoArray.push({
+                                                    nombreRubro: rubro.nombre,
+                                                    activo: config.activo ?? true,
+                                                    profesionalesActivo: true,  // ✅ Activo cuando se ingresa valor
+                                                    profesionalesTipo: config.profesionalesTipo || 'PORCENTAJE',
+                                                    profesionalesValor: valor,
+                                                    materialesActivo: config.materialesActivo ?? false,
+                                                    materialesTipo: config.materialesTipo || 'PORCENTAJE',
+                                                    materialesValor: config.materialesValor,
+                                                    otrosCostosActivo: config.otrosCostosActivo ?? false,
+                                                    otrosCostosTipo: config.otrosCostosTipo || 'PORCENTAJE',
+                                                    otrosCostosValor: config.otrosCostosValor,
+                                                    honorariosActivo: config.honorariosActivo ?? false,
+                                                    honorariosTipo: config.honorariosTipo || 'PORCENTAJE',
+                                                    honorariosValor: config.honorariosValor
+                                                  });
+                                                }
+                                                console.log(`📝 Array después:`, JSON.parse(JSON.stringify(nuevoArray)));
+                                                setMayoresCostosPorRubro(nuevoArray);
+                                              }}
+                                              style={{fontSize: '11px', padding: '4px'}}
+                                              disabled={soloLectura || !config.activo}
+                                              min="0"
+                                              max={config.profesionalesTipo === 'PORCENTAJE' ? '100' : undefined}
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Configuración Materiales */}
+                                        <div className="mb-2 p-2 border rounded">
+                                          <small className="text-muted d-block mb-2">📦 Materiales</small>
+                                          <div className="d-flex gap-1 align-items-center">
+                                            <select
+                                              className="form-select form-select-sm"
+                                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                              value={config.materialesTipo}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...mayoresCostosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].materialesTipo = e.target.value;
+                                                } else {
+                                                  nuevoArray.push({
+                                                    nombreRubro: rubro.nombre,
+                                                    activo: config.activo ?? true,
+                                                    profesionalesActivo: config.profesionalesActivo ?? false,
+                                                    profesionalesTipo: config.profesionalesTipo || 'PORCENTAJE',
+                                                    profesionalesValor: config.profesionalesValor,
+                                                    materialesActivo: config.materialesActivo ?? false,
+                                                    materialesTipo: e.target.value,
+                                                    materialesValor: config.materialesValor,
+                                                    otrosCostosActivo: config.otrosCostosActivo ?? false,
+                                                    otrosCostosTipo: config.otrosCostosTipo || 'PORCENTAJE',
+                                                    otrosCostosValor: config.otrosCostosValor,
+                                                    honorariosActivo: config.honorariosActivo ?? false,
+                                                    honorariosTipo: config.honorariosTipo || 'PORCENTAJE',
+                                                    honorariosValor: config.honorariosValor
+                                                  });
+                                                }
+                                                setMayoresCostosPorRubro(nuevoArray);
+                                              }}
+                                              disabled={soloLectura || !config.activo}
+                                            >
+                                              <option value="PORCENTAJE">%</option>
+                                              <option value="IMPORTE_FIJO">$</option>
+                                            </select>
+                                            <input
+                                              type="number"
+                                              className="form-control form-control-sm"
+                                              value={config.materialesValor > 0 ? config.materialesValor : ''}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...mayoresCostosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                console.log(`📦 onChange materiales ${rubro.nombre}:`, {valor, existenteIdx});
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].materialesValor = valor;
+                                                  // ✅ Si se ingresa un valor > 0, marcar como activo
+                                                  if (valor && valor > 0) {
+                                                    nuevoArray[existenteIdx].materialesActivo = true;
+                                                  }
+                                                } else {
+                                                  nuevoArray.push({
+                                                    nombreRubro: rubro.nombre,
+                                                    activo: config.activo ?? true,
+                                                    profesionalesActivo: config.profesionalesActivo ?? false,
+                                                    profesionalesTipo: config.profesionalesTipo || 'PORCENTAJE',
+                                                    profesionalesValor: config.profesionalesValor,
+                                                    materialesActivo: true,  // ✅ Activo cuando se ingresa valor
+                                                    materialesTipo: config.materialesTipo || 'PORCENTAJE',
+                                                    materialesValor: valor,
+                                                    otrosCostosActivo: config.otrosCostosActivo ?? false,
+                                                    otrosCostosTipo: config.otrosCostosTipo || 'PORCENTAJE',
+                                                    otrosCostosValor: config.otrosCostosValor,
+                                                    honorariosActivo: config.honorariosActivo ?? false,
+                                                    honorariosTipo: config.honorariosTipo || 'PORCENTAJE',
+                                                    honorariosValor: config.honorariosValor
+                                                  });
+                                                }
+                                                setMayoresCostosPorRubro(nuevoArray);
+                                              }}
+                                              style={{fontSize: '11px', padding: '4px'}}
+                                              disabled={soloLectura || !config.activo}
+                                              min="0"
+                                              max={config.materialesTipo === 'PORCENTAJE' ? '100' : undefined}
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Configuración Gastos Generales */}
+                                        {rubro.gastosGenerales > 0 && (
+                                          <div className="mb-2 p-2 border rounded">
+                                            <small className="text-muted d-block mb-2">💼 Gastos Generales</small>
+                                            <div className="d-flex gap-1 align-items-center">
+                                              <select
+                                                className="form-select form-select-sm"
+                                                style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                                value={config.otrosCostosTipo}
+                                                onChange={(e) => {
+                                                  const nuevoArray = [...mayoresCostosPorRubro];
+                                                  const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                  if (existenteIdx >= 0) {
+                                                    nuevoArray[existenteIdx].otrosCostosTipo = e.target.value;
+                                                  } else {
+                                                    nuevoArray.push({
+                                                      nombreRubro: rubro.nombre,
+                                                      activo: config.activo ?? true,
+                                                      profesionalesActivo: config.profesionalesActivo ?? false,
+                                                      profesionalesTipo: config.profesionalesTipo || 'PORCENTAJE',
+                                                      profesionalesValor: config.profesionalesValor,
+                                                      materialesActivo: config.materialesActivo ?? false,
+                                                      materialesTipo: config.materialesTipo || 'PORCENTAJE',
+                                                      materialesValor: config.materialesValor,
+                                                      otrosCostosActivo: config.otrosCostosActivo ?? false,
+                                                      otrosCostosTipo: e.target.value,
+                                                      otrosCostosValor: config.otrosCostosValor,
+                                                      honorariosActivo: config.honorariosActivo ?? false,
+                                                      honorariosTipo: config.honorariosTipo || 'PORCENTAJE',
+                                                      honorariosValor: config.honorariosValor
+                                                    });
+                                                  }
+                                                  setMayoresCostosPorRubro(nuevoArray);
+                                                }}
+                                                disabled={soloLectura || !config.activo}
+                                              >
+                                                <option value="PORCENTAJE">%</option>
+                                                <option value="IMPORTE_FIJO">$</option>
+                                              </select>
+                                              <input
+                                                type="number"
+                                                className="form-control form-control-sm"
+                                                value={config.otrosCostosValor > 0 ? config.otrosCostosValor : ''}
+                                                onChange={(e) => {
+                                                  const nuevoArray = [...mayoresCostosPorRubro];
+                                                  const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                  const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                  if (existenteIdx >= 0) {
+                                                    nuevoArray[existenteIdx].otrosCostosValor = valor;
+                                                  } else {
+                                                    nuevoArray.push({
+                                                      nombreRubro: rubro.nombre,
+                                                      activo: config.activo ?? true,
+                                                      profesionalesActivo: config.profesionalesActivo ?? false,
+                                                      profesionalesTipo: config.profesionalesTipo || 'PORCENTAJE',
+                                                      profesionalesValor: config.profesionalesValor,
+                                                      materialesActivo: config.materialesActivo ?? false,
+                                                      materialesTipo: config.materialesTipo || 'PORCENTAJE',
+                                                      materialesValor: config.materialesValor,
+                                                      otrosCostosActivo: true,  // ✅ Activo cuando se ingresa valor
+                                                      otrosCostosTipo: config.otrosCostosTipo || 'PORCENTAJE',
+                                                      otrosCostosValor: valor,
+                                                      honorariosActivo: config.honorariosActivo ?? false,
+                                                      honorariosTipo: config.honorariosTipo || 'PORCENTAJE',
+                                                      honorariosValor: config.honorariosValor
+                                                    });
+                                                  }
+                                                  setMayoresCostosPorRubro(nuevoArray);
+                                                }}
+                                                style={{fontSize: '11px', padding: '4px'}}
+                                                disabled={soloLectura || !config.activo}
+                                                min="0"
+                                                max={config.otrosCostosTipo === 'PORCENTAJE' ? '100' : undefined}
+                                              />
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Configuración Honorarios */}
+                                        {(() => {
+                                          const honorarios = calcularHonorariosRubro(rubro);
+                                          if (honorarios > 0) {
+                                            return (
+                                              <div className="mb-2 p-2 border rounded">
+                                                <small className="text-muted d-block mb-2">🏛️ Honorarios</small>
+                                                <div className="d-flex gap-1 align-items-center">
+                                                  <select
+                                                    className="form-select form-select-sm"
+                                                    style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                                    value={config.honorariosTipo}
+                                                    onChange={(e) => {
+                                                      const nuevoArray = [...mayoresCostosPorRubro];
+                                                      const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                      if (existenteIdx >= 0) {
+                                                        nuevoArray[existenteIdx].honorariosTipo = e.target.value;
+                                                      } else {
+                                                        nuevoArray.push({
+                                                          nombreRubro: rubro.nombre,
+                                                          activo: config.activo ?? true,
+                                                          profesionalesActivo: config.profesionalesActivo ?? false,
+                                                          profesionalesTipo: config.profesionalesTipo || 'PORCENTAJE',
+                                                          profesionalesValor: config.profesionalesValor,
+                                                          materialesActivo: config.materialesActivo ?? false,
+                                                          materialesTipo: config.materialesTipo || 'PORCENTAJE',
+                                                          materialesValor: config.materialesValor,
+                                                          otrosCostosActivo: config.otrosCostosActivo ?? false,
+                                                          otrosCostosTipo: config.otrosCostosTipo || 'PORCENTAJE',
+                                                          otrosCostosValor: config.otrosCostosValor,
+                                                          honorariosActivo: config.honorariosActivo ?? false,
+                                                          honorariosTipo: e.target.value,
+                                                          honorariosValor: config.honorariosValor
+                                                        });
+                                                      }
+                                                      setMayoresCostosPorRubro(nuevoArray);
+                                                    }}
+                                                    disabled={soloLectura || !config.activo}
+                                                  >
+                                                    <option value="PORCENTAJE">%</option>
+                                                    <option value="IMPORTE_FIJO">$</option>
+                                                  </select>
+                                                  <input
+                                                    type="number"
+                                                    className="form-control form-control-sm"
+                                                    value={config.honorariosValor > 0 ? config.honorariosValor : ''}
+                                                    onChange={(e) => {
+                                                      const nuevoArray = [...mayoresCostosPorRubro];
+                                                      const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                      const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                      console.log(`🏛️ onChange honorarios ${rubro.nombre}:`, {valorInput: e.target.value, valorParsed: valor, existenteIdx});
+                                                      if (existenteIdx >= 0) {
+                                                        nuevoArray[existenteIdx].honorariosValor = valor;
+                                                        // ✅ Si se ingresa un valor > 0, marcar como activo
+                                                        if (valor && valor > 0) {
+                                                          nuevoArray[existenteIdx].honorariosActivo = true;
+                                                        }
+                                                        console.log(`  ✅ Actualizando existente:`, nuevoArray[existenteIdx]);
+                                                      } else {
+                                                        const nuevoRubro = {
+                                                          nombreRubro: rubro.nombre,
+                                                          activo: config.activo ?? true,
+                                                          profesionalesActivo: config.profesionalesActivo ?? false,
+                                                          profesionalesTipo: config.profesionalesTipo || 'PORCENTAJE',
+                                                          profesionalesValor: config.profesionalesValor,
+                                                          materialesActivo: config.materialesActivo ?? false,
+                                                          materialesTipo: config.materialesTipo || 'PORCENTAJE',
+                                                          materialesValor: config.materialesValor,
+                                                          otrosCostosActivo: config.otrosCostosActivo ?? false,
+                                                          otrosCostosTipo: config.otrosCostosTipo || 'PORCENTAJE',
+                                                          otrosCostosValor: config.otrosCostosValor,
+                                                          honorariosActivo: true,  // ✅ CRÍTICO: Marcar como activo cuando se ingresa un valor
+                                                          honorariosTipo: config.honorariosTipo || 'PORCENTAJE',
+                                                          honorariosValor: valor
+                                                        };
+                                                        nuevoArray.push(nuevoRubro);
+                                                        console.log(`  ✅ Creando nuevo:`, nuevoRubro);
+                                                      }
+                                                      setMayoresCostosPorRubro(nuevoArray);
+                                                    }}
+                                                    style={{fontSize: '11px', padding: '4px'}}
+                                                    disabled={soloLectura || !config.activo}
+                                                    min="0"
+                                                    max={config.honorariosTipo === 'PORCENTAJE' ? '100' : undefined}
+                                                  />
+                                                </div>
+                                              </div>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
+
+                                        {/* Total Mayores Costos */}
+                                        <div className="mt-2 p-2 bg-warning bg-opacity-10 rounded">
+                                          <div className="d-flex justify-content-between align-items-center">
+                                            <span className="small fw-bold text-warning">💰 Total Mayores Costos:</span>
+                                            <span className="small fw-bold text-warning">${mayoresCostos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Tabla Resumen */}
+                            <div className="mt-3 p-3 border rounded bg-light">
+                              <h6 className="text-warning mb-3">
+                                <i className="fas fa-chart-bar me-2"></i>
+                                Resumen Total de Mayores Costos por Rubro
+                              </h6>
+                              <table className="table table-sm table-bordered mb-0">
+                                <thead className="table-warning">
+                                  <tr>
+                                    <th>Rubro</th>
+                                    <th className="text-end">Base</th>
+                                    <th className="text-end text-secondary">Honorarios</th>
+                                    <th className="text-end">Mayores Costos</th>
+                                    <th className="text-end">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rubrosArray.map((rubro, idx) => {
+                                    const config = getConfigRubro(rubro.nombre);
+                                    const mayoresCostos = calcularMayoresCostosRubro(rubro, config);
+                                    const honorariosRubro = calcularHonorariosRubro(rubro);
+                                    const baseTotal = rubro.manoObra + rubro.materiales + rubro.gastosGenerales;
+
+                                    return (
+                                      <tr key={idx}>
+                                        <td>{rubro.nombre}</td>
+                                        <td className="text-end">${baseTotal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                        <td className="text-end text-secondary">${honorariosRubro.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                        <td className="text-end text-warning fw-bold">${mayoresCostos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                        <td className="text-end fw-bold">${(baseTotal + honorariosRubro + mayoresCostos).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                  <tr className="table-warning fw-bold">
+                                    <td>TOTAL GENERAL</td>
+                                    <td className="text-end">${totalGeneralBase.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                    <td className="text-end text-secondary">${totalGeneralHonorariosMC.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                    <td className="text-end text-warning">${totalGeneralMayoresCostos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                    <td className="text-end">${(totalGeneralBase + totalGeneralHonorariosMC + totalGeneralMayoresCostos).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Botón Aceptar Configuración de Mayores Costos */}
+                            <div className="mt-3 text-center">
+                              <button
+                                type="button"
+                                className={`btn ${configuracionMayoresCostosAceptada ? 'btn-secondary' : 'btn-warning'} btn-lg`}
+                                onClick={() => {
+                                  if (!configuracionMayoresCostosAceptada) {
+                                    // Guardar configuración de cada rubro en localStorage
+                                    rubrosArray.forEach(rubro => {
+                                      const config = getConfigRubro(rubro.nombre);
+                                      const clave = `mayores_costos_${rubro.nombre.trim().toLowerCase().replace(/\s+/g, '_')}`;
+                                      localStorage.setItem(clave, JSON.stringify({
+                                        profesionales: { tipo: config.profesionalesTipo, valor: config.profesionalesValor || 0 },
+                                        materiales: { tipo: config.materialesTipo, valor: config.materialesValor || 0 },
+                                        otrosCostos: { tipo: config.otrosCostosTipo, valor: config.otrosCostosValor || 0 },
+                                        honorarios: { tipo: config.honorariosTipo, valor: config.honorariosValor || 0 }
+                                      }));
+                                    });
+                                    setConfiguracionMayoresCostosAceptada(true);
+                                    alert('✅ Configuración de Mayores Costos guardada. Se verá reflejada en la sección "Composición del Presupuesto".');
+                                  }
+                                }}
+                                disabled={configuracionMayoresCostosAceptada || soloLectura}
+                              >
+                                {configuracionMayoresCostosAceptada
+                                  ? '✓ Configuración de Mayores Costos Aceptada'
+                                  : '✅ Aceptar Configuración de Mayores Costos'}
+                              </button>
+                              {configuracionMayoresCostosAceptada && (
+                                <div className="mt-2">
+                                  <button
+                                    type="button"
+                                    className="btn btn-link btn-sm text-muted"
+                                    onClick={() => setConfiguracionMayoresCostosAceptada(false)}
+                                  >
+                                    Modificar configuración
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+                )}
               </div>
 
-              <hr className="my-5" style={{border: '3px solid #6c757d', order: 6}} />
+              <hr className="my-5" style={{border: '3px solid #6c757d', order: 5.5}} />
 
-              {/* Configuración de Descuentos (similar a Mayores Costos pero resta en lugar de sumar) */}
-              <div style={{order: 7}}>
-              <ConfiguracionPresupuestoSection
-                configsProfesionales={configsProfesionales}
-                configsMateriales={configsMateriales}
-                configsOtros={configsOtros}
-                profesionalesAgregados={form.profesionales}
-                materialesAgregados={form.materiales}
-                otrosCostosAgregados={form.otrosCostos}
-                itemsCalculadora={itemsCalculadora}
-                onConfigsChange={handleConfigsChange}
-                soloLectura={soloLectura}
-                mostrarSolo="descuentos"
-                honorarios={form.honorarios}
-                mayoresCostos={form.mayoresCostos}
-                descuentos={form.descuentos}
-                onDescuentosChange={(nuevoDescuentos) => {
-                  setForm(prev => ({ ...prev, descuentos: nuevoDescuentos }));
-                }}
-              />
+              {/* 🆕 DESCUENTOS POR RUBRO - Nueva sección tipo Honorarios */}
+              <div style={{order: 6}}>
+                <div className="border rounded p-3" style={{backgroundColor: '#f8f9fa'}}>
+                  <div className={`mt-3 border rounded p-3 ${ocultarDescuentosEnPDF ? 'ocultar-en-pdf' : ''}`} style={{backgroundColor: '#f8f9fa'}}>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h6
+                        className="mb-0"
+                        style={{cursor: 'pointer', fontWeight: 'bold', color: '#d9534f'}}
+                        onClick={() => setMostrarDescuentosPorRubro(!mostrarDescuentosPorRubro)}
+                      >
+                        💰 Configuración de Descuentos por Rubro
+                        <span className="ms-2 small">{mostrarDescuentosPorRubro ? '▼' : '▶'}</span>
+                      </h6>
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="ocultarDescuentosEnPDF"
+                          checked={ocultarDescuentosEnPDF}
+                          onChange={(e) => setOcultarDescuentosEnPDF(e.target.checked)}
+                          title="Si está marcado, esta sección NO aparecerá en el PDF"
+                        />
+                        <label
+                          className="form-check-label small text-muted"
+                          htmlFor="ocultarDescuentosEnPDF"
+                          title="Si está marcado, esta sección NO aparecerá en el PDF"
+                        >
+                          🔒 Ocultar en PDF
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {mostrarDescuentosPorRubro && (
+                <div className="border rounded p-3 mt-3" style={{backgroundColor: '#f8d7da'}}>
+                  {(() => {
+                    // Auto-detectar rubros desde itemsCalculadora
+                    const rubrosMap = new Map();
+                    itemsCalculadora.forEach((item, index) => {
+                      const rubroNombre = (item.tipoProfesional || `Rubro ${index + 1}`).trim();
+                      if (rubrosMap.has(rubroNombre)) {
+                        const existente = rubrosMap.get(rubroNombre);
+                        existente.manoObra += (item.subtotalManoObra || 0);
+                        existente.materiales += (item.subtotalMateriales || 0);
+                        existente.gastosGenerales += (item.subtotalGastosGenerales || 0);
+                      } else {
+                        rubrosMap.set(rubroNombre, {
+                          nombre: rubroNombre,
+                          manoObra: item.subtotalManoObra || 0,
+                          materiales: item.subtotalMateriales || 0,
+                          gastosGenerales: item.subtotalGastosGenerales || 0
+                        });
+                      }
+                    });
+
+                    const rubrosArray = Array.from(rubrosMap.values());
+
+                    // Función helper para obtener configuración de un rubro
+                    const getConfigRubro = (nombreRubro) => {
+                      const config = descuentosPorRubro.find(r => r.nombreRubro?.toLowerCase() === nombreRubro.toLowerCase());
+                      return config || {
+                        nombreRubro: nombreRubro,
+                        activo: true,
+                        profesionalesActivo: false,
+                        profesionalesTipo: 'PORCENTAJE',
+                        profesionalesValor: undefined,
+                        materialesActivo: false,
+                        materialesTipo: 'PORCENTAJE',
+                        materialesValor: undefined,
+                        otrosCostosActivo: false,
+                        otrosCostosTipo: 'PORCENTAJE',
+                        otrosCostosValor: undefined,
+                        honorariosActivo: false,
+                        honorariosTipo: 'PORCENTAJE',
+                        honorariosValor: undefined
+                      };
+                    };
+
+                    // Helper para calcular honorarios de un rubro específico
+                    const calcularHonorariosRubro = (rubro) => {
+                      if (!form.honorarios?.porRubro) return 0;
+
+                      const honorariosKey = Object.keys(form.honorarios.porRubro || {}).find(
+                        key => key.toLowerCase() === rubro.nombre.toLowerCase()
+                      );
+                      const honorariosRubro = honorariosKey ? form.honorarios.porRubro[honorariosKey] : null;
+
+                      let total = 0;
+                      if (honorariosRubro && honorariosRubro.activo) {
+                        if (rubro.manoObra > 0 && honorariosRubro.profesionales?.valor) {
+                          const valor = Number(honorariosRubro.profesionales.valor);
+                          if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+                            total += (rubro.manoObra * valor) / 100;
+                          } else {
+                            total += valor;
+                          }
+                        }
+                        if (rubro.materiales > 0 && honorariosRubro.materiales?.valor) {
+                          const valor = Number(honorariosRubro.materiales.valor);
+                          if (honorariosRubro.materiales.tipo === 'porcentaje') {
+                            total += (rubro.materiales * valor) / 100;
+                          } else {
+                            total += valor;
+                          }
+                        }
+                        if (rubro.gastosGenerales > 0 && honorariosRubro.otrosCostos?.valor) {
+                          const valor = Number(honorariosRubro.otrosCostos.valor);
+                          if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+                            total += (rubro.gastosGenerales * valor) / 100;
+                          } else {
+                            total += valor;
+                          }
+                        }
+                      }
+                      return total;
+                    };
+
+                    // Helper para calcular mayores costos de un rubro específico
+                    const calcularMayoresCostosRubro = (rubro, config) => {
+                      if (!config.activo) return 0;
+
+                      let total = 0;
+
+                      // Buscar configuración de mayores costos para este rubro
+                      const mayorCostoConfig = mayoresCostosPorRubro.find(mc =>
+                        mc.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase()
+                      );
+
+                      if (!mayorCostoConfig || !mayorCostoConfig.activo) return 0;
+
+                      // Mano de Obra
+                      if (mayorCostoConfig.profesionalesValor > 0 && rubro.manoObra > 0) {
+                        const esPorcentaje = String(mayorCostoConfig.profesionalesTipo || '').toUpperCase() === 'PORCENTAJE';
+                        if (esPorcentaje) {
+                          total += (rubro.manoObra * (mayorCostoConfig.profesionalesValor || 0)) / 100;
+                        } else {
+                          total += (mayorCostoConfig.profesionalesValor || 0);
+                        }
+                      }
+
+                      // Materiales
+                      if (mayorCostoConfig.materialesValor > 0 && rubro.materiales > 0) {
+                        const esPorcentaje = String(mayorCostoConfig.materialesTipo || '').toUpperCase() === 'PORCENTAJE';
+                        if (esPorcentaje) {
+                          total += (rubro.materiales * (mayorCostoConfig.materialesValor || 0)) / 100;
+                        } else {
+                          total += (mayorCostoConfig.materialesValor || 0);
+                        }
+                      }
+
+                      // Gastos Generales / Otros Costos
+                      if (mayorCostoConfig.otrosCostosValor > 0 && rubro.gastosGenerales > 0) {
+                        const esPorcentaje = String(mayorCostoConfig.otrosCostosTipo || '').toUpperCase() === 'PORCENTAJE';
+                        if (esPorcentaje) {
+                          total += (rubro.gastosGenerales * (mayorCostoConfig.otrosCostosValor || 0)) / 100;
+                        } else {
+                          total += (mayorCostoConfig.otrosCostosValor || 0);
+                        }
+                      }
+
+                      // Honorarios
+                      const honorariosRubro = calcularHonorariosRubro(rubro);
+                      if (mayorCostoConfig.honorariosValor > 0 && honorariosRubro > 0) {
+                        const esPorcentaje = String(mayorCostoConfig.honorariosTipo || '').toUpperCase() === 'PORCENTAJE';
+                        if (esPorcentaje) {
+                          total += (honorariosRubro * (mayorCostoConfig.honorariosValor || 0)) / 100;
+                        } else {
+                          total += (mayorCostoConfig.honorariosValor || 0);
+                        }
+                      }
+
+                      return total;
+                    };
+
+                    // Función para calcular descuentos de un rubro
+                    const calcularDescuentosRubro = (rubro, config) => {
+                      if (!config.activo) return 0;
+
+                      let total = 0;
+
+                      // Mano de Obra
+                      if (config.profesionalesValor > 0 && rubro.manoObra > 0) {
+                        const esPorcentaje = String(config.profesionalesTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                        if (esPorcentaje) {
+                          total += (rubro.manoObra * (config.profesionalesValor || 0)) / 100;
+                        } else {
+                          total += (config.profesionalesValor || 0);
+                        }
+                      }
+
+                      // Materiales
+                      if (config.materialesValor > 0 && rubro.materiales > 0) {
+                        const esPorcentaje = String(config.materialesTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                        if (esPorcentaje) {
+                          total += (rubro.materiales * (config.materialesValor || 0)) / 100;
+                        } else {
+                          total += (config.materialesValor || 0);
+                        }
+                      }
+
+                      // Gastos Generales / Otros Costos
+                      if (config.otrosCostosValor > 0 && rubro.gastosGenerales > 0) {
+                        const esPorcentaje = String(config.otrosCostosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                        if (esPorcentaje) {
+                          total += (rubro.gastosGenerales * (config.otrosCostosValor || 0)) / 100;
+                        } else {
+                          total += (config.otrosCostosValor || 0);
+                        }
+                      }
+
+                      // 🆕 HONORARIOS - Calcular honorarios del rubro y aplicar descuentos
+                      if (config.honorariosValor > 0) {
+                        const honorariosRubro = calcularHonorariosRubro(rubro);
+                        const esPorcentaje = String(config.honorariosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                        if (honorariosRubro > 0) {
+                          if (esPorcentaje) {
+                            total += (honorariosRubro * (config.honorariosValor || 0)) / 100;
+                          } else {
+                            total += (config.honorariosValor || 0);
+                          }
+                        }
+                      }
+
+                      // 🆕 MAYORES COSTOS - Calcular mayores costos del rubro y aplicar descuentos
+                      if (config.mayoresCostosValor > 0) {
+                        const mayoresCostosRubro = calcularMayoresCostosRubro(rubro, { activo: true });
+                        const esPorcentaje = String(config.mayoresCostosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                        if (mayoresCostosRubro > 0) {
+                          if (esPorcentaje) {
+                            total += (mayoresCostosRubro * (config.mayoresCostosValor || 0)) / 100;
+                          } else {
+                            total += (config.mayoresCostosValor || 0);
+                          }
+                        }
+                      }
+
+                      return total;
+                    };
+
+                    const totalGeneralBase = rubrosArray.reduce((sum, r) => sum + r.manoObra + r.materiales + r.gastosGenerales, 0);
+                    const totalGeneralHonorariosDesc = rubrosArray.reduce((sum, r) => sum + calcularHonorariosRubro(r), 0);
+                    const totalGeneralMayoresCostos = rubrosArray.reduce((sum, r) => sum + calcularMayoresCostosRubro(r, { activo: true }), 0);
+                    const totalGeneralDescuentos = rubrosArray.reduce((sum, r) => {
+                      const config = getConfigRubro(r.nombre);
+                      return sum + calcularDescuentosRubro(r, config);
+                    }, 0);
+
+                    // Calcular descuentos aplicados SOLO sobre honorarios
+                    const descuentosSobreHonorarios = rubrosArray.reduce((sum, r) => {
+                      const config = getConfigRubro(r.nombre);
+                      if (config.honorariosValor > 0) {
+                        const honorariosRubro = calcularHonorariosRubro(r);
+                        const esPorcentaje = String(config.honorariosTipo || '').toUpperCase() === 'PORCENTAJE';
+                        if (honorariosRubro > 0) {
+                          if (esPorcentaje) {
+                            return sum + (honorariosRubro * (config.honorariosValor || 0)) / 100;
+                          } else {
+                            return sum + (config.honorariosValor || 0);
+                          }
+                        }
+                      }
+                      return sum;
+                    }, 0);
+
+                    // Calcular descuentos aplicados SOLO sobre mayores costos
+                    const descuentosSobreMayoresCostos = rubrosArray.reduce((sum, r) => {
+                      const config = getConfigRubro(r.nombre);
+                      if (config.mayoresCostosValor > 0) {
+                        const mayoresCostosRubro = calcularMayoresCostosRubro(r, { activo: true });
+                        const esPorcentaje = String(config.mayoresCostosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                        if (mayoresCostosRubro > 0) {
+                          if (esPorcentaje) {
+                            return sum + (mayoresCostosRubro * (config.mayoresCostosValor || 0)) / 100;
+                          } else {
+                            return sum + (config.mayoresCostosValor || 0);
+                          }
+                        }
+                      }
+                      return sum;
+                    }, 0);
+
+                    return (
+                      <div className="mb-3">
+                        <div className="alert alert-danger py-2 px-3 mb-3">
+                          <small>
+                            <i className="fas fa-info-circle me-2"></i>
+                            <strong>Configuración de Descuentos por Rubro:</strong> Configure los descuentos de forma independiente para cada rubro creado en "Configuración de Presupuesto".
+                          </small>
+                        </div>
+
+                        {rubrosArray.length === 0 ? (
+                          <div className="alert alert-info">
+                            <i className="bi bi-info-circle me-2"></i>
+                            No hay rubros configurados. Agregue items en "Configuración de Presupuesto" para comenzar.
+                          </div>
+                        ) : (
+                          <>
+                            <div className="row g-3">
+                              {rubrosArray.map((rubro, idx) => {
+                                const config = getConfigRubro(rubro.nombre);
+                                const descuentos = calcularDescuentosRubro(rubro, config);
+                                const baseTotal = rubro.manoObra + rubro.materiales + rubro.gastosGenerales;
+
+                                return (
+                                  <div key={idx} className="col-md-6">
+                                    <div className="card border-danger">
+                                      <div className="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                                        <h6 className="mb-0">{rubro.nombre}</h6>
+                                        <div className="form-check form-switch mb-0">
+                                          <input
+                                            className="form-check-input"
+                                            type="checkbox"
+                                            id={`desc-activo-${idx}`}
+                                            checked={config.activo}
+                                            onChange={(e) => {
+                                              const nuevoArray = [...descuentosPorRubro];
+                                              const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                              if (existenteIdx >= 0) {
+                                                nuevoArray[existenteIdx].activo = e.target.checked;
+                                              } else {
+                                                nuevoArray.push({...config, nombreRubro: rubro.nombre, activo: e.target.checked});
+                                              }
+                                              setDescuentosPorRubro(nuevoArray);
+                                            }}
+                                            disabled={soloLectura}
+                                          />
+                                          <label className="form-check-label text-white small" htmlFor={`desc-activo-${idx}`}>
+                                            Aplicar descuentos
+                                          </label>
+                                        </div>
+                                      </div>
+                                      <div className="card-body">
+                                        {/* Totales del Rubro */}
+                                        <div className="mb-3 p-2 bg-light rounded">
+                                          <small className="text-muted d-block mb-1">💰 Totales del Rubro:</small>
+                                          <div className="d-flex justify-content-between">
+                                            <span className="small">Mano de Obra:</span>
+                                            <span className="small fw-bold">${rubro.manoObra.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                          </div>
+                                          <div className="d-flex justify-content-between">
+                                            <span className="small">Materiales:</span>
+                                            <span className="small fw-bold">${rubro.materiales.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                          </div>
+                                          {rubro.gastosGenerales > 0 && (
+                                            <div className="d-flex justify-content-between">
+                                              <span className="small">Gastos Generales:</span>
+                                              <span className="small fw-bold">${rubro.gastosGenerales.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                            </div>
+                                          )}
+                                          {(() => {
+                                            const honorarios = calcularHonorariosRubro(rubro);
+                                            if (honorarios > 0) {
+                                              return (
+                                                <div className="d-flex justify-content-between">
+                                                  <span className="small">Honorarios:</span>
+                                                  <span className="small fw-bold">${honorarios.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                                </div>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                          {(() => {
+                                            const mayoresCostos = calcularMayoresCostosRubro(rubro, config);
+                                            if (mayoresCostos > 0) {
+                                              return (
+                                                <div className="d-flex justify-content-between">
+                                                  <span className="small">Mayores Costos:</span>
+                                                  <span className="small fw-bold">${mayoresCostos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                                </div>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                        </div>
+
+                                        {/* Configuración Mano de Obra */}
+                                        <div className="mb-2 p-2 border rounded">
+                                          <small className="text-muted d-block mb-2">🏗️ Mano de Obra</small>
+                                          <div className="d-flex gap-1 align-items-center">
+                                            <select
+                                              className="form-select form-select-sm"
+                                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                              value={config.profesionalesTipo}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...descuentosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].profesionalesTipo = e.target.value;
+                                                } else {
+                                                  nuevoArray.push({...config, nombreRubro: rubro.nombre, profesionalesTipo: e.target.value});
+                                                }
+                                                setDescuentosPorRubro(nuevoArray);
+                                              }}
+                                              disabled={soloLectura || !config.activo}
+                                            >
+                                              <option value="PORCENTAJE">%</option>
+                                              <option value="IMPORTE_FIJO">$</option>
+                                            </select>
+                                            <input
+                                              type="number"
+                                              className="form-control form-control-sm"
+                                              value={config.profesionalesValor > 0 ? config.profesionalesValor : ''}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...descuentosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].profesionalesValor = valor;
+                                                } else {
+                                                  nuevoArray.push({...config, nombreRubro: rubro.nombre, profesionalesValor: valor});
+                                                }
+                                                setDescuentosPorRubro(nuevoArray);
+                                              }}
+                                              style={{fontSize: '11px', padding: '4px'}}
+                                              disabled={soloLectura || !config.activo}
+                                              min="0"
+                                              max={config.profesionalesTipo === 'PORCENTAJE' ? '100' : undefined}
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Configuración Materiales */}
+                                        <div className="mb-2 p-2 border rounded">
+                                          <small className="text-muted d-block mb-2">📦 Materiales</small>
+                                          <div className="d-flex gap-1 align-items-center">
+                                            <select
+                                              className="form-select form-select-sm"
+                                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                              value={config.materialesTipo}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...descuentosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].materialesTipo = e.target.value;
+                                                } else {
+                                                  nuevoArray.push({...config, nombreRubro: rubro.nombre, materialesTipo: e.target.value});
+                                                }
+                                                setDescuentosPorRubro(nuevoArray);
+                                              }}
+                                              disabled={soloLectura || !config.activo}
+                                            >
+                                              <option value="PORCENTAJE">%</option>
+                                              <option value="IMPORTE_FIJO">$</option>
+                                            </select>
+                                            <input
+                                              type="number"
+                                              className="form-control form-control-sm"
+                                              value={config.materialesValor > 0 ? config.materialesValor : ''}
+                                              onChange={(e) => {
+                                                const nuevoArray = [...descuentosPorRubro];
+                                                const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                if (existenteIdx >= 0) {
+                                                  nuevoArray[existenteIdx].materialesValor = valor;
+                                                } else {
+                                                  nuevoArray.push({...config, nombreRubro: rubro.nombre, materialesValor: valor});
+                                                }
+                                                setDescuentosPorRubro(nuevoArray);
+                                              }}
+                                              style={{fontSize: '11px', padding: '4px'}}
+                                              disabled={soloLectura || !config.activo}
+                                              min="0"
+                                              max={config.materialesTipo === 'PORCENTAJE' ? '100' : undefined}
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Configuración Gastos Generales */}
+                                        {rubro.gastosGenerales > 0 && (
+                                          <div className="mb-2 p-2 border rounded">
+                                            <small className="text-muted d-block mb-2">💼 Gastos Generales</small>
+                                            <div className="d-flex gap-1 align-items-center">
+                                              <select
+                                                className="form-select form-select-sm"
+                                                style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                                value={config.otrosCostosTipo}
+                                                onChange={(e) => {
+                                                  const nuevoArray = [...descuentosPorRubro];
+                                                  const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                  if (existenteIdx >= 0) {
+                                                    nuevoArray[existenteIdx].otrosCostosTipo = e.target.value;
+                                                  } else {
+                                                    nuevoArray.push({...config, nombreRubro: rubro.nombre, otrosCostosTipo: e.target.value});
+                                                  }
+                                                  setDescuentosPorRubro(nuevoArray);
+                                                }}
+                                                disabled={soloLectura || !config.activo}
+                                              >
+                                                <option value="PORCENTAJE">%</option>
+                                                <option value="IMPORTE_FIJO">$</option>
+                                              </select>
+                                              <input
+                                                type="number"
+                                                className="form-control form-control-sm"
+                                                value={config.otrosCostosValor > 0 ? config.otrosCostosValor : ''}
+                                                onChange={(e) => {
+                                                  const nuevoArray = [...descuentosPorRubro];
+                                                  const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                  const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                  if (existenteIdx >= 0) {
+                                                   nuevoArray[existenteIdx].otrosCostosValor = valor;
+                                                   // ✅ Si se ingresa un valor > 0, marcar como activo
+                                                   if (valor && valor > 0) {
+                                                     nuevoArray[existenteIdx].otrosCostosActivo = true;
+                                                   }
+                                                  } else {
+                                                    nuevoArray.push({...config, nombreRubro: rubro.nombre, otrosCostosValor: valor});
+                                                  }
+                                                  setDescuentosPorRubro(nuevoArray);
+                                                }}
+                                                style={{fontSize: '11px', padding: '4px'}}
+                                                disabled={soloLectura || !config.activo}
+                                                min="0"
+                                                max={config.otrosCostosTipo === 'PORCENTAJE' ? '100' : undefined}
+                                              />
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Configuración Honorarios */}
+                                        {(() => {
+                                          const honorarios = calcularHonorariosRubro(rubro);
+                                          if (honorarios > 0) {
+                                            return (
+                                              <div className="mb-2 p-2 border rounded">
+                                                <small className="text-muted d-block mb-2">🏛️ Honorarios</small>
+                                                <div className="d-flex gap-1 align-items-center">
+                                                  <select
+                                                    className="form-select form-select-sm"
+                                                    style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                                    value={config.honorariosTipo}
+                                                    onChange={(e) => {
+                                                      const nuevoArray = [...descuentosPorRubro];
+                                                      const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                      if (existenteIdx >= 0) {
+                                                        nuevoArray[existenteIdx].honorariosTipo = e.target.value;
+                                                      } else {
+                                                        nuevoArray.push({...config, nombreRubro: rubro.nombre, honorariosTipo: e.target.value});
+                                                      }
+                                                      setDescuentosPorRubro(nuevoArray);
+                                                    }}
+                                                    disabled={soloLectura || !config.activo}
+                                                  >
+                                                    <option value="PORCENTAJE">%</option>
+                                                    <option value="IMPORTE_FIJO">$</option>
+                                                  </select>
+                                                  <input
+                                                    type="number"
+                                                    className="form-control form-control-sm"
+                                                    value={config.honorariosValor > 0 ? config.honorariosValor : ''}
+                                                    onChange={(e) => {
+                                                      const nuevoArray = [...descuentosPorRubro];
+                                                      const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                      const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                      if (existenteIdx >= 0) {
+                                                        nuevoArray[existenteIdx].honorariosValor = valor;
+                                                      } else {
+                                                        nuevoArray.push({
+                                                          ...config,
+                                                          nombreRubro: rubro.nombre,
+                                                          honorariosValor: valor,
+                                                          honorariosTipo: config.honorariosTipo || 'PORCENTAJE'
+                                                        });
+                                                      }
+                                                      setDescuentosPorRubro(nuevoArray);
+                                                    }}
+                                                    style={{fontSize: '11px', padding: '4px'}}
+                                                    disabled={soloLectura || !config.activo}
+                                                    min="0"
+                                                    max={config.honorariosTipo === 'PORCENTAJE' ? '100' : undefined}
+                                                  />
+                                                </div>
+                                              </div>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
+
+                                        {/* Configuración Mayores Costos */}
+                                        {(() => {
+                                          const mayoresCostos = calcularMayoresCostosRubro(rubro, config);
+                                          if (mayoresCostos > 0) {
+                                            return (
+                                              <div className="mb-2 p-2 border rounded">
+                                                <small className="text-muted d-block mb-2">💰 Mayores Costos</small>
+                                                <div className="d-flex gap-1 align-items-center">
+                                                  <select
+                                                    className="form-select form-select-sm"
+                                                    style={{fontSize: '10px', padding: '4px', width: '60px'}}
+                                                    value={config.mayoresCostosTipo || 'PORCENTAJE'}
+                                                    onChange={(e) => {
+                                                      const nuevoArray = [...descuentosPorRubro];
+                                                      const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                      if (existenteIdx >= 0) {
+                                                        nuevoArray[existenteIdx].mayoresCostosTipo = e.target.value;
+                                                      } else {
+                                                        nuevoArray.push({...config, nombreRubro: rubro.nombre, mayoresCostosTipo: e.target.value});
+                                                      }
+                                                      setDescuentosPorRubro(nuevoArray);
+                                                    }}
+                                                    disabled={soloLectura || !config.activo}
+                                                  >
+                                                    <option value="PORCENTAJE">%</option>
+                                                    <option value="IMPORTE_FIJO">$</option>
+                                                  </select>
+                                                  <input
+                                                    type="number"
+                                                    className="form-control form-control-sm"
+                                                    value={config.mayoresCostosValor > 0 ? config.mayoresCostosValor : ''}
+                                                    onChange={(e) => {
+                                                      const nuevoArray = [...descuentosPorRubro];
+                                                      const existenteIdx = nuevoArray.findIndex(r => r.nombreRubro?.toLowerCase() === rubro.nombre.toLowerCase());
+                                                      const valor = e.target.value === '' ? undefined : Number(e.target.value);
+                                                      if (existenteIdx >= 0) {
+                                                        nuevoArray[existenteIdx].mayoresCostosValor = valor;
+                                                      } else {
+                                                        nuevoArray.push({
+                                                          ...config,
+                                                          nombreRubro: rubro.nombre,
+                                                          mayoresCostosValor: valor,
+                                                          mayoresCostosTipo: config.mayoresCostosTipo || 'PORCENTAJE'
+                                                        });
+                                                      }
+                                                      setDescuentosPorRubro(nuevoArray);
+                                                    }}
+                                                    style={{fontSize: '11px', padding: '4px'}}
+                                                    disabled={soloLectura || !config.activo}
+                                                    min="0"
+                                                    max={config.mayoresCostosTipo === 'PORCENTAJE' ? '100' : undefined}
+                                                  />
+                                                </div>
+                                              </div>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
+
+                                        {/* Total Descuentos */}
+                                        <div className="mt-2 p-2 bg-danger bg-opacity-10 rounded">
+                                          <div className="d-flex justify-content-between align-items-center">
+                                            <span className="small fw-bold text-danger">💰 Total Descuentos:</span>
+                                            <span className="small fw-bold text-danger">${descuentos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Tabla Resumen */}
+                            <div className="mt-3 p-3 border rounded bg-light">
+                              <h6 className="text-danger mb-3">
+                                <i className="fas fa-chart-bar me-2"></i>
+                                Resumen Total de Descuentos por Rubro
+                              </h6>
+                              <table className="table table-sm table-bordered mb-0">
+                                <thead className="table-danger">
+                                  <tr>
+                                    <th>Rubro</th>
+                                    <th className="text-end">Base</th>
+                                    <th className="text-end text-secondary">Honorarios</th>
+                                    <th className="text-end text-info">Mayores Costos</th>
+                                    <th className="text-end">Descuentos</th>
+                                    <th className="text-end">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rubrosArray.map((rubro, idx) => {
+                                    const config = getConfigRubro(rubro.nombre);
+                                    const descuentos = calcularDescuentosRubro(rubro, config);
+                                    const honorariosRubro = calcularHonorariosRubro(rubro);
+                                    const mayoresCostosRubro = calcularMayoresCostosRubro(rubro, { activo: true });
+                                    const baseTotal = rubro.manoObra + rubro.materiales + rubro.gastosGenerales;
+
+                                    return (
+                                      <tr key={idx}>
+                                        <td>{rubro.nombre}</td>
+                                        <td className="text-end">${baseTotal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                        <td className="text-end text-secondary">${honorariosRubro.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                        <td className="text-end text-info">${mayoresCostosRubro.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                        <td className="text-end text-danger fw-bold">${descuentos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                        <td className="text-end fw-bold">${(baseTotal + honorariosRubro + mayoresCostosRubro - descuentos).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                  <tr className="table-danger fw-bold">
+                                    <td>TOTAL GENERAL</td>
+                                    <td className="text-end">${totalGeneralBase.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                    <td className="text-end text-secondary">${totalGeneralHonorariosDesc.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                    <td className="text-end text-info">${totalGeneralMayoresCostos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                    <td className="text-end text-danger">${totalGeneralDescuentos.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                    <td className="text-end">${(totalGeneralBase + totalGeneralHonorariosDesc + totalGeneralMayoresCostos - totalGeneralDescuentos).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Botón Aceptar Configuración de Descuentos */}
+                            <div className="mt-3 text-center">
+                              <button
+                                type="button"
+                                className={`btn ${configuracionDescuentosAceptada ? 'btn-secondary' : 'btn-danger'} btn-lg`}
+                                onClick={() => {
+                                  if (!configuracionDescuentosAceptada) {
+                                    // Guardar configuración de cada rubro en localStorage
+                                    rubrosArray.forEach(rubro => {
+                                      const config = getConfigRubro(rubro.nombre);
+                                      const clave = `descuentos_${rubro.nombre.trim().toLowerCase().replace(/\s+/g, '_')}`;
+                                      localStorage.setItem(clave, JSON.stringify({
+                                        profesionales: { tipo: config.profesionalesTipo, valor: config.profesionalesValor || 0 },
+                                        materiales: { tipo: config.materialesTipo, valor: config.materialesValor || 0 },
+                                        otrosCostos: { tipo: config.otrosCostosTipo, valor: config.otrosCostosValor || 0 },
+                                        honorarios: { tipo: config.honorariosTipo, valor: config.honorariosValor || 0 }
+                                      }));
+                                    });
+                                    setConfiguracionDescuentosAceptada(true);
+                                    alert('✅ Configuración de Descuentos guardada. Se verá reflejada en la sección "Composición del Presupuesto".');
+                                  }
+                                }}
+                                disabled={configuracionDescuentosAceptada || soloLectura}
+                              >
+                                {configuracionDescuentosAceptada
+                                  ? '✓ Configuración de Descuentos Aceptada'
+                                  : '✅ Aceptar Configuración de Descuentos'}
+                              </button>
+                              {configuracionDescuentosAceptada && (
+                                <div className="mt-2">
+                                  <button
+                                    type="button"
+                                    className="btn btn-link btn-sm text-muted"
+                                    onClick={() => setConfiguracionDescuentosAceptada(false)}
+                                  >
+                                    Modificar configuración
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+                )}
               </div>
-
-              {/* ===MARCADOR_TEMPORAL_INSERTAR_MAYORES_COSTOS_AQUI=== */}
 
               </div> {/* Cierre del contenedor flex para reordenar */}
 
@@ -15358,214 +17829,361 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               )}
 
                               {/* Grupos de Tareas (Calculadora) */}
-                              {itemsCalculadora.length > 0 && (
-                                <div className="mb-3">
-                                  <div className="d-flex justify-content-between align-items-center bg-light p-2 rounded">
-                                    <span className="fw-bold text-info">
-                                      <i className="fas fa-calculator me-2"></i>
-                                      Grupos de Tareas ({itemsCalculadora.length})
-                                    </span>
-                                    <span className="fw-bold text-info">
-                                      {`$${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0) - (ic.descuentosAplicados || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                    </span>
-                                  </div>
+                              {(() => {
+                                // Función helper para cargar honorarios desde localStorage
+                                const cargarHonorariosDesdeLocalStorage = (tipoProfesional) => {
+                                  if (!tipoProfesional) return null;
+                                  try {
+                                    const clave = `honorarios_${tipoProfesional.trim().toLowerCase().replace(/\s+/g, '_')}`;
+                                    const valoresGuardados = localStorage.getItem(clave);
+                                    const resultado = valoresGuardados ? JSON.parse(valoresGuardados) : null;
+                                    console.log(`📦 localStorage[${clave}]:`, resultado);
+                                    return resultado;
+                                  } catch (error) {
+                                    console.error(`❌ Error al cargar desde localStorage para ${tipoProfesional}:`, error);
+                                    return null;
+                                  }
+                                };
 
-                                  {/* Detalle de cada grupo */}
-                                  <div className="ms-3 mt-2" style={{borderLeft: '3px solid #17a2b8', paddingLeft: '12px'}}>
-                                    {itemsCalculadoraConsolidados.map((item, idx) => (
-                                        <div key={idx} className="mb-2 pb-2" style={{borderBottom: idx < itemsCalculadoraConsolidados.length - 1 ? '1px dashed #dee2e6' : 'none'}}>
+                                const itemsParaDisplay = (() => {
+                                  // Agrupar rubros por tipoProfesional (normalizado)
+                                  const rubrosAgrupados = itemsCalculadora.reduce((acc, item) => {
+                                    const rubroNombre = (item.tipoProfesional || '').trim().toLowerCase();
+                                    if (!rubroNombre) return acc;
+
+                                    if (!acc[rubroNombre]) {
+                                      acc[rubroNombre] = {
+                                        tipoProfesional: (item.tipoProfesional || '').trim(),
+                                        descripcion: item.descripcion,
+                                        subtotalJornales: 0,
+                                        subtotalManoObra: 0,
+                                        subtotalMateriales: 0,
+                                        subtotalGastosGenerales: 0,
+                                        total: 0,
+                                        jornales: [],
+                                        profesionales: [],
+                                        materialesLista: [],
+                                        gastosGenerales: []
+                                      };
+                                    }
+
+                                    acc[rubroNombre].subtotalJornales += parseFloat(item.subtotalJornales) || 0;
+                                    acc[rubroNombre].subtotalManoObra += parseFloat(item.subtotalManoObra) || 0;
+                                    acc[rubroNombre].subtotalMateriales += parseFloat(item.subtotalMateriales) || 0;
+                                    acc[rubroNombre].subtotalGastosGenerales += parseFloat(item.subtotalGastosGenerales) || 0;
+                                    acc[rubroNombre].total += parseFloat(item.total) || 0;
+
+                                    acc[rubroNombre].jornales = acc[rubroNombre].jornales.concat(item.jornales || []);
+                                    acc[rubroNombre].profesionales = acc[rubroNombre].profesionales.concat(item.profesionales || []);
+                                    acc[rubroNombre].materialesLista = acc[rubroNombre].materialesLista.concat(item.materialesLista || []);
+                                    acc[rubroNombre].gastosGenerales = acc[rubroNombre].gastosGenerales.concat(item.gastosGenerales || []);
+
+                                    return acc;
+                                  }, {});
+
+                                  return Object.values(rubrosAgrupados).map(item => {
+                                    // Cargar honorarios desde localStorage (donde ConfiguracionPresupuestoSection los guarda)
+                                    const honorariosGuardados = cargarHonorariosDesdeLocalStorage(item.tipoProfesional);
+
+                                    // Fallback a form.honorarios si no hay nada en localStorage
+                                    // 🔍 CASE-INSENSITIVE LOOKUP: buscar key que coincida ignorando mayúsculas
+                                    const honorariosKey = form.honorarios?.porRubro && Object.keys(form.honorarios.porRubro || {}).find(key =>
+                                      key.toLowerCase() === item.tipoProfesional?.toLowerCase()
+                                    );
+
+                                    const honorariosRubro = honorariosGuardados || (honorariosKey ? form.honorarios.porRubro[honorariosKey] : null);
+                                    let honorariosItem = 0;
+
+                                    if (honorariosRubro) {
+                                      const totalProfRubro = item.subtotalManoObra || item.subtotalJornales || 0;
+                                      const totalMatRubro = item.subtotalMateriales || 0;
+                                      const totalGastosRubro = item.subtotalGastosGenerales || 0;
+
+                                      // Profesionales/Mano de Obra
+                                      if (totalProfRubro > 0 && honorariosRubro.profesionales?.valor) {
+                                        const valor = Number(honorariosRubro.profesionales.valor);
+                                        if (honorariosRubro.profesionales.tipo === 'porcentaje') {
+                                          honorariosItem += (totalProfRubro * valor) / 100;
+                                        } else {
+                                          honorariosItem += valor;
+                                        }
+                                      }
+
+                                      // Materiales
+                                      if (totalMatRubro > 0 && honorariosRubro.materiales?.valor) {
+                                        const valor = Number(honorariosRubro.materiales.valor);
+                                        if (honorariosRubro.materiales.tipo === 'porcentaje') {
+                                          honorariosItem += (totalMatRubro * valor) / 100;
+                                        } else {
+                                          honorariosItem += valor;
+                                        }
+                                      }
+
+                                      // Otros Costos/Gastos Generales
+                                      if (totalGastosRubro > 0 && honorariosRubro.otrosCostos?.valor) {
+                                        const valor = Number(honorariosRubro.otrosCostos.valor);
+                                        if (honorariosRubro.otrosCostos.tipo === 'porcentaje') {
+                                          honorariosItem += (totalGastosRubro * valor) / 100;
+                                        } else {
+                                          honorariosItem += valor;
+                                        }
+                                      }
+                                    }
+
+                                    // Calcular Mayores Costos desde mayoresCostosPorRubro (estado React)
+                                    let mayoresCostosItem = 0;
+                                    const configMC = mayoresCostosPorRubro.find(r => r.nombreRubro?.toLowerCase() === item.tipoProfesional?.toLowerCase());
+                                    if (configMC && configMC.activo) {
+                                      const totalProfRubro = item.subtotalManoObra || item.subtotalJornales || 0;
+                                      const totalMatRubro = item.subtotalMateriales || 0;
+                                      const totalGastosRubro = item.subtotalGastosGenerales || 0;
+
+                                      // Mano de Obra
+                                      const profesionalesValorNum = Number(configMC.profesionalesValor);
+                                      if (profesionalesValorNum > 0 && totalProfRubro > 0) {
+                                        const esPorcentaje = String(configMC.profesionalesTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        mayoresCostosItem += esPorcentaje
+                                          ? (totalProfRubro * profesionalesValorNum) / 100
+                                          : profesionalesValorNum;
+                                      }
+
+                                      // Materiales
+                                      const materialesValorNum = Number(configMC.materialesValor);
+                                      if (materialesValorNum > 0 && totalMatRubro > 0) {
+                                        const esPorcentaje = String(configMC.materialesTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        mayoresCostosItem += esPorcentaje
+                                          ? (totalMatRubro * materialesValorNum) / 100
+                                          : materialesValorNum;
+                                      }
+
+                                      // Gastos Generales
+                                      const otrosCostosValorNum = Number(configMC.otrosCostosValor);
+                                      if (otrosCostosValorNum > 0 && totalGastosRubro > 0) {
+                                        const esPorcentaje = String(configMC.otrosCostosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        mayoresCostosItem += esPorcentaje
+                                          ? (totalGastosRubro * otrosCostosValorNum) / 100
+                                          : otrosCostosValorNum;
+                                      }
+
+                                      // Honorarios
+                                      const honorariosValorNum = Number(configMC.honorariosValor);
+                                      if (honorariosValorNum > 0 && honorariosItem > 0) {
+                                        const esPorcentaje = String(configMC.honorariosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        mayoresCostosItem += esPorcentaje
+                                          ? (honorariosItem * honorariosValorNum) / 100
+                                          : honorariosValorNum;
+                                      }
+                                    }
+
+                                    // Cargar Descuentos desde descuentosPorRubro (estado React)
+                                    let descuentosItem = 0;
+                                    const configDesc = descuentosPorRubro.find(r => r.nombreRubro?.toLowerCase() === item.tipoProfesional?.toLowerCase());
+                                    if (configDesc && configDesc.activo) {
+                                      const totalProfRubro = item.subtotalManoObra || item.subtotalJornales || 0;
+                                      const totalMatRubro = item.subtotalMateriales || 0;
+                                      const totalGastosRubro = item.subtotalGastosGenerales || 0;
+
+                                      // Mano de Obra
+                                      const profesionalesValorNum = Number(configDesc.profesionalesValor);
+                                      if (profesionalesValorNum > 0 && totalProfRubro > 0) {
+                                        const esPorcentaje = String(configDesc.profesionalesTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        descuentosItem += esPorcentaje
+                                          ? (totalProfRubro * profesionalesValorNum) / 100
+                                          : profesionalesValorNum;
+                                      }
+
+                                      // Materiales
+                                      const materialesValorNum = Number(configDesc.materialesValor);
+                                      if (materialesValorNum > 0 && totalMatRubro > 0) {
+                                        const esPorcentaje = String(configDesc.materialesTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        descuentosItem += esPorcentaje
+                                          ? (totalMatRubro * materialesValorNum) / 100
+                                          : materialesValorNum;
+                                      }
+
+                                      // Gastos Generales
+                                      const otrosCostosValorNum = Number(configDesc.otrosCostosValor);
+                                      if (otrosCostosValorNum > 0 && totalGastosRubro > 0) {
+                                        const esPorcentaje = String(configDesc.otrosCostosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        descuentosItem += esPorcentaje
+                                          ? (totalGastosRubro * otrosCostosValorNum) / 100
+                                          : otrosCostosValorNum;
+                                      }
+
+                                      // Honorarios
+                                      const honorariosValorNum = Number(configDesc.honorariosValor);
+                                      if (honorariosValorNum > 0 && honorariosItem > 0) {
+                                        const esPorcentaje = String(configDesc.honorariosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        descuentosItem += esPorcentaje
+                                          ? (honorariosItem * honorariosValorNum) / 100
+                                          : honorariosValorNum;
+                                      }
+
+                                      // 🆕 Mayores Costos
+                                      const mayoresCostosValorNum = Number(configDesc.mayoresCostosValor);
+                                      if (mayoresCostosValorNum > 0 && mayoresCostosItem > 0) {
+                                        const esPorcentaje = String(configDesc.mayoresCostosTipo || 'PORCENTAJE').toUpperCase() === 'PORCENTAJE';
+                                        descuentosItem += esPorcentaje
+                                          ? (mayoresCostosItem * mayoresCostosValorNum) / 100
+                                          : mayoresCostosValorNum;
+                                      }
+                                    }
+
+                                    return {
+                                      ...item,
+                                      honorarios: honorariosItem,
+                                      mayoresCostos: mayoresCostosItem,
+                                      descuentos: descuentosItem,
+                                      totalConHonorarios: item.total + honorariosItem + mayoresCostosItem - descuentosItem
+                                    };
+                                  })
+                                  .filter(item => item.totalConHonorarios > 0);
+                                })();
+
+                                return itemsParaDisplay.length > 0 ? (
+                                <>
+                                  <div className="mb-3">
+                                    <div className="d-flex justify-content-between align-items-center bg-light p-2 rounded">
+                                      <span className="fw-bold text-info">
+                                        <i className="fas fa-calculator me-2"></i>
+                                        Grupos de Tareas ({itemsParaDisplay.length})
+                                      </span>
+                                      <span className="fw-bold text-info">
+                                        ${itemsParaDisplay.reduce((acc, ic) => acc + ic.totalConHonorarios, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+
+                                    {/* Detalle de cada grupo - Rubros consolidados sin $0,00 */}
+                                    <div className="ms-3 mt-2" style={{borderLeft: '3px solid #17a2b8', paddingLeft: '12px'}}>
+                                      {itemsParaDisplay.map((item, idx) => {
+                                      // Usar subtotales ya calculados del array agrupado
+                                      const subtotalJornales = item.subtotalJornales || 0;
+                                      const subtotalManoObra = item.subtotalManoObra || 0;
+                                      const subtotalMateriales = item.subtotalMateriales || 0;
+                                      const subtotalGastosGenerales = item.subtotalGastosGenerales || 0;
+
+                                      // Usar totalConHonorarios ya calculado
+                                      const totalConHonorarios = item.totalConHonorarios;
+
+                                      return (
+                                        <div key={idx} className="mb-2 pb-2" style={{borderBottom: idx < itemsParaDisplay.length - 1 ? '1px dashed #dee2e6' : 'none'}}>
                                           <div className="d-flex justify-content-between align-items-start">
                                             <div className="flex-grow-1">
                                               <div className="fw-bold text-dark mb-1" style={{fontSize: '1.1rem'}}>
                                                 {idx + 1}. {item.tipoProfesional || item.descripcion || `Tarea ${idx + 1}`}
-                                                {/* Mostrar descripción si existe y es diferente del tipo */}
                                                 {item.descripcion && item.descripcion !== item.tipoProfesional && (
                                                   <span className="text-muted fw-normal"> - {item.descripcion}</span>
                                                 )}
                                               </div>
-                                              {/* Subtotales FINALES por categoría (base + honorarios + mayores costos - descuentos) */}
-                                              {(() => {
-                                                // displayJornales y displayManoObra se suman (labor total)
-                                                const laborFinal = (item.displayJornales || 0) + (item.displayManoObra || 0);
-                                                const matFinal   = item.displayMateriales || 0;
-                                                const ggFinal    = item.displayGastosGenerales || 0;
-                                                const mnFinal    = item.esModoManual === true ? Number(item.totalManual||0) : 0;
-                                                return (
-                                                  <div className="small text-muted">
-                                                    {laborFinal > 0 && (
-                                                      <div className="mb-1"><div className="fw-semibold text-info"><i className="fas fa-hard-hat me-2"></i>Jornales: ${laborFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
-                                                    )}
-                                                    {matFinal > 0 && (
-                                                      <div className="mb-1"><div className="fw-semibold text-success"><i className="fas fa-box me-2"></i>Materiales: ${matFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
-                                                    )}
-                                                    {ggFinal > 0 && (
-                                                      <div className="mb-1"><div className="fw-semibold text-warning"><i className="fas fa-receipt me-2"></i>Gastos Generales: ${ggFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
-                                                    )}
-                                                    {item.esModoManual === true && mnFinal > 0 && (
-                                                      <div className="mb-1"><div className="fw-semibold text-dark"><i className="fas fa-hand-holding-usd me-2"></i>Manual: ${mnFinal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</div></div>
-                                                    )}
+                                              <div className="small text-muted">
+                                                {subtotalJornales > 0 && (
+                                                  <div className="mb-1">
+                                                    <div className="fw-semibold text-info">
+                                                      <i className="fas fa-hard-hat me-2"></i>Jornales: ${subtotalJornales.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </div>
                                                   </div>
-                                                );
-                                              })()}
+                                                )}
+                                                {subtotalManoObra > 0 && (
+                                                  <div className="mb-1">
+                                                    <div className="fw-semibold text-primary">
+                                                      <i className="fas fa-users me-2"></i>Mano de Obra: ${subtotalManoObra.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                                {subtotalMateriales > 0 && (
+                                                  <div className="mb-1">
+                                                    <div className="fw-semibold text-success">
+                                                      <i className="fas fa-box me-2"></i>Materiales: ${subtotalMateriales.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                                {subtotalGastosGenerales > 0 && (
+                                                  <div className="mb-1">
+                                                    <div className="fw-semibold text-warning">
+                                                      <i className="fas fa-receipt me-2"></i>Gastos Generales: ${subtotalGastosGenerales.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                                {item.honorarios > 0 && (
+                                                  <div className="mb-1">
+                                                    <div className="fw-semibold text-secondary">
+                                                      <i className="fas fa-briefcase me-2"></i>Honorarios: ${item.honorarios.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                                {item.mayoresCostos > 0 && (
+                                                  <div className="mb-1">
+                                                    <div className="fw-semibold text-danger">
+                                                      <i className="fas fa-arrow-up me-2"></i>Mayores Costos: +${item.mayoresCostos.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                                {item.descuentos > 0 && (
+                                                  <div className="mb-1">
+                                                    <div className="fw-semibold text-success">
+                                                      <i className="fas fa-arrow-down me-2"></i>Descuentos: -${item.descuentos.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </div>
                                             </div>
-                                            {/* Total FINAL del grupo (base + honorarios + mayores costos - descuentos) */}
                                             <div className="ms-3 text-end">
-                                              <span className="fw-bold text-dark">${(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                              <span className="fw-bold text-dark">
+                                                ${totalConHonorarios.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                              </span>
                                             </div>
                                           </div>
-                                          {/* ✨ MOSTRAR DESCRIPCIÓN Y OBSERVACIONES DEL RUBRO SI EXISTEN */}
-                                          {(item.descripcion || item.observaciones ||
-                                            item.descripcionJornales || item.observacionesJornales ||
-                                            item.descripcionProfesionales || item.observacionesProfesionales ||
-                                            item.descripcionMateriales || item.observacionesMateriales ||
-                                            item.descripcionGastosGenerales || item.observacionesGastosGenerales ||
-                                            item.descripcionTotalManual || item.observacionesTotalManual) && (
-                                            <div className="mt-2 pt-2" style={{borderTop: '1px dashed #dee2e6'}}>
-                                              {/* Descripción y Observaciones Generales del Rubro */}
-                                              {item.descripcion && (
-                                                <div className="mb-1">
-                                                <div className="small fw-bold text-info">
-                                                  <i className="fas fa-file-alt me-1"></i>Descripción General:
-                                                </div>
-                                                <div className="small text-muted ms-2" style={{fontStyle: 'italic'}}>
-                                                  {item.descripcion}
-                                                </div>
-                                              </div>
-                                            )}
-                                            {item.observaciones && (
-                                              <div className="mb-2">
-                                                <div className="small fw-bold text-secondary">
-                                                  <i className="fas fa-sticky-note me-1"></i>Observaciones Generales:
-                                                </div>
-                                                <div className="small text-muted ms-2" style={{fontStyle: 'italic'}}>
-                                                  {item.observaciones}
-                                                </div>
-                                              </div>
-                                            )}
-
-                                            {/* Descripciones y Observaciones por Categoría */}
-                                            {(item.descripcionJornales || item.observacionesJornales) && (
-                                              <div className="mb-2">
-                                                <div className="small fw-bold text-info">
-                                                  <i className="fas fa-hard-hat me-1"></i>Jornales:
-                                                </div>
-                                                {item.descripcionJornales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Descripción:</strong> <span style={{fontStyle: 'italic'}}>{item.descripcionJornales}</span>
-                                                  </div>
-                                                )}
-                                                {item.observacionesJornales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Observaciones:</strong> <span style={{fontStyle: 'italic'}}>{item.observacionesJornales}</span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-
-                                            {(item.descripcionProfesionales || item.observacionesProfesionales) && (
-                                              <div className="mb-2">
-                                                <div className="small fw-bold text-primary">
-                                                  <i className="fas fa-users me-1"></i>Profesionales:
-                                                </div>
-                                                {item.descripcionProfesionales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Descripción:</strong> <span style={{fontStyle: 'italic'}}>{item.descripcionProfesionales}</span>
-                                                  </div>
-                                                )}
-                                                {item.observacionesProfesionales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Observaciones:</strong> <span style={{fontStyle: 'italic'}}>{item.observacionesProfesionales}</span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-
-                                            {(item.descripcionMateriales || item.observacionesMateriales) && (
-                                              <div className="mb-2">
-                                                <div className="small fw-bold text-success">
-                                                  <i className="fas fa-box me-1"></i>Materiales:
-                                                </div>
-                                                {item.descripcionMateriales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Descripción:</strong> <span style={{fontStyle: 'italic'}}>{item.descripcionMateriales}</span>
-                                                  </div>
-                                                )}
-                                                {item.observacionesMateriales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Observaciones:</strong> <span style={{fontStyle: 'italic'}}>{item.observacionesMateriales}</span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-
-                                            {(item.descripcionGastosGenerales || item.observacionesGastosGenerales) && (
-                                              <div className="mb-2">
-                                                <div className="small fw-bold text-warning">
-                                                  <i className="fas fa-receipt me-1"></i>Gastos Generales:
-                                                </div>
-                                                {item.descripcionGastosGenerales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Descripción:</strong> <span style={{fontStyle: 'italic'}}>{item.descripcionGastosGenerales}</span>
-                                                  </div>
-                                                )}
-                                                {item.observacionesGastosGenerales && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Observaciones:</strong> <span style={{fontStyle: 'italic'}}>{item.observacionesGastosGenerales}</span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-
-                                            {/* Descripciones y Observaciones para Modo Manual (Mano de obra y materiales) */}
-                                            {(item.descripcionTotalManual || item.observacionesTotalManual) && (
-                                              <div>
-                                                <div className="small fw-bold text-dark">
-                                                  <i className="fas fa-hand-holding-usd me-1"></i>Mano de Obra y Materiales:
-                                                </div>
-                                                {item.descripcionTotalManual && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Descripción:</strong> <span style={{fontStyle: 'italic'}}>{item.descripcionTotalManual}</span>
-                                                  </div>
-                                                )}
-                                                {item.observacionesTotalManual && (
-                                                  <div className="small text-muted ms-3">
-                                                    <strong>Observaciones:</strong> <span style={{fontStyle: 'italic'}}>{item.observacionesTotalManual}</span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    ))}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 </div>
-                              )}
 
-                              {/* 💼 DESGLOSE POR CATEGORÍA - Mano de Obra, Materiales, Honorarios, Mayores Costos */}
-                              <div className="mb-3">
-                                <h6 className="mb-2 text-muted small">
-                                  <i className="fas fa-list-ul me-2"></i>
-                                  Desglose por Categoría
-                                </h6>
-                                {/* Mostrar cada rubro exactamente como en la tabla de composición */}
-                                {itemsCalculadoraConsolidados.map((item, idx) => (
-                                  <div key={idx} className="d-flex justify-content-between align-items-center p-2 bg-light mb-2 rounded">
-                                    <span>
-                                      {item.tipoProfesional === 'Jornales' && <span className="text-primary"><i className="fas fa-hard-hat me-2"></i>Jornales</span>}
-                                      {item.tipoProfesional === 'Profesionales' && <span className="text-info"><i className="fas fa-users me-2"></i>Profesionales</span>}
-                                      {item.tipoProfesional === 'Materiales' && <span className="text-success"><i className="fas fa-box me-2"></i>Materiales</span>}
-                                      {item.tipoProfesional === 'Honorarios' && <span className="text-warning"><i className="fas fa-briefcase me-2"></i>Honorarios</span>}
-                                      {item.tipoProfesional === 'Mayores Costos' && <span className="text-danger"><i className="fas fa-exclamation-triangle me-2"></i>Mayores Costos</span>}
-                                      {/* Otros rubros personalizados */}
-                                      {!['Jornales','Profesionales','Materiales','Honorarios','Mayores Costos'].includes(item.tipoProfesional) && <span className="text-secondary"><i className="fas fa-cube me-2"></i>{item.tipoProfesional}</span>}
-                                    </span>
-                                    <span className="fw-bold">
-                                      {`$${(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                    </span>
+                                {/* 💼 DESGLOSE POR CATEGORÍA */}
+                                <div className="mb-3">
+                                  <h6 className="mb-2 text-muted small">
+                                    <i className="fas fa-list-ul me-2"></i>
+                                    Desglose por Categoría
+                                  </h6>
+                                  {itemsParaDisplay.map((item, idx) => (
+                                    <div key={idx} className="d-flex justify-content-between align-items-center p-2 bg-light mb-2 rounded">
+                                      <span>
+                                        {item.tipoProfesional === 'Jornales' && <span className="text-primary"><i className="fas fa-hard-hat me-2"></i>Jornales</span>}
+                                        {item.tipoProfesional === 'Profesionales' && <span className="text-info"><i className="fas fa-users me-2"></i>Profesionales</span>}
+                                        {item.tipoProfesional === 'Materiales' && <span className="text-success"><i className="fas fa-box me-2"></i>Materiales</span>}
+                                        {item.tipoProfesional === 'Honorarios' && <span className="text-warning"><i className="fas fa-briefcase me-2"></i>Honorarios</span>}
+                                        {item.tipoProfesional === 'Mayores Costos' && <span className="text-danger"><i className="fas fa-exclamation-triangle me-2"></i>Mayores Costos</span>}
+                                        {!['Jornales','Profesionales','Materiales','Honorarios','Mayores Costos'].includes(item.tipoProfesional) && <span className="text-secondary"><i className="fas fa-cube me-2"></i>{item.tipoProfesional}</span>}
+                                      </span>
+                                      <span className="fw-bold">
+                                        ${item.totalConHonorarios.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* 💰 TOTAL FINAL */}
+                                <div className="pt-3 border-top border-2 border-success">
+                                  <div className="bg-success bg-opacity-10 rounded p-3">
+                                    <div className="d-flex justify-content-between align-items-center">
+                                      <div>
+                                        <h5 className="mb-0 fw-bold text-success">
+                                          <i className="fas fa-money-bill-wave me-2"></i>
+                                          TOTAL FINAL
+                                        </h5>
+                                      </div>
+                                      <h3 className="mb-0 fw-bold text-success">
+                                        ${itemsParaDisplay.reduce((acc, ic) => acc + ic.totalConHonorarios, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                      </h3>
+                                    </div>
+                                    <div className="mt-2">
+                                      <small className="text-muted">Incluye todos los rubros: mano de obra, materiales, jornales, honorarios y mayores costos menos descuentos.</small>
+                                    </div>
                                   </div>
-                                ))}
-                              </div>
+                                </div>
+                              </>
+                              ) : null;
+                              })()}
 
                               {/* Subtotal Base (solo si NO hay calculadora Y NO hay items manuales) */}
                               {itemsCalculadora.length === 0 && totalProfItemsBase === 0 && totalMatItemsBase === 0 && totalOtrosItemsBase === 0 && (
@@ -15578,26 +18196,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               )}
                             </div>
 
-                            {/* 💰 TOTAL FINAL - base + honorarios + mayores costos - descuentos */}
-                            <div className="pt-3 border-top border-2 border-success">
-                              <div className="bg-success bg-opacity-10 rounded p-3">
-                                <div className="d-flex justify-content-between align-items-center">
-                                  <div>
-                                    <h5 className="mb-0 fw-bold text-success">
-                                      <i className="fas fa-money-bill-wave me-2"></i>
-                                      TOTAL FINAL
-                                    </h5>
-                                  </div>
-                                  <h3 className="mb-0 fw-bold text-success">
-                                    ${itemsCalculadoraConsolidados.reduce((acc, ic) => acc + (ic.total || 0) - (ic.descuentosAplicados || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                  </h3>
-                                </div>
-                                <div className="mt-2">
-                                  <small className="text-muted">Incluye todos los rubros: mano de obra, materiales, jornales, honorarios y mayores costos menos descuentos.</small>
-                                </div>
-                              </div>
-                            </div>
-                          </>
+                            </>
                         );
                       })()}
                     </div>
