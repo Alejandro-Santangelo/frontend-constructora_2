@@ -3149,19 +3149,19 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             </div>
             <div className="card-footer bg-transparent">
               <button
-                className="btn btn-info w-100" 
+                className="btn btn-info w-100"
                 style={{backgroundColor: '#17a2b8', borderColor: '#17a2b8', color: 'white'}}
                 onClick={async () => {
                   try {
                     // Intentar usar obra seleccionada singular
                     let obraParaUsar = obraSeleccionada;
-                    
+
                     // Si no hay obra singular pero hay selección múltiple, usar la primera
                     if (!obraParaUsar && obrasSeleccionadas.size > 0) {
                       const primeraObraId = Array.from(obrasSeleccionadas)[0];
                       obraParaUsar = obrasDisponibles.find(o => o.id === primeraObraId);
                     }
-                    
+
                     if (!obraParaUsar) {
                       alert('Por favor, seleccione una obra primero');
                       return;
@@ -3169,11 +3169,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
                     // Verificar si ya tiene el presupuesto completo (obras de obrasDisponibles)
                     let presupuestoCompleto = obraParaUsar.presupuestoCompleto;
-                    
+
                     // Si no tiene el objeto completo, intentar obtenerlo por ID
                     if (!presupuestoCompleto) {
                       const presupuestoId = obraParaUsar.presupuestoNoClienteId || obraParaUsar.presupuesto_no_cliente_id;
-                      
+
                       if (!presupuestoId) {
                         alert('Esta obra no tiene presupuesto asociado. Los pagos a cuenta solo aplican a obras con presupuesto.');
                         return;
@@ -3182,7 +3182,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                       // Cargar presupuesto completo con itemsCalculadora
                       presupuestoCompleto = await apiService.presupuestosNoCliente.getById(presupuestoId, empresaSeleccionada.id);
                     }
-                    
+
                     if (!presupuestoCompleto) {
                       alert('No se pudo cargar el presupuesto');
                       return;
@@ -3195,7 +3195,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                     if (!presupuestoCompleto.obraId) {
                       presupuestoCompleto.obraId = obraParaUsar.id || obraParaUsar.obraId;
                     }
-                    
+
                     setPresupuestoParaPagoCuenta(presupuestoCompleto);
                     setShowPagoCuenta(true);
                   } catch (error) {
