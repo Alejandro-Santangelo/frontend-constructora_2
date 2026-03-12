@@ -95,10 +95,18 @@ export function limpiarPermisos() {
  */
 export function tieneAccesoASeccion(seccion) {
     const permisos = obtenerPermisosGuardados();
+    
+    console.log('🔐 tieneAccesoASeccion - Sección:', seccion, 'Permisos guardados:', permisos);
+    
     if (!permisos || !permisos.secciones) {
+        console.warn('⚠️ No hay permisos guardados - acceso denegado por defecto');
         return false;
     }
-    return permisos.secciones.includes(seccion);
+    
+    const tieneAcceso = permisos.secciones.includes(seccion);
+    console.log(tieneAcceso ? '✅' : '❌', `Acceso a '${seccion}':`, tieneAcceso);
+    
+    return tieneAcceso;
 }
 
 /**
