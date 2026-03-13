@@ -152,6 +152,19 @@ apiClient.interceptors.request.use(
     config.headers['Pragma'] = 'no-cache';
     config.headers['Expires'] = '0';
 
+    // 🔐 HEADER OBLIGATORIO: X-User-Rol (requerido por backend para permisos)
+    try {
+      const stored = localStorage.getItem('usuarioAutenticado');
+      if (stored) {
+        const usuario = JSON.parse(stored);
+        if (usuario?.rol) {
+          config.headers['X-User-Rol'] = usuario.rol;
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error al obtener rol del usuario:', error);
+    }
+
     // Agregar timestamp único a requests GET para bypass de caché
     if (config.method?.toLowerCase() === 'get') {
       if (!config.params) {
