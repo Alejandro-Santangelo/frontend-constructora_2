@@ -17,11 +17,14 @@ const PERMISOS_STORAGE_KEY = 'permisos_secciones';
  */
 export async function obtenerSeccionesPermitidas(rol) {
     try {
-        const response = await apiClient.get('/api/permisos/secciones', {
-            headers: {
-                'X-User-Rol': rol
-            }
-        });
+        // ⚠️ NOTA: X-User-Rol se envía automáticamente desde el interceptor de api.js
+        const response = await apiClient.get('/api/permisos/secciones');
+        
+        // ✅ Validar que la respuesta tenga datos válidos
+        if (!response.data || typeof response.data !== 'object') {
+            throw new Error('Respuesta inválida del servidor');
+        }
+        
         return response.data;
     } catch (error) {
         console.error('Error al obtener secciones permitidas:', error);
@@ -62,6 +65,11 @@ export async function obtenerSeccionesPermitidas(rol) {
  * Guarda los permisos en localStorage.
  */
 export function guardarPermisos(permisos) {
+    // ✅ Validar que permisos no sea undefined o null antes de guardar
+    if (!permisos || typeof permisos !== 'object') {
+        console.error('❌ Intento de guardar permisos inválidos:', permisos);
+        return;
+    }
     localStorage.setItem(PERMISOS_STORAGE_KEY, JSON.stringify(permisos));
 }
 
