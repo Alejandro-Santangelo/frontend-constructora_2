@@ -7,6 +7,11 @@ const UsuariosPage = ({ showNotification }) => {
   const { usuarioAutenticado } = useEmpresa();
   const isSuperAdmin = esSuperAdmin();
   
+  // 🔐 Helper: verificar si el usuario actual es administrador
+  // Roles administrativos: administrador, contratista
+  const rolActual = usuarioAutenticado?.rol?.toLowerCase();
+  const isAdmin = isSuperAdmin || rolActual === 'administrador' || rolActual === 'contratista';
+
   const [activeTab, setActiveTab] = useState('lista');
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -15,16 +20,18 @@ const UsuariosPage = ({ showNotification }) => {
   const [rolFilter, setRolFilter] = useState('todos');
   const [estadoFilter, setEstadoFilter] = useState('todos');
 
-  // Roles disponibles según sistema típico de usuarios
+  // Roles disponibles según sistema actualizado a español
   const rolesDisponibles = [
-    'ADMIN',
-    'GERENTE',
-    'SUPERVISOR',
-    'EMPLEADO',
-    'CLIENTE',
-    'CONTADOR',
-    'ARQUITECTO',
-    'INGENIERO'
+    'SUPER_ADMINISTRADOR',  // Super administrador global
+    'contratista',          // Contratista (administrador de empresa constructora)
+    'administrador',        // Administrador genérico
+    'gerente',             // Gerente/Encargado
+    'arquitecto',          // Arquitecto
+    'ingeniero',           // Ingeniero
+    'maestro_obra',        // Maestro de obra
+    'empleado',            // Empleado general
+    'usuario',             // Usuario estándar
+    'visualizador'         // Solo visualización
   ];
 
   // Estados de usuario
@@ -39,12 +46,14 @@ const UsuariosPage = ({ showNotification }) => {
     nombre: '',
     email: '',
     telefono: '',
-    rol: 'EMPLEADO',
-    estado: 'ACTIVO',
-    password: '',
-    confirmPassword: '',
-    fechaIngreso: new Date().toISOString().split('T')[0]
+    rol: 'usuario',
+    pin: '',
+    confirmPin: '',
+    empresasPermitidas: [] // 🆕 Lista de empresas a las que tendrá acceso
   });
+
+  // 🆕 Lista de empresas disponibles (para multi-select)
+  const [empresasDisponibles, setEmpresasDisponibles] = useState([]);
 
   const [pagination, setPagination] = useState({
     page: 0,
@@ -57,13 +66,44 @@ const UsuariosPage = ({ showNotification }) => {
   const [totalElements, setTotalElements] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
-  
+
   // 🔐 Estado para cambio de PIN
   const [pinData, setPinData] = useState({
     pinActual: '',
     pinNuevo: '',
     confirmarPinNuevo: ''
   });
+
+  // 🔐 Efecto para cargar PIN actual cuando se selecciona un usuario
+  useEffect(() => {
+    if (selectedUsuario && selectedUsuario.passwordHash) {
+      setPinData(prevState => ({
+        ...prevState,
+        pinActual: selectedUsuario.passwordHash
+      }));
+    } else {
+      setPinData({
+        pinActual: '',
+        pinNuevo: '',
+        confirmarPinNuevo: ''
+      });
+    }
+  }, [selectedUsuario]);
+
+  // 🆕 Cargar empresas disponibles si es SUPER_ADMIN
+  useEffect(() => {
+    if (isSuperAdmin) {
+      const cargarEmpresas = async () => {
+        try {
+          const response = await api.get('/api/empresas');
+          setEmpresasDisponibles(response || []);
+        } catch (error) {
+          console.error('Error cargando empresas:', error);
+        }
+      };
+      cargarEmpresas();
+    }
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     loadUsuarios();
@@ -73,7 +113,7 @@ const UsuariosPage = ({ showNotification }) => {
     try {
       setLoading(true);
       let url = '';
-      
+
       if (rolFilter === 'todos' && estadoFilter === 'todos') {
         // GET /usuarios con paginación
         url = `/api/usuarios?empresaId=${empresaId}&page=${pagination.page}&size=${pagination.size}&sort=${pagination.sort}&direction=${pagination.direction}`;
@@ -87,19 +127,26 @@ const UsuariosPage = ({ showNotification }) => {
 
       const data = await api.get(url);
       let usuariosList = data.content || data.resultado || [];
-      
+
       console.log('🔐 UsuariosPage - usuarioAutenticado:', usuarioAutenticado);
-      console.log('🔐 UsuariosPage - usuariosList ANTES de filtrar:', usuariosList);
+      console.log('🔐 UsuariosPage - isSuperAdmin:', isSuperAdmin);
+      console.log('🔐 UsuariosPage - rol:', usuarioAutenticado?.rol);
+      console.log('🔐 UsuariosPage - usuariosList recibida:', usuariosList);
+
+      // 🔐 CONTROL DE ACCESO POR ROL:
+      // - SUPER_ADMINISTRADOR: ve TODOS los usuarios (sin filtrar)
+      // - administrador/contratista: ve TODOS los usuarios de su empresa (sin filtrar)
+      // - usuario/gerente/visualizador: solo ven SU PROPIO perfil
       
-      // 🔐 Si NO es SUPER_ADMIN, solo mostrar el usuario autenticado actual
-      if (!isSuperAdmin && usuarioAutenticado) {
-        // LoginResponse tiene userId, no id
+      if (!isSuperAdmin && !isAdmin && usuarioAutenticado) {
+        // Usuario normal (usuario, gerente, visualizador) - solo ve su propio perfil
         const userIdToFilter = usuarioAutenticado.userId || usuarioAutenticado.id;
-        usuariosList = usuariosList.filter(u => u.id === userIdToFilter);
-        console.log('🔐 UsuariosPage - Filtrando por userId:', userIdToFilter);
-        console.log('🔐 UsuariosPage - usuariosList DESPUÉS de filtrar:', usuariosList);
+        usuariosList = usuariosList.filter(u => u.id == userIdToFilter);
+        console.log('🔐 Usuario normal - filtrando solo su perfil. ID:', userIdToFilter);
+      } else if (isAdmin || isSuperAdmin) {
+        console.log('🔐 Admin o SuperAdmin - mostrando todos los usuarios');
       }
-      
+
       setUsuarios(usuariosList);
       setTotalPages(data.totalPages || 0);
       setTotalElements(data.totalElements || 0);
@@ -151,7 +198,7 @@ const UsuariosPage = ({ showNotification }) => {
         q: searchQuery,
         empresaId: empresaId
       });
-      
+
       const data = await api.get(`/api/usuarios/buscar?${params}`);
       setSearchResult(data);
       showNotification('Búsqueda realizada', 'success');
@@ -165,43 +212,57 @@ const UsuariosPage = ({ showNotification }) => {
   };
 
   const crearUsuario = async () => {
-    if (formData.password !== formData.confirmPassword) {
-      showNotification('Las contraseñas no coinciden', 'error');
+    // Validar PIN
+    if (!formData.pin || formData.pin.length !== 4) {
+      showNotification('El PIN debe tener exactamente 4 dígitos', 'error');
+      return;
+    }
+
+    if (!/^\d{4}$/.test(formData.pin)) {
+      showNotification('El PIN debe contener solo números', 'error');
+      return;
+    }
+
+    if (formData.pin !== formData.confirmPin) {
+      showNotification('Los PINs no coinciden', 'error');
       return;
     }
 
     try {
       setLoading(true);
-      const response = await api.post(`/api/usuarios?empresaId=${empresaId}`, {
+      
+      // 🆕 SISTEMA MULTI-EMPRESA
+      // Si es SUPER_ADMIN y tiene empresas seleccionadas, enviarlas como query parameter
+      let url = `/api/usuarios`;
+      if (isSuperAdmin && formData.empresasPermitidas && formData.empresasPermitidas.length > 0) {
+        const empresasParam = formData.empresasPermitidas.join(',');
+        url += `?empresasPermitidas=${empresasParam}`;
+      }
+      
+      const response = await api.post(url, {
         nombre: formData.nombre,
         email: formData.email,
-        telefono: formData.telefono,
         rol: formData.rol,
-        estado: formData.estado,
-        password: formData.password,
-        fechaIngreso: formData.fechaIngreso
+        passwordHash: formData.pin,  // El PIN se guarda en passwordHash
+        activo: true
       });
-      
-      if (response.ok) {
-        showNotification('Usuario creado exitosamente', 'success');
-        setFormData({
-          nombre: '',
-          email: '',
-          telefono: '',
-          rol: 'EMPLEADO',
-          estado: 'ACTIVO',
-          password: '',
-          confirmPassword: '',
-          fechaIngreso: new Date().toISOString().split('T')[0]
-        });
-        loadUsuarios();
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Error creando usuario');
-      }
+
+      showNotification('Usuario creado exitosamente', 'success');
+      setFormData({
+        nombre: '',
+        email: '',
+        telefono: '',
+        rol: 'usuario',
+        pin: '',
+        confirmPin: '',
+        empresasPermitidas: []
+      });
+      loadUsuarios();
     } catch (error) {
       console.error('Error creando usuario:', error);
-      showNotification(error.message || 'Error creando usuario', 'error');
+      // Extraer mensaje específico del backend
+      const errorMsg = error.response?.data?.message || error.response?.data || error.message || 'Error creando usuario';
+      showNotification(errorMsg, 'error');
     } finally {
       setLoading(false);
     }
@@ -284,12 +345,13 @@ const UsuariosPage = ({ showNotification }) => {
         pinActual: pinData.pinActual,
         pinNuevo: pinData.pinNuevo
       });
-      
+
       showNotification('PIN cambiado exitosamente', 'success');
       setPinData({ pinActual: '', pinNuevo: '', confirmarPinNuevo: '' });
     } catch (error) {
       console.error('Error cambiando PIN:', error);
-      const errorMsg = error.response?.data || error.message || 'Error cambiando PIN';
+      // Extraer mensaje específico del backend
+      const errorMsg = error.response?.data?.message || error.response?.data || error.message || 'Error cambiando PIN';
       showNotification(errorMsg, 'error');
     } finally {
       setLoading(false);
@@ -303,15 +365,17 @@ const UsuariosPage = ({ showNotification }) => {
   };
 
   const getRolBadgeClass = (rol) => {
-    switch (rol) {
-      case 'ADMIN': return 'bg-danger';
-      case 'GERENTE': return 'bg-primary';
-      case 'SUPERVISOR': return 'bg-warning';
-      case 'EMPLEADO': return 'bg-success';
-      case 'CLIENTE': return 'bg-info';
-      case 'CONTADOR': return 'bg-secondary';
-      case 'ARQUITECTO': return 'bg-primary';
-      case 'INGENIERO': return 'bg-success';
+    switch (rol?.toLowerCase()) {
+      case 'super_administrador': return 'bg-dark';
+      case 'administrador': return 'bg-danger';
+      case 'contratista': return 'bg-danger'; // Mismo nivel que administrador
+      case 'gerente': return 'bg-primary';
+      case 'arquitecto': return 'bg-info';
+      case 'ingeniero': return 'bg-primary';
+      case 'maestro_obra': return 'bg-warning';
+      case 'empleado': return 'bg-success';
+      case 'usuario': return 'bg-success';
+      case 'visualizador': return 'bg-secondary';
       default: return 'bg-secondary';
     }
   };
@@ -343,8 +407,8 @@ const UsuariosPage = ({ showNotification }) => {
                     {/* 🔐 Filtros solo visibles para SUPER_ADMIN */}
                     {isSuperAdmin && (
                       <>
-                        <select 
-                          className="form-select me-2" 
+                        <select
+                          className="form-select me-2"
                           style={{width: 'auto'}}
                           value={empresaId}
                           onChange={(e) => setEmpresaId(e.target.value)}
@@ -353,8 +417,8 @@ const UsuariosPage = ({ showNotification }) => {
                           <option value="2">Empresa 2</option>
                           <option value="3">Empresa 3</option>
                         </select>
-                        <select 
-                          className="form-select me-2" 
+                        <select
+                          className="form-select me-2"
                           style={{width: 'auto'}}
                           value={rolFilter}
                           onChange={(e) => setRolFilter(e.target.value)}
@@ -364,8 +428,8 @@ const UsuariosPage = ({ showNotification }) => {
                             <option key={rol} value={rol}>{rol}</option>
                           ))}
                         </select>
-                        <select 
-                          className="form-select me-2" 
+                        <select
+                          className="form-select me-2"
                           style={{width: 'auto'}}
                           value={estadoFilter}
                           onChange={(e) => setEstadoFilter(e.target.value)}
@@ -428,18 +492,18 @@ const UsuariosPage = ({ showNotification }) => {
                                 <td>{usuario.fechaIngreso ? new Date(usuario.fechaIngreso).toLocaleDateString() : 'N/A'}</td>
                                 <td>
                                   <div className="btn-group" role="group">
-                                    <button 
+                                    <button
                                       className="btn btn-sm btn-outline-primary"
                                       onClick={() => setSelectedUsuario(usuario)}
                                       title="Editar usuario"
                                     >
                                       <i className="fas fa-edit"></i>
                                     </button>
-                                    {/* 🔐 Botones de administración solo para SUPER_ADMIN */}
-                                    {isSuperAdmin && (
+                                    {/* 🔐 Botones de administración solo para SUPER_ADMIN y admin */}
+                                    {isAdmin && (
                                       <>
                                         <div className="btn-group" role="group">
-                                          <button 
+                                          <button
                                             className="btn btn-sm btn-outline-warning dropdown-toggle"
                                             data-bs-toggle="dropdown"
                                             title="Cambiar estado"
@@ -449,7 +513,7 @@ const UsuariosPage = ({ showNotification }) => {
                                           <ul className="dropdown-menu">
                                             {estadosDisponibles.map(estado => (
                                               <li key={estado}>
-                                                <button 
+                                                <button
                                                   className="dropdown-item"
                                                   onClick={() => cambiarEstadoUsuario(usuario.id, estado)}
                                                 >
@@ -459,14 +523,14 @@ const UsuariosPage = ({ showNotification }) => {
                                             ))}
                                           </ul>
                                         </div>
-                                        <button 
+                                        <button
                                           className="btn btn-sm btn-outline-info"
                                           onClick={() => resetearPassword(usuario.id)}
                                           title="Resetear contraseña"
                                         >
                                           <i className="fas fa-key"></i>
                                         </button>
-                                        <button 
+                                        <button
                                           className="btn btn-sm btn-outline-danger"
                                           onClick={() => eliminarUsuario(usuario.id)}
                                           title="Eliminar usuario"
@@ -488,8 +552,8 @@ const UsuariosPage = ({ showNotification }) => {
                         <nav className="mt-3">
                           <ul className="pagination justify-content-center">
                             <li className={`page-item ${pagination.page === 0 ? 'disabled' : ''}`}>
-                              <button 
-                                className="page-link" 
+                              <button
+                                className="page-link"
                                 onClick={() => changePage(pagination.page - 1)}
                                 disabled={pagination.page === 0}
                               >
@@ -498,8 +562,8 @@ const UsuariosPage = ({ showNotification }) => {
                             </li>
                             {[...Array(totalPages)].map((_, index) => (
                               <li key={index} className={`page-item ${pagination.page === index ? 'active' : ''}`}>
-                                <button 
-                                  className="page-link" 
+                                <button
+                                  className="page-link"
                                   onClick={() => changePage(index)}
                                 >
                                   {index + 1}
@@ -507,8 +571,8 @@ const UsuariosPage = ({ showNotification }) => {
                               </li>
                             ))}
                             <li className={`page-item ${pagination.page === totalPages - 1 ? 'disabled' : ''}`}>
-                              <button 
-                                className="page-link" 
+                              <button
+                                className="page-link"
                                 onClick={() => changePage(pagination.page + 1)}
                                 disabled={pagination.page === totalPages - 1}
                               >
@@ -565,28 +629,7 @@ const UsuariosPage = ({ showNotification }) => {
                     </div>
 
                     <div className="row">
-                      <div className="col-md-6 mb-3">
-                        <label className="form-label">Teléfono</label>
-                        <input
-                          type="tel"
-                          className="form-control"
-                          value={formData.telefono}
-                          onChange={(e) => setFormData({...formData, telefono: e.target.value})}
-                        />
-                      </div>
-                      <div className="col-md-6 mb-3">
-                        <label className="form-label">Fecha Ingreso</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          value={formData.fechaIngreso}
-                          onChange={(e) => setFormData({...formData, fechaIngreso: e.target.value})}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="row">
-                      <div className="col-md-6 mb-3">
+                      <div className="col-md-12 mb-3">
                         <label className="form-label">Rol *</label>
                         <select
                           className="form-select"
@@ -595,50 +638,89 @@ const UsuariosPage = ({ showNotification }) => {
                           required
                         >
                           {rolesDisponibles.map(rol => (
-                            <option key={rol} value={rol}>{rol}</option>
+                            <option key={rol} value={rol}>
+                              {rol.charAt(0).toUpperCase() + rol.slice(1)}
+                            </option>
                           ))}
                         </select>
+                        <small className="text-muted">
+                          El rol determina los permisos del usuario en la empresa
+                        </small>
                       </div>
-                      <div className="col-md-6 mb-3">
-                        <label className="form-label">Estado</label>
-                        <select
-                          className="form-select"
-                          value={formData.estado}
-                          onChange={(e) => setFormData({...formData, estado: e.target.value})}
-                        >
-                          {estadosDisponibles.map(estado => (
-                            <option key={estado} value={estado}>{estado}</option>
-                          ))}
-                        </select>
+                    </div>
+
+                    {/* 🆕 SISTEMA MULTI-EMPRESA: Solo visible para SUPER_ADMIN */}
+                    {isSuperAdmin && (
+                      <div className="row">
+                        <div className="col-md-12 mb-3">
+                          <label className="form-label">
+                            Empresas Permitidas
+                            <i className="fas fa-info-circle ms-2 text-info" 
+                               title="Selecciona las empresas a las que este usuario tendrá acceso"></i>
+                          </label>
+                          <select
+                            className="form-select"
+                            multiple
+                            size="5"
+                            value={formData.empresasPermitidas}
+                            onChange={(e) => {
+                              const selected = Array.from(e.target.selectedOptions, option => Number(option.value));
+                              setFormData({...formData, empresasPermitidas: selected});
+                            }}
+                          >
+                            {empresasDisponibles.map(empresa => (
+                              <option key={empresa.id} value={empresa.id}>
+                                {empresa.nombreEmpresa} (ID: {empresa.id})
+                              </option>
+                            ))}
+                          </select>
+                          <small className="text-muted">
+                            Mantén presionado Ctrl (Cmd en Mac) para seleccionar múltiples empresas.
+                            {formData.empresasPermitidas.length > 0 && (
+                              <span className="text-success ms-2">
+                                <i className="fas fa-check-circle"></i> {formData.empresasPermitidas.length} empresa(s) seleccionada(s)
+                              </span>
+                            )}
+                          </small>
+                        </div>
                       </div>
+                    )}
+
+                    <div className="alert alert-info mb-3">
+                      <i className="fas fa-info-circle me-2"></i>
+                      <strong>PIN de acceso:</strong> El usuario usar\u00e1 este PIN de 4 d\u00edgitos para iniciar sesi\u00f3n
                     </div>
 
                     <div className="row">
                       <div className="col-md-6 mb-3">
-                        <label className="form-label">Contraseña *</label>
+                        <label className="form-label">PIN (4 d\u00edgitos) *</label>
                         <input
                           type="password"
                           className="form-control"
-                          value={formData.password}
-                          onChange={(e) => setFormData({...formData, password: e.target.value})}
+                          placeholder="****"
+                          maxLength="4"
+                          value={formData.pin}
+                          onChange={(e) => setFormData({...formData, pin: e.target.value.replace(/\\D/g, '')})}
                           required
                         />
                       </div>
                       <div className="col-md-6 mb-3">
-                        <label className="form-label">Confirmar Contraseña *</label>
+                        <label className="form-label">Confirmar PIN *</label>
                         <input
                           type="password"
                           className="form-control"
-                          value={formData.confirmPassword}
-                          onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                          placeholder="****"
+                          maxLength="4"
+                          value={formData.confirmPin}
+                          onChange={(e) => setFormData({...formData, confirmPin: e.target.value.replace(/\\D/g, '')})}
                           required
                         />
                       </div>
                     </div>
 
                     <div className="d-grid">
-                      <button 
-                        type="submit" 
+                      <button
+                        type="submit"
                         className="btn btn-primary"
                         disabled={loading}
                       >
@@ -699,12 +781,12 @@ const UsuariosPage = ({ showNotification }) => {
                           </div>
                           <div className="col-md-6">
                             <p><strong>Teléfono:</strong> {searchResult.telefono}</p>
-                            <p><strong>Rol:</strong> 
+                            <p><strong>Rol:</strong>
                               <span className={`badge ${getRolBadgeClass(searchResult.rol)} ms-2`}>
                                 {searchResult.rol}
                               </span>
                             </p>
-                            <p><strong>Estado:</strong> 
+                            <p><strong>Estado:</strong>
                               <span className={`badge ${getEstadoBadgeClass(searchResult.estado)} ms-2`}>
                                 {searchResult.estado}
                               </span>
@@ -712,13 +794,13 @@ const UsuariosPage = ({ showNotification }) => {
                           </div>
                         </div>
                         <div className="mt-3">
-                          <button 
+                          <button
                             className="btn btn-primary me-2"
                             onClick={() => setSelectedUsuario(searchResult)}
                           >
                             <i className="fas fa-edit me-1"></i>Editar
                           </button>
-                          <button 
+                          <button
                             className="btn btn-warning me-2"
                             onClick={() => resetearPassword(searchResult.id)}
                           >
@@ -749,7 +831,7 @@ const UsuariosPage = ({ showNotification }) => {
                         }
                       }}
                     />
-                    <button 
+                    <button
                       className="btn btn-success"
                       onClick={(e) => {
                         const input = e.target.previousElementSibling;
@@ -782,17 +864,17 @@ const UsuariosPage = ({ showNotification }) => {
       {/* Navegación por pestañas */}
       <ul className="nav nav-tabs mb-4">
         <li className="nav-item">
-          <button 
+          <button
             className={`nav-link ${activeTab === 'lista' ? 'active' : ''}`}
             onClick={() => setActiveTab('lista')}
           >
             <i className="fas fa-list me-1"></i>Lista de Usuarios
           </button>
         </li>
-        {/* 🔐 Tab "Crear Usuario" solo visible para SUPER_ADMIN */}
-        {isSuperAdmin && (
+        {/* 🔐 Tab "Crear Usuario" solo visible para SUPER_ADMIN y admin */}
+        {isAdmin && (
           <li className="nav-item">
-            <button 
+            <button
               className={`nav-link ${activeTab === 'crear' ? 'active' : ''}`}
               onClick={() => setActiveTab('crear')}
             >
@@ -801,7 +883,7 @@ const UsuariosPage = ({ showNotification }) => {
           </li>
         )}
         <li className="nav-item">
-          <button 
+          <button
             className={`nav-link ${activeTab === 'busqueda' ? 'active' : ''}`}
             onClick={() => setActiveTab('busqueda')}
           >
@@ -820,8 +902,8 @@ const UsuariosPage = ({ showNotification }) => {
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">Editar Usuario</h5>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn-close"
                   onClick={cerrarModal}
                 ></button>
@@ -853,56 +935,29 @@ const UsuariosPage = ({ showNotification }) => {
                   </div>
 
                   <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Teléfono</label>
-                      <input
-                        type="tel"
-                        className="form-control"
-                        value={selectedUsuario.telefono || ''}
-                        onChange={(e) => setSelectedUsuario({...selectedUsuario, telefono: e.target.value})}
-                      />
-                    </div>
-                    <div className="col-md-6 mb-3">
+                    <div className="col-md-12 mb-3">
                       <label className="form-label">Rol</label>
                       <select
                         className="form-select"
                         value={selectedUsuario.rol || ''}
                         onChange={(e) => setSelectedUsuario({...selectedUsuario, rol: e.target.value})}
+                        disabled={!isAdmin}
                       >
                         {rolesDisponibles.map(rol => (
-                          <option key={rol} value={rol}>{rol}</option>
+                          <option key={rol} value={rol}>
+                            {rol.charAt(0).toUpperCase() + rol.slice(1)}
+                          </option>
                         ))}
                       </select>
-                    </div>
-                  </div>
-
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Estado</label>
-                      <select
-                        className="form-select"
-                        value={selectedUsuario.estado || ''}
-                        onChange={(e) => setSelectedUsuario({...selectedUsuario, estado: e.target.value})}
-                      >
-                        {estadosDisponibles.map(estado => (
-                          <option key={estado} value={estado}>{estado}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Fecha Ingreso</label>
-                      <input
-                        type="date"
-                        className="form-control"
-                        value={selectedUsuario.fechaIngreso ? selectedUsuario.fechaIngreso.split('T')[0] : ''}
-                        onChange={(e) => setSelectedUsuario({...selectedUsuario, fechaIngreso: e.target.value})}
-                      />
+                      {!isAdmin && (
+                        <small className="text-muted">Solo administradores pueden cambiar el rol</small>
+                      )}
                     </div>
                   </div>
 
                   <div className="d-flex justify-content-end">
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       className="btn btn-secondary me-2"
                       onClick={cerrarModal}
                     >
@@ -914,8 +969,8 @@ const UsuariosPage = ({ showNotification }) => {
                   </div>
                 </form>
 
-                {/* 🔐 Sección de Cambio de PIN - Solo visible cuando edita su propio usuario */}
-                {selectedUsuario.id === (usuarioAutenticado?.userId || usuarioAutenticado?.id) && (
+                {/* 🔐 Sección de Cambio de PIN - Visible para el propio usuario O para SUPER_ADMIN */}
+                {(selectedUsuario.id === (usuarioAutenticado?.userId || usuarioAutenticado?.id) || isSuperAdmin) && (
                   <>
                     <hr className="my-4" />
                     <h6 className="mb-3"><i className="fas fa-key me-2"></i>Cambiar PIN de Acceso</h6>
@@ -927,13 +982,15 @@ const UsuariosPage = ({ showNotification }) => {
                       <div className="col-md-4 mb-3">
                         <label className="form-label">PIN Actual *</label>
                         <input
-                          type="password"
+                          type="text"
                           className="form-control"
                           placeholder="****"
                           maxLength="4"
                           value={pinData.pinActual}
                           onChange={(e) => setPinData({...pinData, pinActual: e.target.value.replace(/\D/g, '')})}
+                          readOnly={isSuperAdmin && selectedUsuario.id !== (usuarioAutenticado?.userId || usuarioAutenticado?.id)}
                         />
+                        <small className="text-muted">PIN actualmente configurado. Visible para edición.</small>
                       </div>
                       <div className="col-md-4 mb-3">
                         <label className="form-label">PIN Nuevo *</label>
@@ -959,8 +1016,8 @@ const UsuariosPage = ({ showNotification }) => {
                       </div>
                     </div>
                     <div className="d-flex justify-content-end">
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         className="btn btn-warning"
                         onClick={cambiarPin}
                         disabled={loading}

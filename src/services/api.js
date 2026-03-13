@@ -72,13 +72,13 @@ const getEmpresaSeleccionada = () => {
 
 // 🔐 HELPERS DE AUTORIZACION
 
-// Verificar si el usuario actual es super admin (rol = "SUPER_ADMIN")
+// Verificar si el usuario actual es super admin (rol = "SUPER_ADMINISTRADOR")
 export const isSuperAdmin = () => {
   try {
     const stored = localStorage.getItem('usuarioAutenticado');
     if (!stored) return false;
     const usuario = JSON.parse(stored);
-    return usuario?.rol === 'SUPER_ADMIN';
+    return usuario?.rol === 'SUPER_ADMINISTRADOR';
   } catch (error) {
     return false;
   }

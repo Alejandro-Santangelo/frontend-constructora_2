@@ -19,7 +19,7 @@ export default function SeleccionarEmpresaModal({ onSelect, usuarioAutenticado }
   });
 
   // 🔐 Determinar si es super admin
-  const esSuperAdmin = usuarioAutenticado?.rol === 'SUPER_ADMIN' || usuarioAutenticado?.esSuperAdmin;
+  const esSuperAdmin = usuarioAutenticado?.rol === 'SUPER_ADMINISTRADOR' || usuarioAutenticado?.esSuperAdmin;
 
   // 🔐 Filtrar empresas según permisos
   const empresasPermitidas = React.useMemo(() => {
