@@ -1819,6 +1819,36 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           cantidadItems: presupuestoFinal.itemsCalculadora?.length
         });
 
+        // 🔍 PAYLOAD COMPLETO PARA DEBUGGING
+        console.log('═══════════════════════════════════════════════════════════════════');
+        console.log(`🚀 PAYLOAD COMPLETO PUT /api/v1/presupuestos-no-cliente/${presupuestoData.id}`);
+        console.log('═══════════════════════════════════════════════════════════════════');
+
+        // Intentar stringify con manejo de errores
+        try {
+          // Crear copia sin referencias circulares
+          const payloadParaLog = JSON.parse(JSON.stringify(presupuestoFinal, (key, value) => {
+            if (key === '_reactInternals' || key === '__reactProps') return undefined;
+            return value;
+          }));
+          console.log(JSON.stringify(payloadParaLog, null, 2));
+        } catch (e) {
+          console.warn('⚠️ No se pudo serializar el objeto completo, mostrando campos principales:');
+          console.log('ID:', presupuestoFinal.id);
+          console.log('Estado:', presupuestoFinal.estado);
+          console.log('Versión:', presupuestoFinal.numeroVersion);
+          console.log('Tipo:', presupuestoFinal.tipoPresupuesto);
+          console.log('Total Presupuesto:', presupuestoFinal.totalPresupuesto);
+          console.log('Total Final:', presupuestoFinal.totalFinal);
+          console.log('Total Con Descuentos:', presupuestoFinal.totalConDescuentos);
+          console.log('Total General:', presupuestoFinal.totalGeneral);
+          console.log('Items:', presupuestoFinal.itemsCalculadora?.length);
+          console.log('Campos del objeto:', Object.keys(presupuestoFinal));
+          console.log('Objeto completo (puede tener referencias circulares):', presupuestoFinal);
+        }
+
+        console.log('═══════════════════════════════════════════════════════════════════');
+
         // Actualizar el presupuesto existente usando el endpoint PUT por ID
         await api.presupuestosNoCliente.update(presupuestoData.id, presupuestoFinal, empresaId);
 
@@ -2924,60 +2954,68 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         <div>
                           <div className="fw-bold text-primary">
                             {(() => {
-                              // 🔍 VALIDACIÓN ROBUSTA: Detectar si totalConDescuentos está mal calculado
+                              // 🎯 LÓGICA SIMPLIFICADA: El total final fluctúa según configuraciones aplicadas
+                              // - Con descuentos → totalConDescuentos (base + honorarios + MC - descuentos)
+                              // - Sin descuentos → totalFinal (base + honorarios + MC según lo configurado)
+
                               const totalFinal = row.totalFinal;
                               const totalConDescuentos = row.totalConDescuentos;
-                              const totalDescuentos = row.totalDescuentos;
-                              const hayDescuentos = totalDescuentos && Number(totalDescuentos) > 0;
 
-                              // ✅ PRIORIDAD 1: Si hay descuentos, usar totalConDescuentos
-                              if (hayDescuentos && totalConDescuentos != null && Number(totalConDescuentos) > 0) {
-                                return (
-                                  <>
-                                    {`$${Number(totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                    <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
-                                  </>
-                                );
-                              }
-
-                              // ✅ PRIORIDAD 2: Si NO hay descuentos, validar coherencia
-                              if (!hayDescuentos && totalFinal != null && totalConDescuentos != null) {
-                                const diferencia = Math.abs(Number(totalFinal) - Number(totalConDescuentos));
-
-                                // Si son iguales (o casi), usar totalConDescuentos
-                                if (diferencia < 10) { // Tolerancia de $10 por redondeos
-                                  return `$${Number(totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                                }
-
-                                // 🚨 INCONSISTENCIA DETECTADA: totalConDescuentos mal calculado
-                                // Usar totalFinal que es el correcto
-                                console.warn('⚠️ Presupuesto', row.numeroPresupuesto, '- totalConDescuentos inconsistente. Usando totalFinal.', {
-                                  totalFinal: Number(totalFinal).toLocaleString('es-AR'),
-                                  totalConDescuentos: Number(totalConDescuentos).toLocaleString('es-AR'),
-                                  diferencia: diferencia.toLocaleString('es-AR')
+                              // 🐛 DEBUG: Ver qué valores tiene el presupuesto 111
+                              if (row.numeroPresupuesto === '111') {
+                                console.log('🔍 [LISTA] Presupuesto 111 - Valores:', {
+                                  totalFinal: totalFinal,
+                                  totalConDescuentos: totalConDescuentos,
+                                  totalDescuentos: row.totalDescuentos,
+                                  descuentosPorRubro: row.descuentosPorRubro,
+                                  totalBase: row.totalBase,
+                                  totalHonorarios: row.totalHonorarios,
+                                  totalMayoresCostos: row.totalMayoresCostos
                                 });
-                                return `$${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
                               }
 
-                              // ✅ PRIORIDAD 3: Solo hay totalFinal
-                              if (totalFinal != null && Number(totalFinal) > 0) {
-                                return `$${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                              }
+                              // ✅ Detectar si hay descuentos configurados (legacy O por rubro)
+                              const hayDescuentos = (row.totalDescuentos && Number(row.totalDescuentos) > 0) ||
+                                                   (row.descuentosPorRubro && Array.isArray(row.descuentosPorRubro) && row.descuentosPorRubro.length > 0);
 
-                              // ✅ PRIORIDAD 4: Solo hay totalConDescuentos
-                              if (totalConDescuentos != null && Number(totalConDescuentos) > 0) {
-                                return `$${Number(totalConDescuentos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                              }
-
-                              // PRIORIDAD 5: Recalcular desde itemsCalculadora (si no hay totales precalculados)
-                              const items = row.itemsCalculadora;
-                              if (items && Array.isArray(items) && items.length > 0) {
-                                const { totalFinal, totalDescuentos } = calcularTotalConDescuentosDesdeItems(items, row);
-                                if (totalFinal > 0) {
+                              // PRIORIDAD 1: Si hay descuentos configurados → usar totalConDescuentos
+                              if (hayDescuentos && totalConDescuentos != null) {
+                                const valor = Number(totalConDescuentos);
+                                if (valor > 0) {
                                   return (
                                     <>
-                                      {`$${totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                      {totalDescuentos > 0 && (
+                                      {`$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                      <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
+                                    </>
+                                  );
+                                }
+                              }
+
+                              // PRIORIDAD 2: Sin descuentos → usar totalFinal (refleja lo configurado hasta ahora)
+                              if (totalFinal != null) {
+                                const valor = Number(totalFinal);
+                                if (valor > 0) {
+                                  return `$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                                }
+                              }
+
+                              // PRIORIDAD 3: Fallback a totalConDescuentos si totalFinal no existe
+                              if (totalConDescuentos != null) {
+                                const valor = Number(totalConDescuentos);
+                                if (valor > 0) {
+                                  return `$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                                }
+                              }
+
+                              // PRIORIDAD 4: Recalcular desde itemsCalculadora (presupuestos legacy)
+                              const items = row.itemsCalculadora;
+                              if (items && Array.isArray(items) && items.length > 0) {
+                                const { totalFinal: calcTotal, totalDescuentos: calcDesc } = calcularTotalConDescuentosDesdeItems(items, row);
+                                if (calcTotal > 0) {
+                                  return (
+                                    <>
+                                      {`$${calcTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                      {calcDesc > 0 && (
                                         <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
                                       )}
                                     </>
@@ -2985,9 +3023,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                 }
                               }
 
-                              // PRIORIDAD 6: Fallback a otros campos legacy
-                              const total = row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
-                              if (total > 0) return `$${Number(total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                              // PRIORIDAD 5: Campos legacy antiguos
+                              const totalLegacy = row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
+                              if (totalLegacy > 0) {
+                                return `$${Number(totalLegacy).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                              }
 
                               return <span className="text-muted">Sin datos</span>;
                             })()}

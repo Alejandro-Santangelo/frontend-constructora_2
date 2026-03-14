@@ -115,7 +115,7 @@ const PresupuestosList = ({ onOpenSidebar, sidebarCollapsed }) => {
                     <td>{p.fechaCreacion ? new Date(p.fechaCreacion).toLocaleDateString() : '-'}</td>
                     <td>{getNombreEmpresa(p.idEmpresa)}</td>
                     <td>{getNombreObra(p.idObra, p)}</td>
-                    <td>${p.montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td>${p.totalPresupuestoConHonorarios?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                     <td>{p.fechaValidez ? new Date(p.fechaValidez).toLocaleDateString() : '-'}</td>
                     <td>
                       <button className="btn btn-danger btn-sm" style={{marginRight:4}} onClick={() => { console.log('Click eliminar', p); setEliminarData(p); setShowEliminarModal(true); }}>
