@@ -27,7 +27,8 @@ export async function obtenerSeccionesPermitidas(rol) {
         
         return response.data;
     } catch (error) {
-        console.error('Error al obtener secciones permitidas:', error);
+        // ⚠️ Comentamos el log para no saturar consola durante debug
+        // console.error('Error al obtener secciones permitidas:', error);
         
         // Fallback: si falla la API, aplicar reglas por defecto
         if (rol === 'SUPER_ADMINISTRADOR') {

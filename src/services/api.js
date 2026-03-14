@@ -226,8 +226,8 @@ apiClient.interceptors.request.use(
 
       // 2️⃣ Agregar empresaId al BODY (para POST, PUT, PATCH) - SOLO si NO es FormData
       if (['post', 'put', 'patch'].includes(config.method?.toLowerCase())) {
-        // ⚠️ ENDPOINTS QUE TOMAN empresaId SOLO DE HEADERS (NO del body)
-        // Según documentación backend: empresaId va en header, no en body JSON
+        // ⚠️ ENDPOINTS QUE TOMAN empresaId SOLO DE HEADERS/QUERY PARAMS (NO del body)
+        // Según documentación backend: empresaId va en header o query param, no en body JSON
         const endpointsQueryParamOnly = [
           '/aprobar-y-crear-obra',
           '/aprobar',
@@ -236,6 +236,7 @@ apiClient.interceptors.request.use(
           '/asignar-cliente',
           '/duplicar',
           '/obras/borrador',  // ✅ Backend mapea empresaId desde HEADERS, no body (incluye /obras/borrador y /obras/borrador/{id})
+          '/jornales-diarios', // ✅ Jornales toma empresaId solo del query param
         ];
 
         // 🔹 Verificar si la URL coincide con algún patrón
@@ -254,9 +255,11 @@ apiClient.interceptors.request.use(
           }
         } else if (noAgregarEnBody && config.data && typeof config.data === 'object') {
           // ✅ REMOVER empresaId del body si existe (backend lo toma de headers)
+          console.log('🔧 [Interceptor] Body ANTES de remover empresaId:', config.data);
           const { empresaId: removed1, idEmpresa: removed2, ...dataWithoutEmpresaId } = config.data;
           config.data = dataWithoutEmpresaId;
           console.log('🔧 [Interceptor] empresaId removido del body para:', config.url);
+          console.log('🔧 [Interceptor] Body final DESPUÉS de remover empresaId:', config.data);
         }
         // Si es FormData, empresaId ya debe estar en los params (query string)
       }
@@ -270,7 +273,7 @@ apiClient.interceptors.request.use(
       // 4️⃣ Agregar X-Tenant-ID header como respaldo
       config.headers['X-Tenant-ID'] = empresaIdFinal;
       config.headers['x-tenant-id'] = empresaIdFinal; // Minúsculas por si acaso
-      
+
       // 5️⃣ Agregar X-Super-Admin header si el usuario es super admin
       if (isSuperAdmin()) {
         config.headers['X-Super-Admin'] = 'true';

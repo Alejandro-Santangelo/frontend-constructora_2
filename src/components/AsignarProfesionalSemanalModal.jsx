@@ -12,6 +12,7 @@ import {
   actualizarAsignacionSemanal,
   eliminarAsignacionesPorObra
 } from '../services/profesionalesObraService';
+import { obtenerRubrosActivosPorObra, listarJornalesPorObra as obtenerJornalesPorObra, eliminarJornalDiario } from '../services/jornalesDiariosService';
 
 const AsignarProfesionalSemanalModal = ({
   show,
@@ -20,7 +21,9 @@ const AsignarProfesionalSemanalModal = ({
   profesionalesDisponibles = [],
   onAsignar,
   configuracionObra = null, // Nueva prop para recibir configuración global
-  onRefreshProfesionales = null // Nueva prop para refrescar lista de profesionales
+  onRefreshProfesionales = null, // Nueva prop para refrescar lista de profesionales
+  onAbrirRegistrarJornales = null, // Nueva prop para abrir modal de jornales
+  onAbrirHistorialJornales = null // Nueva prop para abrir modal de historial
 }) => {
   // DEBUG: Track parent lifecycle
   const instanceId = React.useMemo(() => Math.random().toString(36).substr(2, 5), []);
@@ -95,6 +98,9 @@ const AsignarProfesionalSemanalModal = ({
   const [loadingPresupuesto, setLoadingPresupuesto] = useState(false);
   const [asignacionesExistentes, setAsignacionesExistentes] = useState([]);
   const [loadingAsignaciones, setLoadingAsignaciones] = useState(false);
+  
+  // Estado para rubros del presupuesto de la obra
+  const [rubros, setRubros] = useState([]);
 
   // 🚨🚨🚨 DEBUG CRÍTICO: Ver qué recibe el modal cuando se abre
   useEffect(() => {
@@ -209,12 +215,39 @@ getObraId() retorna: ${obraIdReal}
     }
   }, [configuracionObraActualizada?.diasHabiles, semanasObjetivo]);
 
+  // Cargar rubros activos del presupuesto de la obra
+  const cargarRubros = async () => {
+    if (!obra?.id) return;
+    const obraIdReal = getObraId();
+    try {
+      const lista = await obtenerRubrosActivosPorObra(obraIdReal, empresaSeleccionada.id);
+      setRubros(lista);
+      console.log(`✅ ${lista.length} rubros cargados para la obra ${obraIdReal}`);
+    } catch (err) {
+      console.warn('⚠️ No se pudieron cargar los rubros:', err);
+      setRubros([]);
+    }
+  };
+
+  // Handler para cambiar el rubro de un profesional seleccionado
+  const handleCambiarRubroProfesional = (profesionalId, rubroId) => {
+    const rubroSeleccionado = rubros.find(r => r.id === parseInt(rubroId));
+    setProfesionalesSeleccionados(prev =>
+      prev.map(p => p.id === profesionalId ? { 
+        ...p, 
+        rubroId: rubroId ? parseInt(rubroId) : null,
+        rubroNombre: rubroSeleccionado ? rubroSeleccionado.nombreRubro : null
+      } : p)
+    );
+  };
+
   // Cargar presupuesto cuando se abre el modal
   useEffect(() => {
     if (show && obra) {
       cargarTodosProfesionales();
       cargarPresupuestoObra();
       cargarAsignacionesExistentes();
+      cargarRubros();
     } else if (!show) {
       // 🧹 Limpiar estados cuando se cierra el modal
       console.log('🧹 Limpiando estados del modal...');
@@ -515,9 +548,42 @@ getObraId() retorna: ${obraIdReal}
         console.warn('⚠️ No se pudieron cargar asignaciones por obra completa:', error);
       }
 
-      // 4. COMBINAR AMBOS TIPOS DE ASIGNACIONES
-      const todasLasAsignaciones = [...dataSemanal, ...dataObra];
-      console.log('🔍 Total asignaciones combinadas:', todasLasAsignaciones.length);
+      // 3.5. Obtener JORNALES DIARIOS (Asignación por Día)
+      let dataJornales = [];
+      try {
+        const responseJornales = await obtenerJornalesPorObra(obraIdParaQuery, empresaSeleccionada.id);
+        console.log('🔍 Jornales diarios response:', responseJornales);
+        
+        dataJornales = Array.isArray(responseJornales) ? responseJornales : (responseJornales?.data || []);
+        
+        // 🔄 Transformar jornales al formato de asignaciones para mostrar en la tabla
+        dataJornales = dataJornales.map(jornal => ({
+          tipoAsignacion: 'JORNAL_DIARIO', // ✨ Marcador para identificar jornales
+          asignacionId: `jornal-${jornal.id}`, // ID único para eliminar
+          jornalId: jornal.id, // ID real del jornal
+          profesionalId: jornal.profesionalId,
+          profesionalNombre: jornal.profesionalNombre || 'N/A',
+          profesionalTipo: jornal.tipoProfesional || 'N/A',
+          rubroId: jornal.rubroId,
+          rubroNombre: jornal.rubroNombre || 'Sin rubro',
+          fecha: jornal.fecha,
+          horasTrabajadasDecimal: jornal.horasTrabajadasDecimal || 0,
+          montoCobrado: jornal.montoCobrado || 0,
+          observaciones: jornal.observaciones || '-'
+       }));
+        
+        console.log('✅ Jornales diarios transformados:', dataJornales.length, 'items');
+      } catch (errorJornales) {
+        console.warn('⚠️ No se pudieron cargar jornales diarios:', errorJornales.message);
+        dataJornales = [];
+      }
+
+      // 4. COMBINAR LOS 3 TIPOS: Semanales + Obra Completa + Jornales Diarios
+      const todasLasAsignaciones = [...dataSemanal, ...dataObra, ...dataJornales];
+      console.log('🔍 Total asignaciones combinadas (incluyendo jornales):', todasLasAsignaciones.length);
+      console.log('   - Semanales:', dataSemanal.length);
+      console.log('   - Obra Completa:', dataObra.length);
+      console.log('   - Jornales Diarios:', dataJornales.length);
 
       // Extraer datos dependiendo de la estructura de respuesta
       let data = todasLasAsignaciones;
@@ -1728,6 +1794,17 @@ getObraId() retorna: ${obraIdReal}
           return;
         }
       }
+      
+      // Validar que todos los profesionales tengan rubro seleccionado (solo si hay rubros disponibles)
+      if (rubros.length > 0) {
+        const profesionalesSinRubro = profesionalesSeleccionados.filter(p => !p.rubroId);
+        if (profesionalesSinRubro.length > 0) {
+          const nombres = profesionalesSinRubro.map(p => p.nombre).join(', ');
+          alert(`⚠️ Debes seleccionar un rubro para: ${nombres}`);
+          return;
+        }
+      }
+      
       // Ya no validamos cantidades porque cada profesional = 1 jornal/día automáticamente
     } else if (modalidadAsignacion === 'semanal') {
       if (Object.keys(asignacionesPorSemana).length === 0) {
@@ -1903,6 +1980,8 @@ getObraId() retorna: ${obraIdReal}
         payload.profesionales = profesionalesConIdNumerico.map(prof => ({
           profesionalId: Number(prof.id),
           nombre: prof.nombre,
+          rubroId: prof.rubroId || null,
+          rubroNombre: prof.rubroNombre || null,
           cantidadPorDia: 1 // Número, no string
         }));
 
@@ -1956,7 +2035,9 @@ getObraId() retorna: ${obraIdReal}
 
               return {
                 profesionalId: Number(idFinal),
-                nombre: prof.nombre || 'Profesional'
+                nombre: prof.nombre || 'Profesional',
+                rubroId: prof.rubroId || null,
+                rubroNombre: prof.rubroNombre || null
               };
             })
             .filter(p => p !== null); // Eliminar nulos
@@ -2331,6 +2412,33 @@ getObraId() retorna: ${obraIdReal}
     }
   };
 
+  // Función para eliminar jornales diarios
+  const handleEliminarJornal = async (jornalId, profesionalNombre) => {
+    if (!window.confirm(`¿Estás seguro de eliminar el jornal de ${profesionalNombre}?`)) {
+      return;
+    }
+
+    try {
+      console.log('🗑️ Eliminando jornal:', jornalId);
+      
+      await eliminarJornalDiario(jornalId, empresaSeleccionada.id);
+      
+      alert('✅ Jornal eliminado correctamente');
+
+      // Recargar asignaciones para actualizar la vista
+      await cargarAsignacionesExistentes();
+
+      // Refrescar lista de profesionales disponibles en la página padre
+      if (onRefreshProfesionales) {
+        await onRefreshProfesionales();
+      }
+
+    } catch (error) {
+      console.error('❌ Error eliminando jornal:', error);
+      alert(`❌ Error eliminando jornal: ${error.message || error}`);
+    }
+  };
+
   // Función para eliminar todas las asignaciones de un profesional específico
   const handleEliminarProfesionalDeObra = async (profesionalId, nombreProfesional) => {
     console.log('🗑️ [DEBUG] Iniciando eliminación de profesional:', { profesionalId, nombreProfesional });
@@ -2506,8 +2614,15 @@ getObraId() retorna: ${obraIdReal}
     console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesExistentes:', asignacionesExistentes);
     console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesExistentes.length:', asignacionesExistentes?.length);
 
+    // � PRIORIDAD 0: Separar jornales diarios de asignaciones planificadas
+    const jornalesDiarios = asignacionesExistentes.filter(a => a.tipoAsignacion === 'JORNAL_DIARIO');
+    const asignacionesPlanificadas = asignacionesExistentes.filter(a => a.tipoAsignacion !== 'JORNAL_DIARIO');
+    
+    console.log('✅ Jornales diarios encontrados:', jornalesDiarios.length);
+    console.log('✅ Asignaciones planificadas encontradas:', asignacionesPlanificadas.length);
+
     // 🔥 PRIORIDAD 1: Si hay asignaciones en modalidad 'total', mostrarlas directamente
-    const asignacionesTotales = asignacionesExistentes.filter(a => a.modalidad === 'total');
+    const asignacionesTotales = asignacionesPlanificadas.filter(a => a.modalidad === 'total');
     console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesTotales:', asignacionesTotales);
     console.log('🔍 [renderTablaProfesionalesAsignados] asignacionesTotales.length:', asignacionesTotales.length);
     if (asignacionesTotales.length > 0) {
@@ -2544,40 +2659,94 @@ getObraId() retorna: ${obraIdReal}
             </div>
 
             <div className="table-responsive">
-              <table className="table table-sm table-hover">
+              <table className="table table-sm table-hover table-bordered">
                 <thead className="table-light">
                   <tr>
-                    <th>Profesional</th>
-                    <th>Tipo</th>
-                    <th className="text-end">Jornales</th>
-                    <th className="text-end">Valor Jornal</th>
-                    <th className="text-end">Subtotal</th>
+                    <th style={{ width: '25%' }}>Profesional</th>
+                    <th style={{ width: '15%' }}>Tipo</th>
+                    <th style={{ width: '15%' }}>Rubro</th>
+                    <th className="text-center" style={{ width: '10%' }}>Jornales</th>
+                    <th className="text-end" style={{ width: '12%' }}>Valor Jornal</th>
+                    <th className="text-end" style={{ width: '13%' }}>Subtotal</th>
+                    <th className="text-center" style={{ width: '10%' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {profesionalesUnicos.map(prof => (
-                    <tr key={prof.id}>
-                      <td>
-                        <i className="fas fa-user me-2 text-primary"></i>
-                        {prof.nombre}
-                      </td>
-                      <td>
-                        <span className="badge bg-info">
-                          {prof.tipoProfesional}
-                        </span>
-                      </td>
-                      <td className="text-end">{prof.cantidadJornales || '-'}</td>
-                      <td className="text-end">
-                        {prof.valorJornal ? `$${prof.valorJornal.toLocaleString('es-AR')}` : '-'}
-                      </td>
-                      <td className="text-end">
-                        <strong>
-                          {prof.subtotal ? `$${prof.subtotal.toLocaleString('es-AR')}` : '-'}
-                        </strong>
-                      </td>
-                    </tr>
-                  ))}
+                  {profesionalesUnicos.map(prof => {
+                    // Buscar la asignación completa para obtener el asignacionId y rubroNombre
+                    const asignacionCompleta = asignacionesTotales.find(a => a.profesionalId === prof.id);
+                    const rubroNombre = asignacionCompleta?.rubroNombre || 'Sin rubro';
+                    const asignacionId = asignacionCompleta?.asignacionId || asignacionCompleta?.id;
+                    
+                    return (
+                      <tr key={prof.id}>
+                        <td>
+                          <i className="fas fa-user me-2 text-primary"></i>
+                          <strong>{prof.nombre}</strong>
+                        </td>
+                        <td>
+                          <span className="badge bg-info">
+                            {prof.tipoProfesional}
+                          </span>
+                        </td>
+                        <td>
+                          {rubroNombre !== 'Sin rubro' ? (
+                            <span className="badge bg-secondary text-wrap" style={{ fontSize: '0.75rem' }}>
+                              {rubroNombre}
+                            </span>
+                          ) : (
+                            <small className="text-muted">Sin rubro</small>
+                          )}
+                        </td>
+                        <td className="text-center">
+                          <span className="badge bg-info">{prof.cantidadJornales || '0'}</span>
+                        </td>
+                        <td className="text-end">
+                          {prof.valorJornal ? `$${prof.valorJornal.toLocaleString('es-AR')}` : '$0'}
+                        </td>
+                        <td className="text-end">
+                          <strong>
+                            {prof.subtotal ? `$${prof.subtotal.toLocaleString('es-AR', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            })}` : '$0.00'}
+                          </strong>
+                        </td>
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={() => {
+                              if (window.confirm(`¿Estás seguro de eliminar la asignación de ${prof.nombre}?`)) {
+                                handleEliminarAsignacion(asignacionId);
+                              }
+                            }}
+                            title="Eliminar asignación"
+                            disabled={cargando || !asignacionId}
+                          >
+                            <i className="bi bi-trash"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
+                <tfoot className="table-light">
+                  <tr>
+                    <td colSpan="5" className="text-end fw-bold">
+                      TOTAL:
+                    </td>
+                    <td className="text-end fw-bold text-success">
+                      ${profesionalesUnicos
+                        .reduce((sum, prof) => sum + (prof.subtotal || 0), 0)
+                        .toLocaleString('es-AR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -2585,7 +2754,228 @@ getObraId() retorna: ${obraIdReal}
       }
     }
 
-    // 🔵 OPCIÓN 2: Si no hay semanas, mostrar mensaje apropiado
+    // � PRIORIDAD 1.5: Si hay jornales diarios, mostrarlos en tabla separada o combinada
+    if (jornalesDiarios.length > 0) {
+      console.log('✅ Renderizando jornales diarios:', jornalesDiarios);
+
+      // Agrupar jornales por profesional
+      const jornalesPorProfesional = {};
+      jornalesDiarios.forEach(jornal => {
+        const profId = jornal.profesionalId;
+        if (!jornalesPorProfesional[profId]) {
+          jornalesPorProfesional[profId] = {
+            profesionalId: profId,
+            profesionalNombre: jornal.profesionalNombre,
+            profesionalTipo: jornal.profesionalTipo,
+            rubroNombre: jornal.rubroNombre,
+            jornales: []
+          };
+        }
+        jornalesPorProfesional[profId].jornales.push(jornal);
+      });
+
+      const profesionalesConJornales = Object.values(jornalesPorProfesional);
+
+      return (
+        <div className="mt-3">
+          <div className="alert alert-info mb-3">
+            <i className="fas fa-calendar-day me-2"></i>
+            <strong>Modalidad:</strong> Asignación por Día
+            <br />
+            <small className="text-muted">
+              {profesionalesConJornales.length} profesional(es) con {jornalesDiarios.length} jornal(es) registrado(s)
+            </small>
+          </div>
+
+          <div className="table-responsive">
+            <table className="table table-sm table-hover table-bordered">
+              <thead className="table-light">
+                <tr>
+                  <th style={{ width: '18%' }}>Profesional</th>
+                  <th style={{ width: '12%' }}>Tipo</th>
+                  <th style={{ width: '12%' }}>Rubro</th>
+                  <th className="text-center" style={{ width: '10%' }}>Jornales</th>
+                  <th className="text-center" style={{ width: '10%' }}>Total Días</th>
+                  <th className="text-end" style={{ width: '13%' }}>Total Cobrado</th>
+                  <th className="text-center" style={{ width: '25%' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profesionalesConJornales.map(prof => {
+                  const totalHoras = prof.jornales.reduce((sum, j) => sum + (j.horasTrabajadasDecimal || 0), 0);
+                  const totalCobrado = prof.jornales.reduce((sum, j) => sum + (j.montoCobrado || 0), 0);
+                  const cantidadJornales = prof.jornales.length;
+
+                  return (
+                    <tr key={prof.profesionalId}>
+                      <td>
+                        <i className="fas fa-calendar-day me-2 text-success"></i>
+                        <strong>{prof.profesionalNombre}</strong>
+                        <br />
+                        <div className="d-flex flex-wrap gap-1 mt-1">
+                          {prof.jornales.map((j, idx) => {
+                            const fechaFormateada = new Date(j.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+                            const fraccion = j.horasTrabajadasDecimal || 0;
+                            return (
+                              <span 
+                                key={idx} 
+                                className="badge bg-light text-dark border d-inline-flex align-items-center gap-1" 
+                                style={{ fontSize: '0.75rem', paddingRight: '4px' }}
+                              >
+                                📅 {fechaFormateada} ({fraccion}d)
+                                <button
+                                  type="button"
+                                  className="btn btn-sm p-0 text-danger"
+                                  style={{ 
+                                    border: 'none', 
+                                    background: 'transparent',
+                                    fontSize: '0.9rem',
+                                    lineHeight: '1',
+                                    width: '16px',
+                                    height: '16px',
+                                    marginLeft: '2px'
+                                  }}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm(`¿Eliminar jornal del ${fechaFormateada} de ${prof.profesionalNombre}?\n\nFracción: ${fraccion} días\nMonto: $${j.montoCobrado?.toLocaleString('es-AR')}`)) {
+                                      setCargando(true);
+                                      try {
+                                        await eliminarJornalDiario(j.jornalId, empresaSeleccionada.id);
+                                        alert('✅ Jornal eliminado correctamente');
+                                        await cargarAsignacionesExistentes();
+                                        if (onRefreshProfesionales) {
+                                          await onRefreshProfesionales();
+                                        }
+                                      } catch(error) {
+                                        console.error('Error eliminando jornal:', error);
+                                        alert(`❌ Error: ${error.message || error}`);
+                                      } finally {
+                                        setCargando(false);
+                                      }
+                                    }
+                                  }}
+                                  title="Eliminar este jornal"
+                                  disabled={cargando}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge bg-info">{prof.profesionalTipo}</span>
+                      </td>
+                      <td>
+                        {prof.rubroNombre && prof.rubroNombre !== 'Sin rubro' ? (
+                          <span className="badge bg-secondary text-wrap" style={{ fontSize: '0.75rem' }}>
+                            {prof.rubroNombre}
+                          </span>
+                        ) : (
+                          <small className="text-muted">Sin rubro</small>
+                        )}
+                      </td>
+                      <td className="text-center">
+                        <span className="badge bg-success">{cantidadJornales}</span>
+                      </td>
+                      <td className="text-center">
+                        <span className="badge bg-primary" style={{ fontSize: '0.9rem' }}>
+                          {totalHoras.toFixed(2)} días
+                        </span>
+                      </td>
+                      <td className="text-end">
+                        <strong>
+                          ${totalCobrado.toLocaleString('es-AR', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </strong>
+                      </td>
+                      <td className="text-center">
+                        <div className="d-flex gap-2 justify-content-center">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-info text-white"
+                            onClick={() => {
+                              // Abrir historial para ver jornales individuales  
+                              if (onAbrirHistorialJornales) {
+                                onAbrirHistorialJornales();
+                              } else {
+                                alert('Ver jornales individuales en el Historial');
+                              }
+                            }}
+                            title="Ver jornales en detalle"
+                          >
+                            <i className="bi bi-eye me-1"></i>
+                            Ver
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={async () => {
+                              if (window.confirm(`¿Eliminar TODOS los ${prof.jornales.length} jornal(es) de ${prof.profesionalNombre}?\n\nTotal: $${totalCobrado.toLocaleString('es-AR')}\n\nTambién puedes eliminar jornales individuales haciendo clic en la × de cada fecha.`)) {
+                                setCargando(true);
+                                try {
+                                  // Eliminar todos los jornales de este profesional
+                                  let eliminados = 0;
+                                  for (const jornal of prof.jornales) {
+                                    await eliminarJornalDiario(jornal.jornalId, empresaSeleccionada.id);
+                                    eliminados++;
+                                  }
+                                  
+                                  alert(`✅ ${eliminados} jornal(es) eliminado(s) correctamente`);
+                                  
+                                  // Recargar asignaciones
+                                  await cargarAsignacionesExistentes();
+                                  
+                                  // Refrescar lista de profesionales disponibles
+                                  if (onRefreshProfesionales) {
+                                    await onRefreshProfesionales();
+                                  }
+                                } catch(error) {
+                                  console.error('Error eliminando jornales:', error);
+                                  alert(`❌ Error eliminando jornales: ${error.message || error}`);
+                                } finally {
+                                  setCargando(false);
+                                }
+                              }
+                            }}
+                            title="Eliminar todos los jornales"
+                            disabled={cargando}
+                          >
+                            <i className="bi bi-trash me-1"></i>
+                            Eliminar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="table-light">
+                <tr>
+                  <td colSpan="5" className="text-end fw-bold">
+                    TOTAL:
+                  </td>
+                  <td className="text-end fw-bold text-success">
+                    ${jornalesDiarios
+                      .reduce((sum, j) => sum + (j.montoCobrado || 0), 0)
+                      .toLocaleString('es-AR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      })}
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // �🔵 OPCIÓN 2: Si no hay semanas, mostrar mensaje apropiado
     if (!semanas || semanas.length === 0) {
       // Si hay asignacionesExistentes pero no son 'total', puede ser un problema
       if (asignacionesExistentes.length > 0) {
@@ -3012,19 +3402,48 @@ getObraId() retorna: ${obraIdReal}
               </div>
             )}
 
-            {(asignacionesExistentes.length > 0 || Object.keys(asignacionesPorSemana).length > 0) && (
-              <div className="card mb-3 border-success">
-                <div className="card-header bg-success text-white">
-                  <h6 className="mb-0">
-                    <i className="fas fa-user-check me-2"></i>
-                    Profesionales Ya Asignados
-                  </h6>
-                </div>
-                <div className="card-body">
-                  {renderTablaProfesionalesAsignados()}
-                </div>
+            {/* Tabla de Profesionales Ya Asignados - Mostrar siempre */}
+            <div className="card mb-3 border-success">
+              <div className="card-header bg-success text-white">
+                <h6 className="mb-0">
+                  <i className="fas fa-user-check me-2"></i>
+                  Profesionales Ya Asignados
+                </h6>
               </div>
-            )}
+              <div className="card-body">
+                {loadingAsignaciones ? (
+                  <div className="text-center py-3">
+                    <div className="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <small className="text-muted">Cargando asignaciones...</small>
+                  </div>
+                ) : asignacionesExistentes.length > 0 || Object.keys(asignacionesPorSemana).length > 0 ? (
+                  renderTablaProfesionalesAsignados()
+                ) : (
+                  <div className="alert alert-info mb-0">
+                    <i className="fas fa-info-circle me-2"></i>
+                    No hay profesionales asignados aún. <strong>Selecciona una modalidad arriba para comenzar.</strong>
+                  </div>
+                )}
+                
+                {/* Debug info */}
+                {!loadingAsignaciones && asignacionesExistentes.length === 0 && (
+                  <details className="mt-2">
+                    <summary className="text-muted" style={{ cursor: 'pointer', fontSize: '0.8em' }}>
+                      🔍 Debug: Ver estado
+                    </summary>
+                    <pre className="bg-light p-2 mt-2" style={{ fontSize: '0.7em', maxHeight: '200px', overflow: 'auto' }}>
+                      {JSON.stringify({
+                        asignacionesExistentesLength: asignacionesExistentes.length,
+                        asignacionesPorSemanaKeys: Object.keys(asignacionesPorSemana),
+                        loadingAsignaciones,
+                        obraId: obra?.id,
+                        empresaId: empresaSeleccionada?.id
+                      }, null, 2)}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            </div>
           </div>
         )} {/* Fin paso 2 */}
 
@@ -3136,31 +3555,65 @@ getObraId() retorna: ${obraIdReal}
                       {/* Lista de profesionales seleccionados */}
                       {hayProfesionales ? (
                       <>
-                        <div className="alert alert-light mb-3">
-                          <strong className="d-block mb-2">
-                            <i className="fas fa-check-circle text-success me-2"></i>
-                            {profesionalesMostrar.length} profesional(es) seleccionado(s):
-                          </strong>
-                          <div className="d-flex flex-wrap gap-2">
-                            {profesionalesMostrar.map(prof => (
-                              <span
-                                key={prof.id}
-                                className="badge bg-primary d-flex align-items-center gap-2"
-                                style={{ fontSize: '0.9rem', padding: '0.5rem 0.75rem' }}
-                              >
-                                {prof.nombre}
-                                {profesionalesSeleccionados.some(p => p.id === prof.id) && (
-                                  <button
-                                    type="button"
-                                    className="btn-close btn-close-white"
-                                    aria-label="Eliminar"
-                                    onClick={() => handleEliminarProfesional(prof.id)}
-                                    style={{ fontSize: '0.6rem' }}
-                                  ></button>
-                                )}
-                              </span>
-                            ))}
-                          </div>
+                        <div className="table-responsive mb-3">
+                          <table className="table table-sm table-bordered">
+                            <thead className="table-light">
+                              <tr>
+                                <th style={{ width: '40%' }}>Profesional</th>
+                                <th style={{ width: '45%' }}>Rubro</th>
+                                <th style={{ width: '15%' }} className="text-center">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {profesionalesMostrar.map(prof => {
+                                const seleccionado = profesionalesSeleccionados.find(p => p.id === prof.id);
+                                return (
+                                  <tr key={prof.id}>
+                                    <td>
+                                      <strong>{prof.nombre}</strong>
+                                      {prof.tipoProfesional && (
+                                        <div className="text-muted small">{prof.tipoProfesional}</div>
+                                      )}
+                                    </td>
+                                    <td>
+                                      {seleccionado ? (
+                                        <Form.Select
+                                          size="sm"
+                                          value={seleccionado.rubroId || ''}
+                                          onChange={(e) => handleCambiarRubroProfesional(prof.id, e.target.value)}
+                                          className={!seleccionado.rubroId ? 'border-danger' : ''}
+                                        >
+                                          <option value="">-- Seleccionar Rubro --</option>
+                                          {rubros.map(r => (
+                                            <option key={r.id} value={r.id}>{r.nombreRubro}</option>
+                                          ))}
+                                        </Form.Select>
+                                      ) : (
+                                        <span className="text-muted small">-</span>
+                                      )}
+                                      {seleccionado && !seleccionado.rubroId && (
+                                        <small className="text-danger d-block">
+                                          ⚠️ Debe seleccionar un rubro
+                                        </small>
+                                      )}
+                                    </td>
+                                    <td className="text-center">
+                                      {seleccionado && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-sm btn-outline-danger"
+                                          onClick={() => handleEliminarProfesional(prof.id)}
+                                          title="Eliminar profesional"
+                                        >
+                                          <i className="bi bi-trash"></i>
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
 
                         {/* 🔥 NUEVO: Panel de comparación de tiempo estimado */}
@@ -3466,6 +3919,56 @@ getObraId() retorna: ${obraIdReal}
             )}
           </div>
         )} {/* Fin paso 3 */}
+
+        {/* Sección de Asignación Diaria - Asignar por día o fracción de día */}
+        {(onAbrirRegistrarJornales || onAbrirHistorialJornales) && (
+          <div style={{ borderTop: '2px solid #e9ecef', marginTop: '20px', paddingTop: '20px' }}>
+            <h6 className="text-muted mb-3">
+              <i className="fas fa-calendar-day me-2"></i>
+              Asignación por Día / Fracción de Día
+            </h6>
+            <div className="alert alert-info mb-3" style={{ fontSize: '0.9em' }}>
+              <strong>Nueva opción:</strong> Asignar profesionales por día o fracciones (0.25, 0.5, 0.75, 1.0 día)
+            </div>
+            <div className="row">
+              {onAbrirRegistrarJornales && (
+                <div className="col-md-6 mb-2">
+                  <button
+                    className="btn btn-outline-success w-100"
+                    onClick={() => {
+                      if (onAbrirRegistrarJornales) {
+                        onHide(); // Cerrar este modal
+                        onAbrirRegistrarJornales(); // Abrir modal de asignación diaria
+                      }
+                    }}
+                    title="Asignar profesionales con jornadas por día o fracciones (0.25, 0.5, 0.75, 1.0)"
+                  >
+                    <i className="fas fa-user-plus me-2"></i>
+                    Asignar por Día
+                  </button>
+                </div>
+              )}
+              {onAbrirHistorialJornales && (
+                <div className="col-md-6 mb-2">
+                  <button
+                    className="btn btn-outline-info w-100"
+                    onClick={() => {
+                      if (onAbrirHistorialJornales) {
+                        onHide(); // Cerrar este modal
+                        onAbrirHistorialJornales(); // Abrir modal de historial
+                      }
+                    }}
+                    title="Ver el historial completo de asignaciones diarias"
+                  >
+                    <i className="fas fa-history me-2"></i>
+                    Ver Historial Diario
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         </div> {/* Cierra modal-body */}
 
           <div className="modal-footer" style={{ position: 'sticky', bottom: 0, backgroundColor: 'white', zIndex: 10, borderTop: '1px solid #dee2e6' }}>

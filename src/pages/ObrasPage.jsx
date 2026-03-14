@@ -23,11 +23,15 @@ import EstadisticasObraModal from '../components/EstadisticasObraModal';
 import EstadisticasTodasObrasModal from '../components/EstadisticasTodasObrasModal';
 import DebugPanel from '../components/DebugPanel';
 import ModalPresupuestoUnificado from '../components/ModalPresupuestoUnificado';
+import RegistrarJornalesDiariosModal from '../components/RegistrarJornalesDiariosModal';
+import HistorialJornalesModal from '../components/HistorialJornalesModal';
 import api from '../services/api';
 import axios from 'axios';
 import { obtenerAsignacionesSemanalPorObra } from '../services/profesionalesObraService';
 // ✅ NUEVO: Servicio unificado de presupuestos (reemplaza trabajosAdicionalesService)
 import * as presupuestoService from '../services/presupuestoUnificadoService';
+// ✅ NUEVO: Servicio de jornales diarios para incluir en badge contador
+import { listarJornalesPorObra } from '../services/jornalesDiariosService';
 // ⚠️ Todavía necesario: COLORES_ESTADO e ICONOS_ESTADO se usan en el JSX
 import trabajosAdicionalesService from '../services/trabajosAdicionalesService';
 import { TIPOS_PRESUPUESTO, getConfigPresupuesto, getNivelJerarquico } from '../constants/presupuestoTypes';
@@ -229,6 +233,11 @@ const ObrasPage = ({ showNotification }) => {
   const [abrirWhatsAppTrabajoExtra, setAbrirWhatsAppTrabajoExtra] = React.useState(false);
   const [abrirEmailTrabajoExtra, setAbrirEmailTrabajoExtra] = React.useState(false);
   const [mostrarModalSeleccionEnvioTrabajoExtra, setMostrarModalSeleccionEnvioTrabajoExtra] = React.useState(false);
+
+  // Estados para jornales diarios
+  const [mostrarModalRegistrarJornales, setMostrarModalRegistrarJornales] = React.useState(false);
+  const [mostrarModalHistorialJornales, setMostrarModalHistorialJornales] = React.useState(false);
+  const [obraParaJornales, setObraParaJornales] = React.useState(null);
 
   // Estados para Trabajos Adicionales
   const [mostrarModalListaTrabajosAdicionales, setMostrarModalListaTrabajosAdicionales] = React.useState(false);
@@ -4385,12 +4394,80 @@ _V?lido por 30 d?as_
           const { profesionales: profesionalesReales, materiales: materialesReales, gastosGenerales: gastosReales } =
             extraerDatosDeItemsCalculadora(trabajo);
 
+          // ✅ NUEVO: Incluir profesionales con jornales diarios en el contador
+          let profesionalesConJornales = [...profesionalesReales];
+          
+          try {
+            // Obtener obraId correcto (puede estar en varios campos)
+            const obraIdParaJornales = trabajo.obraId || trabajo.idObra || trabajo.id_obra;
+            
+            if (obraIdParaJornales && empresaSeleccionada?.id) {
+              console.log(`  📅 Consultando jornales diarios para trabajo ${trabajo.id} (obraId: ${obraIdParaJornales})...`);
+              const jornalesResponse = await listarJornalesPorObra(obraIdParaJornales, empresaSeleccionada.id);
+              const jornales = Array.isArray(jornalesResponse) ? jornalesResponse : (jornalesResponse?.data || []);
+              
+              console.log(`  ✅ Encontrados ${jornales.length} jornales diarios`);
+              
+              if (jornales.length > 0) {
+                // Agrupar jornales por profesionalId para obtener profesionales únicos
+                const profesionalesJornalesMap = new Map();
+                
+                jornales.forEach(jornal => {
+                  const profId = jornal.profesionalId;
+                  if (!profesionalesJornalesMap.has(profId)) {
+                    profesionalesJornalesMap.set(profId, {
+                      id: `jornal_${profId}`,
+                      profesionalObraId: profId,
+                      nombreCompleto: jornal.profesionalNombre || `Profesional ${profId}`,
+                      rol: jornal.tipoProfesional || 'Sin especificar',
+                      tipoProfesional: jornal.tipoProfesional || 'Sin especificar',
+                      cantidadJornales: 0,
+                      valorJornal: 0,
+                      subtotal: 0,
+                      esJornalDiario: true,
+                      observaciones: null
+                    });
+                  }
+                  
+                  // Acumular datos del profesional
+                  const prof = profesionalesJornalesMap.get(profId);
+                  prof.cantidadJornales++;
+                  prof.subtotal += (jornal.montoCobrado || 0);
+                  prof.valorJornal = prof.cantidadJornales > 0 ? (prof.subtotal / prof.cantidadJornales) : 0;
+                });
+                
+                // Convertir a array y combinar con profesionales de itemsCalculadora
+                const profesionalesDeJornales = Array.from(profesionalesJornalesMap.values());
+                
+                // Verificar si hay duplicados (profesional en ambas fuentes)
+                // Si existe duplicado, mantener el de itemsCalculadora (tiene más info)
+                const profesionalesIdsExistentes = new Set(
+                  profesionalesReales.map(p => p.profesionalObraId || p.id)
+                );
+                
+                const profesionalesJornalesNuevos = profesionalesDeJornales.filter(
+                  pj => !profesionalesIdsExistentes.has(pj.profesionalObraId)
+                );
+                
+                profesionalesConJornales = [...profesionalesReales, ...profesionalesJornalesNuevos];
+                
+                if (profesionalesJornalesNuevos.length > 0) {
+                  console.log(`  ➕ Agregados ${profesionalesJornalesNuevos.length} profesionales desde jornales diarios`);
+                  console.log(`  📊 Total profesionales (items + jornales): ${profesionalesConJornales.length}`);
+                }
+              }
+            }
+          } catch (errorJornales) {
+            console.warn(`  ⚠️ No se pudieron cargar jornales diarios para trabajo ${trabajo.id}:`, errorJornales.message);
+            // Continuar con los profesionales de itemsCalculadora únicamente
+          }
+
           // NOTA: Para trabajos extra, NO llamamos a APIs relacionales
           // porque los datos YA EST?N en itemsCalculadora[] que viene del backend
 
           return {
             ...trabajo,
-            profesionales: profesionalesReales,
+            profesionales: profesionalesConJornales,  // ← Ahora incluye itemsCalculadora + jornales
             materiales: materialesReales,
             gastosGenerales: gastosReales,
             etapasDiarias: trabajo.etapasDiarias || [],
@@ -13293,6 +13370,14 @@ Gestionar Tareas Leves
               : obtenerConfiguracionObra(obraParaAsignarProfesionales.id)
           }
           onRefreshProfesionales={refrescarProfesionalesDisponibles}
+          onAbrirRegistrarJornales={() => {
+            setObraParaJornales(obraParaAsignarProfesionales);
+            setMostrarModalRegistrarJornales(true);
+          }}
+          onAbrirHistorialJornales={() => {
+            setObraParaJornales(obraParaAsignarProfesionales);
+            setMostrarModalHistorialJornales(true);
+          }}
           onAsignar={async (asignacionData) => {
             // Backend integrado - recargar obras despu?s de asignaci?n exitosa
             console.log('Asignaci?n semanal guardada:', asignacionData);
@@ -14871,6 +14956,39 @@ Gestionar Tareas Leves
         showNotification={showNotification}
         onRefrescarProfesionales={refrescarProfesionalesDisponibles}
       />
+
+      {/* Modal Registrar Jornales Diarios */}
+      {mostrarModalRegistrarJornales && obraParaJornales && (
+        <RegistrarJornalesDiariosModal
+          show={mostrarModalRegistrarJornales}
+          onHide={() => {
+            setMostrarModalRegistrarJornales(false);
+            setObraParaJornales(null);
+          }}
+          obra={obraParaJornales}
+          onJornalCreado={() => {
+            showNotification('✅ Jornal registrado exitosamente', 'success');
+          }}
+          onAbrirAsignarProfesionales={() => {
+            // Cerrar modal de jornales y abrir modal de asignar profesionales
+            setMostrarModalRegistrarJornales(false);
+            setObraParaAsignarProfesionales(obraParaJornales);
+            setMostrarModalAsignarProfesionalesSemanal(true);
+          }}
+        />
+      )}
+
+      {/* Modal Historial Jornales */}
+      {mostrarModalHistorialJornales && obraParaJornales && (
+        <HistorialJornalesModal
+          show={mostrarModalHistorialJornales}
+          onHide={() => {
+            setMostrarModalHistorialJornales(false);
+            setObraParaJornales(null);
+          }}
+          obra={obraParaJornales}
+        />
+      )}
 
       <style>{`
         .hover-row:hover {
