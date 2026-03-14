@@ -10,6 +10,7 @@ import ListarRetirosModal from '../components/ListarRetirosModal';
 import RegistrarRetiroModal from '../components/RegistrarRetiroModal';
 import RegistrarPagoProfesionalModal from '../components/RegistrarPagoProfesionalModal';
 import ListarPagosProfesionalModal from '../components/ListarPagosProfesionalModal';
+import GestionPagosProfesionalesModal from '../components/GestionPagosProfesionalesModal';
 import ResumenFinancieroObraModal from '../components/ResumenFinancieroObraModal';
 import RegistrarPagoConsolidadoModal from '../components/RegistrarPagoConsolidadoModal';
 import DarAdelantoModal from '../components/DarAdelantoModal';
@@ -152,6 +153,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const [profesionalParaAdelanto, setProfesionalParaAdelanto] = useState(null);
   const [showPagoCuenta, setShowPagoCuenta] = useState(false);
   const [presupuestoParaPagoCuenta, setPresupuestoParaPagoCuenta] = useState(null);
+  const [showGestionPagosProfesionales, setShowGestionPagosProfesionales] = useState(false);
 
   // Estados para modal de desglose por obra
   const [showDesglose, setShowDesglose] = useState(false);
@@ -3210,6 +3212,35 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             </div>
           </div>
         </div>
+
+        {/* 📊 NUEVO: Gestión Consolidada de Pagos a Profesionales */}
+        <div className="col-md-6 mb-3">
+          <div className="card h-100 border-primary shadow-sm hover-shadow" style={{borderLeft: '4px solid #0d6efd'}}>
+            <div className="card-header" style={{backgroundColor: '#0d6efd', color: 'white'}}>
+              <h5 className="mb-0">
+                <i className="bi bi-people-fill"></i> 📊 Gestión Consolidada de Pagos
+              </h5>
+            </div>
+            <div className="card-body">
+              <p className="text-muted mb-0">
+                <i className="bi bi-info-circle me-1"></i>
+                Vista consolidada de todos los profesionales asignados a obras con detalle financiero completo.
+                Permite consultar y editar importes asignados.
+              </p>
+            </div>
+            <div className="card-footer bg-transparent">
+              <button
+                className="btn btn-primary w-100"
+                onClick={() => {
+                  console.log('🏢 Abriendo modal con empresa ID:', empresaSeleccionada?.id);
+                  setShowGestionPagosProfesionales(true);
+                }}
+              >
+                <i className="bi bi-people-fill"></i> Abrir Gestión
+              </button>
+            </div>
+          </div>
+        </div>
           </>
         )}
       </div>
@@ -3339,6 +3370,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         }}
         presupuesto={presupuestoParaPagoCuenta || obraSeleccionada}
         onSuccess={handleSuccess}
+      />
+
+      {/* 📊 NUEVO: Modal de Gestión Consolidada de Pagos a Profesionales */}
+      <GestionPagosProfesionalesModal
+        show={showGestionPagosProfesionales}
+        onHide={() => setShowGestionPagosProfesionales(false)}
+        onSuccess={handleSuccess}
+        empresaId={empresaSeleccionada?.id}
       />
 
       <ListarPagosProfesionalModal
