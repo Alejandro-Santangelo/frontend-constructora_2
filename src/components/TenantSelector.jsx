@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchAllEmpresas } from '../store/slices/empresasSlice';
 import { getCurrentTenant, setCurrentTenant } from '../services/api';
+import { useEmpresa } from '../EmpresaContext';
 
 const TenantSelector = ({ showNotification }) => {
   const empresas = useSelector(state => state.empresas.empresas);
@@ -9,6 +10,7 @@ const TenantSelector = ({ showNotification }) => {
   const [currentTenant, setCurrentTenantState] = useState(getCurrentTenant());
   const [showModal, setShowModal] = useState(false);
   const loading = useSelector(state => state.empresas.loading);
+  const { usuarioAutenticado } = useEmpresa(); // 🔐 Obtener rol del usuario
 
   useEffect(() => {
     if (!empresas || empresas.length === 0) {
@@ -52,9 +54,19 @@ const TenantSelector = ({ showNotification }) => {
             <div className="fw-bold">
               {currentEmpresa?.nombreEmpresa || currentEmpresa?.nombre || 'Seleccionar Empresa'}
             </div>
-            {currentEmpresa && (
-              <small className="text-muted">{currentEmpresa.cuit}</small>
-            )}
+            <div className="d-flex align-items-center gap-2">
+              {currentEmpresa && (
+                <small className="text-muted">{currentEmpresa.cuit}</small>
+              )}
+              {usuarioAutenticado?.rol && (
+                <>
+                  {currentEmpresa && <small className="text-muted">|</small>}
+                  <small className="badge bg-info bg-opacity-75 text-dark">
+                    {usuarioAutenticado.rol}
+                  </small>
+                </>
+              )}
+            </div>
           </div>
         </button>
       </div>

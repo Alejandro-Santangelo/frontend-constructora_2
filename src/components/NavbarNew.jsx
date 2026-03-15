@@ -7,7 +7,7 @@ import { tieneAccesoASeccion } from '../services/permisosService';
 const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
   const location = useLocation();
   const isHome = location.pathname === '/';
-  const { empresaSeleccionada, logout } = useEmpresa();
+  const { empresaSeleccionada, logout, usuarioAutenticado } = useEmpresa(); // 🔐 Obtener rol del usuario
   const [navbarCollapsed, setNavbarCollapsed] = useState(false);
 
   const handleCambiarContratista = () => {
@@ -120,14 +120,21 @@ const Navbar = ({ onToggleSidebar, collapsed, showNotification }) => {
                   <span className="text-warning fw-bold fs-4">
                     {empresaSeleccionada.nombreEmpresa}
                   </span>
-                  <button
-                    onClick={handleCambiarContratista}
-                    className="btn btn-sm btn-outline-warning mt-1"
-                    style={{ fontSize: '0.7rem', padding: '2px 8px' }}
-                    title="Cambiar de contratista"
-                  >
-                    <i className="fas fa-exchange-alt me-1"></i>Cambiar
-                  </button>
+                  <div className="d-flex align-items-center gap-2">
+                    {usuarioAutenticado?.rol && (
+                      <span className="badge bg-info bg-opacity-75 text-dark" style={{ fontSize: '0.7rem' }}>
+                        Rol: {usuarioAutenticado.rol}
+                      </span>
+                    )}
+                    <button
+                      onClick={handleCambiarContratista}
+                      className="btn btn-sm btn-outline-warning"
+                      style={{ fontSize: '0.7rem', padding: '2px 8px' }}
+                      title="Cambiar de contratista"
+                    >
+                      <i className="fas fa-exchange-alt me-1"></i>Cambiar
+                    </button>
+                  </div>
                 </>
               )}
             </div>
