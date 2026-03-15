@@ -11,6 +11,8 @@ import RegistrarRetiroModal from '../components/RegistrarRetiroModal';
 import RegistrarPagoProfesionalModal from '../components/RegistrarPagoProfesionalModal';
 import ListarPagosProfesionalModal from '../components/ListarPagosProfesionalModal';
 import GestionPagosProfesionalesModal from '../components/GestionPagosProfesionalesModal';
+import GestionPagosMaterialesModal from '../components/GestionPagosMaterialesModal';
+import GestionPagosGastosGeneralesModal from '../components/GestionPagosGastosGeneralesModal';
 import ResumenFinancieroObraModal from '../components/ResumenFinancieroObraModal';
 import RegistrarPagoConsolidadoModal from '../components/RegistrarPagoConsolidadoModal';
 import DarAdelantoModal from '../components/DarAdelantoModal';
@@ -154,6 +156,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const [showPagoCuenta, setShowPagoCuenta] = useState(false);
   const [presupuestoParaPagoCuenta, setPresupuestoParaPagoCuenta] = useState(null);
   const [showGestionPagosProfesionales, setShowGestionPagosProfesionales] = useState(false);
+  const [showGestionPagosMateriales, setShowGestionPagosMateriales] = useState(false);
+  const [showGestionPagosGastosGenerales, setShowGestionPagosGastosGenerales] = useState(false);
 
   // Estados para modal de desglose por obra
   const [showDesglose, setShowDesglose] = useState(false);
@@ -3213,30 +3217,59 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           </div>
         </div>
 
-        {/* 📊 NUEVO: Gestión Consolidada de Pagos a Profesionales */}
-        <div className="col-md-6 mb-3">
+        {/* 📊 Gestión Consolidada de Pagos - 3 Cards */}
+        <div className="col-md-4 mb-3">
           <div className="card h-100 border-primary shadow-sm hover-shadow" style={{borderLeft: '4px solid #0d6efd'}}>
-            <div className="card-header" style={{backgroundColor: '#0d6efd', color: 'white'}}>
-              <h5 className="mb-0">
-                <i className="bi bi-people-fill"></i> 📊 Gestión Consolidada de Pagos
-              </h5>
+            <div className="card-header py-2" style={{backgroundColor: '#0d6efd', color: 'white'}}>
+              <h6 className="mb-0"><i className="bi bi-people-fill"></i> Pagos Profesionales</h6>
             </div>
-            <div className="card-body">
-              <p className="text-muted mb-0">
-                <i className="bi bi-info-circle me-1"></i>
-                Vista consolidada de todos los profesionales asignados a obras con detalle financiero completo.
-                Permite consultar y editar importes asignados.
-              </p>
+            <div className="card-body py-2">
+              <small className="text-muted">Vista de profesionales asignados con detalle financiero</small>
             </div>
-            <div className="card-footer bg-transparent">
+            <div className="card-footer bg-transparent py-2">
               <button
-                className="btn btn-primary w-100"
-                onClick={() => {
-                  console.log('🏢 Abriendo modal con empresa ID:', empresaSeleccionada?.id);
-                  setShowGestionPagosProfesionales(true);
-                }}
+                className="btn btn-primary btn-sm w-100"
+                onClick={() => setShowGestionPagosProfesionales(true)}
               >
-                <i className="bi bi-people-fill"></i> Abrir Gestión
+                <i className="bi bi-people-fill"></i> Abrir
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-4 mb-3">
+          <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #198754'}}>
+            <div className="card-header py-2" style={{backgroundColor: '#198754', color: 'white'}}>
+              <h6 className="mb-0"><i className="bi bi-box-seam"></i> Pagos Materiales</h6>
+            </div>
+            <div className="card-body py-2">
+              <small className="text-muted">Vista de materiales asignados con detalle financiero</small>
+            </div>
+            <div className="card-footer bg-transparent py-2">
+              <button
+                className="btn btn-success btn-sm w-100"
+                onClick={() => setShowGestionPagosMateriales(true)}
+              >
+                <i className="bi bi-box-seam"></i> Abrir
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-4 mb-3">
+          <div className="card h-100 border-warning shadow-sm hover-shadow" style={{borderLeft: '4px solid #ffc107'}}>
+            <div className="card-header py-2" style={{backgroundColor: '#ffc107', color: 'white'}}>
+              <h6 className="mb-0"><i className="bi bi-receipt"></i> Pagos Gastos Generales</h6>
+            </div>
+            <div className="card-body py-2">
+              <small className="text-muted">Vista de gastos generales con detalle financiero</small>
+            </div>
+            <div className="card-footer bg-transparent py-2">
+              <button
+                className="btn btn-warning btn-sm w-100"
+                onClick={() => setShowGestionPagosGastosGenerales(true)}
+              >
+                <i className="bi bi-receipt"></i> Abrir
               </button>
             </div>
           </div>
@@ -3376,6 +3409,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       <GestionPagosProfesionalesModal
         show={showGestionPagosProfesionales}
         onHide={() => setShowGestionPagosProfesionales(false)}
+        onSuccess={handleSuccess}
+        empresaId={empresaSeleccionada?.id}
+      />
+
+      {/* 📦 Modal de Gestión de Pagos - Materiales */}
+      <GestionPagosMaterialesModal
+        show={showGestionPagosMateriales}
+        onHide={() => setShowGestionPagosMateriales(false)}
+        onSuccess={handleSuccess}
+        empresaId={empresaSeleccionada?.id}
+      />
+
+      {/* 📄 Modal de Gestión de Pagos - Gastos Generales */}
+      <GestionPagosGastosGeneralesModal
+        show={showGestionPagosGastosGenerales}
+        onHide={() => setShowGestionPagosGastosGenerales(false)}
         onSuccess={handleSuccess}
         empresaId={empresaSeleccionada?.id}
       />
