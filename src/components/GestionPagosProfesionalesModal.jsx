@@ -4,9 +4,10 @@ import { useEmpresa } from '../EmpresaContext';
 import apiService from '../services/api';
 
 /**
- * Modal para GestiÃ³n Consolidada de Pagos a Profesionales
- * Estructura jerÃ¡rquica: Profesional â†’ Obras â†’ Asignaciones por rubro
+ * Modal para Gestión Consolidada de Pagos a Profesionales
+ * Estructura jerárquica: Profesional → Obras → Asignaciones por rubro
  * Muestra todos los profesionales con sus obras y asignaciones consolidadas
+ * Última actualización: 15/03/2026 - Corrección pools negativos
  */
 const GestionPagosProfesionalesModal = ({
   show,
@@ -62,31 +63,26 @@ const GestionPagosProfesionalesModal = ({
     setError(null);
 
     try {
-      console.log('🔍 Cargando profesionales consolidados para empresa:', idEmpresaActual);
-
-      // Llamar al nuevo endpoint que devuelve profesionales consolidados
       const response = await apiService.get(`/api/profesionales-obras/profesionales-consolidados`, {
         params: { empresaId: idEmpresaActual }
       });
 
       const profesionalesData = Array.isArray(response) ? response : (response?.data || []);
-
-      console.log(`✅ Se encontraron ${profesionalesData.length} profesionales con asignaciones activas`);
       
+      // 🔍 DEBUG: Ver estructura de datos recibidos
       if (profesionalesData.length > 0) {
-        console.log('📊 Primer profesional:', {
-          nombre: profesionalesData[0].profesionalNombre,
-          obras: profesionalesData[0].totalObras,
-          asignaciones: profesionalesData[0].totalAsignaciones,
-          totalAsignado: profesionalesData[0].totalAsignado
+        console.log('🔍 DEBUG - Estructura de datos recibidos:', {
+          totalProfesionales: profesionalesData.length,
+          primerProfesional: profesionalesData[0].profesionalNombre,
+          primeraObra: profesionalesData[0].obras?.[0]?.obraNombre,
+          primeraAsignacion: profesionalesData[0].obras?.[0]?.asignaciones?.[0],
+          todosLosCamposDeAsignacion: Object.keys(profesionalesData[0].obras?.[0]?.asignaciones?.[0] || {})
         });
       }
-
+      
       setProfesionales(profesionalesData);
     } catch (err) {
       console.error('❌ Error al cargar profesionales consolidados:', err);
-      console.error('   URL:', `/api/profesionales-obras/profesionales-consolidados?empresaId=${idEmpresaActual}`);
-      console.error('   Detalles:', err.response?.data || err.message);
       setError(err.response?.data?.message || 'Error al cargar información de pagos a profesionales');
     } finally {
       setLoading(false);
@@ -257,6 +253,13 @@ const GestionPagosProfesionalesModal = ({
   const formatearMoneda = (valor) => {
     if (!valor && valor !== 0) return '$0.00';
     return `$${Number(valor).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Formatea jornales: si es entero muestra "2", si es fracción muestra "1.5"
+  const formatearJornales = (valor) => {
+    if (valor === null || valor === undefined) return '0';
+    const num = Number(valor);
+    return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.?0+$/, '');
   };
 
   const getBadgeEstado = (estado) => {
@@ -438,7 +441,14 @@ const GestionPagosProfesionalesModal = ({
           {asignaciones.map((asig, idx) => (
             <tr key={idx}>
               <td>
-                <strong className="text-primary">{asig.rubroNombre || 'Sin rubro'}</strong>
+                <div>
+                  <strong className="text-primary">{asig.rubroNombre || 'Sin rubro'}</strong>
+                  {asig.descripcion && (
+                    <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
+                      {asig.descripcion}
+                    </div>
+                  )}
+                </div>
               </td>
               <td className="text-center">
                 <Badge bg={asig.tipoAsignacion === 'JORNAL' ? 'primary' : 'info'} className="text-uppercase">
@@ -450,12 +460,12 @@ const GestionPagosProfesionalesModal = ({
               </td>
               <td className="text-center">
                 <div>
-                  <span className="text-success fw-bold">{asig.jornalesUtilizados || 0}</span>
+                  <span className="text-success fw-bold">{formatearJornales(asig.jornalesUtilizados)}</span>
                   <span className="text-muted"> / </span>
                   <CampoEditable asigId={asig.id} campo="cantidadJornales" valor={asig.cantidadJornales} />
                 </div>
                 <small className="text-muted">
-                  ({asig.jornalesRestantes || 0} rest.)
+                  ({formatearJornales(asig.jornalesRestantes)} rest.)
                 </small>
               </td>
               <td className="text-end">
@@ -551,8 +561,9 @@ const GestionPagosProfesionalesModal = ({
                               onClick={() => solicitarEdicionPool(obra.obraId, rubroNombre, pool.total)}
                               style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
                               title="Click para editar el total del presupuesto"
+                              className={pool.disponible < 0 ? 'text-danger fw-bold' : ''}
                             >
-                              {formatearMoneda(pool.disponible)} disponible
+                              {formatearMoneda(Math.abs(pool.disponible))} {pool.disponible >= 0 ? 'disponible' : 'sobre-asignado'}
                             </span>
                           )}
                           <small className="text-muted">(de {formatearMoneda(pool.total)})</small>
@@ -600,7 +611,7 @@ const GestionPagosProfesionalesModal = ({
       <Modal.Header closeButton className="bg-primary text-white">
         <Modal.Title>
           <i className="bi bi-people-fill me-2"></i>
-          GestiÃ³n de Pagos por Profesional
+          Gestión de Pagos por Profesional
         </Modal.Title>
       </Modal.Header>
 
@@ -617,7 +628,7 @@ const GestionPagosProfesionalesModal = ({
         {loading ? (
           <div className="text-center py-5">
             <Spinner animation="border" variant="primary" />
-            <p className="mt-3 text-muted">Cargando informaciÃ³n de pagos...</p>
+            <p className="mt-3 text-muted">Cargando información de pagos...</p>
           </div>
         ) : (
           <>
@@ -673,7 +684,7 @@ const GestionPagosProfesionalesModal = ({
               </div>
             </div>
 
-            {/* Listado de Profesionales con AcordeÃ³n */}
+            {/* Listado de Profesionales con Acordeón */}
             {profesionales.length === 0 ? (
               <Alert variant="info" className="text-center">
                 <i className="bi bi-info-circle me-2"></i>
@@ -686,12 +697,16 @@ const GestionPagosProfesionalesModal = ({
                     <Accordion.Header>
                       <div className="d-flex justify-content-between align-items-center w-100 pe-3">
                         <div>
-                          <strong className="text-primary fs-5">
-                            <i className="bi bi-person-fill me-2"></i>
-                            {prof.profesionalNombre || `Profesional ${idx + 1}`}
-                          </strong>
+                          <div>
+                            <strong className="text-primary fs-5">
+                              <i className="bi bi-person-fill me-2"></i>
+                              {prof.profesionalNombre || `Profesional ${idx + 1}`}
+                            </strong>
+                          </div>
                           {prof.profesionalTipo && (
-                            <Badge bg="info" className="ms-2">{prof.profesionalTipo}</Badge>
+                            <div className="mt-1">
+                              <Badge bg="info">{prof.profesionalTipo}</Badge>
+                            </div>
                           )}
                           <div className="mt-1">
                             {prof.profesionalDni && (

@@ -4,10 +4,9 @@ import { useEmpresa } from '../EmpresaContext';
 import apiService from '../services/api';
 
 /**
- * Modal para GestiÃ³n Consolidada de Pagos a Gastos Generales
- * Estructura jerÃ¡rquica: gasto general â†’ Obras â†’ Asignaciones por rubro
- * Muestra todos los Gastos Generales con sus obras y asignaciones consolidadas
- */
+ * Modal para Gestión Consolidada de Pagos a Profesionales
+ * Estructura jerárquica: Profesional → Obras → Asignaciones por rubro
+ * Muestra todos los Profesionales con sus obras y asignaciones consolidadas * Última actualización: 15/03/2026 */
 const GestionPagosGastosGeneralesModal = ({
   show,
   onHide,
@@ -37,7 +36,7 @@ const GestionPagosGastosGeneralesModal = ({
   const [mostrarConfirmacionPool, setMostrarConfirmacionPool] = useState(false);
   const [poolAEditar, setPoolAEditar] = useState(null); // { poolKey, valorActual }
 
-  // Cargar gastos generales y presupuestos cuando se abre el modal
+  // Cargar Gastos Generales y presupuestos cuando se abre el modal
   useEffect(() => {
     if (show && idEmpresaActual) {
       cargarGastosGeneralesConsolidados();
@@ -45,7 +44,7 @@ const GestionPagosGastosGeneralesModal = ({
     }
   }, [show, idEmpresaActual]);
 
-  // 💰 Recalcular pools cuando cambien gastos generales o presupuestos
+  // 💰 Recalcular pools cuando cambien Gastos Generales o presupuestos
   useEffect(() => {
     if (gastosGenerales.length > 0) {
       calcularPoolsIniciales(gastosGenerales);
@@ -62,17 +61,17 @@ const GestionPagosGastosGeneralesModal = ({
     setError(null);
 
     try {
-      console.log('🔍 Cargando gastos generales consolidados para empresa:', idEmpresaActual);
+      console.log('🔍 Cargando Gastos Generales consolidados para empresa:', idEmpresaActual);
 
-      // Llamar al nuevo endpoint que devuelve gastos generales consolidados
-      const response = await apiService.get(`/api/gastos-generales-obras/gastos-generales/gastos-consolidados`, {
+      // Llamar al nuevo endpoint que devuelve Gastos Generales consolidados
+      const response = await apiService.get(`/api/gastos-generales/gastos-consolidados`, {
         params: { empresaId: idEmpresaActual }
       });
 
       const gastosGeneralesData = Array.isArray(response) ? response : (response?.data || []);
 
-      console.log(`✅ Se encontraron ${gastosGeneralesData.length} gastos generales con asignaciones activas`);
-
+      console.log(`✅ Se encontraron ${gastosGeneralesData.length} Gastos Generales con asignaciones activas`);
+      
       if (gastosGeneralesData.length > 0) {
         console.log('📊 Primer gasto general:', {
           nombre: gastosGeneralesData[0].gastoGeneralNombre,
@@ -84,10 +83,10 @@ const GestionPagosGastosGeneralesModal = ({
 
       setGastosGenerales(gastosGeneralesData);
     } catch (err) {
-      console.error('❌ Error al cargar gastos generales consolidados:', err);
-      console.error('   URL:', `/api/gastos-generales-obras/gastos-generales/gastos-consolidados?empresaId=${idEmpresaActual}`);
+      console.error('❌ Error al cargar Gastos Generales consolidados:', err);
+      console.error('   URL:', `/api/gastos-generales/gastos-consolidados?empresaId=${idEmpresaActual}`);
       console.error('   Detalles:', err.response?.data || err.message);
-      setError(err.response?.data?.message || 'Error al cargar información de pagos a gastos generales');
+      setError(err.response?.data?.message || 'Error al cargar información de pagos a Gastos Generales');
     } finally {
       setLoading(false);
     }
@@ -131,7 +130,7 @@ const GestionPagosGastosGeneralesModal = ({
             };
           }
 
-          // Sumar lo ya asignado a gastos generales
+          // Sumar lo ya asignado a Gastos Generales
           pools[poolKey].importeAsignado += Number(asig.totalAsignado || 0);
         });
       });
@@ -144,7 +143,7 @@ const GestionPagosGastosGeneralesModal = ({
         const items = presupuesto.itemsCalculadoraJson || [];
 
         items.forEach(item => {
-          const rubroNombre = item.tipoGastoGeneral || item.rubroNombre || 'Sin rubro';
+          const rubroNombre = item.tipogastoGeneral || item.rubroNombre || 'Sin rubro';
           const obraId = presupuesto.obraId || presupuesto.obra_id;
 
           if (!obraId) return;
@@ -312,7 +311,7 @@ const GestionPagosGastosGeneralesModal = ({
   const guardarCambio = async (asigId, campo, nuevoValor) => {
     try {
       // Aquí llamarías al endpoint para actualizar la asignación
-      // Ejemplo: await apiService.put(`/api/Gastos Generales-obras/${asigId}`, { [campo]: nuevoValor }, { empresaId: empresaSeleccionada.id });
+      // Ejemplo: await apiService.put(`/api/gastos-generales/${asigId}`, { [campo]: nuevoValor }, { empresaId: empresaSeleccionada.id });
 
       // 💰 Capturar datos antes de la actualización para ajustar el pool
       let obraIdParaPool = null;
@@ -438,7 +437,14 @@ const GestionPagosGastosGeneralesModal = ({
           {asignaciones.map((asig, idx) => (
             <tr key={idx}>
               <td>
-                <strong className="text-primary">{asig.rubroNombre || 'Sin rubro'}</strong>
+                <div>
+                  <strong className="text-primary">{asig.rubroNombre || 'Sin rubro'}</strong>
+                  {asig.descripcion && (
+                    <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
+                      {asig.descripcion}
+                    </div>
+                  )}
+                </div>
               </td>
               <td className="text-center">
                 <Badge bg={asig.tipoAsignacion === 'JORNAL' ? 'primary' : 'info'} className="text-uppercase">
@@ -486,7 +492,7 @@ const GestionPagosGastosGeneralesModal = ({
       return (
         <Alert variant="warning" className="mb-0">
           <i className="bi bi-info-circle me-2"></i>
-          Este gasto general no tiene obras asignadas
+          Este profesional no tiene obras asignadas
         </Alert>
       );
     }
@@ -551,8 +557,9 @@ const GestionPagosGastosGeneralesModal = ({
                               onClick={() => solicitarEdicionPool(obra.obraId, rubroNombre, pool.total)}
                               style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
                               title="Click para editar el total del presupuesto"
+                              className={pool.disponible < 0 ? 'text-danger fw-bold' : ''}
                             >
-                              {formatearMoneda(pool.disponible)} disponible
+                              {formatearMoneda(Math.abs(pool.disponible))} {pool.disponible >= 0 ? 'disponible' : 'sobre-asignado'}
                             </span>
                           )}
                           <small className="text-muted">(de {formatearMoneda(pool.total)})</small>
@@ -595,12 +602,12 @@ const GestionPagosGastosGeneralesModal = ({
       size="xl"
       centered
       backdrop="static"
-      className="modal-gestion-pagos-Gastos Generales"
+      className="modal-gestion-pagos-gastosGenerales"
     >
       <Modal.Header closeButton className="bg-primary text-white">
         <Modal.Title>
           <i className="bi bi-people-fill me-2"></i>
-          GestiÃ³n de Pagos por gasto general
+          Gestión de Pagos por Profesional
         </Modal.Title>
       </Modal.Header>
 
@@ -617,7 +624,7 @@ const GestionPagosGastosGeneralesModal = ({
         {loading ? (
           <div className="text-center py-5">
             <Spinner animation="border" variant="primary" />
-            <p className="mt-3 text-muted">Cargando informaciÃ³n de pagos...</p>
+            <p className="mt-3 text-muted">Cargando información de pagos...</p>
           </div>
         ) : (
           <>
@@ -634,7 +641,7 @@ const GestionPagosGastosGeneralesModal = ({
                       <div className="col-md-2">
                         <div className="border rounded p-2 bg-light">
                           <h5 className="mb-1 text-primary">{totalesGenerales.totalGastosGenerales}</h5>
-                          <small className="text-muted">Gastos Generales</small>
+                          <small className="text-muted">Profesionales</small>
                         </div>
                       </div>
                       <div className="col-md-2">
@@ -673,11 +680,11 @@ const GestionPagosGastosGeneralesModal = ({
               </div>
             </div>
 
-            {/* Listado de Gastos Generales con AcordeÃ³n */}
+            {/* Listado de gastosGenerales con Acordeón */}
             {gastosGenerales.length === 0 ? (
               <Alert variant="info" className="text-center">
                 <i className="bi bi-info-circle me-2"></i>
-                No hay gastos generales con asignaciones activas
+                No hay profesionales con asignaciones activas
               </Alert>
             ) : (
               <Accordion defaultActiveKey="0">
@@ -690,28 +697,28 @@ const GestionPagosGastosGeneralesModal = ({
                             <i className="bi bi-person-fill me-2"></i>
                             {prof.gastoGeneralNombre || `gasto general ${idx + 1}`}
                           </strong>
-                            {prof.gastoGeneralTipo && (
-                              <Badge bg="info" className="ms-2">{prof.gastoGeneralTipo}</Badge>
-                            )}
+                          {prof.gastoGeneralTipo && (
+                            <Badge bg="info" className="ms-2">{prof.gastoGeneralTipo}</Badge>
+                          )}
                           <div className="mt-1">
-                              {prof.gastoGeneralDni && (
-                                <small className="text-muted me-3">
-                                  <i className="bi bi-card-text me-1"></i>
-                                  DNI: {prof.gastoGeneralDni}
-                                </small>
-                              )}
-                              {prof.gastoGeneralTelefono && (
-                                <small className="text-muted me-3">
-                                  <i className="bi bi-telephone-fill me-1"></i>
-                                  {prof.gastoGeneralTelefono}
-                                </small>
-                              )}
-                              {prof.gastoGeneralEmail && (
-                                <small className="text-muted">
-                                  <i className="bi bi-envelope-fill me-1"></i>
-                                  {prof.gastoGeneralEmail}
-                                </small>
-                              )}
+                            {prof.gastoGeneralDni && (
+                              <small className="text-muted me-3">
+                                <i className="bi bi-card-text me-1"></i>
+                                DNI: {prof.gastoGeneralDni}
+                              </small>
+                            )}
+                            {prof.gastoGeneralTelefono && (
+                              <small className="text-muted me-3">
+                                <i className="bi bi-telephone-fill me-1"></i>
+                                {prof.gastoGeneralTelefono}
+                              </small>
+                            )}
+                            {prof.gastoGeneralEmail && (
+                              <small className="text-muted">
+                                <i className="bi bi-envelope-fill me-1"></i>
+                                {prof.gastoGeneralEmail}
+                              </small>
+                            )}
                           </div>
                         </div>
                         <div className="d-flex gap-3 align-items-center">
@@ -817,3 +824,4 @@ const GestionPagosGastosGeneralesModal = ({
 };
 
 export default GestionPagosGastosGeneralesModal;
+

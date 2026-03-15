@@ -5,6 +5,8 @@ import * as jornalesService from '../services/jornalesDiariosService';
 import { obtenerRubrosActivosPorObra } from '../services/jornalesDiariosService';
 import { listarAsignaciones } from '../services/profesionalesObraService';
 import api from '../services/api';
+import RubroSelector from './RubroSelector';
+import axios from 'axios';
 
 /**
  * Modal para registrar jornales diarios de profesionales en una obra
@@ -75,9 +77,10 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   const cargarRubros = async () => {
     if (!obra?.id) return;
     try {
+      // Cargar SOLO los rubros del presupuesto vinculado a esta obra
       const lista = await obtenerRubrosActivosPorObra(obra.id, empresaSeleccionada.id);
       setRubros(lista);
-      console.log(`✅ ${lista.length} rubros cargados para la obra ${obra.id}`);
+      console.log(`✅ ${lista.length} rubros cargados del presupuesto de la obra ${obra.id}`);
     } catch (err) {
       console.warn('⚠️ No se pudieron cargar los rubros:', err);
       setRubros([]);
@@ -214,10 +217,23 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
     );
   };
 
-  const handleCambiarRubroSeleccionado = (profesionalId, rubroId) => {
+  const handleCambiarRubroSeleccionado = (profesionalId, nombreRubro) => {
+    // Buscar el ID del rubro seleccionado por su nombre
+    const rubroEncontrado = rubros.find(r => r.nombreRubro === nombreRubro);
+    const rubroId = rubroEncontrado ? rubroEncontrado.id : null;
+    
     setProfesionalesSeleccionados(prev =>
-      prev.map(p => p.id === profesionalId ? { ...p, rubroId: rubroId ? parseInt(rubroId) : null } : p)
+      prev.map(p => p.id === profesionalId ? { 
+        ...p, 
+        rubroId: rubroId,
+        rubroNombre: nombreRubro 
+      } : p)
     );
+    
+    // Si el rubro no existe aún (nuevo), se creará automáticamente en el backend
+    if (!rubroEncontrado && nombreRubro) {
+      console.log(`ℹ️ Rubro "${nombreRubro}" no existe aún - se creará automáticamente al guardar`);
+    }
   };
 
   // NUEVO: Handlers para multi-fecha
@@ -277,14 +293,12 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
       return;
     }
 
-    // Validar que todos los profesionales tengan rubro seleccionado (solo si hay rubros disponibles)
-    if (rubros.length > 0) {
-      const profesionalesSinRubro = profesionalesSeleccionados.filter(p => !p.rubroId);
-      if (profesionalesSinRubro.length > 0) {
-        const nombres = profesionalesSinRubro.map(p => p.nombre).join(', ');
-        setError(`Debes seleccionar un rubro para: ${nombres}`);
-        return;
-      }
+    // Validar que todos los profesionales tengan rubro seleccionado
+    const profesionalesSinRubro = profesionalesSeleccionados.filter(p => !p.rubroNombre || p.rubroNombre.trim() === '');
+    if (profesionalesSinRubro.length > 0) {
+      const nombres = profesionalesSinRubro.map(p => p.nombre).join(', ');
+      setError(`Debes seleccionar un rubro para: ${nombres}`);
+      return;
     }
 
     // NUEVO: Validar que todos los profesionales seleccionados tengan al menos una fecha
@@ -307,6 +321,38 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
         empresaSeleccionada,
         jornalesExistentes
       });
+
+      // ✨ NUEVO: Crear rubros que no existan antes de guardar jornales
+      for (const prof of profesionalesSeleccionados) {
+        if (prof.rubroNombre && !prof.rubroId) {
+          try {
+            console.log(`🆕 Creando rubro nuevo: "${prof.rubroNombre}"`);
+            const response = await axios.post('/api/rubros', {
+              nombre: prof.rubroNombre,
+              categoria: 'personalizado',
+              activo: true
+            });
+            
+            const nuevoRubroId = response.data.id;
+            console.log(`✅ Rubro "${prof.rubroNombre}" creado con ID: ${nuevoRubroId}`);
+            
+            // Actualizar el profesional con el nuevo ID
+            prof.rubroId = nuevoRubroId;
+            
+            // Actualizar también el estado de rubros
+            setRubros(prev => [...prev, {
+              id: nuevoRubroId,
+              nombreRubro: prof.rubroNombre,
+              activo: true
+            }]);
+          } catch (err) {
+            console.error(`❌ Error al crear rubro "${prof.rubroNombre}":`, err);
+            setError(`No se pudo crear el rubro "${prof.rubroNombre}". ${err.response?.data?.message || err.message}`);
+            setGuardando(false);
+            return;
+          }
+        }
+      }
 
       // NUEVO: Crear jornales para cada combinación profesional-fecha
       const jornalesAGuardar = [];
@@ -692,17 +738,18 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                             </td>
                             <td>
                               {seleccionado ? (
-                                <Form.Select
-                                  size="sm"
-                                  value={seleccionado.rubroId || ''}
-                                  onChange={(e) => handleCambiarRubroSeleccionado(prof.id, e.target.value)}
-                                  className={!seleccionado.rubroId ? 'border-danger' : ''}
-                                >
-                                  <option value="">-- Seleccionar --</option>
-                                  {rubros.map(r => (
-                                    <option key={r.id} value={r.id}>{r.nombreRubro}</option>
-                                  ))}
-                                </Form.Select>
+                                <RubroSelector
+                                  value={seleccionado.rubroNombre || ''}
+                                  onChange={(nombreRubro) => handleCambiarRubroSeleccionado(prof.id, nombreRubro)}
+                                  placeholder="Seleccionar rubro..."
+                                  disabled={false}
+                                  rubrosExistentesEnPresupuesto={
+                                    profesionalesSeleccionados
+                                      .filter(p => p.id !== prof.id && p.rubroNombre)
+                                      .map(p => p.rubroNombre)
+                                  }
+                                  rubrosDelPresupuesto={rubros}
+                                />
                               ) : (
                                 <span className="text-muted small">-</span>
                               )}

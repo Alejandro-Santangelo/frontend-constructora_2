@@ -3944,7 +3944,7 @@ getObraId() retorna: ${obraIdReal}
                     title="Asignar profesionales con jornadas por día o fracciones (0.25, 0.5, 0.75, 1.0)"
                   >
                     <i className="fas fa-user-plus me-2"></i>
-                    Asignar por Día
+                    Asignación Individualizada
                   </button>
                 </div>
               )}

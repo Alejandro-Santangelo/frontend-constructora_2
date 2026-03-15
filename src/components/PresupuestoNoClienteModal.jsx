@@ -2,6 +2,7 @@
 import { useEmpresa } from '../EmpresaContext';
 import ObraSelector from './ObraSelector';
 import ClienteSelector from './ClienteSelector';
+import RubroSelector from './RubroSelector';
 import ConfiguracionPresupuestoSection from './ConfiguracionPresupuestoSection';
 import { handlePrint, exportToExcel, exportToCSV, exportToJSON, prepararDatosPresupuesto, compartirPorWhatsApp, compartirPorEmail, generarResumenTexto, capturarYExportarVisual, exportarAPDFReal } from '../utils/exportUtils';
 import api from '../services/api';
@@ -12514,11 +12515,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                   <i className="fas fa-edit"></i>
                                 </span>
                               )}
-                              <input
-                                type="text"
-                                className={`form-control form-control-sm ${itemEditandoId ? 'bg-warning bg-opacity-10' : ''}`}
+                              <RubroSelector
                                 value={tipoProfesionalCalc}
-                                onChange={handleRubroChange}
+                                onChange={(nombreRubro) => {
+                                  handleRubroChange({ target: { value: nombreRubro } });
+                                }}
                                 onFocus={() => {
                                   setProfesionalesAgregados(false);
                                   setMaterialesAgregados(false);
@@ -12526,6 +12527,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 }}
                                 placeholder={itemEditandoId ? "Editando rubro existente..." : "Ej: Mampostería, Excavación, Instalación eléctrica..."}
                                 disabled={itemEditandoId && tipoProfesionalCalc?.toLowerCase().includes('gasto general')}
+                                rubrosDelPresupuesto={[]}
                               />
 
                               {itemEditandoId && (
