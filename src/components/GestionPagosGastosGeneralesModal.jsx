@@ -186,6 +186,30 @@ const GestionPagosGastosGeneralesModal = ({
     };
   };
 
+  // 💰 Calcular pendiente a nivel profesional sumando pools disponibles de todas las obras/rubros
+  const calcularPendienteProfesional = (obras) => {
+    let totalDisponible = 0;
+    obras.forEach(obra => {
+      const rubrosUnicos = [...new Set(obra.asignaciones.map(a => a.rubroNombre))];
+      rubrosUnicos.forEach(rubroNombre => {
+        const pool = obtenerPoolDisponible(obra.obraId, rubroNombre);
+        totalDisponible += pool.disponible;
+      });
+    });
+    return totalDisponible;
+  };
+
+  // 💰 Calcular pendiente a nivel obra sumando pools disponibles de todos los rubros
+  const calcularPendienteObra = (obra) => {
+    let totalDisponible = 0;
+    const rubrosUnicos = [...new Set(obra.asignaciones.map(a => a.rubroNombre))];
+    rubrosUnicos.forEach(rubroNombre => {
+      const pool = obtenerPoolDisponible(obra.obraId, rubroNombre);
+      totalDisponible += pool.disponible;
+    });
+    return totalDisponible;
+  };
+
   // 💰 Actualizar pool cuando se asigna dinero a un gasto general
   const actualizarPoolAlAsignar = (obraId, rubroNombre, montoAnterior, montoNuevo) => {
     const poolKey = `${obraId}_${rubroNombre}`;
@@ -410,7 +434,7 @@ const GestionPagosGastosGeneralesModal = ({
     );
   };
 
-  const renderAsignacionesTable = (asignaciones, obraNombre) => {
+  const renderAsignacionesTable = (asignaciones, obraNombre, obraId, saldoDisponibleGlobal) => {
     if (!asignaciones || asignaciones.length === 0) {
       return (
         <Alert variant="info" className="mb-0 text-center">
@@ -471,8 +495,8 @@ const GestionPagosGastosGeneralesModal = ({
                 <span className="fw-bold text-warning">{formatearMoneda(asig.totalUtilizado)}</span>
               </td>
               <td className="text-end">
-                <span className={`fw-bold ${Number(asig.saldoPendiente || 0) > 0 ? 'text-danger' : 'text-success'}`}>
-                  {formatearMoneda(asig.saldoPendiente)}
+                <span className={`fw-bold ${saldoDisponibleGlobal > 0 ? 'text-danger' : 'text-success'}`}>
+                  {formatearMoneda(saldoDisponibleGlobal)}
                 </span>
               </td>
               <td className="text-center">
@@ -487,7 +511,7 @@ const GestionPagosGastosGeneralesModal = ({
     );
   };
 
-  const renderObrasDeGastoGeneral = (obras, gastoGeneralNombre) => {
+  const renderObrasDeGastoGeneral = (obras, gastoGeneralNombre, saldoDisponibleGlobal) => {
     if (!obras || obras.length === 0) {
       return (
         <Alert variant="warning" className="mb-0">
@@ -578,13 +602,13 @@ const GestionPagosGastosGeneralesModal = ({
                     Total: {formatearMoneda(obra.totalAsignado)}
                   </Badge>
                   <Badge bg="danger">
-                    Pendiente: {formatearMoneda(obra.saldoPendiente)}
+                    Pendiente: {formatearMoneda(totalesGenerales.totalAsignado - totalesGenerales.totalUtilizado)}
                   </Badge>
                 </div>
               </div>
 
               {/* Tabla de Asignaciones de la Obra */}
-              {renderAsignacionesTable(obra.asignaciones, obra.obraNombre)}
+              {renderAsignacionesTable(obra.asignaciones, obra.obraNombre, obra.obraId, saldoDisponibleGlobal)}
             </div>
           );
         })}
@@ -657,21 +681,21 @@ const GestionPagosGastosGeneralesModal = ({
                         </div>
                       </div>
                       <div className="col-md-2">
+                        <div className="border rounded p-2 bg-info bg-opacity-10">
+                          <h6 className="mb-1 text-info">{formatearMoneda(totalesGenerales.totalAsignado)}</h6>
+                          <small className="text-muted">Presupuesto Total</small>
+                        </div>
+                      </div>  
+                      <div className="col-md-2">
                         <div className="border rounded p-2 bg-success bg-opacity-10">
-                          <h6 className="mb-1 text-success">{formatearMoneda(totalesGenerales.totalAsignado)}</h6>
-                          <small className="text-muted">Asignado</small>
+                          <h6 className="mb-1 text-success">{formatearMoneda(totalesGenerales.totalUtilizado)}</h6>
+                          <small className="text-muted">Total Pagado</small>
                         </div>
                       </div>
                       <div className="col-md-2">
-                        <div className="border rounded p-2 bg-warning bg-opacity-10">
-                          <h6 className="mb-1 text-warning">{formatearMoneda(totalesGenerales.totalUtilizado)}</h6>
-                          <small className="text-muted">Utilizado</small>
-                        </div>
-                      </div>
-                      <div className="col-md-2">
-                        <div className="border rounded p-2 bg-danger bg-opacity-10">
-                          <h6 className="mb-1 text-danger">{formatearMoneda(totalesGenerales.totalPendiente)}</h6>
-                          <small className="text-muted">Pendiente</small>
+                        <div className="border rounded p-2 bg-primary bg-opacity-10">
+                          <h6 className="mb-1 text-primary">{formatearMoneda(totalesGenerales.totalAsignado - totalesGenerales.totalUtilizado)}</h6>
+                          <small className="text-muted">Saldo Disponible</small>
                         </div>
                       </div>
                     </div>
@@ -735,14 +759,14 @@ const GestionPagosGastosGeneralesModal = ({
                             <small className="text-muted">Total</small>
                           </div>
                           <div className="text-center">
-                            <div className="fw-bold text-danger">{formatearMoneda(prof.saldoPendiente)}</div>
+                            <div className="fw-bold text-danger">{formatearMoneda(totalesGenerales.totalAsignado - totalesGenerales.totalUtilizado)}</div>
                             <small className="text-muted">Pendiente</small>
                           </div>
                         </div>
                       </div>
                     </Accordion.Header>
                     <Accordion.Body className="bg-white">
-                      {renderObrasDeGastoGeneral(prof.obras, prof.gastoGeneralNombre)}
+                      {renderObrasDeGastoGeneral(prof.obras, prof.gastoGeneralNombre, totalesGenerales.totalAsignado - totalesGenerales.totalUtilizado)}
                     </Accordion.Body>
                   </Accordion.Item>
                 ))}

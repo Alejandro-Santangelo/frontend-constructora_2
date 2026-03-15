@@ -288,25 +288,60 @@ const GestionPagosProfesionalesModal = ({
   };
 
   // 💰 Guardar cambio del total del pool
-  const guardarCambioPool = (poolKey, nuevoTotal) => {
-    setPoolsRubros(prev => {
-      const pool = prev[poolKey];
-      if (!pool) return prev;
-
-      const nuevoDisponible = Number(nuevoTotal) - pool.importeAsignado;
-
-      return {
-        ...prev,
-        [poolKey]: {
-          ...pool,
-          importeTotal: Number(nuevoTotal),
-          importeDisponible: nuevoDisponible
+  const guardarCambioPool = async (poolKey, nuevoTotal) => {
+    // Extraer obraId y rubroNombre del poolKey (formato: "obraId_rubroNombre")
+    const [obraIdStr, ...rubroPartes] = poolKey.split('_');
+    const obraId = parseInt(obraIdStr);
+    const rubroNombre = rubroPartes.join('_'); // Por si el nombre tiene underscores
+    
+    console.log('💾 Guardando pool:', { poolKey, obraId, rubroNombre, nuevoTotal });
+    
+    try {
+      // Llamar al backend para persistir el cambio
+      await apiService.patch('/api/presupuestos-no-cliente/pool-mano-obra', null, {
+        params: {
+          obraId: obraId,
+          tipoProfesional: rubroNombre,
+          nuevoSubtotal: nuevoTotal,
+          empresaId: idEmpresaActual
         }
-      };
-    });
+      });
+      
+      // Actualizar estado local si el backend confirma
+      setPoolsRubros(prev => {
+        const pool = prev[poolKey];
+        if (!pool) return prev;
 
-    setEditandoPool(null);
-    setValorTemporalPool('');
+        const nuevoDisponible = Number(nuevoTotal) - pool.importeAsignado;
+
+        return {
+          ...prev,
+          [poolKey]: {
+            ...pool,
+            importeTotal: Number(nuevoTotal),
+            importeDisponible: nuevoDisponible
+          }
+        };
+      });
+
+      setEditandoPool(null);
+      setValorTemporalPool('');
+      
+      // Mostrar mensaje de éxito
+      setMensajeExito(`✅ Pool de ${rubroNombre} actualizado exitosamente`);
+      setTimeout(() => setMensajeExito(null), 3000);
+      
+      console.log('✅ Pool guardado exitosamente');
+      
+    } catch (err) {
+      console.error('❌ Error al guardar pool:', err);
+      setError(err.response?.data?.mensaje || err.response?.data?.message || 'Error al actualizar el pool');
+      setTimeout(() => setError(null), 5000);
+      
+      // Restaurar valor anterior en caso de error
+      setEditandoPool(null);
+      setValorTemporalPool('');
+    }
   };
 
   const formatearMoneda = (valor) => {
@@ -343,6 +378,25 @@ const GestionPagosProfesionalesModal = ({
       'CANCELADO': 'danger'
     };
     return badges[estado] || 'secondary';
+  };
+
+  // 📋 Obtener todos los pagos de un profesional aplanados y ordenados por fecha desc
+  const obtenerPagosProfesional = (prof) => {
+    const pagos = [];
+    prof.obras?.forEach(obra => {
+      obra.asignaciones?.forEach(asig => {
+        asig.historialPagos?.forEach(pago => {
+          pagos.push({
+            obraNombre: obra.obraNombre,
+            rubroNombre: asig.rubroNombre,
+            fechaPago: pago.fechaPago,
+            monto: pago.monto,
+            observaciones: pago.observaciones
+          });
+        });
+      });
+    });
+    return pagos.sort((a, b) => new Date(b.fechaPago) - new Date(a.fechaPago));
   };
 
   const calcularTotalesGenerales = () => {
@@ -395,7 +449,7 @@ const GestionPagosProfesionalesModal = ({
     const idsAsignaciones = [];
     profesional.obras?.forEach(obra => {
       obra.asignaciones?.forEach(asig => {
-        idsAsignaciones.push(asig.id);
+        idsAsignaciones.push(asig.asignacionId);
       });
     });
 
@@ -422,7 +476,7 @@ const GestionPagosProfesionalesModal = ({
     // Agrupar pagos por pool (obra/rubro)
     profesional.obras?.forEach(obra => {
       obra.asignaciones?.forEach(asig => {
-        if (importesProfesional[asig.id]) {
+        if (importesProfesional[asig.asignacionId]) {
           const poolKey = `${obra.obraId}_${asig.rubroNombre}`;
           if (!pagosPorPool[poolKey]) {
             pagosPorPool[poolKey] = {
@@ -432,7 +486,7 @@ const GestionPagosProfesionalesModal = ({
               rubroNombre: asig.rubroNombre
             };
           }
-          pagosPorPool[poolKey].total += importesProfesional[asig.id];
+          pagosPorPool[poolKey].total += importesProfesional[asig.asignacionId];
         }
       });
     });
@@ -537,7 +591,7 @@ const GestionPagosProfesionalesModal = ({
         obras: prof.obras.map(obra => ({
           ...obra,
           asignaciones: obra.asignaciones.map(asig => {
-            if (asig.id === asigId) {
+            if (asig.asignacionId === asigId) {
               // 💰 Guardar datos para actualizar pool
               obraIdParaPool = obra.obraId;
               rubroNombreParaPool = asig.rubroNombre;
@@ -622,7 +676,7 @@ const GestionPagosProfesionalesModal = ({
     );
   };
 
-  const renderAsignacionesTable = (asignaciones, obraNombre) => {
+  const renderAsignacionesTable = (asignaciones, obraNombre, saldoDisponibleGlobal) => {
     if (!asignaciones || asignaciones.length === 0) {
       return (
         <Alert variant="info" className="mb-0 text-center">
@@ -661,12 +715,12 @@ const GestionPagosProfesionalesModal = ({
                   type="number"
                   className="form-control form-control-sm text-end"
                   placeholder="$0"
-                  value={importesPago[asig.id] || ''}
+                  value={importesPago[asig.asignacionId] || ''}
                   onChange={(e) => {
                     const valor = e.target.value;
                     setImportesPago(prev => ({
                       ...prev,
-                      [asig.id]: valor
+                      [asig.asignacionId]: valor
                     }));
                   }}
                   style={{ minWidth: '100px' }}
@@ -676,13 +730,13 @@ const GestionPagosProfesionalesModal = ({
                 <input
                   type="date"
                   className="form-control form-control-sm"
-                  value={fechasPago[asig.id] || ''}
+                  value={fechasPago[asig.asignacionId] || ''}
                   max={new Date().toISOString().split('T')[0]}
                   onChange={(e) => {
                     const valor = e.target.value;
                     setFechasPago(prev => ({
                       ...prev,
-                      [asig.id]: valor
+                      [asig.asignacionId]: valor
                     }));
                   }}
                   style={{ minWidth: '120px' }}
@@ -693,8 +747,8 @@ const GestionPagosProfesionalesModal = ({
                 <span className="fw-bold text-success">{formatearMoneda(asig.totalPagado || 0)}</span>
               </td>
               <td className="text-end">
-                <span className={`fw-bold ${Number(asig.saldoPendiente || 0) > 0 ? 'text-danger' : 'text-success'}`}>
-                  {formatearMoneda(asig.saldoPendiente)}
+                <span className="fw-bold text-primary">
+                  {formatearMoneda(saldoDisponibleGlobal)}
                 </span>
               </td>
               <td className="text-center">
@@ -704,7 +758,7 @@ const GestionPagosProfesionalesModal = ({
                     placement="left"
                     rootClose
                     overlay={
-                      <Popover id={`popover-historial-${asig.id}`}>
+                      <Popover id={`popover-historial-${asig.asignacionId}`}>
                         <Popover.Header as="h3">
                           <i className="bi bi-clock-history me-2"></i>
                           Historial de Pagos
@@ -750,7 +804,7 @@ const GestionPagosProfesionalesModal = ({
     );
   };
 
-  const renderObrasDeProfesional = (obras, profesionalNombre, profesional) => {
+  const renderObrasDeProfesional = (obras, profesionalNombre, profesional, saldoDisponibleGlobal) => {
     if (!obras || obras.length === 0) {
       return (
         <Alert variant="warning" className="mb-0">
@@ -790,8 +844,8 @@ const GestionPagosProfesionalesModal = ({
                       const estaEditandoPool = editandoPool?.poolKey === poolKey;
 
                       return (
-                        <div 
-                          key={idx} 
+                        <div
+                          key={idx}
                           className="badge bg-info bg-opacity-75 text-dark d-flex align-items-center gap-2" 
                           style={{ 
                             fontSize: '0.85rem', 
@@ -851,13 +905,13 @@ const GestionPagosProfesionalesModal = ({
                     {obra.totalAsignaciones || 0} asignaciones
                   </small>
                   <Badge bg="danger">
-                    Pendiente: {formatearMoneda(obra.saldoPendiente)}
+                    Pendiente: {formatearMoneda(saldoDisponibleGlobal)}
                   </Badge>
                 </div>
               </div>
 
               {/* Tabla de Asignaciones de la Obra */}
-              {renderAsignacionesTable(obra.asignaciones, obra.obraNombre)}
+              {renderAsignacionesTable(obra.asignaciones, obra.obraNombre, saldoDisponibleGlobal)}
             </div>
           );
         })}
@@ -1020,6 +1074,67 @@ const GestionPagosProfesionalesModal = ({
                                 {prof.profesionalEmail}
                               </small>
                             )}
+                            {/* Último pago con desplegable de historial completo */}
+                            {(() => {
+                              const pagos = obtenerPagosProfesional(prof);
+                              if (pagos.length === 0) return null;
+                              const ultimo = pagos[0];
+                              return (
+                                <OverlayTrigger
+                                  trigger="click"
+                                  placement="bottom"
+                                  rootClose
+                                  overlay={
+                                    <Popover id={`popover-pagos-${prof.profesionalId}`} style={{ maxWidth: '420px' }}>
+                                      <Popover.Header as="h6">
+                                        <i className="bi bi-clock-history me-2"></i>
+                                        Historial de pagos — {pagos.length} pago(s)
+                                      </Popover.Header>
+                                      <Popover.Body className="p-0">
+                                        <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                          <table className="table table-sm table-striped mb-0" style={{ fontSize: '0.8rem' }}>
+                                            <thead className="table-light">
+                                              <tr>
+                                                <th>Obra</th>
+                                                <th>Rubro</th>
+                                                <th>Fecha</th>
+                                                <th className="text-end">Importe</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {pagos.map((p, i) => (
+                                                <tr key={i}>
+                                                  <td>{p.obraNombre}</td>
+                                                  <td>{p.rubroNombre}</td>
+                                                  <td>{new Date(p.fechaPago).toLocaleDateString('es-AR')}</td>
+                                                  <td className="text-end fw-bold text-success">{formatearMoneda(p.monto)}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </Popover.Body>
+                                    </Popover>
+                                  }
+                                >
+                                  <div
+                                    className="mt-1 d-inline-flex align-items-center gap-2 border rounded px-2 py-1"
+                                    style={{ cursor: 'pointer', backgroundColor: '#f0f9ff', borderColor: '#0dcaf0 !important', border: '1px solid #0dcaf0', fontSize: '0.82rem' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <i className="bi bi-cash-coin text-info"></i>
+                                    <span>
+                                      <span className="text-muted">Último pago:</span>{' '}
+                                      <strong>{ultimo.obraNombre}</strong> · {ultimo.rubroNombre} · {new Date(ultimo.fechaPago).toLocaleDateString('es-AR')} · <span className="text-success fw-bold">{formatearMoneda(ultimo.monto)}</span>
+                                    </span>
+                                    <Badge bg="info" className="ms-1">{pagos.length} pagos</Badge>
+                                    <span className="text-info fw-bold" style={{ fontSize: '0.75rem' }}>
+                                      Ver todos <i className="bi bi-chevron-down"></i>
+                                    </span>
+                                  </div>
+                                </OverlayTrigger>
+                              );
+                            })()}
                           </div>
                         </div>
                         <div className="d-flex gap-3 align-items-center">
@@ -1036,14 +1151,14 @@ const GestionPagosProfesionalesModal = ({
                             <small className="text-muted">Ppto. Base</small>
                           </div>
                           <div className="text-center">
-                            <div className="fw-bold text-danger">{formatearMoneda(prof.saldoPendiente)}</div>
+                            <div className="fw-bold text-primary">{formatearMoneda(totalesGenerales.saldoDisponible)}</div>
                             <small className="text-muted">Pendiente</small>
                           </div>
                         </div>
                       </div>
                     </Accordion.Header>
                     <Accordion.Body className="bg-white">
-                      {renderObrasDeProfesional(prof.obras, prof.profesionalNombre, prof)}
+                      {renderObrasDeProfesional(prof.obras, prof.profesionalNombre, prof, totalesGenerales.saldoDisponible)}
                     </Accordion.Body>
                   </Accordion.Item>
                 ))}
@@ -1065,10 +1180,16 @@ const GestionPagosProfesionalesModal = ({
               <h6 className="mb-0 text-info">{Object.keys(importesPago).filter(k => importesPago[k]).length}</h6>
             </div>
           </div>
-          <Button variant="secondary" onClick={onHide}>
-            <i className="bi bi-x-circle me-2"></i>
-            Cerrar
-          </Button>
+          <div className="d-flex gap-2">
+            <Button variant="success" onClick={onHide}>
+              <i className="bi bi-check-circle me-2"></i>
+              Aceptar Configuración
+            </Button>
+            <Button variant="secondary" onClick={onHide}>
+              <i className="bi bi-x-circle me-2"></i>
+              Cerrar
+            </Button>
+          </div>
         </div>
       </Modal.Footer>
     </Modal>

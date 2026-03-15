@@ -330,6 +330,8 @@ export const obtenerTipoPago = (pago) => {
       return { label: 'Pago Final', color: 'success', icon: '🏁' };
     case 'AJUSTE':
       return { label: 'Ajuste', color: 'warning', icon: '⚖️' };
+    case 'PAGO_PARCIAL':
+      return { label: 'Pago Parcial', color: 'warning', icon: '💳' };
     case 'MATERIALES':
       return { label: 'Material', color: 'success', icon: '🧱' };
     case 'GASTOS_GENERALES':

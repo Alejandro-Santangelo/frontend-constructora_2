@@ -528,7 +528,7 @@ const ListarPagosProfesionalModal = ({ show, onHide, onSuccess, obraDireccion, m
 
     try {
       // Identificar tipo de pago para usar el endpoint correcto
-      const TIPOS_PROFESIONAL = ['SEMANAL', 'ADELANTO', 'PAGO_FINAL', 'FINAL'];
+      const TIPOS_PROFESIONAL = ['SEMANAL', 'ADELANTO', 'PAGO_FINAL', 'FINAL', 'PAGO_PARCIAL'];
       const TIPOS_CONSOLIDADO = ['MATERIALES', 'GASTOS_GENERALES', 'OTROS_COSTOS'];
       
       const esPagoProfesional = TIPOS_PROFESIONAL.includes(pago.tipoPago);

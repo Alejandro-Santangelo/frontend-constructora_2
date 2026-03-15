@@ -3104,7 +3104,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #198754'}}>
             <div className="card-header" style={{backgroundColor: '#20c997', color: 'white'}}>
               <h5 className="mb-0">
-                <i className="bi bi-receipt"></i> Listar Pagos
+                <i className="bi bi-receipt"></i> Listar / Eliminar Pagos
               </h5>
             </div>
             <div className="card-footer bg-transparent">
