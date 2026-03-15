@@ -103,6 +103,8 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
         jornalesMap[j.profesionalId] = {
           horasTrabajadasDecimal: j.horasTrabajadasDecimal,
           observaciones: j.observaciones || '',
+          rubroId: j.rubroId || null,
+          rubroNombre: j.rubroNombre || '',
           id: j.id
         };
       });
@@ -449,6 +451,18 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
     }));
   };
 
+  const handleRubroChange = (profesionalId, nombreRubro) => {
+    const rubroEncontrado = rubros.find(r => r.nombreRubro === nombreRubro);
+    setJornalesDelDia(prev => ({
+      ...prev,
+      [profesionalId]: {
+        ...prev[profesionalId],
+        rubroId: rubroEncontrado ? rubroEncontrado.id : null,
+        rubroNombre: nombreRubro
+      }
+    }));
+  };
+
   const handleGuardar = async () => {
     setGuardando(true);
     setError(null);
@@ -462,7 +476,8 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
           obraId: obra.id,
           fecha: fecha,
           horasTrabajadasDecimal: parseFloat(data.horasTrabajadasDecimal),
-          observaciones: data.observaciones || null
+          observaciones: data.observaciones || null,
+          rubroId: data.rubroId || null
         }));
 
       if (jornalesAGuardar.length === 0) {
@@ -916,7 +931,7 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                   Profesionales Disponibles para Asignar ({profesionalesAsignados.length})
                 </h6>
                 <small className="text-muted">
-                  <strong>Asignación por fracción de día:</strong> 1.0 = jornada completa, 0.75 = 3/4 día, 0.5 = medio día, 0.25 = 1/4 día
+                  <strong>Jornadas:</strong> 0.25 = 1/4 día&nbsp;·&nbsp;0.5 = medio día&nbsp;·&nbsp;0.75 = 3/4 día&nbsp;·&nbsp;1.0 = día completo&nbsp;·&nbsp;5.0 = semana completa&nbsp;·&nbsp;ingresá el número que corresponda
                 </small>
               </div>
               <Button
@@ -934,9 +949,8 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                 <tr>
                   <th style={{ width: '25%' }}>Profesional</th>
                   <th style={{ width: '15%' }}>Tipo</th>
-                  <th style={{ width: '12%' }}>Tarifa Día</th>
-                  <th style={{ width: '15%' }}>Horas Trabajadas</th>
-                  <th style={{ width: '13%' }}>Monto a Cobrar</th>
+                  <th style={{ width: '25%' }}>Rubro</th>
+                  <th style={{ width: '15%' }}>Jornadas / Días</th>
                   <th style={{ width: '20%' }}>Observaciones</th>
                 </tr>
               </thead>
@@ -963,23 +977,24 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                           {asignacion.tipoProfesional || 'N/A'}
                         </small>
                       </td>
-                      <td className="text-end">
-                        ${tarifa.toLocaleString('es-AR')}
+                      <td>
+                        <RubroSelector
+                          value={jornal.rubroNombre || ''}
+                          onChange={(nombreRubro) => handleRubroChange(profesionalId, nombreRubro)}
+                          placeholder="Seleccionar rubro..."
+                          rubrosDelPresupuesto={rubros}
+                        />
                       </td>
                       <td>
                         <Form.Control
                           type="number"
                           step="0.25"
                           min="0"
-                          max="1.5"
                           value={horas}
                           onChange={(e) => handleHorasChange(profesionalId, e.target.value)}
                           placeholder="0.0"
                           size="sm"
                         />
-                      </td>
-                      <td className="text-end fw-bold">
-                        {horas ? `$${parseFloat(monto).toLocaleString('es-AR')}` : '-'}
                       </td>
                       <td>
                         <Form.Control
@@ -994,25 +1009,6 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                   );
                 })}
               </tbody>
-              <tfoot className="table-light">
-                <tr>
-                  <td colSpan="4" className="text-end fw-bold">
-                    Total a pagar:
-                  </td>
-                  <td className="text-end fw-bold text-primary">
-                    ${Object.entries(jornalesDelDia)
-                      .reduce((total, [profId, data]) => {
-                        const profesional = profesionalesAsignados.find(a => a.profesionalId === parseInt(profId));
-                        if (profesional && data.horasTrabajadasDecimal) {
-                          return total + parseFloat(calcularMontoCobrado(profesional, data.horasTrabajadasDecimal));
-                        }
-                        return total;
-                      }, 0)
-                      .toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
             </Table>
           </>
         )}
