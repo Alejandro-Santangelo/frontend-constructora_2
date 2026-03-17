@@ -3866,11 +3866,18 @@ _V?lido por 30 d?as_
     try {
       showNotification('Eliminando obra...', 'info');
 
+      // Obtener rol del usuario desde localStorage
+      const usuarioAutenticado = JSON.parse(localStorage.getItem('usuarioAutenticado') || '{}');
+      const rol = usuarioAutenticado.rol || 'CONTRATISTA';
+      
+      console.log('🗑️ Eliminando obra con rol:', rol);
+
       // Usar el nuevo endpoint de eliminaci?n en cascada
       const response = await fetch(`/api/obras/${id}/cascade?empresaId=${empresaId}`, {
         method: 'DELETE',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-User-Rol': rol
         }
       });
 

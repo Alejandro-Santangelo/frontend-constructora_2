@@ -3,8 +3,9 @@ import apiClient from './api';
 /**
  * Servicio para gestionar permisos y secciones permitidas por rol.
  * 
- * SUPER_ADMINISTRADOR: Acceso a todas las secciones
- * contratista: Solo acceso a presupuestos y obras
+ * SUPER_ADMIN: Acceso a todas las secciones
+ * CONTRATISTA: Solo acceso a presupuestos, obras, clientes y usuarios
+ * EMPLEADO: Acceso limitado
  */
 
 const PERMISOS_STORAGE_KEY = 'permisos_secciones';
@@ -12,7 +13,7 @@ const PERMISOS_STORAGE_KEY = 'permisos_secciones';
 /**
  * Obtiene las secciones permitidas para el usuario desde el backend.
  * 
- * @param {string} rol - Rol del usuario (SUPER_ADMINISTRADOR o contratista)
+ * @param {string} rol - Rol del usuario (SUPER_ADMIN, CONTRATISTA, EMPLEADO)
  * @returns {Promise<{rol: string, secciones: string[], esSuperAdmin: boolean}>}
  */
 export async function obtenerSeccionesPermitidas(rol) {
@@ -31,9 +32,9 @@ export async function obtenerSeccionesPermitidas(rol) {
         // console.error('Error al obtener secciones permitidas:', error);
         
         // Fallback: si falla la API, aplicar reglas por defecto
-        if (rol === 'SUPER_ADMINISTRADOR') {
+        if (rol === 'SUPER_ADMIN' || rol === 'SUPER_ADMINISTRADOR') {
             return {
-                rol: 'SUPER_ADMINISTRADOR',
+                rol: rol,
                 secciones: [
                     'empresas',
                     'presupuestos',
@@ -54,8 +55,8 @@ export async function obtenerSeccionesPermitidas(rol) {
             };
         } else {
             return {
-                rol: 'contratista',
-                secciones: ['presupuestos', 'obras', 'usuarios'], // contratista puede gestionar su propio perfil
+                rol: rol || 'CONTRATISTA',
+                secciones: ['presupuestos', 'obras', 'clientes', 'usuarios'], // acceso básico
                 esSuperAdmin: false
             };
         }

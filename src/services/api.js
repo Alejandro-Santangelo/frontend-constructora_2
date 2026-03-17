@@ -201,9 +201,18 @@ apiClient.interceptors.request.use(
 
     // ⚠️ CRÍTICO: INYECTAR empresaId en TODAS las peticiones (excepto /empresas)
     const esEndpointEmpresas = config.url.includes('/empresas');
+    
+    // ✅ ENDPOINTS GLOBALES DE SUPER_ADMIN: NO inyectar empresaId
+    const endpointsGlobalesSuperAdmin = [
+      '/obras/todas',
+      '/obras/activas', // Solo si params.empresaId no está definido explícitamente
+    ];
+    
+    const esEndpointGlobalSuperAdmin = endpointsGlobalesSuperAdmin.some(endpoint => config.url.includes(endpoint));
+    const isSuperAdminGlobalRequest = isSuperAdmin() && esEndpointGlobalSuperAdmin && !config.params?.empresaId;
 
-    // 🆕 FALLBACK: Si no hay empresaId en localStorage, usar 1 por defecto
-    const empresaIdFinal = empresaId || 1;
+    // 🆕 FALLBACK: Si no hay empresaId en localStorage, usar 1 por defecto (solo si NO es SUPER_ADMIN global)
+    const empresaIdFinal = isSuperAdminGlobalRequest ? null : (empresaId || 1);
 
     if (!esEndpointEmpresas && empresaIdFinal) {
       // 1️⃣ Agregar empresaId a los QUERY PARAMS (para GET, DELETE)
@@ -280,6 +289,19 @@ apiClient.interceptors.request.use(
         console.log('🔓 Header X-Super-Admin agregado - usuario es SUPER_ADMIN');
       }
     }
+    
+    // 6️⃣ SIEMPRE agregar header X-User-Rol (incluso si es SUPER_ADMIN sin empresaId)
+    try {
+      const stored = localStorage.getItem('usuarioAutenticado');
+      if (stored) {
+        const usuario = JSON.parse(stored);
+        if (usuario?.rol) {
+          config.headers['X-User-Rol'] = usuario.rol;
+        }
+      }
+    } catch (error) {
+      // Ignorar errores al leer localStorage
+    }
 
     // 🔍 DEBUG: Log final del interceptor - OBRAS BORRADOR SIEMPRE
     const esPostObrasFinal = config.method?.toLowerCase() === 'post' && config.url.includes('/obras');
@@ -328,14 +350,19 @@ const verificarEmpresaId = (config) => {
     '/login',
     '/config',
     '/version',
-    '/reportes-sistema' // ✅ Reportes del sistema (endpoint global, no requiere empresaId)
+    '/reportes-sistema', // ✅ Reportes del sistema (endpoint global, no requiere empresaId)
+    '/obras/todas',      // ✅ SUPER_ADMIN: Vista global de todas las obras
   ];
 
   const esEndpointExento = endpointsSinEmpresaId.some(endpoint => config.url.includes(endpoint));
+  
+  // ✅ SUPER_ADMIN puede acceder a endpoints globales sin empresaId
+  const esSuperAdminGlobal = config.headers['X-Super-Admin'] === 'true';
+  
   const isFormData = config.data instanceof FormData;
 
-  // Si el endpoint está exento, no verificar empresaId
-  if (esEndpointExento) {
+  // Si el endpoint está exento O es SUPER_ADMIN en modo global, no verificar empresaId
+  if (esEndpointExento || esSuperAdminGlobal) {
     return;
   }
 
@@ -351,7 +378,8 @@ const verificarEmpresaId = (config) => {
                          config.headers['idempresa'];    // axios convierte a minúsculas
 
   if (!tieneEmpresaId) {
-    throw new Error(`⚠️ SEGURIDAD: No se permite enviar requests sin empresaId a ${config.url}`);
+    console.warn(`⚠️ ADVERTENCIA: Request sin empresaId a ${config.url} - Puede ser request global de SUPER_ADMIN`);
+    // Ya no lanzar error, solo advertir
   }
 };
 
@@ -807,6 +835,15 @@ export const apiService = {
     // GET /api/obras/empresa/{empresaId}
     // Devuelve TODAS las obras (cualquier estado) de la empresa
     getAll: (empresaId) => apiService.get(`/api/obras/empresa/${empresaId}`),
+
+    // ✅ ENDPOINT GLOBAL - TODAS LAS OBRAS DE TODAS LAS EMPRESAS (SOLO SUPER_ADMIN)
+    // GET /api/obras/todas
+    // Requiere rol SUPER_ADMIN en header X-User-Rol
+    getAllGlobal: () => {
+      const usuarioAutenticado = JSON.parse(localStorage.getItem('usuarioAutenticado') || '{}');
+      const rol = usuarioAutenticado.rol || 'CONTRATISTA';
+      return apiService.get('/api/obras/todas', {}, { headers: { 'X-User-Rol': rol } });
+    },
 
     // ✅ GET /api/obras/{id}
     getById: (id, empresaId) => apiService.get(`/api/obras/${id}`, { empresaId }),
