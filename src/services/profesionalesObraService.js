@@ -156,3 +156,32 @@ export const eliminarAsignacionesPorObra = async (obraId, empresaId) => {
   // que ya está implementado en AsignarProfesionalSemanalModal.jsx
   throw new Error("Endpoint Disable: Use Fallback");
 };
+
+// ============================================
+// PROFESIONALES CONSOLIDADOS (PAGO CONSOLIDADO)
+// ============================================
+
+/**
+ * Obtener profesionales consolidados de todas las obras activas
+ * Incluye profesionales de: asignaciones_profesional_obra, presupuestos detallados, configuración de obra
+ * Filtros: APROBADO, EN_EJECUCION, TERMINADO (solo TAREA_LEVE)
+ */
+export const obtenerProfesionalesConsolidados = async (empresaId) => {
+  console.log('🔍 [Service] Obteniendo profesionales consolidados para empresaId:', empresaId);
+  try {
+    const response = await apiClient.get('/api/profesionales-obras/profesionales-consolidados', {
+      params: { empresaId }
+    });
+    console.log('✅ [Service] Profesionales consolidados obtenidos:', response.data);
+    return response;
+  } catch (error) {
+    console.error('❌ [Service] Error obteniendo profesionales consolidados:', {
+      empresaId,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message
+    });
+    throw error;
+  }
+};

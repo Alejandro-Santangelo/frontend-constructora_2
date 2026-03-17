@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import apiService from '../services/api';
+import { obtenerProfesionalesConsolidados } from '../services/profesionalesObraService';
 import { useEmpresa } from '../EmpresaContext';
 import { getTipoProfesionalBadgeClass, ordenarPorRubro } from '../utils/badgeColors';
 
@@ -24,6 +25,50 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
       setLoading(true);
       setError('');
 
+      // ============================================
+      // 👷 PROFESIONALES: Usar endpoint consolidado
+      // ============================================
+      let todosProfesionales = [];
+      try {
+        console.log('📞 Llamando a /api/profesionales-obras/profesionales-consolidados?empresaId=' + empresaSeleccionada.id);
+        const respProfesionales = await obtenerProfesionalesConsolidados(empresaSeleccionada.id);
+        console.log('✅ Profesionales consolidados recibidos:', respProfesionales.data);
+        
+        // El backend devuelve ProfesionalConsolidadoDTO[] con estructura jerárquica:
+        // { profesionalId, profesionalNombre, profesionalTipo, obras: [{ obraId, obraNombre, asignaciones: [...] }] }
+        const profesionalesData = respProfesionales.data || respProfesionales || [];
+        
+        // Aplanar la estructura jerárquica: Profesional → Obras → Asignaciones
+        profesionalesData.forEach(profesional => {
+          profesional.obras?.forEach(obra => {
+            obra.asignaciones?.forEach(asignacion => {
+              todosProfesionales.push({
+                nombreProfesional: profesional.profesionalNombre,
+                profesionalId: profesional.profesionalId,
+                obra: obra.obraNombre,
+                obraId: obra.obraId,
+                rubroNombre: asignacion.rubroNombre,
+                rubroId: asignacion.rubroId,
+                tipoProfesional: profesional.profesionalTipo || 'NO_ESPECIFICADO',
+                importeCalculado: Math.abs(asignacion.saldoPendiente || 0), // Usar saldoPendiente como importe
+                tipo: 'profesional',
+                asignacionId: asignacion.asignacionId
+              });
+            });
+          });
+        });
+        
+        console.log('📊 Profesionales mapeados (aplanados):', todosProfesionales.length);
+      } catch (errProf) {
+        console.error('❌ Error cargando profesionales consolidados:', errProf);
+        console.error('   Status:', errProf.response?.status);
+        console.error('   Data:', errProf.response?.data);
+        // No lanzar error, continuar con materiales y otros costos
+      }
+
+      // ============================================
+      // 🧱 MATERIALES y 📋 OTROS COSTOS: Desde presupuestosNoCliente
+      // ============================================
       const [respAprobado, respEnEjecucion] = await Promise.all([
         apiService.presupuestosNoCliente.busquedaAvanzada({ estado: 'APROBADO' }, empresaSeleccionada.id),
         apiService.presupuestosNoCliente.busquedaAvanzada({ estado: 'EN_EJECUCION' }, empresaSeleccionada.id)
@@ -37,42 +82,15 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
         presupuestos.map(p => apiService.presupuestosNoCliente.getById(p.id, empresaSeleccionada.id))
       );
 
-      const todosProfesionales = [];
       const todosMateriales = [];
       const todosOtrosCostos = [];
 
       presupuestosCompletos.forEach(presupuesto => {
         const obraInfo = `${presupuesto.nombreObra || 'Presupuesto #' + presupuesto.numeroPresupuesto}`;
 
-        // Profesionales
-        if (presupuesto.profesionales?.length > 0) {
-          presupuesto.profesionales.forEach(prof => {
-            todosProfesionales.push({
-              ...prof,
-              obra: obraInfo,
-              presupuestoId: presupuesto.id,
-              tipo: 'profesional'
-            });
-          });
-        }
-
-        // Profesionales de calculadora
-        if (presupuesto.itemsCalculadora?.length > 0) {
-          presupuesto.itemsCalculadora.forEach(item => {
-            if (item.profesionales?.length > 0) {
-              item.profesionales.forEach(prof => {
-                todosProfesionales.push({
-                  ...prof,
-                  obra: obraInfo,
-                  presupuestoId: presupuesto.id,
-                  tipo: 'profesional'
-                });
-              });
-            }
-          });
-        }
-
-        // Materiales
+        // ============================================
+        // 🧱 MATERIALES
+        // ============================================
         if (presupuesto.materiales?.length > 0) {
           presupuesto.materiales.forEach(mat => {
             todosMateriales.push({
@@ -133,7 +151,9 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
   };
 
   const handleToggleSeleccion = (item) => {
-    const id = `${item.presupuestoId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`;
+    // Generar ID único usando obraId o presupuestoId según disponibilidad
+    const entityId = item.obraId || item.presupuestoId || 'unknown';
+    const id = `${entityId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`;
     if (seleccionados.includes(id)) {
       setSeleccionados(seleccionados.filter(s => s !== id));
     } else {
@@ -143,7 +163,10 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
 
   const handleSeleccionarTodos = () => {
     const items = tipoGasto === 'profesionales' ? profesionales : tipoGasto === 'materiales' ? materiales : otrosCostos;
-    const ids = items.map(item => `${item.presupuestoId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`);
+    const ids = items.map(item => {
+      const entityId = item.obraId || item.presupuestoId || 'unknown';
+      return `${entityId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`;
+    });
     setSeleccionados(ids);
   };
 
@@ -154,7 +177,11 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
   const calcularTotalSeleccionado = () => {
     const items = tipoGasto === 'profesionales' ? profesionales : tipoGasto === 'materiales' ? materiales : otrosCostos;
     return items
-      .filter(item => seleccionados.includes(`${item.presupuestoId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`))
+      .filter(item => {
+        const entityId = item.obraId || item.presupuestoId || 'unknown';
+        const id = `${entityId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`;
+        return seleccionados.includes(id);
+      })
       .reduce((sum, item) => sum + (item.importeCalculado || item.importe || 0), 0);
   };
 
@@ -268,7 +295,8 @@ const PagoConsolidadoModal = ({ show, onHide, onSuccess }) => {
                     </thead>
                     <tbody>
                       {(tipoGasto === 'profesionales' ? ordenarPorRubro(itemsActuales) : itemsActuales).map((item, idx) => {
-                        const id = `${item.presupuestoId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`;
+                        const entityId = item.obraId || item.presupuestoId || 'unknown';
+                        const id = `${entityId}_${item.tipo}_${item.nombreProfesional || item.tipoMaterial || item.descripcion}`;
                         const isSelected = seleccionados.includes(id);
 
                         return (

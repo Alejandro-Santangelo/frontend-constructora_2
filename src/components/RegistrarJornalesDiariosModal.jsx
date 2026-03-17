@@ -199,10 +199,10 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
         observaciones: '',
         tarifaDiaria: profesional.honorario || 0 // Usar honorario si existe, sino 0
       }]);
-      // NUEVO: Inicializar con fecha actual por defecto
+      // NUEVO: Inicializar sin fechas (el usuario debe agregarlas manualmente)
       setFechasPorProfesional(prev => ({
         ...prev,
-        [profesional.id]: [{ fecha: fecha, fraccion: 1.0 }]
+        [profesional.id]: []
       }));
     }
   };
@@ -241,7 +241,7 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   // NUEVO: Handlers para multi-fecha
   const handleAbrirSelectorFechas = (profesionalId) => {
     setProfesionalEditandoFechas(profesionalId);
-    setNuevaFecha(fecha); // Usar fecha actual como default
+    setNuevaFecha(''); // No pre-cargar ninguna fecha, el usuario debe seleccionarla
   };
 
   const handleAgregarFecha = () => {
@@ -284,14 +284,6 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   const handleGuardarProfesionalesSeleccionados = async () => {
     if (profesionalesSeleccionados.length === 0) {
       setError('Debes seleccionar al menos un profesional');
-      return;
-    }
-
-    // Validar que todos los profesionales tengan tarifa configurada
-    const profesionalesSinTarifa = profesionalesSeleccionados.filter(p => !p.tarifaDiaria || p.tarifaDiaria === 0);
-    if (profesionalesSinTarifa.length > 0) {
-      const nombres = profesionalesSinTarifa.map(p => p.nombre).join(', ');
-      setError(`Los siguientes profesionales no tienen tarifa configurada: ${nombres}. Por favor, especifica una tarifa diaria.`);
       return;
     }
 
@@ -566,24 +558,6 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
       </Modal.Header>
 
       <Modal.Body style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-        {/* Selector de Fecha */}
-        <div className="mb-4">
-          <Form.Group>
-            <Form.Label className="fw-bold">
-              <i className="fas fa-calendar-day me-2"></i>
-              Fecha de Asignación
-            </Form.Label>
-            <Form.Control
-              type="date"
-              value={fecha}
-              onChange={(e) => setFecha(e.target.value)}
-            />
-            <Form.Text className="text-muted">
-              Seleccione el día para asignar profesionales y sus jornadas (completa o fracciones)
-            </Form.Text>
-          </Form.Group>
-        </div>
-
         {/* Alerts */}
         {error && (
           <Alert variant="danger" onClose={() => setError(null)} dismissible>
@@ -651,12 +625,6 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                 <Alert variant="info">
                   <strong>Instrucciones:</strong> Selecciona los profesionales que trabajaron este día.
                   Puedes ajustar la fracción de jornada (1.0 = día completo, 0.5 = medio día) y la tarifa diaria si es necesario.
-                  {profesionalesSeleccionados.some(p => !p.tarifaDiaria || p.tarifaDiaria === 0) && (
-                    <div className="mt-2 text-warning">
-                      <i className="fas fa-exclamation-triangle me-2"></i>
-                      <strong>Atención:</strong> Algunos profesionales sin tarifa configurada. Debes especificar una tarifa personalizada.
-                    </div>
-                  )}
                 </Alert>
 
                 <Table bordered hover responsive>
@@ -780,20 +748,11 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                     value={tarifa}
                                     onChange={(e) => handleCambiarTarifaSeleccionado(prof.id, e.target.value)}
                                     onFocus={(e) => e.target.select()}
-                                    className={!tieneTarifa ? 'border-warning' : ''}
                                   />
-                                  {!tieneTarifa && (
-                                    <small className="text-warning d-block">
-                                      ⚠️ Sin tarifa configurada
-                                    </small>
-                                  )}
                                 </div>
                               ) : (
                                 <div>
                                   ${tarifa.toLocaleString('es-AR')}
-                                  {!tieneTarifa && (
-                                    <div className="text-warning small">⚠️ Sin tarifa</div>
-                                  )}
                                 </div>
                               )}
                             </td>
@@ -813,14 +772,14 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                             size="sm"
                                             value={String(fraccion)}
                                             onChange={(e) => handleCambiarFraccionFecha(prof.id, f, e.target.value)}
-                                            style={{ width: '75px', padding: '0.15rem 0.3rem', fontSize: '0.85rem' }}
+                                            style={{ width: '120px', padding: '0.15rem 0.3rem', fontSize: '0.85rem' }}
                                           >
-                                            <option value="0.25">0.25</option>
-                                            <option value="0.5">0.5</option>
-                                            <option value="0.75">0.75</option>
-                                            <option value="1">1.0</option>
-                                            <option value="1.25">1.25</option>
-                                            <option value="1.5">1.5</option>
+                                            <option value="0.25">1/4 día</option>
+                                            <option value="0.5">Medio día</option>
+                                            <option value="0.75">3/4 día</option>
+                                            <option value="1">Día completo</option>
+                                            <option value="1.25">1 día y 1/4</option>
+                                            <option value="1.5">1 día y 1/2</option>
                                           </Form.Select>
                                           <button
                                             className="btn btn-sm btn-danger p-0"

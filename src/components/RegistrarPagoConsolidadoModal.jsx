@@ -69,6 +69,11 @@ const RegistrarPagoConsolidadoModal = ({
   // 🗓️ Estado para toggle de días trabajados (incluir/excluir feriados)
   const [mostrarSoloHabiles, setMostrarSoloHabiles] = useState(false); // false = mostrar todos los días, true = solo hábiles
 
+  // ✏️ Estados para edición inline de campos
+  const [campoEditando, setCampoEditando] = useState(null); // { uniqueId, campo: 'diasTrabajados' | 'honorariosDiarios' | 'totalPagado' }
+  const [valoresEditados, setValoresEditados] = useState({}); // { uniqueId: { diasTrabajados: 5, honorariosDiarios: 5000000 } }
+  const [guardandoProfesional, setGuardandoProfesional] = useState(null); // uniqueId del profesional que se está guardando
+
   useEffect(() => {
     if (show && empresaSeleccionada) {
       console.log('🔄 [PagoConsolidado] Modal abierto, cargando datos...');
@@ -576,7 +581,122 @@ const RegistrarPagoConsolidadoModal = ({
         console.log(`✅ No se detectaron feriados en el período analizado`);
       }
 
-      setTodosLosProfesionales(profesionales);
+      // 🆕  ** CARGAR PROFESIONALES ADICIONALES DESDE ASIGNACIONES DE JORNALES DIARIOS **
+      console.log('👷🆕 Cargando profesionales desde asignaciones de jornales diarios (modalidad JORNAL_DIARIO)...');
+      const { obtenerProfesionalesConsolidados } = await import('../services/profesionalesObraService');
+      
+      let profesionalesJornalesDiarios = [];
+      try {
+        const respConsolidados = await obtenerProfesionalesConsolidados(empresaSeleccionada.id);
+        const datosConsolidados = respConsolidados.data || respConsolidados || [];
+        console.log(`✅ Recibidos ${datosConsolidados.length} profesionales consolidados desde endpoint`);
+
+        // Aplanar estructura jerárquica: Profesional → Obras → Asignaciones
+        datosConsolidados.forEach(profesional => {
+          profesional.obras?.forEach(obra => {
+            // Filtrar solo obras que están en presupuestosUnicos (obras seleccionadas)
+            const obraSeleccionada = presupuestosUnicos.find(p => 
+              (p.obraId || p.obra_id) === obra.obraId
+            );
+
+            if (!obraSeleccionada) {
+              console.log(`⏭️  Obra ${obra.obraId} (${obra.obraNombre}) no está seleccionada, omitiendo...`);
+              return;
+            }
+
+            obra.asignaciones?.forEach(asignacion => {
+              // Calcular importe (usar saldoPendiente si es negativo, significa se pagó de más, mostrar 0)
+              const saldoPendiente = asignacion.saldoPendiente || 0;
+              const importeCalculado = Math.max(0, asignacion.totalAsignado || 0);
+              const totalPagado = asignacion.totalPagado || 0;
+              
+              profesionalesJornalesDiarios.push({
+                asignacionId: asignacion.asignacionId,
+                profesionalId: profesional.profesionalId,
+                profesionalObraId: asignacion.asignacionId,
+                tipoProfesional: profesional.profesionalTipo || 'Sin tipo',
+                nombreProfesional: profesional.profesionalNombre,
+                importePorJornal: asignacion.importeJornal || 0,
+                totalJornales: asignacion.cantidadJornales || 0,
+                totalJornalesHabiles: asignacion.jornalesUtilizados || asignacion.cantidadJornales || 0,
+                totalDiasFeriados: 0,
+                presupuestoId: obraSeleccionada.id,
+                obraId: obra.obraId,
+                numeroPresupuesto: obraSeleccionada.numeroPresupuesto,
+                nombreObra: obra.obraNombre,
+                direccionObra: obra.direccionCompleta || '',
+                semanas: [], // Jornales diarios no tienen semanas
+                semanasTrabajadas: [],
+                uniqueId: `obra${obra.obraId}-prof${profesional.profesionalId}-jornal`,
+                cantidadJornales: asignacion.cantidadJornales || 0,
+                precioJornal: asignacion.importeJornal || 0,
+                precioTotal: importeCalculado,
+                importeCalculado: importeCalculado,
+                totalPagado: totalPagado,
+                saldo: saldoPendiente,
+                adelantosPendientes: 0,
+                tipo: profesional.profesionalTipo,
+                nombre: profesional.profesionalNombre,
+                diasTrabajados: asignacion.cantidadJornales || 0,
+                tarifaPorDia: asignacion.importeJornal || 0,
+                rubroNombre: asignacion.rubroNombre || 'Sin rubro',
+                rubroId: asignacion.rubroId,
+                modalidad: 'JORNAL_DIARIO' // Identificar que viene de jornales diarios
+              });
+            });
+          });
+        });
+
+        console.log(`✅ Mapeados ${profesionalesJornalesDiarios.length} profesionales desde jornales diarios`);
+      } catch (errJornales) {
+        console.error('❌ Error cargando profesionales consolidados (jornales diarios):', errJornales);
+      }
+
+      // 💰 CARGAR PAGOS INDIVIDUALES PARA PROFESIONALES DE JORNALES DIARIOS
+      console.log(`💰 Cargando pagos individuales para ${profesionalesJornalesDiarios.length} profesionales de jornales diarios...`);
+      await Promise.all(profesionalesJornalesDiarios.map(async (prof, idx) => {
+        try {
+          const idParaBuscar = prof.asignacionId;
+          console.log(`💰 [${idx+1}/${profesionalesJornalesDiarios.length}] Buscando pagos individuales de ${prof.nombreProfesional} (asignacionId: ${idParaBuscar})`);
+
+          if (idParaBuscar && typeof idParaBuscar === 'number') {
+            const pagos = await listarPagosPorProfesional(idParaBuscar, empresaSeleccionada.id);
+            const pagosArray = Array.isArray(pagos) ? pagos : (pagos?.data || []);
+            console.log(`  📋 ${prof.nombreProfesional}: Encontrados ${pagosArray.length} pago(s) individual(es)`);
+
+            // Separar pagos normales de adelantos
+            const pagosSinAdelantos = pagosArray.filter(pago => !pago.esAdelanto);
+            const adelantosSeparados = pagosArray.filter(pago => pago.esAdelanto);
+
+            // Total Pagado INDIVIDUAL = solo pagos de este profesional
+            const totalPagadoIndividual = pagosSinAdelantos.reduce((sum, pago) => sum + (pago.montoFinal || pago.monto || 0), 0);
+
+            // Adelantos Pendientes INDIVIDUALES
+            const totalAdelantosIndividual = adelantosSeparados.reduce((sum, adelanto) => {
+              const saldoPendiente = adelanto.saldoAdelantoPorDescontar || adelanto.montoFinal || adelanto.monto || 0;
+              return sum + saldoPendiente;
+            }, 0);
+
+            // ✅ ACTUALIZAR con valores INDIVIDUALES (no del pool)
+            prof.totalPagado = totalPagadoIndividual;
+            prof.adelantosPendientes = totalAdelantosIndividual;
+            prof.saldo = prof.importeCalculado - totalPagadoIndividual;
+
+            console.log(`  💰 ${prof.nombreProfesional} INDIVIDUAL: Total=${prof.importeCalculado}, Pagado=${totalPagadoIndividual}, Adelantos=${totalAdelantosIndividual}, Saldo=${prof.saldo}`);
+          } else {
+            console.warn(`  ⚠️ ${prof.nombreProfesional}: No tiene ID válido para buscar pagos individuales`);
+            prof.adelantosPendientes = 0;
+          }
+        } catch (err) {
+          console.error(`  ❌ Error cargando pagos individuales de ${prof.nombreProfesional}:`, err);
+        }
+      }));
+
+      // Combinar ambos arrays: profesionales semanales + profesionales jornales diarios
+      const profesionalesCombinados = [...profesionales, ...profesionalesJornalesDiarios];
+      console.log(`👷 TOTAL COMBINADO: ${profesionalesCombinados.length} profesionales (${profesionales.length} semanales + ${profesionalesJornalesDiarios.length} jornales diarios)`);
+
+      setTodosLosProfesionales(profesionalesCombinados);
 
       // 🧱 CARGAR MATERIALES DESDE PRESUPUESTO (para "Todas las Semanas")
       console.log('🧱 Cargando materiales desde presupuestos...');
@@ -1880,6 +2000,81 @@ const RegistrarPagoConsolidadoModal = ({
     }
   };
 
+  // ✏️ FUNCIONES PARA EDICIÓN INLINE DE CAMPOS
+  const iniciarEdicion = (uniqueId, campo, valorActual) => {
+    setCampoEditando({ uniqueId, campo });
+    setValoresEditados(prev => ({
+      ...prev,
+      [uniqueId]: {
+        ...(prev[uniqueId] || {}),
+        [campo]: valorActual
+      }
+    }));
+  };
+
+  const actualizarValorTemporal = (uniqueId, campo, nuevoValor) => {
+    setValoresEditados(prev => ({
+      ...prev,
+      [uniqueId]: {
+        ...(prev[uniqueId] || {}),
+        [campo]: nuevoValor
+      }
+    }));
+  };
+
+  const cancelarEdicion = () => {
+    setCampoEditando(null);
+  };
+
+  const guardarCambiosProfesional = async (prof) => {
+    const uniqueId = prof.uniqueId || `${prof.presupuestoId}-${prof.profesionalId || prof.id}`;
+    const valoresProf = valoresEditados[uniqueId];
+
+    if (!valoresProf) {
+      console.warn('No hay cambios para guardar');
+      return;
+    }
+
+    try {
+      setGuardandoProfesional(uniqueId);
+      console.log(`💾 Guardando cambios del profesional:`, prof.nombreProfesional, valoresProf);
+
+      // Aquí implementar la llamada al backend para actualizar los valores
+      // Por ahora solo actualizar localmente
+      const profIndex = todosLosProfesionales.findIndex(p => 
+        (p.uniqueId || `${p.presupuestoId}-${p.profesionalId || p.id}`) === uniqueId
+      );
+
+      if (profIndex !== -1) {
+        const nuevoProfesional = {
+          ...todosLosProfesionales[profIndex],
+          ...valoresProf,
+          // Recalcular valores dependientes
+          importeCalculado: valoresProf.diasTrabajados && valoresProf.tarifaPorDia 
+            ? valoresProf.diasTrabajados * valoresProf.tarifaPorDia
+            : todosLosProfesionales[profIndex].importeCalculado
+        };
+
+        const nuevosProfesionales = [...todosLosProfesionales];
+        nuevosProfesionales[profIndex] = nuevoProfesional;
+        setTodosLosProfesionales(nuevosProfesionales);
+
+        // Limpiar valores editados de este profesional
+        setValoresEditados(prev => {
+          const { [uniqueId]: removed, ...rest } = prev;
+          return rest;
+        });
+
+        console.log('✅ Cambios guardados exitosamente');
+      }
+    } catch (error) {
+      console.error('❌ Error guardando cambios:', error);
+      setError('Error al guardar los cambios del profesional');
+    } finally {
+      setGuardandoProfesional(null);
+    }
+  };
+
   // 🔥 NUEVO: Handler para toggle de otros costos
   const handleToggleOtroCosto = (costo) => {
     const uniqueId = costo.uniqueId;
@@ -2437,8 +2632,9 @@ const RegistrarPagoConsolidadoModal = ({
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Total Pagado</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>Saldo Pendiente</th>
                                             <th style={{minWidth:'120px',padding:'8px',textAlign:'right',color:'#e65100'}}>💸 Adelantos</th>
-                                            <th style={{minWidth:'130px',padding:'8px',textAlign:'right',backgroundColor:'#f1f8e9',fontWeight:'bold'}}>✅ Neto a Cobrar</th>
+                                            <th style={{minWidth:'120px',padding:'8px',textAlign:'right'}}>✅ Neto a Cobrar</th>
                                             <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Estado Pago</th>
+                                            <th style={{minWidth:'100px',padding:'8px',textAlign:'center'}}>Acciones</th>
                                             <th style={{minWidth:'80px',padding:'8px',textAlign:'center'}}>
                                               <input
                                                 type="checkbox"
@@ -2481,8 +2677,33 @@ const RegistrarPagoConsolidadoModal = ({
                                             const estaSeleccionado = profesionalesSeleccionados.some(
                                               p => (p.uniqueId || `${p.presupuestoId}-${p.profesionalId || p.id}`) === uniqueId
                                             );
-                                            const saldoPendiente = (prof.importeCalculado || 0) - (prof.totalPagado || 0);
-                                            const estaPagado = saldoPendiente <= 0 && (prof.importeCalculado || 0) > 0;
+                                            
+                                            // Obtener valores (editados localmente o actuales)
+                                            const valoresProf = valoresEditados[uniqueId] || {};
+                                            const diasActual = valoresProf.diasTrabajados !== undefined ? valoresProf.diasTrabajados : (prof.diasTrabajados || prof.cantidadJornales || 0);
+                                            const honorariosActual = valoresProf.tarifaPorDia !== undefined ? valoresProf.tarifaPorDia : (prof.tarifaPorDia || prof.precioJornal || 0);
+                                            const totalPagadoActual = valoresProf.totalPagado !== undefined ? valoresProf.totalPagado : (prof.totalPagado || 0);
+                                            
+                                            // 💰 CALCULAR SALDO DEL POOL COMPARTIDO (obra + rubro)
+                                            // Identificar todos los profesionales del mismo pool (misma obra y mismo rubro)
+                                            const profesionalesMismoPool = profesionalesObra.filter(p => 
+                                              p.obraId === prof.obraId && p.rubroNombre === prof.rubroNombre
+                                            );
+                                            
+                                            // Sumar TODOS los pagos individuales del pool
+                                            const totalPagadoPool = profesionalesMismoPool.reduce((sum, p) => 
+                                              sum + (p.totalPagado || 0), 0
+                                            );
+                                            
+                                            // 🔥 Obtener presupuesto total del pool desde tarifaPorDia (que contiene el presupuesto compartido)
+                                            // (todos los del pool deberían tener el mismo valor)
+                                            const presupuestoTotalPool = profesionalesMismoPool.length > 0 
+                                              ? (profesionalesMismoPool[0].tarifaPorDia || profesionalesMismoPool[0].precioJornal || 0)
+                                              : 0;
+                                            
+                                            // Calcular saldo del pool (compartido por todos)
+                                            const saldoPendientePool = presupuestoTotalPool - totalPagadoPool;
+                                            const estaPagado = saldoPendientePool <= 0 && presupuestoTotalPool > 0;
 
                                             // Información de feriados para tooltip
                                             const totalHabiles = prof.totalJornalesHabiles || prof.totalJornales || 0;
@@ -2495,7 +2716,9 @@ const RegistrarPagoConsolidadoModal = ({
                                             const totalAPagar = mostrarSoloHabiles
                                               ? totalHabiles * (prof.tarifaPorDia || prof.precioJornal || 0)
                                               : (prof.importeCalculado || prof.precioTotal || 0);
-                                            const saldoAjustado = totalAPagar - (prof.totalPagado || 0);
+                                            
+                                            // ✅ Usar saldo del pool compartido (no individual)
+                                            const saldoAjustado = saldoPendientePool;
                                             const adelantosPendientes = prof.adelantosPendientes || 0;
                                             const netoACobrar = Math.max(0, saldoAjustado - adelantosPendientes);
 
@@ -2509,27 +2732,50 @@ const RegistrarPagoConsolidadoModal = ({
                                                   )}
                                                 </td>
                                                 <td className="text-center">
-                                                  <div className="d-flex justify-content-center align-items-center gap-1">
-                                                    <span className="fw-bold">{diasAMostrar}</span>
-                                                    {hayFeriados && !mostrarSoloHabiles && (
-                                                      <span
-                                                        className="badge bg-warning text-dark"
-                                                        style={{fontSize:'0.65rem',cursor:'help'}}
-                                                        title={`🗓️ Total: ${totalDias} días\n✅ Hábiles: ${totalHabiles} días\n🎉 Feriados: ${totalFeriados} día(s)`}
-                                                      >
-                                                        🗓️ {totalFeriados}F
-                                                      </span>
-                                                    )}
-                                                    {mostrarSoloHabiles && hayFeriados && (
-                                                      <span
-                                                        className="badge bg-info text-dark"
-                                                        style={{fontSize:'0.65rem',cursor:'help'}}
-                                                        title={`✅ Días hábiles: ${totalHabiles}\n🗓️ Total asignados: ${totalDias}\n🎉 Feriados excluidos: ${totalFeriados}`}
-                                                      >
-                                                        -{totalFeriados}🗓️
-                                                      </span>
-                                                    )}
-                                                  </div>
+                                                  {campoEditando?.uniqueId === uniqueId && campoEditando?.campo === 'diasTrabajados' ? (
+                                                    <div className="d-flex align-items-center gap-1">
+                                                      <input
+                                                        type="number"
+                                                        className="form-control form-control-sm"
+                                                        style={{width: '80px'}}
+                                                        value={diasActual}
+                                                        onChange={(e) => actualizarValorTemporal(uniqueId, 'diasTrabajados', parseFloat(e.target.value) || 0)}
+                                                        onKeyDown={(e) => {
+                                                          if (e.key === 'Enter') cancelarEdicion();
+                                                          if (e.key === 'Escape') cancelarEdicion();
+                                                        }}
+                                                        onBlur={cancelarEdicion}
+                                                        autoFocus
+                                                      />
+                                                    </div>
+                                                  ) : (
+                                                    <div 
+                                                      className="d-flex justify-content-center align-items-center gap-1"
+                                                      onClick={() => iniciarEdicion(uniqueId, 'diasTrabajados', diasActual)}
+                                                      style={{cursor: 'pointer'}}
+                                                      title="Clic para editar"
+                                                    >
+                                                      <span className="fw-bold">{diasActual}</span>
+                                                      {hayFeriados && !mostrarSoloHabiles && (
+                                                        <span
+                                                          className="badge bg-warning text-dark"
+                                                          style={{fontSize:'0.65rem',cursor:'help'}}
+                                                          title={`🗓️ Total: ${totalDias} días\n✅ Hábiles: ${totalHabiles} días\n🎉 Feriados: ${totalFeriados} día(s)`}
+                                                        >
+                                                          🗓️ {totalFeriados}F
+                                                        </span>
+                                                      )}
+                                                      {mostrarSoloHabiles && hayFeriados && (
+                                                        <span
+                                                          className="badge bg-info text-dark"
+                                                          style={{fontSize:'0.65rem',cursor:'help'}}
+                                                          title={`✅ Días hábiles: ${totalHabiles}\n🗓️ Total asignados: ${totalDias}\n🎉 Feriados excluidos: ${totalFeriados}`}
+                                                        >
+                                                          -{totalFeriados}🗓️
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  )}
                                                   {hayFeriados && (
                                                     <small className="text-muted d-block" style={{fontSize:'0.7rem'}}>
                                                       {mostrarSoloHabiles
@@ -2538,7 +2784,30 @@ const RegistrarPagoConsolidadoModal = ({
                                                     </small>
                                                   )}
                                                 </td>
-                                                <td className="text-end">${(prof.tarifaPorDia || prof.precioJornal || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                                <td className="text-end">
+                                                  {campoEditando?.uniqueId === uniqueId && campoEditando?.campo === 'tarifaPorDia' ? (
+                                                    <input
+                                                      type="number"
+                                                      className="form-control form-control-sm text-end"
+                                                      value={honorariosActual}
+                                                      onChange={(e) => actualizarValorTemporal(uniqueId, 'tarifaPorDia', parseFloat(e.target.value) || 0)}
+                                                      onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') cancelarEdicion();
+                                                        if (e.key === 'Escape') cancelarEdicion();
+                                                      }}
+                                                      onBlur={cancelarEdicion}
+                                                      autoFocus
+                                                    />
+                                                  ) : (
+                                                    <span 
+                                                      onClick={() => iniciarEdicion(uniqueId, 'tarifaPorDia', honorariosActual)}
+                                                      style={{cursor: 'pointer', textDecoration: 'underline dotted'}}
+                                                      title="Clic para editar"
+                                                    >
+                                                      ${honorariosActual.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </span>
+                                                  )}
+                                                </td>
                                                 <td className="text-end fw-bold">
                                                   ${totalAPagar.toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                                   {mostrarSoloHabiles && hayFeriados && (
@@ -2547,7 +2816,30 @@ const RegistrarPagoConsolidadoModal = ({
                                                     </small>
                                                   )}
                                                 </td>
-                                                <td className="text-end text-success">${(prof.totalPagado || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+                                                <td className="text-end text-success">
+                                                  {campoEditando?.uniqueId === uniqueId && campoEditando?.campo === 'totalPagado' ? (
+                                                    <input
+                                                      type="number"
+                                                      className="form-control form-control-sm text-end"
+                                                      value={totalPagadoActual}
+                                                      onChange={(e) => actualizarValorTemporal(uniqueId, 'totalPagado', parseFloat(e.target.value) || 0)}
+                                                      onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') cancelarEdicion();
+                                                        if (e.key === 'Escape') cancelarEdicion();
+                                                      }}
+                                                      onBlur={cancelarEdicion}
+                                                      autoFocus
+                                                    />
+                                                  ) : (
+                                                    <span
+                                                      onClick={() => iniciarEdicion(uniqueId, 'totalPagado', totalPagadoActual)}
+                                                      style={{cursor: 'pointer', textDecoration: 'underline dotted'}}
+                                                      title="Clic para editar"
+                                                    >
+                                                      ${totalPagadoActual.toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                                                    </span>
+                                                  )}
+                                                </td>
                                                 <td className="text-end text-danger">
                                                   ${saldoAjustado.toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                                   {mostrarSoloHabiles && hayFeriados && Math.abs(saldoAjustado - saldoPendiente) > 0.01 && (
@@ -2581,6 +2873,26 @@ const RegistrarPagoConsolidadoModal = ({
                                                   ) : (
                                                     <span className="badge bg-danger">❌ Pendiente</span>
                                                   )}
+                                                </td>
+                                                <td className="text-center">
+                                                  <button
+                                                    className="btn btn-sm btn-primary"
+                                                    onClick={() => guardarCambiosProfesional(prof)}
+                                                    disabled={guardandoProfesional === uniqueId || !valoresEditados[uniqueId]}
+                                                    title={valoresEditados[uniqueId] ? "Guardar cambios" : "Sin cambios"}
+                                                  >
+                                                    {guardandoProfesional === uniqueId ? (
+                                                      <>
+                                                        <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                                        Guardando...
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <i className="bi bi-save me-1"></i>
+                                                        Guardar
+                                                      </>
+                                                    )}
+                                                  </button>
                                                 </td>
                                                 <td className="text-center">
                                                   <input
@@ -2658,11 +2970,26 @@ const RegistrarPagoConsolidadoModal = ({
                                                   const totalAPagar = mostrarSoloHabiles
                                                     ? (diasHabiles * (prof.tarifaPorDia || prof.precioJornal || 0))
                                                     : (prof.importeCalculado || 0);
-                                                  const estaPagado = (prof.totalPagado || 0) >= (prof.importeCalculado || 0) - 0.01;
-                                                  const saldoPendiente = (prof.importeCalculado || 0) - (prof.totalPagado || 0);
-                                                  const saldoAjustado = mostrarSoloHabiles
-                                                    ? totalAPagar - (prof.totalPagado || 0)
-                                                    : saldoPendiente;
+                                                  
+                                                  // 💰 CALCULAR SALDO DEL POOL COMPARTIDO (subobra + rubro)
+                                                  const profesionalesMismoPoolSubobra = profesionalesSubobra.filter(p => 
+                                                    p.obraId === prof.obraId && p.rubroNombre === prof.rubroNombre
+                                                  );
+                                                  
+                                                  const totalPagadoPoolSubobra = profesionalesMismoPoolSubobra.reduce((sum, p) => 
+                                                    sum + (p.totalPagado || 0), 0
+                                                  );
+                                                  
+                                                  // 🔥 Obtener presupuesto total del pool desde tarifaPorDia
+                                                  const presupuestoTotalPoolSubobra = profesionalesMismoPoolSubobra.length > 0
+                                                    ? (profesionalesMismoPoolSubobra[0].tarifaPorDia || profesionalesMismoPoolSubobra[0].precioJornal || 0)
+                                                    : 0;
+                                                  
+                                                  const saldoPendientePoolSubobra = presupuestoTotalPoolSubobra - totalPagadoPoolSubobra;
+                                                  const estaPagado = saldoPendientePoolSubobra <= 0 && presupuestoTotalPoolSubobra > 0;
+                                                  
+                                                  // ✅ Usar saldo del pool compartido
+                                                  const saldoAjustado = saldoPendientePoolSubobra;
                                                   const adelantosPendientesSubobra = prof.adelantosPendientes || 0;
                                                   const netoACobrarSubobra = Math.max(0, saldoAjustado - adelantosPendientesSubobra);
 

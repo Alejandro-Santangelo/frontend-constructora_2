@@ -133,21 +133,18 @@ const GestionPagosProfesionalesModal = ({
           const poolKey = `${obra.obraId}_${asig.rubroNombre}`;
 
           if (!pools[poolKey]) {
+            // 🔑 USAR VALORES DEL BACKEND (ya vienen correctos y compartidos)
             pools[poolKey] = {
               obraId: obra.obraId,
               obraNombre: obra.obraNombre,
               rubroNombre: asig.rubroNombre,
-              importeTotal: 0, // Se cargará desde presupuesto
-              importeAsignado: 0,
-              importePagado: 0, // 💰 Total pagado del pool
-              importeDisponible: 0
+              importeTotal: Number(asig.totalAsignado || 0), // ✅ Usar valor compartido del backend
+              importeAsignado: Number(asig.totalAsignado || 0), // ✅ Usar valor compartido del backend
+              importePagado: Number(asig.totalPagado || 0), // ✅ Usar valor compartido del backend
+              importeDisponible: Number(asig.saldoPendiente || 0) // ✅ Usar valor compartido del backend
             };
           }
-
-          // Sumar lo ya asignado a profesionales
-          pools[poolKey].importeAsignado += Number(asig.totalAsignado || 0);
-          // 💰 Sumar lo ya pagado (todos los profesionales de este rubro/obra)
-          pools[poolKey].importePagado += Number(asig.totalPagado || 0);
+          // ⚠️ NO sumar nada más - los valores ya vienen compartidos por (obra, rubro) desde el backend
         });
       });
     });
@@ -401,29 +398,27 @@ const GestionPagosProfesionalesModal = ({
 
   const calcularTotalesGenerales = () => {
     let totalProfesionales = profesionales.length;
-    let totalObras = 0;
     let totalAsignaciones = 0;
     let totalPresupuesto = 0; // 💰 Total de todos los pools
     let totalPagado = 0; // 💰 Total pagado real
     let saldoDisponible = 0; // 💰 Disponible total
 
-    // 💰 Calcular total de presupuestos (suma de todos los pools)
+    // 💰 Calcular totales desde los pools (evita duplicaciones por valores compartidos)
     Object.values(poolsRubros).forEach(pool => {
       totalPresupuesto += Number(pool.importeTotal || 0);
+      totalPagado += Number(pool.importePagado || 0); // ✅ Usar pool (no suma duplicada)
       saldoDisponible += Number(pool.importeDisponible || 0);
     });
 
-    // 💰 Calcular total pagado (suma de totalPagado de todas las asignaciones)
+    // Contar obras ÚNICAS (sin duplicar) y asignaciones
+    const obrasUnicas = new Set();
     profesionales.forEach(prof => {
-      totalObras += prof.totalObras || 0;
-      totalAsignaciones += prof.totalAsignaciones || 0;
-      
       prof.obras?.forEach(obra => {
-        obra.asignaciones?.forEach(asig => {
-          totalPagado += Number(asig.totalPagado || 0);
-        });
+        obrasUnicas.add(obra.obraId);
       });
+      totalAsignaciones += prof.totalAsignaciones || 0;
     });
+    const totalObras = obrasUnicas.size;
 
     return { 
       totalProfesionales, 
@@ -437,10 +432,12 @@ const GestionPagosProfesionalesModal = ({
 
   // 💵 Calcular el total a pagar de todos los importes ingresados
   const calcularTotalAPagar = () => {
-    return Object.values(importesPago).reduce((sum, valor) => {
+    const total = Object.values(importesPago).reduce((sum, valor) => {
       const numero = parseFloat(valor) || 0;
       return sum + numero;
     }, 0);
+    console.log('💵 Total a pagar calculado:', total, 'desde importesPago:', importesPago);
+    return total;
   };
 
   // 💵 Guardar importes de pago de un profesional específico
@@ -718,10 +715,15 @@ const GestionPagosProfesionalesModal = ({
                   value={importesPago[asig.asignacionId] || ''}
                   onChange={(e) => {
                     const valor = e.target.value;
-                    setImportesPago(prev => ({
-                      ...prev,
-                      [asig.asignacionId]: valor
-                    }));
+                    console.log('💰 Actualizando importe:', { asignacionId: asig.asignacionId, valor, estadoActual: importesPago });
+                    setImportesPago(prev => {
+                      const nuevo = {
+                        ...prev,
+                        [asig.asignacionId]: valor
+                      };
+                      console.log('💰 Nuevo estado importesPago:', nuevo);
+                      return nuevo;
+                    });
                   }}
                   style={{ minWidth: '100px' }}
                 />
@@ -856,29 +858,48 @@ const GestionPagosProfesionalesModal = ({
                         >
                           <strong>{rubroNombre}:</strong>
                           {estaEditandoPool ? (
-                            <input
-                              type="number"
-                              className="form-control form-control-sm d-inline-block"
-                              style={{ width: '120px', fontSize: '0.8rem' }}
-                              value={valorTemporalPool}
-                              onChange={(e) => setValorTemporalPool(e.target.value)}
-                              onBlur={() => {
-                                if (valorTemporalPool !== String(pool.total)) {
+                            <>
+                              <input
+                                type="number"
+                                className="form-control form-control-sm d-inline-block"
+                                style={{ width: '120px', fontSize: '0.8rem' }}
+                                value={valorTemporalPool}
+                                onChange={(e) => setValorTemporalPool(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    guardarCambioPool(poolKey, valorTemporalPool);
+                                  } else if (e.key === 'Escape') {
+                                    cancelarEdicionPool();
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                autoFocus
+                              />
+                              <Button
+                                size="sm"
+                                variant="success"
+                                className="ms-2"
+                                style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   guardarCambioPool(poolKey, valorTemporalPool);
-                                } else {
+                                }}
+                              >
+                                <i className="bi bi-check-lg"></i> Aceptar
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="ms-1"
+                                style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   cancelarEdicionPool();
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  guardarCambioPool(poolKey, valorTemporalPool);
-                                } else if (e.key === 'Escape') {
-                                  cancelarEdicionPool();
-                                }
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              autoFocus
-                            />
+                                }}
+                              >
+                                <i className="bi bi-x-lg"></i>
+                              </Button>
+                            </>
                           ) : (
                             <>
                               <span style={{ fontWeight: 'bold', color: pool.disponible < 0 ? '#dc3545' : '#0d6efd' }}>
@@ -921,7 +942,9 @@ const GestionPagosProfesionalesModal = ({
           <Button 
             variant="primary" 
             onClick={() => guardarImportesProfesional(profesional)}
-            disabled={guardandoPagos}
+            disabled={guardandoPagos || !profesional.obras?.some(obra => 
+              obra.asignaciones?.some(asig => importesPago[asig.asignacionId])
+            )}
           >
             {guardandoPagos ? (
               <>
