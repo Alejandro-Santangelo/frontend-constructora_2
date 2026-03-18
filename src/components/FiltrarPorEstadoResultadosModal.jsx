@@ -2,6 +2,7 @@ import React from 'react';
 import Modal from 'react-bootstrap/Modal';
 import Button from 'react-bootstrap/Button';
 import './FiltrarPorEstadoResultadosModal.css';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 const FiltrarPorEstadoResultadosModal = ({ show, onClose, resultados, loading, error, empresas, obras }) => {
   // Funciones para obtener nombre por id
@@ -49,7 +50,29 @@ const FiltrarPorEstadoResultadosModal = ({ show, onClose, resultados, loading, e
                     <td>{p.fechaCreacion ? new Date(p.fechaCreacion).toLocaleDateString() : '-'}</td>
                     <td>{getNombreEmpresa(p.idEmpresa)}</td>
                     <td>{getNombreObra(p.idObra)}</td>
-                    <td>${p.montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td>
+                      {(() => {
+                        // 🔥 CALCULAR TOTAL DINÁMICAMENTE desde los items y descuentos
+                        // Esto asegura que el total mostrado siempre refleje los cambios actuales
+                        
+                        if (p.itemsCalculadora && Array.isArray(p.itemsCalculadora)) {
+                          try {
+                            const resultado = calcularTotalConDescuentosDesdeItems(
+                              p.itemsCalculadora,
+                              p // Los descuentos están en el objeto presupuesto
+                            );
+                            
+                            return `$${resultado.totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                          } catch (error) {
+                            console.error('❌ Error calculando total para presupuesto', p.id, error);
+                          }
+                        }
+                        
+                        // Fallback si no tiene items cargados o hay error
+                        const totalFallback = p.totalPresupuestoConHonorarios || p.montoTotal;
+                        return totalFallback ? `$${totalFallback.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-';
+                      })()}
+                    </td>
                     <td>{p.fecha_validez ? new Date(p.fecha_validez).toLocaleDateString() : '-'}</td>
                   </tr>
                 ))}

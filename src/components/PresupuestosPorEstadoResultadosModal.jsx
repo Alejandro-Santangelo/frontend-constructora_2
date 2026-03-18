@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Modal, Button, Table, Alert } from 'react-bootstrap';
 import PresupuestoDetalleModal from './PresupuestoDetalleModal';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 const PresupuestosPorEstadoResultadosModal = ({ show, onClose, resultados, error }) => {
   const [detallePresupuesto, setDetallePresupuesto] = useState(null);
@@ -45,7 +46,34 @@ const PresupuestosPorEstadoResultadosModal = ({ show, onClose, resultados, error
                     <td>{p.totalHonorariosProfesionales}</td>
                     <td>{p.totalMateriales}</td>
                     <td>{p.totalHonorariosDireccionObra}</td>
-                    <td>{p.montoTotal}</td>
+                    <td>
+                      {(() => {
+                        // 🔥 CALCULAR TOTAL DINÁMICAMENTE desde los items y descuentos
+                        // Esto asegura que el total mostrado siempre refleje los cambios actuales
+                        
+                        if (p.itemsCalculadora && Array.isArray(p.itemsCalculadora)) {
+                          try {
+                            const resultado = calcularTotalConDescuentosDesdeItems(
+                              p.itemsCalculadora,
+                              p // Los descuentos están en el objeto presupuesto
+                            );
+                            
+                            return resultado.totalFinal.toLocaleString('es-AR', { 
+                              style: 'currency', 
+                              currency: 'ARS',
+                              minimumFractionDigits: 2 
+                            });
+                          } catch (error) {
+                            console.error('❌ Error calculando total para presupuesto', p.id, error);
+                            // Fallback al valor del backend si hay error
+                          }
+                        }
+                        
+                        // Fallback si no tiene items cargados o hay error
+                        const totalFallback = p.totalPresupuestoConHonorarios || p.montoTotal;
+                        return totalFallback || '-';
+                      })()}
+                    </td>
                     <td>
                       <Button size="sm" variant="info" onClick={() => setDetallePresupuesto(p)}>
                         Ver Detalles

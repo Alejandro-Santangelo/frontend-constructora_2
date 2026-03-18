@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { fetchPresupuestos } from '../store/slices/presupuestosSlice';
 import { fetchAllEmpresas } from '../store/slices/empresasSlice';
 import { fetchTodasObras } from '../store/slices/obrasSlice';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 const PresupuestosList = ({ onOpenSidebar, sidebarCollapsed }) => {
   const dispatch = useDispatch();
@@ -115,7 +116,30 @@ const PresupuestosList = ({ onOpenSidebar, sidebarCollapsed }) => {
                     <td>{p.fechaCreacion ? new Date(p.fechaCreacion).toLocaleDateString() : '-'}</td>
                     <td>{getNombreEmpresa(p.idEmpresa)}</td>
                     <td>{getNombreObra(p.idObra, p)}</td>
-                    <td>${p.totalPresupuestoConHonorarios?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td>
+                      {(() => {
+                        // 🔥 CALCULAR TOTAL DINÁMICAMENTE desde los items y descuentos
+                        // Esto asegura que el total mostrado siempre refleje los cambios actuales
+                        
+                        if (p.itemsCalculadora && Array.isArray(p.itemsCalculadora)) {
+                          try {
+                            const resultado = calcularTotalConDescuentosDesdeItems(
+                              p.itemsCalculadora,
+                              p // Los descuentos están en el objeto presupuesto
+                            );
+                            
+                            return `$${resultado.totalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                          } catch (error) {
+                            console.error('❌ Error calculando total para presupuesto', p.id, error);
+                            // Fallback al valor del backend si hay error
+                            return `$${p.totalPresupuestoConHonorarios?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0,00'}`;
+                          }
+                        }
+                        
+                        // Fallback si no tiene items cargados
+                        return `$${p.totalPresupuestoConHonorarios?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0,00'}`;
+                      })()}
+                    </td>
                     <td>{p.fechaValidez ? new Date(p.fechaValidez).toLocaleDateString() : '-'}</td>
                     <td>
                       <button className="btn btn-danger btn-sm" style={{marginRight:4}} onClick={() => { console.log('Click eliminar', p); setEliminarData(p); setShowEliminarModal(true); }}>

@@ -10,6 +10,7 @@
  * @returns {{ totalSinDescuento, totalDescuentos, totalFinal, detalleDescuentos }}
  */
 export function calcularTotalConDescuentosDesdeItems(items = [], descuentos = {}) {
+  // ✅ Sumar item.total de cada item (ya incluye base + honorarios + mayores costos calculados en backend)
   const totalSinDescuento = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
 
   const baseJornales     = items.reduce((sum, i) => sum + (Number(i.subtotalJornales)      || 0), 0);

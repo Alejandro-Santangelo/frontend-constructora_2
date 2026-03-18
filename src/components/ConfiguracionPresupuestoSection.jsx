@@ -484,8 +484,20 @@ const ConfiguracionPresupuestoSection = ({
   React.useEffect(() => {
     try {
       if (rubroActual && valoresGuardados && onHonorariosChange) {
+        // 🔥 VERIFICAR SI HAY CONFIGURACIÓN POR RUBRO ACTIVA
+        // Si el usuario ya configuró honorarios por rubro individual, NO sobrescribir con localStorage
+        const tieneConfiguracionPorRubro = honorariosActual.porRubro && 
+                                           Object.keys(honorariosActual.porRubro).length > 0 &&
+                                           Object.values(honorariosActual.porRubro).some(config => 
+                                             config?.profesionales?.valor || 
+                                             config?.materiales?.valor || 
+                                             config?.otrosCostos?.valor
+                                           );
+
         // Solo aplicar si los valores actuales están vacíos (para no sobreescribir valores ya configurados)
-        const deberiaAplicarValores = !honorariosActual.profesionales?.valor &&
+        // Y si NO hay configuración por rubro activa
+        const deberiaAplicarValores = !tieneConfiguracionPorRubro && // 🔥 SI hay config por rubro, NO aplicar localStorage
+                                     !honorariosActual.profesionales?.valor &&
                                      !honorariosActual.materiales?.valor &&
                                      !honorariosActual.otrosCostos?.valor &&
                                      !honorariosActual.configuracionPresupuesto?.valor;
@@ -3974,554 +3986,61 @@ const ConfiguracionPresupuestoSection = ({
               {/* Nota: Las tarjetas de configuración individual se han eliminado ya que
                   ahora los controles están integrados directamente en las tarjetas del resumen */}
 
+              {/* ========================================================================================================
+                  SECCIÓN LEGACY: Resumen de Honorarios - ELIMINADA
+                  Esta sección ha sido eliminada porque ahora se usa "💰 Configuración de Honorarios por Rubro"
+                  El contenido visual del resumen se ha removido pero el botón "Aceptar Configuración" permanece funcional abajo
+              ========================================================================================================*/}
 
-              {/* Resumen de Honorarios */}
-              {(() => {
-                // 🎯 Usar rubro específico si se importaron datos de un rubro
-                const resumen = calcularResumenHonorarios(honorariosActual.rubroImportado);
-                const hayValores = resumen.totales.base > 0 || resumen.totales.honorarios > 0;
+              {/* 🔘 Botón Aceptar Configuración (FUNCIONAL - FUERA DEL COMENTARIO) */}
+              <div className="mt-3 text-center">
+                <button
+                  type="button"
+                  className={`btn ${configuracionAceptada ? 'btn-secondary' : 'btn-success'} btn-lg`}
+                  onClick={() => {
+                    if (!configuracionAceptada) {
+                      // Guardar valores de configuración para el rubro actual
+                      if (rubroActual) {
+                        const valoresAGuardar = {
+                          jornales: honorariosActual.jornales || {},
+                          profesionales: {
+                            tipo: honorariosActual.profesionales?.tipo || 'porcentaje',
+                            valor: honorariosActual.profesionales?.valor || 0
+                          },
+                          materiales: {
+                            tipo: honorariosActual.materiales?.tipo || 'porcentaje',
+                            valor: honorariosActual.materiales?.valor || 0
+                          },
+                          otrosCostos: {
+                            tipo: honorariosActual.otrosCostos?.tipo || 'porcentaje',
+                            valor: honorariosActual.otrosCostos?.valor || 0
+                          },
+                          configuracionPresupuesto: {
+                            tipo: honorariosActual.configuracionPresupuesto?.tipo || 'porcentaje',
+                            valor: honorariosActual.configuracionPresupuesto?.valor || 0
+                          }
+                        };
+                        guardarValoresHonorarios(rubroActual, valoresAGuardar);
+                      }
 
+                      // 🔥 NOTIFICAR AL PADRE: Actualizar estado con todos los honorarios configurados
+                      if (onHonorariosChange) {
+                        console.log('📤 Enviando honorarios al padre:', honorariosActual);
+                        onHonorariosChange(honorariosActual);
+                      }
 
-
-                return hayValores && (
-                  <div className="mt-4 border rounded p-3 bg-white">
-                    <div className="d-flex justify-content-between align-items-center mb-3">
-                      <h6 className="text-success mb-0">
-                        📊 Resumen de Honorarios
-                        {resumen.rubroEspecifico && (
-                          <span className="ms-2 badge bg-info text-white">
-                            Rubro: {resumen.rubroEspecifico}
-                          </span>
-                        )}
-                      </h6>
-
-                      {/* ✨ Switch para aplicar mismo % a todos los items */}
-                      <div className="d-flex align-items-center gap-2">
-                        <div className="form-check form-switch">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="switchGlobalHonorarios"
-                            checked={aplicarGlobalHonorarios}
-                            onChange={(e) => setAplicarGlobalHonorarios(e.target.checked)}
-                          />
-                          <label className="form-check-label small fw-bold text-muted" htmlFor="switchGlobalHonorarios">
-                            Asignar el mismo % a todos los items
-                          </label>
-                        </div>
-
-                        {/* Input global - solo visible si el switch está activado */}
-                        {aplicarGlobalHonorarios && (
-                          <div className="d-flex gap-1 align-items-center" style={{minWidth: '150px'}}>
-                            <select
-                              className="form-select form-select-sm"
-                              style={{fontSize: '10px', padding: '4px', width: '60px'}}
-                              value={tipoGlobalHonorarios}
-                              onChange={(e) => setTipoGlobalHonorarios(e.target.value)}
-                            >
-                              <option value="porcentaje">%</option>
-                              <option value="fijo">$</option>
-                            </select>
-                            <input
-                              type="number"
-                              className="form-control form-control-sm"
-                              placeholder="Valor"
-                              value={valorGlobalHonorarios}
-                              onChange={(e) => {
-                                const valor = e.target.value;
-                                setValorGlobalHonorarios(valor);
-
-                                // Aplicar automáticamente a todos los items
-                                if (valor && onHonorariosChange) {
-                                  const nuevoHonorarios = {
-                                    ...honorariosActual,
-                                    jornales: { ...honorariosActual.jornales, tipo: tipoGlobalHonorarios, valor: valor },
-                                    profesionales: { ...honorariosActual.profesionales, tipo: tipoGlobalHonorarios, valor: valor },
-                                    materiales: { ...honorariosActual.materiales, tipo: tipoGlobalHonorarios, valor: valor },
-                                    otrosCostos: { ...honorariosActual.otrosCostos, tipo: tipoGlobalHonorarios, valor: valor },
-                                    configuracionPresupuesto: { ...honorariosActual.configuracionPresupuesto, tipo: tipoGlobalHonorarios, valor: valor }
-                                  };
-                                  onHonorariosChange(nuevoHonorarios);
-                                }
-                              }}
-                              style={{fontSize: '11px', padding: '4px', width: '80px'}}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="row g-3 mb-3">
-                      {/* Jornales */}
-                      {resumen.jornales && resumen.jornales.base > 0 && (
-                      <div className="col-md-4">
-                        <div className="border rounded p-2 bg-light">
-                          <small className="text-muted d-block mb-2">🏗️ Jornales</small>
-                          <div className="d-flex justify-content-between mt-1">
-                            <span className="small">Base:</span>
-                            <span className="small fw-bold">${(resumen.jornales.baseOriginal || resumen.jornales.base).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-
-                          {/* Selector de modo: Aplicar a todos o por rol */}
-                          <div className="mt-2 mb-2">
-                            <select
-                              className="form-select form-select-sm mb-2"
-                              style={{ fontSize: '11px' }}
-                              value={honorariosActual.jornales?.modoAplicacion || 'todos'}
-                              onChange={(e) => {
-                                const nuevoModo = e.target.value;
-                                setHonorarios(prev => ({
-                                  ...prev,
-                                  jornales: {
-                                    ...prev.jornales,
-                                    modoAplicacion: nuevoModo,
-                                    // Si cambia a "todos", limpiar valores por rol
-                                    porRol: nuevoModo === 'todos' ? {} : (prev.jornales?.porRol || {})
-                                  }
-                                }));
-                              }}
-                            >
-                              <option value="todos">✓ Aplicar a TODOS los roles</option>
-                              <option value="porRol">⚙️ Configurar POR ROL</option>
-                            </select>
-
-                            {/* Controles según el modo */}
-                            {honorariosActual.jornales?.modoAplicacion === 'porRol' ? (
-                              <div className="border rounded p-2 bg-white" style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                                {(() => {
-                                  // Obtener roles únicos de jornales
-                                  const rolesUnicos = new Set();
-                                  if (itemsCalculadora && Array.isArray(itemsCalculadora)) {
-                                    itemsCalculadora.forEach(item => {
-                                      if (item.jornales && Array.isArray(item.jornales)) {
-                                        item.jornales.forEach(jornal => {
-                                          if (jornal.rol) rolesUnicos.add(jornal.rol);
-                                        });
-                                      }
-                                    });
-                                  }
-
-                                  const rolesArray = Array.from(rolesUnicos);
-
-                                  if (rolesArray.length === 0) {
-                                    return <small className="text-muted fst-italic">No hay roles de jornales</small>;
-                                  }
-
-                                  return rolesArray.map(rol => (
-                                    <div key={rol} className="mb-2 pb-2 border-bottom">
-                                      <small className="fw-bold d-block mb-1">{rol}</small>
-                                      <div className="d-flex gap-1">
-                                        <select
-                                          className="form-select form-select-sm"
-                                          style={{ fontSize: '10px', padding: '2px', width: '50px' }}
-                                          value={honorariosActual.jornales?.porRol?.[rol]?.tipo || 'porcentaje'}
-                                          onChange={(e) => setHonorarios(prev => ({
-                                            ...prev,
-                                            jornales: {
-                                              ...prev.jornales,
-                                              porRol: {
-                                                ...(prev.jornales?.porRol || {}),
-                                                [rol]: {
-                                                  ...(prev.jornales?.porRol?.[rol] || {}),
-                                                  tipo: e.target.value
-                                                }
-                                              }
-                                            }
-                                          }))}
-                                        >
-                                          <option value="porcentaje">%</option>
-                                          <option value="fijo">$</option>
-                                        </select>
-                                        <input
-                                          type="number"
-                                          className="form-control form-control-sm"
-                                          style={{ fontSize: '10px', padding: '2px' }}
-                                          placeholder={honorariosActual.jornales?.porRol?.[rol]?.tipo === 'porcentaje' ? '10' : '1000'}
-                                          value={honorariosActual.jornales?.porRol?.[rol]?.valor || ''}
-                                          onChange={(e) => setHonorarios(prev => ({
-                                            ...prev,
-                                            jornales: {
-                                              ...prev.jornales,
-                                              porRol: {
-                                                ...(prev.jornales?.porRol || {}),
-                                                [rol]: {
-                                                  ...(prev.jornales?.porRol?.[rol] || {}),
-                                                  valor: e.target.value
-                                                }
-                                              }
-                                            }
-                                          }))}
-                                        />
-                                      </div>
-                                    </div>
-                                  ));
-                                })()}
-                              </div>
-                            ) : (
-                              <div className="d-flex gap-1 align-items-center">
-                                <select
-                                  className="form-select form-select-sm"
-                                  style={{ fontSize: '10px', padding: '2px' }}
-                                  value={honorariosActual.jornales?.tipo || 'porcentaje'}
-                                  onChange={(e) => setHonorarios(prev => ({
-                                    ...prev,
-                                    jornales: { ...prev.jornales, tipo: e.target.value }
-                                  }))}
-                                >
-                                  <option value="porcentaje">%</option>
-                                  <option value="fijo">$</option>
-                                </select>
-                                <input
-                                  type="number"
-                                  className="form-control form-control-sm"
-                                  style={{ fontSize: '10px', padding: '2px' }}
-                                  placeholder={honorariosActual.jornales?.tipo === 'porcentaje' ? '10' : '1000'}
-                                  value={honorariosActual.jornales?.valor || ''}
-                                  onChange={(e) => setHonorarios(prev => ({
-                                    ...prev,
-                                    jornales: { ...prev.jornales, valor: e.target.value }
-                                  }))}
-                                />
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="d-flex justify-content-between text-success">
-                            <span className="small">+ Honorario:</span>
-                            <span className="small fw-bold">${resumen.jornales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <hr className="my-1" />
-                          <div className="d-flex justify-content-between">
-                            <span className="small fw-bold">Total:</span>
-                            <span className="small fw-bold text-primary">${resumen.jornales.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      </div>
-                      )}
-
-                      {/* Profesionales */}
-                      <div className="col-md-4">
-                        <div className="border rounded p-2 bg-light">
-                          <div
-                            className="d-flex justify-content-between align-items-center"
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => setColapsadoProfesionalesHonorarios(!colapsadoProfesionalesHonorarios)}
-                          >
-                            <small className="text-muted d-block">👷 Profesionales</small>
-                            <i className={`fas fa-chevron-${colapsadoProfesionalesHonorarios ? 'down' : 'up'}`} style={{ fontSize: '10px' }}></i>
-                          </div>
-                          {!colapsadoProfesionalesHonorarios && (
-                          <>
-                          <div className="d-flex justify-content-between mt-1">
-                            <span className="small">Base:</span>
-                            <span className="small fw-bold">${(resumen.profesionales.baseOriginal || resumen.profesionales.base).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-
-                          {/* Controles individuales para Profesionales */}
-                          <div className="mt-2 mb-2">
-                            <div className="d-flex gap-1 align-items-center">
-                              <select
-                                className="form-select form-select-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                value={honorariosActual.profesionales.tipo}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  profesionales: { ...prev.profesionales, tipo: e.target.value }
-                                }))}
-                              >
-                                <option value="porcentaje">%</option>
-                                <option value="fijo">$</option>
-                              </select>
-                              <input
-                                type="number"
-                                className="form-control form-control-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={honorariosActual.profesionales.tipo === 'porcentaje' ? '10' : '1000'}
-                                value={honorariosActual.profesionales.valor}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  profesionales: { ...prev.profesionales, valor: e.target.value }
-                                }))}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="d-flex justify-content-between text-success">
-                            <span className="small">+ Honorario:</span>
-                            <span className="small fw-bold">${resumen.profesionales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <hr className="my-1" />
-                          <div className="d-flex justify-content-between">
-                            <span className="small fw-bold">Total:</span>
-                            <span className="small fw-bold text-primary">${resumen.profesionales.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          </>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Materiales */}
-                      <div className="col-md-4">
-                        <div className="border rounded p-2 bg-light">
-                          <small className="text-muted d-block">🧱 Materiales</small>
-                          <div className="d-flex justify-content-between mt-1">
-                            <span className="small">Base:</span>
-                            <span className="small fw-bold">${(resumen.materiales.baseOriginal || resumen.materiales.base).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-
-                          {/* Controles individuales para Materiales */}
-                          <div className="mt-2 mb-2">
-                            <div className="d-flex gap-1 align-items-center">
-                              <select
-                                className="form-select form-select-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                value={honorariosActual.materiales.tipo}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  materiales: { ...prev.materiales, tipo: e.target.value }
-                                }))}
-                              >
-                                <option value="porcentaje">%</option>
-                                <option value="fijo">$</option>
-                              </select>
-                              <input
-                                type="number"
-                                className="form-control form-control-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={honorariosActual.materiales.tipo === 'porcentaje' ? '10' : '1000'}
-                                value={honorariosActual.materiales.valor}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  materiales: { ...prev.materiales, valor: e.target.value }
-                                }))}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="d-flex justify-content-between text-success">
-                            <span className="small">+ Honorario:</span>
-                            <span className="small fw-bold">${resumen.materiales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <hr className="my-1" />
-                          <div className="d-flex justify-content-between">
-                            <span className="small fw-bold">Total:</span>
-                            <span className="small fw-bold text-primary">${resumen.materiales.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 💼 Gastos Generales (UNIFICADO: itemsCalculadora.gastosGenerales + otrosCostos manuales) */}
-                      <div className="col-md-4">
-                        <div className="border rounded p-2 bg-light">
-                          <small className="text-muted d-block">💼 Gastos Generales</small>
-                          <div className="d-flex justify-content-between mt-1">
-                            <span className="small">Base:</span>
-                            <span className="small fw-bold">${((resumen.gastosGenerales?.baseOriginal || resumen.gastosGenerales?.base || 0) + (resumen.otrosCostos.baseOriginal || resumen.otrosCostos.base)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-
-                          {/* Controles individuales para Gastos Generales */}
-                          <div className="mt-2 mb-2">
-                            <div className="d-flex gap-1 align-items-center">
-                              <select
-                                className="form-select form-select-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                value={honorariosActual.otrosCostos.tipo}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  otrosCostos: { ...prev.otrosCostos, tipo: e.target.value }
-                                }))}
-                              >
-                                <option value="porcentaje">%</option>
-                                <option value="fijo">$</option>
-                              </select>
-                              <input
-                                type="number"
-                                className="form-control form-control-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={honorariosActual.otrosCostos.tipo === 'porcentaje' ? '10' : '1000'}
-                                value={honorariosActual.otrosCostos.valor}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  otrosCostos: { ...prev.otrosCostos, valor: e.target.value }
-                                }))}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="d-flex justify-content-between text-success">
-                            <span className="small">+ Honorario:</span>
-                            <span className="small fw-bold">${((resumen.gastosGenerales?.honorario || 0) + resumen.otrosCostos.honorario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <hr className="my-1" />
-                          <div className="d-flex justify-content-between">
-                            <span className="small fw-bold">Total:</span>
-                            <span className="small fw-bold text-primary">${((resumen.gastosGenerales?.total || 0) + resumen.otrosCostos.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 🧮 Tarea con Jornal y Materiales */}
-                      <div className="col-md-4">
-                        <div className="border rounded p-2 bg-light">
-                          <div
-                            className="d-flex justify-content-between align-items-center"
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => setColapsadoConfigPresupuestoHonorarios(!colapsadoConfigPresupuestoHonorarios)}
-                          >
-                            <small className="text-muted d-block">🧮 Tarea con Jornal y Materiales</small>
-                            <i className={`fas fa-chevron-${colapsadoConfigPresupuestoHonorarios ? 'down' : 'up'}`} style={{ fontSize: '10px' }}></i>
-                          </div>
-                          {!colapsadoConfigPresupuestoHonorarios && (
-                          <>
-                          <div className="d-flex justify-content-between mt-1">
-                            <span className="small">Base:</span>
-                            <span className="small fw-bold">${(resumen.configuracionPresupuesto.baseOriginal || resumen.configuracionPresupuesto.base).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-
-                          {/* Controles individuales para Configuración Presupuesto */}
-                          <div className="mt-2 mb-2">
-                            <div className="d-flex gap-1 align-items-center">
-                              <select
-                                className="form-select form-select-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                value={honorariosActual.configuracionPresupuesto.tipo}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  configuracionPresupuesto: { ...prev.configuracionPresupuesto, tipo: e.target.value }
-                                }))}
-                              >
-                                <option value="porcentaje">%</option>
-                                <option value="fijo">$</option>
-                              </select>
-                              <input
-                                type="number"
-                                className="form-control form-control-sm"
-                                style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={honorariosActual.configuracionPresupuesto.tipo === 'porcentaje' ? '10' : '1000'}
-                                value={honorariosActual.configuracionPresupuesto.valor}
-                                onChange={(e) => setHonorarios(prev => ({
-                                  ...prev,
-                                  configuracionPresupuesto: { ...prev.configuracionPresupuesto, valor: e.target.value }
-                                }))}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="d-flex justify-content-between text-success">
-                            <span className="small">+ Honorario:</span>
-                            <span className="small fw-bold">${resumen.configuracionPresupuesto.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <hr className="my-1" />
-                          <div className="d-flex justify-content-between">
-                            <span className="small fw-bold">Total:</span>
-                            <span className="small fw-bold text-primary">${resumen.configuracionPresupuesto.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Total General */}
-                    <div className="border-top pt-3">
-                      <div className="row">
-                        <div className="col-md-4">
-                          <div className="d-flex justify-content-between">
-                            <span>Subtotal (sin honorarios):</span>
-                            <span className="fw-bold">${resumen.totales.base.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                        <div className="col-md-4">
-                          <div className="d-flex justify-content-between text-success">
-                            <span>Total Honorarios:</span>
-                            <span className="fw-bold">${resumen.totales.honorarios.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                        <div className="col-md-4">
-                          <div className="d-flex justify-content-between">
-                            <span className="fs-5 fw-bold">TOTAL FINAL:</span>
-                            <span className="fs-5 fw-bold text-primary">${resumen.totales.final.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Desglose de ganancia por sección */}
-                      <div className="alert alert-success mt-3 mb-0">
-                        <strong>💰 Ganancia por sección:</strong>
-                        <div className="row mt-2 small">
-                          {(resumen.jornales.honorario + resumen.profesionales.honorario) > 0 && (
-                            <div className="col-md-3">
-                              🏗️ Jornales: <strong>${(resumen.jornales.honorario + resumen.profesionales.honorario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
-                            </div>
-                          )}
-                          {resumen.materiales.honorario > 0 && (
-                            <div className="col-md-3">
-                              🧱 Materiales: <strong>${resumen.materiales.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
-                            </div>
-                          )}
-                          {((resumen.gastosGenerales?.honorario || 0) + resumen.otrosCostos.honorario) > 0 && (
-                            <div className="col-md-3">
-                              💼 Gastos Generales: <strong>${((resumen.gastosGenerales?.honorario || 0) + resumen.otrosCostos.honorario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
-                            </div>
-                          )}
-                          {resumen.configuracionPresupuesto.honorario > 0 && (
-                            <div className="col-md-3">
-                              🧮 Tarea con Jornal y Materiales: <strong>${resumen.configuracionPresupuesto.honorario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
-                            </div>
-                          )}
-                        </div>
-                        <hr className="my-2" />
-                        <div className="text-center">
-                          <strong className="fs-6">🎯 GANANCIA TOTAL: ${resumen.totales.honorarios.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
-                        </div>
-                      </div>
-
-                      {/* Botón para aceptar la configuración */}
-                      <div className="mt-3 text-center">
-                        <button
-                          type="button"
-                          className={`btn ${configuracionAceptada ? 'btn-secondary' : 'btn-success'} btn-lg`}
-                          onClick={() => {
-                            if (!configuracionAceptada) {
-                              // Guardar valores de configuración para el rubro actual
-                              if (rubroActual) {
-                                const valoresAGuardar = {
-                                  profesionales: {
-                                    tipo: honorariosActual.profesionales.tipo,
-                                    valor: honorariosActual.profesionales.valor
-                                  },
-                                  materiales: {
-                                    tipo: honorariosActual.materiales.tipo,
-                                    valor: honorariosActual.materiales.valor
-                                  },
-                                  otrosCostos: {
-                                    tipo: honorariosActual.otrosCostos.tipo,
-                                    valor: honorariosActual.otrosCostos.valor
-                                  },
-                                  configuracionPresupuesto: {
-                                    tipo: honorariosActual.configuracionPresupuesto.tipo,
-                                    valor: honorariosActual.configuracionPresupuesto.valor
-                                  }
-                                };
-                                guardarValoresHonorarios(rubroActual, valoresAGuardar);
-                              }
-
-                              setConfiguracionAceptada(true);
-                              const mensaje = rubroActual
-                                ? `Configuración de honorarios para "${rubroActual}" guardada temporalmente. Presione "Guardar" al final para confirmar todos los cambios.`
-                                : 'Configuración de honorarios guardada temporalmente. Presione "Guardar" al final para confirmar todos los cambios.';
-                              alert(mensaje);
-                            }
-                          }}
-                          disabled={configuracionAceptada}
-                        >
-                          {configuracionAceptada ? '✓ Configuración Aceptada' : '✅ Aceptar Configuración de Honorarios'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
+                      setConfiguracionAceptada(true);
+                      const mensaje = rubroActual
+                        ? `Configuración de honorarios para "${rubroActual}" guardada temporalmente. Presione "Guardar" al final para confirmar todos los cambios.`
+                        : 'Configuración de honorarios guardada temporalmente. Presione "Guardar" al final para confirmar todos los cambios.';
+                      alert(mensaje);
+                    }
+                  }}
+                  disabled={configuracionAceptada}
+                >
+                  {configuracionAceptada ? '✓ Configuración Aceptada' : '✅ Aceptar Configuración de Honorarios'}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -4630,7 +4149,7 @@ const ConfiguracionPresupuestoSection = ({
                               honorarios: {
                                 activo: true,
                                 tipo: 'porcentaje',
-                                valor: honorariosDelForm.valorGeneral || honorariosDelForm.profesionales?.valor || '10'
+                                valor: honorariosDelForm.valorGeneral || honorariosDelForm.profesionales?.valor || ''
                               },
                               // Las demás tarjetas quedan DESACTIVADAS
                               profesionales: { ...prev.profesionales, activo: false, valor: '' },
@@ -4844,7 +4363,7 @@ const ConfiguracionPresupuestoSection = ({
                                           type="number"
                                           className="form-control form-control-sm"
                                           style={{ fontSize: '10px', padding: '2px' }}
-                                          placeholder={mayoresCostosActual.jornales?.porRol?.[rol]?.tipo === 'porcentaje' ? '10' : '1000'}
+                                          placeholder={mayoresCostosActual.jornales?.porRol?.[rol]?.tipo === 'porcentaje' ? '' : '1000'}
                                           value={mayoresCostosActual.jornales?.porRol?.[rol]?.valor || ''}
                                           onChange={(e) => setMayoresCostos(prev => ({
                                             ...prev,
@@ -4883,7 +4402,7 @@ const ConfiguracionPresupuestoSection = ({
                                   type="number"
                                   className="form-control form-control-sm"
                                   style={{ fontSize: '10px', padding: '2px' }}
-                                  placeholder={mayoresCostosActual.jornales?.tipo === 'porcentaje' ? '10' : '1000'}
+                                  placeholder={mayoresCostosActual.jornales?.tipo === 'porcentaje' ? '' : '1000'}
                                   value={mayoresCostosActual.jornales?.valor || ''}
                                   onChange={(e) => {
                                     setMayoresCostos(prev => ({
@@ -5000,7 +4519,7 @@ const ConfiguracionPresupuestoSection = ({
                                 type="number"
                                 className="form-control form-control-sm"
                                 style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={mayoresCostosActual.profesionales.tipo === 'porcentaje' ? '10' : '1000'}
+                                placeholder={mayoresCostosActual.profesionales.tipo === 'porcentaje' ? '' : '1000'}
                                 value={mayoresCostosActual.profesionales.valor}
                                 onChange={(e) => {
                                   const valor = e.target.value;
@@ -5098,7 +4617,7 @@ const ConfiguracionPresupuestoSection = ({
                                 type="number"
                                 className="form-control form-control-sm"
                                 style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={mayoresCostosActual.materiales.tipo === 'porcentaje' ? '10' : '1000'}
+                                placeholder={mayoresCostosActual.materiales.tipo === 'porcentaje' ? '' : '1000'}
                                 value={mayoresCostosActual.materiales.valor}
                                 onChange={(e) => {
                                   const valor = e.target.value;
@@ -5194,7 +4713,7 @@ const ConfiguracionPresupuestoSection = ({
                                 type="number"
                                 className="form-control form-control-sm"
                                 style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={mayoresCostosActual.otrosCostos.tipo === 'porcentaje' ? '10' : '1000'}
+                                placeholder={mayoresCostosActual.otrosCostos.tipo === 'porcentaje' ? '' : '1000'}
                                 value={mayoresCostosActual.otrosCostos.valor}
                                 onChange={(e) => {
                                   const valor = e.target.value;
@@ -5299,7 +4818,7 @@ const ConfiguracionPresupuestoSection = ({
                                 type="number"
                                 className="form-control form-control-sm"
                                 style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={mayoresCostosActual.configuracionPresupuesto.tipo === 'porcentaje' ? '10' : '1000'}
+                                placeholder={mayoresCostosActual.configuracionPresupuesto.tipo === 'porcentaje' ? '' : '1000'}
                                 value={mayoresCostosActual.configuracionPresupuesto.valor}
                                 onChange={(e) => {
                                   const valor = e.target.value;
@@ -5397,7 +4916,7 @@ const ConfiguracionPresupuestoSection = ({
                                 type="number"
                                 className="form-control form-control-sm"
                                 style={{ fontSize: '10px', padding: '2px' }}
-                                placeholder={mayoresCostosActual.honorarios.tipo === 'porcentaje' ? '10' : '1000'}
+                                placeholder={mayoresCostosActual.honorarios.tipo === 'porcentaje' ? '' : '1000'}
                                 value={mayoresCostosActual.honorarios.valor}
                                 onChange={(e) => {
                                   const valor = e.target.value;

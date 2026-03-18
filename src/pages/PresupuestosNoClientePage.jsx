@@ -1667,13 +1667,20 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             tiempoEstimadoTerminacion: presupuesto.tiempoEstimadoTerminacion
           };
 
-          await api.presupuestosNoCliente.update(presupuesto.id, presupuestoActualizado, empresaId);
+          const respuestaFechas = await api.presupuestosNoCliente.update(presupuesto.id, presupuestoActualizado, empresaId);
 
           setShowEditarModal(false);
           setPresupuestoData(null);
 
-          // Forzar recarga inmediata de la lista sin caché para actualizar los badges de alerta
-          await loadList(true);
+          // ✅ OPTIMIZACIÓN: Actualizar solo la fila modificada (sin recargar toda la lista)
+          if (respuestaFechas) {
+            setList(prevList => prevList.map(item => 
+              item.id === respuestaFechas.id ? respuestaFechas : item
+            ));
+          } else {
+            // Fallback: recargar lista completa si no hay respuesta
+            await loadList(true);
+          }
 
           showNotification && showNotification(
             `✅ Fechas actualizadas exitosamente.\nVersión y estado preservados.`,
@@ -1850,7 +1857,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         console.log('═══════════════════════════════════════════════════════════════════');
 
         // Actualizar el presupuesto existente usando el endpoint PUT por ID
-        await api.presupuestosNoCliente.update(presupuestoData.id, presupuestoFinal, empresaId);
+        const respuestaActualizacion = await api.presupuestosNoCliente.update(presupuestoData.id, presupuestoFinal, empresaId);
 
         showNotification && showNotification(
           `✅ Presupuesto actualizado correctamente (v${presupuesto.numeroVersion}) - Todos los datos se mantuvieron`,
@@ -1861,8 +1868,15 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         setShowEditarModal(false);
         setPresupuestoData(null);
 
-        // ✅ Recargar lista sin caché para obtener datos frescos
-        await loadList(true);
+        // ✅ OPTIMIZACIÓN: Actualizar solo la fila modificada (sin recargar toda la lista)
+        if (respuestaActualizacion) {
+          setList(prevList => prevList.map(item => 
+            item.id === respuestaActualizacion.id ? respuestaActualizacion : item
+          ));
+        } else {
+          // Fallback: recargar lista completa si no hay respuesta
+          await loadList(true);
+        }
 
       } else {
         // ✅ CREACIÓN NUEVA: crear primera versión
@@ -1928,8 +1942,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         setShowEditarModal(false);
         setPresupuestoData(null);
 
-        // ✅ Recargar lista sin caché para obtener datos frescos
-        await loadList(true);
+        // ✅ OPTIMIZACIÓN: Agregar el nuevo presupuesto a la lista (sin recargar toda)
+        if (presupuestoCreado) {
+          setList(prevList => [presupuestoCreado, ...prevList]); // Agregar al inicio
+          setCantidad(prev => prev + 1);
+        } else {
+          // Fallback: recargar lista completa si no hay respuesta
+          await loadList(true);
+        }
       }
     } catch (error) {
       console.error('❌ ERROR AL GUARDAR PRESUPUESTO:', error.response?.data || error.message);
@@ -2954,31 +2974,18 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         <div>
                           <div className="fw-bold text-primary">
                             {(() => {
-                              // 🎯 LÓGICA SIMPLIFICADA: El total final fluctúa según configuraciones aplicadas
-                              // - Con descuentos → totalConDescuentos (base + honorarios + MC - descuentos)
-                              // - Sin descuentos → totalFinal (base + honorarios + MC según lo configurado)
-
-                              const totalFinal = row.totalFinal;
+                              // 🔥 CALCULAR TOTAL DINÁMICAMENTE CON PRIORIDAD A VALORES DEL BACKEND
+                              // El backend ya calcula correctamente: base + honorarios + mayores costos - descuentos
+                              
+                              // PRIORIDAD 1: Valores del backend (INCLUYEN TODO: base + honorarios + MC - descuentos)
                               const totalConDescuentos = row.totalConDescuentos;
-
-                              // 🐛 DEBUG: Ver qué valores tiene el presupuesto 111
-                              if (row.numeroPresupuesto === '111') {
-                                console.log('🔍 [LISTA] Presupuesto 111 - Valores:', {
-                                  totalFinal: totalFinal,
-                                  totalConDescuentos: totalConDescuentos,
-                                  totalDescuentos: row.totalDescuentos,
-                                  descuentosPorRubro: row.descuentosPorRubro,
-                                  totalBase: row.totalBase,
-                                  totalHonorarios: row.totalHonorarios,
-                                  totalMayoresCostos: row.totalMayoresCostos
-                                });
-                              }
-
+                              const totalFinal = row.totalFinal;
+                              
                               // ✅ Detectar si hay descuentos configurados (legacy O por rubro)
                               const hayDescuentos = (row.totalDescuentos && Number(row.totalDescuentos) > 0) ||
                                                    (row.descuentosPorRubro && Array.isArray(row.descuentosPorRubro) && row.descuentosPorRubro.length > 0);
 
-                              // PRIORIDAD 1: Si hay descuentos configurados → usar totalConDescuentos
+                              // Con descuentos → usar totalConDescuentos
                               if (hayDescuentos && totalConDescuentos != null) {
                                 const valor = Number(totalConDescuentos);
                                 if (valor > 0) {
@@ -2991,7 +2998,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                 }
                               }
 
-                              // PRIORIDAD 2: Sin descuentos → usar totalFinal (refleja lo configurado hasta ahora)
+                              // Sin descuentos → usar totalFinal o totalPresupuestoConHonorarios
                               if (totalFinal != null) {
                                 const valor = Number(totalFinal);
                                 if (valor > 0) {
@@ -2999,34 +3006,33 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                 }
                               }
 
-                              // PRIORIDAD 3: Fallback a totalConDescuentos si totalFinal no existe
-                              if (totalConDescuentos != null) {
-                                const valor = Number(totalConDescuentos);
+                              // Fallback a totalPresupuestoConHonorarios (incluye base + honorarios + MC)
+                              const totalLegacy = row.totalPresupuestoConHonorarios;
+                              if (totalLegacy != null) {
+                                const valor = Number(totalLegacy);
                                 if (valor > 0) {
                                   return `$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
                                 }
                               }
-
-                              // PRIORIDAD 4: Recalcular desde itemsCalculadora (presupuestos legacy)
+                              
+                              // PRIORIDAD 2: Recalcular desde itemsCalculadora (SOLO si no hay valores del backend)
                               const items = row.itemsCalculadora;
                               if (items && Array.isArray(items) && items.length > 0) {
-                                const { totalFinal: calcTotal, totalDescuentos: calcDesc } = calcularTotalConDescuentosDesdeItems(items, row);
-                                if (calcTotal > 0) {
-                                  return (
-                                    <>
-                                      {`$${calcTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                      {calcDesc > 0 && (
-                                        <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
-                                      )}
-                                    </>
-                                  );
+                                try {
+                                  const { totalFinal: calcTotal, totalDescuentos: calcDesc } = calcularTotalConDescuentosDesdeItems(items, row);
+                                  if (calcTotal > 0) {
+                                    return (
+                                      <>
+                                        {`$${calcTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                                        {calcDesc > 0 && (
+                                          <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
+                                        )}
+                                      </>
+                                    );
+                                  }
+                                } catch (error) {
+                                  console.error('❌ Error calculando total para presupuesto', row.id, error);
                                 }
-                              }
-
-                              // PRIORIDAD 5: Campos legacy antiguos
-                              const totalLegacy = row.totalPresupuestoConHonorarios || row.totalGeneral || row.montoTotal || 0;
-                              if (totalLegacy > 0) {
-                                return `$${Number(totalLegacy).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
                               }
 
                               return <span className="text-muted">Sin datos</span>;

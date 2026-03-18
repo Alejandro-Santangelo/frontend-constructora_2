@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Spinner, Alert, Table, Badge, Button } from 'react-bootstrap';
 import api from '../services/api';
 import { useEmpresa } from '../EmpresaContext';
+import { calcularTotalConDescuentosDesdeItems } from '../utils/presupuestoDescuentosUtils';
 
 /**
  * Modal para listar TODOS los presupuestos NoCliente de una empresa
@@ -416,11 +417,35 @@ const ListarTodosPresupuestosModal = ({ show, handleClose, onSeleccionarPresupue
                     <td className="text-end">
                       <strong>
                         {(() => {
-                          // 🔥 MOSTRAR TOTAL FINAL CON HONORARIOS (totalPresupuestoConHonorarios)
-                          const totalFinal = presupuesto.totalPresupuestoConHonorarios || presupuesto.totalFinal || presupuesto.montoTotal;
+                          // 🔥 CALCULAR TOTAL DINÁMICAMENTE DESDE LOS ITEMS Y DESCUENTOS
+                          // Esto asegura que el total mostrado siempre refleje los cambios actuales
                           
-                          if (totalFinal && totalFinal > 0) {
-                            return formatearMonto(totalFinal);
+                          // Si el presupuesto tiene itemsCalculadora, calcular dinámicamente
+                          if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
+                            try {
+                              const resultado = calcularTotalConDescuentosDesdeItems(
+                                presupuesto.itemsCalculadora,
+                                presupuesto // Los descuentos están en el objeto presupuesto
+                              );
+                              
+                              return formatearMonto(resultado.totalFinal);
+                            } catch (error) {
+                              console.error('❌ Error calculando total para presupuesto', presupuesto.id, error);
+                              // Fallback al valor del backend si hay error
+                              const totalFallback = presupuesto.totalPresupuestoConHonorarios || 
+                                                    presupuesto.totalFinal || 
+                                                    presupuesto.montoTotal;
+                              return totalFallback ? formatearMonto(totalFallback) : <span className="text-muted">Error</span>;
+                            }
+                          }
+                          
+                          // Si no tiene items aún cargados, usar valor del backend como fallback
+                          const totalFallback = presupuesto.totalPresupuestoConHonorarios || 
+                                                presupuesto.totalFinal || 
+                                                presupuesto.montoTotal;
+                          
+                          if (totalFallback && totalFallback > 0) {
+                            return formatearMonto(totalFallback);
                           }
                           
                           return <span className="text-muted">Cargando...</span>;

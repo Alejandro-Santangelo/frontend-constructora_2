@@ -7570,6 +7570,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       };
     })();
 
+    // 🔥 DEBUG: Verificar qué tiene form.honorarios
+    console.log('🔥 form.honorarios COMPLETO:', form.honorarios);
+    console.log('🔥 form.honorarios.porRubro:', form.honorarios?.porRubro);
+    console.log('🔥 Keys en form.honorarios.porRubro:', Object.keys(form.honorarios?.porRubro || {}));
+
     if (honorariosConfig) {
       agrupados.forEach(rubro => {
         let honorariosRubro = 0;
@@ -7580,40 +7585,63 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         let honorariosTotalManual = 0;
 
         // 🆕 PRIORIDAD 1: Honorarios configurados por rubro específico (desde Mayores Costos/Descuentos por Rubro)
-        const configRubroEspecifico = honorariosConfig.porRubro?.[rubro.nombre];
+        const configRubroEspecifico = honorariosConfig.porRubro?.[rubro.tipoProfesional];
+
+        console.log(`🔍 Buscando honorarios para rubro "${rubro.tipoProfesional}":`, {
+          encontrado: !!configRubroEspecifico,
+          activo: configRubroEspecifico?.activo,
+          porRubroKeys: Object.keys(honorariosConfig.porRubro || {}),
+          config: configRubroEspecifico,
+          formHonorarios: form.honorarios,
+          honorariosConfig: honorariosConfig
+        });
+
         if (configRubroEspecifico?.activo) {
-          // Profesionales (Mano de Obra)
-          if (configRubroEspecifico.profesionales?.activo && configRubroEspecifico.profesionales?.valor) {
-            const valor = Number(configRubroEspecifico.profesionales.valor);
+          // Profesionales (Mano de Obra) - TAMBIÉN aplica a Jornales
+          // 🔥 FIX: Convertir string a número correctamente
+          const valorProfesionales = configRubroEspecifico.profesionales?.valor;
+          if (valorProfesionales !== undefined && valorProfesionales !== null && valorProfesionales !== '' && valorProfesionales !== '0' && valorProfesionales !== 0) {
+            const valor = parseFloat(String(valorProfesionales));
             const tipo = (configRubroEspecifico.profesionales.tipo || 'PORCENTAJE').toUpperCase();
-            if (tipo === 'PORCENTAJE') {
+            if (tipo === 'PORCENTAJE' && valor > 0) {
+              // ✅ Aplicar el mismo % a jornales Y mano de obra
+              honorariosJornales = (rubro.subtotalJornales * valor) / 100;
               honorariosManoObra = (rubro.subtotalManoObra * valor) / 100;
-              honorariosRubro += honorariosManoObra;
-            } else {
+              honorariosRubro += honorariosJornales + honorariosManoObra;
+              console.log(`💰 Honorarios Profesionales para ${rubro.tipoProfesional}: ${valor}% de $${rubro.subtotalManoObra} = $${honorariosManoObra}`);
+            } else if (tipo !== 'PORCENTAJE' && valor > 0) {
               honorariosManoObra = valor;
               honorariosRubro += honorariosManoObra;
             }
           }
+
           // Materiales
-          if (configRubroEspecifico.materiales?.activo && configRubroEspecifico.materiales?.valor) {
-            const valor = Number(configRubroEspecifico.materiales.valor);
+          // 🔥 FIX: Convertir string a número correctamente
+          const valorMateriales = configRubroEspecifico.materiales?.valor;
+          if (valorMateriales !== undefined && valorMateriales !== null && valorMateriales !== '' && valorMateriales !== '0' && valorMateriales !== 0) {
+            const valor = parseFloat(String(valorMateriales));
             const tipo = (configRubroEspecifico.materiales.tipo || 'PORCENTAJE').toUpperCase();
-            if (tipo === 'PORCENTAJE') {
+            if (tipo === 'PORCENTAJE' && valor > 0) {
               honorariosMateriales = (rubro.subtotalMateriales * valor) / 100;
               honorariosRubro += honorariosMateriales;
-            } else {
+              console.log(`💰 Honorarios Materiales para ${rubro.tipoProfesional}: ${valor}% de $${rubro.subtotalMateriales} = $${honorariosMateriales}`);
+            } else if (tipo !== 'PORCENTAJE' && valor > 0) {
               honorariosMateriales = valor;
               honorariosRubro += honorariosMateriales;
             }
           }
+
           // Otros Costos (Gastos Generales)
-          if (configRubroEspecifico.otrosCostos?.activo && configRubroEspecifico.otrosCostos?.valor) {
-            const valor = Number(configRubroEspecifico.otrosCostos.valor);
+          // 🔥 FIX: Convertir string a número correctamente
+          const valorOtrosCostos = configRubroEspecifico.otrosCostos?.valor;
+          if (valorOtrosCostos !== undefined && valorOtrosCostos !== null && valorOtrosCostos !== '' && valorOtrosCostos !== '0' && valorOtrosCostos !== 0) {
+            const valor = parseFloat(String(valorOtrosCostos));
             const tipo = (configRubroEspecifico.otrosCostos.tipo || 'PORCENTAJE').toUpperCase();
-            if (tipo === 'PORCENTAJE') {
+            if (tipo === 'PORCENTAJE' && valor > 0) {
               honorariosGastosGenerales = (rubro.subtotalGastosGenerales * valor) / 100;
               honorariosRubro += honorariosGastosGenerales;
-            } else {
+              console.log(`💰 Honorarios Gastos Generales para ${rubro.tipoProfesional}: ${valor}% de $${rubro.subtotalGastosGenerales} = $${honorariosGastosGenerales}`);
+            } else if (tipo !== 'PORCENTAJE' && valor > 0) {
               honorariosGastosGenerales = valor;
               honorariosRubro += honorariosGastosGenerales;
             }
@@ -7715,6 +7743,16 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         rubro.honorariosMateriales = honorariosMateriales;
         rubro.honorariosGastosGenerales = honorariosGastosGenerales;
         rubro.honorariosTotalManual = honorariosTotalManual;
+
+        console.log(`💰 Honorarios calculados para ${rubro.tipoProfesional}:`, {
+          jornales: honorariosJornales,
+          manoObra: honorariosManoObra,
+          materiales: honorariosMateriales,
+          gastosGenerales: honorariosGastosGenerales,
+          totalHonorarios: honorariosRubro,
+          baseJornales: rubro.subtotalJornales,
+          baseMateriales: rubro.subtotalMateriales
+        });
 
         rubro.subtotalJornalesConHonorarios = rubro.subtotalJornales + honorariosJornales;
         rubro.subtotalManoObraConHonorarios = rubro.subtotalManoObra + honorariosManoObra;
@@ -16562,29 +16600,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                                   });
                                                 }
                                                 setMayoresCostosPorRubro(nuevoArray);
-
-                                                // 🔧 FIX: Actualizar TAMBIÉN form.honorarios.porRubro cuando cambia el tipo
-                                                const tipoNuevo = e.target.value === 'IMPORTE_FIJO' ? 'importe_fijo' : 'porcentaje';
-                                                const valorExistente = config.honorariosValor || 0;
-                                                if (valorExistente > 0) {
-                                                  setForm(prev => ({
-                                                    ...prev,
-                                                    honorarios: {
-                                                      ...prev.honorarios,
-                                                      porRubro: {
-                                                        ...(prev.honorarios?.porRubro || {}),
-                                                        [rubro.nombre]: {
-                                                          ...(prev.honorarios?.porRubro?.[rubro.nombre] || {}),
-                                                          activo: true,
-                                                          profesionales: {
-                                                            ...(prev.honorarios?.porRubro?.[rubro.nombre]?.profesionales || {}),
-                                                            tipo: tipoNuevo
-                                                          }
-                                                        }
-                                                      }
-                                                    }
-                                                  }));
-                                                }
                                               }}
                                               disabled={soloLectura || !config.activo}
                                             >
@@ -16628,37 +16643,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                                   console.log(`  ✅ Creando nuevo:`, nuevoRubro);
                                                 }
                                                 setMayoresCostosPorRubro(nuevoArray);
-
-                                                // 🔧 FIX: Actualizar TAMBIÉN form.honorarios.porRubro para que calcularHonorariosRubro funcione
-                                                const tipoActual = config.honorariosTipo === 'IMPORTE_FIJO' ? 'importe_fijo' : 'porcentaje';
-                                                setForm(prev => ({
-                                                  ...prev,
-                                                  honorarios: {
-                                                    ...prev.honorarios,
-                                                    porRubro: {
-                                                      ...(prev.honorarios?.porRubro || {}),
-                                                      [rubro.nombre]: {
-                                                        ...(prev.honorarios?.porRubro?.[rubro.nombre] || {}),
-                                                        activo: valor && valor > 0,
-                                                        profesionales: {
-                                                          activo: valor && valor > 0,
-                                                          tipo: tipoActual,
-                                                          valor: valor || 0
-                                                        },
-                                                        materiales: {
-                                                          activo: false,
-                                                          tipo: tipoActual,
-                                                          valor: 0
-                                                        },
-                                                        otrosCostos: {
-                                                          activo: false,
-                                                          tipo: tipoActual,
-                                                          valor: 0
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                }));
                                               }}
                                               style={{fontSize: '11px', padding: '4px'}}
                                               disabled={soloLectura || !config.activo}
@@ -17950,11 +17934,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                     {/* Detalle de cada grupo - Rubros consolidados sin $0,00 */}
                                     <div className="ms-3 mt-2" style={{borderLeft: '3px solid #17a2b8', paddingLeft: '12px'}}>
                                       {itemsParaDisplay.map((item, idx) => {
-                                      // Usar subtotales ya calculados del array agrupado
-                                      const subtotalJornales = item.subtotalJornales || 0;
-                                      const subtotalManoObra = item.subtotalManoObra || 0;
-                                      const subtotalMateriales = item.subtotalMateriales || 0;
-                                      const subtotalGastosGenerales = item.subtotalGastosGenerales || 0;
+                                      // ✅ Usar subtotales CON honorarios ya incluidos
+                                      const subtotalJornales = item.subtotalJornalesConHonorarios || item.subtotalJornales || 0;
+                                      const subtotalManoObra = item.subtotalManoObraConHonorarios || item.subtotalManoObra || 0;
+                                      const subtotalMateriales = item.subtotalMaterialesConHonorarios || item.subtotalMateriales || 0;
+                                      const subtotalGastosGenerales = item.subtotalGastosGeneralesConHonorarios || item.subtotalGastosGenerales || 0;
 
                                       // Usar totalConHonorarios ya calculado
                                       const totalConHonorarios = item.totalConHonorarios;
@@ -17995,13 +17979,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                                   <div className="mb-1">
                                                     <div className="fw-semibold text-warning">
                                                       <i className="fas fa-receipt me-2"></i>Gastos Generales: ${subtotalGastosGenerales.toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                                                    </div>
-                                                  </div>
-                                                )}
-                                                {item.honorarios > 0 && (
-                                                  <div className="mb-1">
-                                                    <div className="fw-semibold text-secondary">
-                                                      <i className="fas fa-briefcase me-2"></i>Honorarios: ${item.honorarios.toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                                     </div>
                                                   </div>
                                                 )}
