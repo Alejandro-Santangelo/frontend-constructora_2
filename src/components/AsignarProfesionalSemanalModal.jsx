@@ -610,6 +610,11 @@ getObraId() retorna: ${obraIdReal}
       let asignacionesFiltradas = data;
       if (presupuestoAprobado && presupuestoAprobado.id) {
         asignacionesFiltradas = data.filter(asignacion => {
+          // ✅ JORNALES DIARIOS: Mostrar siempre, sin filtrar por presupuesto
+          if (asignacion.tipoAsignacion === 'JORNAL_DIARIO') {
+            return true;
+          }
+          
           // Si la asignación tiene presupuestoId, filtrar por el presupuesto APROBADO
           if (asignacion.presupuestoId) {
             return asignacion.presupuestoId === presupuestoAprobado.id;
@@ -627,6 +632,11 @@ getObraId() retorna: ${obraIdReal}
       const asignacionesInactivasTotal = [...asignacionesInactivasConocidas, ...asignacionesEliminadas];
 
       const asignacionesActivas = asignacionesFiltradas.filter(asignacion => {
+        // ✅ JORNALES DIARIOS: Mostrar siempre, nunca filtrar como inactivos
+        if (asignacion.tipoAsignacion === 'JORNAL_DIARIO') {
+          return true;
+        }
+        
         const esInactivo = asignacionesInactivasTotal.includes(asignacion.asignacionId);
         if (esInactivo) {
           console.log(`🚫 Filtrando asignación INACTIVA - ID: ${asignacion.asignacionId} (eliminada previamente)`);

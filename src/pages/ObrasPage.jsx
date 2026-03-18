@@ -7354,6 +7354,29 @@ _V?lido por 30 d?as_
                         console.warn(' No se pudieron cargar asignaciones:', error.message);
                       }
 
+                      // ✅ CARGAR TAMBIÉN JORNALES DIARIOS
+                      try {
+                        const responseJornales = await listarJornalesPorObra(obra.id, empresaId);
+                        const dataJornales = Array.isArray(responseJornales) ? responseJornales : (responseJornales?.data || []);
+                        const jornalesTransformados = dataJornales.map(jornal => ({
+                          tipoAsignacion: 'JORNAL_DIARIO',
+                          asignacionId: `jornal-${jornal.id}`,
+                          jornalId: jornal.id,
+                          profesionalId: jornal.profesionalId,
+                          profesionalNombre: jornal.profesionalNombre || 'N/A',
+                          profesionalTipo: jornal.tipoProfesional || 'N/A',
+                          rubroId: jornal.rubroId,
+                          rubroNombre: jornal.rubroNombre || 'Sin rubro',
+                          fecha: jornal.fecha,
+                          horasTrabajadasDecimal: jornal.horasTrabajadasDecimal || 0,
+                          montoCobrado: jornal.montoCobrado || 0,
+                          observaciones: jornal.observaciones || '-'
+                        }));
+                        asignacionesActuales = [...asignacionesActuales, ...jornalesTransformados];
+                      } catch (error) {
+                        console.warn('⚠ No se pudieron cargar jornales diarios:', error.message);
+                      }
+
                       const obraEnriquecida = {
                         ...obra,
                         presupuestoNoCliente: presupuestoCompleto || obra.presupuestoNoCliente,
@@ -8326,6 +8349,30 @@ _V?lido por 30 d?as_
                                                 console.log('??"? Asignaciones actuales cargadas:', asignacionesActuales.length);
                                               } catch (error) {
                                                 console.warn(' No se pudieron cargar asignaciones:', error.message);
+                                              }
+
+                                              // ✅ CARGAR TAMBIÉN JORNALES DIARIOS
+                                              try {
+                                                const responseJornales = await listarJornalesPorObra(obra.id, empresaId);
+                                                const dataJornales = Array.isArray(responseJornales) ? responseJornales : (responseJornales?.data || []);
+                                                const jornalesTransformados = dataJornales.map(jornal => ({
+                                                  tipoAsignacion: 'JORNAL_DIARIO',
+                                                  asignacionId: `jornal-${jornal.id}`,
+                                                  jornalId: jornal.id,
+                                                  profesionalId: jornal.profesionalId,
+                                                  profesionalNombre: jornal.profesionalNombre || 'Sin nombre',
+                                                  profesionalTipo: jornal.profesionalTipo || 'EMPLEADO',
+                                                  rubroId: jornal.rubroId,
+                                                  rubroNombre: jornal.rubroNombre || 'Sin rubro',
+                                                  fecha: jornal.fecha,
+                                                  horasTrabajadasDecimal: jornal.horasTrabajadasDecimal || jornal.horasTrabajadas || 0,
+                                                  montoCobrado: jornal.montoCobrado || 0,
+                                                  observaciones: jornal.observaciones || ''
+                                                }));
+                                                asignacionesActuales = [...asignacionesActuales, ...jornalesTransformados];
+                                                console.log('✅ Jornales diarios agregados:', jornalesTransformados.length);
+                                              } catch (error) {
+                                                console.warn('⚠ No se pudieron cargar jornales diarios:', error.message);
                                               }
 
                                               const obraEnriquecida = {

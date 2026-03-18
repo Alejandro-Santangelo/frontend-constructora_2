@@ -582,115 +582,128 @@ const RegistrarPagoConsolidadoModal = ({
       }
 
       // 🆕  ** CARGAR PROFESIONALES ADICIONALES DESDE ASIGNACIONES DE JORNALES DIARIOS **
-      console.log('👷🆕 Cargando profesionales desde asignaciones de jornales diarios (modalidad JORNAL_DIARIO)...');
-      const { obtenerProfesionalesConsolidados } = await import('../services/profesionalesObraService');
+      console.log('👷🆕 Cargando profesionales desde jornales diarios directamente...');
+      const { listarJornalesPorObra } = await import('../services/jornalesDiariosService');
       
       let profesionalesJornalesDiarios = [];
-      try {
-        const respConsolidados = await obtenerProfesionalesConsolidados(empresaSeleccionada.id);
-        const datosConsolidados = respConsolidados.data || respConsolidados || [];
-        console.log(`✅ Recibidos ${datosConsolidados.length} profesionales consolidados desde endpoint`);
+      
+      // 🔥 Cargar jornales de cada obra seleccionada
+      const jornalesPorObraPromises = presupuestosUnicos.map(async (presupuesto) => {
+        try {
+          const obraId = presupuesto.obraId || presupuesto.obra_id;
+          if (!obraId) {
+            console.warn(`⚠️ Presupuesto ${presupuesto.id} no tiene obraId`);
+            return [];
+          }
 
-        // Aplanar estructura jerárquica: Profesional → Obras → Asignaciones
-        datosConsolidados.forEach(profesional => {
-          profesional.obras?.forEach(obra => {
-            // Filtrar solo obras que están en presupuestosUnicos (obras seleccionadas)
-            const obraSeleccionada = presupuestosUnicos.find(p => 
-              (p.obraId || p.obra_id) === obra.obraId
-            );
+          console.log(`🔍 Cargando jornales de obra ${obraId}...`);
+          const responseJornales = await listarJornalesPorObra(obraId, empresaSeleccionada.id);
+          const jornales = Array.isArray(responseJornales) ? responseJornales : (responseJornales?.data || []);
+          
+          console.log(`📦 Obra ${obraId}: ${jornales.length} jornales encontrados`);
 
-            if (!obraSeleccionada) {
-              console.log(`⏭️  Obra ${obra.obraId} (${obra.obraNombre}) no está seleccionada, omitiendo...`);
-              return;
+          if (jornales.length === 0) {
+            return [];
+          }
+
+          // Agrupar jornales por profesional para contar días y calcular totales
+          const jornalesPorProfesional = new Map();
+
+          jornales.forEach(jornal => {
+            const key = `obra${obraId}-prof${jornal.profesionalId}`;
+            
+            if (!jornalesPorProfesional.has(key)) {
+              jornalesPorProfesional.set(key, {
+                profesionalId: jornal.profesionalId,
+                profesionalNombre: jornal.profesionalNombre || 'Sin nombre',
+                profesionalTipo: jornal.profesionalTipo || 'EMPLEADO',
+                rubroId: jornal.rubroId,
+                rubroNombre: jornal.rubroNombre || 'Sin rubro',
+                jornales: [],
+                totalHoras: 0,
+                totalMonto: 0,
+                diasUnicos: new Set()
+              });
             }
 
-            obra.asignaciones?.forEach(asignacion => {
-              // Calcular importe (usar saldoPendiente si es negativo, significa se pagó de más, mostrar 0)
-              const saldoPendiente = asignacion.saldoPendiente || 0;
-              const importeCalculado = Math.max(0, asignacion.totalAsignado || 0);
-              const totalPagado = asignacion.totalPagado || 0;
-              
-              profesionalesJornalesDiarios.push({
-                asignacionId: asignacion.asignacionId,
-                profesionalId: profesional.profesionalId,
-                profesionalObraId: asignacion.asignacionId,
-                tipoProfesional: profesional.profesionalTipo || 'Sin tipo',
-                nombreProfesional: profesional.profesionalNombre,
-                importePorJornal: asignacion.importeJornal || 0,
-                totalJornales: asignacion.cantidadJornales || 0,
-                totalJornalesHabiles: asignacion.jornalesUtilizados || asignacion.cantidadJornales || 0,
-                totalDiasFeriados: 0,
-                presupuestoId: obraSeleccionada.id,
-                obraId: obra.obraId,
-                numeroPresupuesto: obraSeleccionada.numeroPresupuesto,
-                nombreObra: obra.obraNombre,
-                direccionObra: obra.direccionCompleta || '',
-                semanas: [], // Jornales diarios no tienen semanas
-                semanasTrabajadas: [],
-                uniqueId: `obra${obra.obraId}-prof${profesional.profesionalId}-jornal`,
-                cantidadJornales: asignacion.cantidadJornales || 0,
-                precioJornal: asignacion.importeJornal || 0,
-                precioTotal: importeCalculado,
-                importeCalculado: importeCalculado,
-                totalPagado: totalPagado,
-                saldo: saldoPendiente,
-                adelantosPendientes: 0,
-                tipo: profesional.profesionalTipo,
-                nombre: profesional.profesionalNombre,
-                diasTrabajados: asignacion.cantidadJornales || 0,
-                tarifaPorDia: asignacion.importeJornal || 0,
-                rubroNombre: asignacion.rubroNombre || 'Sin rubro',
-                rubroId: asignacion.rubroId,
-                modalidad: 'JORNAL_DIARIO' // Identificar que viene de jornales diarios
-              });
-            });
+            const profData = jornalesPorProfesional.get(key);
+            profData.jornales.push(jornal);
+            profData.totalHoras += jornal.horasTrabajadasDecimal || jornal.horasTrabajadas || 0;
+            profData.totalMonto += jornal.montoCobrado || 0;
+            
+            // Contar días únicos
+            if (jornal.fecha) {
+              profData.diasUnicos.add(jornal.fecha);
+            }
           });
-        });
 
-        console.log(`✅ Mapeados ${profesionalesJornalesDiarios.length} profesionales desde jornales diarios`);
-      } catch (errJornales) {
-        console.error('❌ Error cargando profesionales consolidados (jornales diarios):', errJornales);
-      }
+          // Convertir a array y calcular valores finales
+          const profesionalesJornales = Array.from(jornalesPorProfesional.values()).map(prof => {
+            const cantidadDias = prof.diasUnicos.size;
+            const tarifaDiaria = cantidadDias > 0 ? (prof.totalMonto / cantidadDias) : 0;
+
+            return {
+              asignacionId: null, // Jornales no tienen asignacionId único
+              profesionalId: prof.profesionalId,
+              profesionalObraId: null,
+              tipoProfesional: prof.profesionalTipo,
+              nombreProfesional: prof.profesionalNombre,
+              importePorJornal: tarifaDiaria,
+              totalJornales: cantidadDias,
+              totalJornalesHabiles: cantidadDias, // TODO: Filtrar por días hábiles si necesario
+              totalDiasFeriados: 0,
+              presupuestoId: presupuesto.id,
+              obraId: obraId,
+              numeroPresupuesto: presupuesto.numeroPresupuesto,
+              nombreObra: presupuesto.nombreObra,
+              direccionObra: `${presupuesto.direccionObraCalle || ''} ${presupuesto.direccionObraAltura || ''}`.trim(),
+              semanas: [],
+              semanasTrabajadas: [],
+              uniqueId: `obra${obraId}-prof${prof.profesionalId}-jornal`,
+              cantidadJornales: cantidadDias,
+              precioJornal: tarifaDiaria,
+              precioTotal: prof.totalMonto,
+              importeCalculado: prof.totalMonto,
+              totalPagado: 0, // Se cargará después
+              saldo: prof.totalMonto,
+              adelantosPendientes: 0,
+              tipo: prof.profesionalTipo,
+              nombre: prof.profesionalNombre,
+              diasTrabajados: cantidadDias,
+              tarifaPorDia: tarifaDiaria,
+              rubroNombre: prof.rubroNombre,
+              rubroId: prof.rubroId,
+              modalidad: 'JORNAL_DIARIO'
+            };
+          });
+
+          console.log(`✅ Procesados ${profesionalesJornales.length} profesionales desde jornales de obra ${obraId}`);
+          return profesionalesJornales;
+
+        } catch (error) {
+          console.error(`❌ Error cargando jornales de obra:`, error);
+          return [];
+        }
+      });
+
+      const jornalesPorObra = await Promise.all(jornalesPorObraPromises);
+      profesionalesJornalesDiarios = jornalesPorObra.flat();
+      
+      console.log(`✅ TOTAL profesionales desde jornales diarios: ${profesionalesJornalesDiarios.length}`);
 
       // 💰 CARGAR PAGOS INDIVIDUALES PARA PROFESIONALES DE JORNALES DIARIOS
       console.log(`💰 Cargando pagos individuales para ${profesionalesJornalesDiarios.length} profesionales de jornales diarios...`);
-      await Promise.all(profesionalesJornalesDiarios.map(async (prof, idx) => {
-        try {
-          const idParaBuscar = prof.asignacionId;
-          console.log(`💰 [${idx+1}/${profesionalesJornalesDiarios.length}] Buscando pagos individuales de ${prof.nombreProfesional} (asignacionId: ${idParaBuscar})`);
-
-          if (idParaBuscar && typeof idParaBuscar === 'number') {
-            const pagos = await listarPagosPorProfesional(idParaBuscar, empresaSeleccionada.id);
-            const pagosArray = Array.isArray(pagos) ? pagos : (pagos?.data || []);
-            console.log(`  📋 ${prof.nombreProfesional}: Encontrados ${pagosArray.length} pago(s) individual(es)`);
-
-            // Separar pagos normales de adelantos
-            const pagosSinAdelantos = pagosArray.filter(pago => !pago.esAdelanto);
-            const adelantosSeparados = pagosArray.filter(pago => pago.esAdelanto);
-
-            // Total Pagado INDIVIDUAL = solo pagos de este profesional
-            const totalPagadoIndividual = pagosSinAdelantos.reduce((sum, pago) => sum + (pago.montoFinal || pago.monto || 0), 0);
-
-            // Adelantos Pendientes INDIVIDUALES
-            const totalAdelantosIndividual = adelantosSeparados.reduce((sum, adelanto) => {
-              const saldoPendiente = adelanto.saldoAdelantoPorDescontar || adelanto.montoFinal || adelanto.monto || 0;
-              return sum + saldoPendiente;
-            }, 0);
-
-            // ✅ ACTUALIZAR con valores INDIVIDUALES (no del pool)
-            prof.totalPagado = totalPagadoIndividual;
-            prof.adelantosPendientes = totalAdelantosIndividual;
-            prof.saldo = prof.importeCalculado - totalPagadoIndividual;
-
-            console.log(`  💰 ${prof.nombreProfesional} INDIVIDUAL: Total=${prof.importeCalculado}, Pagado=${totalPagadoIndividual}, Adelantos=${totalAdelantosIndividual}, Saldo=${prof.saldo}`);
-          } else {
-            console.warn(`  ⚠️ ${prof.nombreProfesional}: No tiene ID válido para buscar pagos individuales`);
-            prof.adelantosPendientes = 0;
-          }
-        } catch (err) {
-          console.error(`  ❌ Error cargando pagos individuales de ${prof.nombreProfesional}:`, err);
-        }
-      }));
+      
+      // ⚠️ NOTA: Los jornales diarios no tienen asignacionId único, por ahora dejamos pagos en 0
+      // TODO: Implementar búsqueda de pagos por profesionalId + obraId para jornales
+      console.log(`⚠️  Los jornales diarios no tienen asignacionId, pagos se dejan en 0 por ahora`);
+      
+      profesionalesJornalesDiarios.forEach(prof => {
+        prof.totalPagado = 0;
+        prof.adelantosPendientes = 0;
+        prof.saldo = prof.importeCalculado;
+        console.log(`  📋 ${prof.nombreProfesional}: diasTrabajados=${prof.diasTrabajados}, tarifaPorDia=${prof.tarifaPorDia}, total=${prof.importeCalculado}`);
+      });
 
       // Combinar ambos arrays: profesionales semanales + profesionales jornales diarios
       const profesionalesCombinados = [...profesionales, ...profesionalesJornalesDiarios];
