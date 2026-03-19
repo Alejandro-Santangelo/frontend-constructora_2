@@ -19,6 +19,12 @@ const GestionPagosProfesionalesModal = ({
   // 🔑 Usar empresaId prop si existe, sino fallback al contexto
   const idEmpresaActual = empresaId || empresaSeleccionada?.id;
 
+  // 🔍 DEBUG: Log cada vez que cambia la empresa en el modal
+  useEffect(() => {
+    console.log('🔄 [MODAL PAGOS] EmpresaId cambió a:', idEmpresaActual);
+    console.log('🔄 [MODAL PAGOS] empresaSeleccionada:', empresaSeleccionada);
+  }, [idEmpresaActual, empresaSeleccionada]);
+
   // Estados principales
   const [profesionales, setProfesionales] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -67,6 +73,11 @@ const GestionPagosProfesionalesModal = ({
       console.warn('⚠️ No hay empresa seleccionada');
       return;
     }
+
+    // 🔍 DEBUG: Verificar qué empresaId se está usando
+    console.log('🏢 [MODAL PAGOS] Cargando profesionales para empresaId:', idEmpresaActual);
+    console.log('🏢 [MODAL PAGOS] empresaSeleccionada del contexto:', empresaSeleccionada);
+    console.log('🏢 [MODAL PAGOS] empresaId prop:', empresaId);
 
     setLoading(true);
     setError(null);
@@ -304,23 +315,9 @@ const GestionPagosProfesionalesModal = ({
         }
       });
       
-      // Actualizar estado local si el backend confirma
-      setPoolsRubros(prev => {
-        const pool = prev[poolKey];
-        if (!pool) return prev;
-
-        const nuevoDisponible = Number(nuevoTotal) - pool.importeAsignado;
-
-        return {
-          ...prev,
-          [poolKey]: {
-            ...pool,
-            importeTotal: Number(nuevoTotal),
-            importeDisponible: nuevoDisponible
-          }
-        };
-      });
-
+      // ✅ RECARGAR DATOS COMPLETOS del backend para sincronizar todos los valores
+      await cargarProfesionalesConsolidados();
+      
       setEditandoPool(null);
       setValorTemporalPool('');
       
@@ -328,7 +325,7 @@ const GestionPagosProfesionalesModal = ({
       setMensajeExito(`✅ Pool de ${rubroNombre} actualizado exitosamente`);
       setTimeout(() => setMensajeExito(null), 3000);
       
-      console.log('✅ Pool guardado exitosamente');
+      console.log('✅ Pool guardado y datos recargados exitosamente');
       
     } catch (err) {
       console.error('❌ Error al guardar pool:', err);
@@ -359,6 +356,19 @@ const GestionPagosProfesionalesModal = ({
     });
     
     return totalPresupuestoBase;
+  };
+
+  // 💰 Calcular saldo pendiente total de un profesional (suma de todos sus saldos pendientes)
+  const calcularSaldoPendienteProfesional = (profesional) => {
+    let totalSaldoPendiente = 0;
+    
+    profesional.obras?.forEach(obra => {
+      obra.asignaciones?.forEach(asig => {
+        totalSaldoPendiente += Number(asig.saldoPendiente || 0);
+      });
+    });
+    
+    return totalSaldoPendiente;
   };
 
   // Formatea jornales: si es entero muestra "2", si es fracción muestra "1.5"
@@ -428,6 +438,34 @@ const GestionPagosProfesionalesModal = ({
       totalPagado, 
       saldoDisponible 
     };
+  };
+
+  // 💰 Calcular totales agrupados POR RUBRO (para resumen por rubro)
+  const calcularTotalesPorRubro = () => {
+    const totalesPorRubro = {};
+
+    // Agrupar todos los pools por rubro
+    Object.values(poolsRubros).forEach(pool => {
+      const rubro = pool.rubroNombre;
+      
+      if (!totalesPorRubro[rubro]) {
+        totalesPorRubro[rubro] = {
+          rubroNombre: rubro,
+          presupuestoTotal: 0,
+          totalPagado: 0,
+          saldoDisponible: 0
+        };
+      }
+
+      totalesPorRubro[rubro].presupuestoTotal += Number(pool.importeTotal || 0);
+      totalesPorRubro[rubro].totalPagado += Number(pool.importePagado || 0);
+      totalesPorRubro[rubro].saldoDisponible += Number(pool.importeDisponible || 0);
+    });
+
+    // Convertir a array y ordenar alfabéticamente por nombre de rubro
+    return Object.values(totalesPorRubro).sort((a, b) => 
+      a.rubroNombre.localeCompare(b.rubroNombre)
+    );
   };
 
   // 💵 Calcular el total a pagar de todos los importes ingresados
@@ -750,7 +788,7 @@ const GestionPagosProfesionalesModal = ({
               </td>
               <td className="text-end">
                 <span className="fw-bold text-primary">
-                  {formatearMoneda(saldoDisponibleGlobal)}
+                  {formatearMoneda(asig.saldoPendiente || 0)}
                 </span>
               </td>
               <td className="text-center">
@@ -806,7 +844,7 @@ const GestionPagosProfesionalesModal = ({
     );
   };
 
-  const renderObrasDeProfesional = (obras, profesionalNombre, profesional, saldoDisponibleGlobal) => {
+  const renderObrasDeProfesional = (obras, profesionalNombre, profesional) => {
     if (!obras || obras.length === 0) {
       return (
         <Alert variant="warning" className="mb-0">
@@ -821,6 +859,9 @@ const GestionPagosProfesionalesModal = ({
         {obras.map((obra, idxObra) => {
           // 💰 Obtener rubros únicos de esta obra
           const rubrosUnicos = [...new Set(obra.asignaciones.map(a => a.rubroNombre))];
+          
+          // 💰 Calcular saldo pendiente total de esta obra específica
+          const saldoPendienteObra = obra.asignaciones.reduce((sum, asig) => sum + (Number(asig.saldoPendiente) || 0), 0);
 
           return (
             <div key={idxObra} className="obra-section mb-4 border rounded p-3 bg-light">
@@ -926,13 +967,13 @@ const GestionPagosProfesionalesModal = ({
                     {obra.totalAsignaciones || 0} asignaciones
                   </small>
                   <Badge bg="danger">
-                    Pendiente: {formatearMoneda(saldoDisponibleGlobal)}
+                    Pendiente: {formatearMoneda(saldoPendienteObra)}
                   </Badge>
                 </div>
               </div>
 
               {/* Tabla de Asignaciones de la Obra */}
-              {renderAsignacionesTable(obra.asignaciones, obra.obraNombre, saldoDisponibleGlobal)}
+              {renderAsignacionesTable(obra.asignaciones, obra.obraNombre, saldoPendienteObra)}
             </div>
           );
         })}
@@ -1014,46 +1055,110 @@ const GestionPagosProfesionalesModal = ({
                   <div className="card-body">
                     <h6 className="card-title text-primary mb-3">
                       <i className="bi bi-bar-chart-fill me-2"></i>
-                      Resumen General
+                      Resumen por Rubro
                     </h6>
-                    <div className="row text-center">
-                      <div className="col-md-2">
-                        <div className="border rounded p-2 bg-light">
-                          <h5 className="mb-1 text-primary">{totalesGenerales.totalProfesionales}</h5>
+                    
+                    {/* Contadores básicos - fila compacta */}
+                    <div className="row text-center mb-3">
+                      <div className="col-auto">
+                        <div className="border rounded p-2 bg-light d-flex align-items-center gap-2" style={{ fontSize: '0.9rem' }}>
+                          <i className="bi bi-people-fill text-primary"></i>
+                          <strong className="text-primary">{totalesGenerales.totalProfesionales}</strong>
                           <small className="text-muted">Profesionales</small>
                         </div>
                       </div>
-                      <div className="col-md-2">
-                        <div className="border rounded p-2 bg-light">
-                          <h5 className="mb-1 text-info">{totalesGenerales.totalObras}</h5>
+                      <div className="col-auto">
+                        <div className="border rounded p-2 bg-light d-flex align-items-center gap-2" style={{ fontSize: '0.9rem' }}>
+                          <i className="bi bi-building text-info"></i>
+                          <strong className="text-info">{totalesGenerales.totalObras}</strong>
                           <small className="text-muted">Obras</small>
                         </div>
                       </div>
-                      <div className="col-md-2">
-                        <div className="border rounded p-2 bg-light">
-                          <h5 className="mb-1 text-secondary">{totalesGenerales.totalAsignaciones}</h5>
+                      <div className="col-auto">
+                        <div className="border rounded p-2 bg-light d-flex align-items-center gap-2" style={{ fontSize: '0.9rem' }}>
+                          <i className="bi bi-list-check text-secondary"></i>
+                          <strong className="text-secondary">{totalesGenerales.totalAsignaciones}</strong>
                           <small className="text-muted">Asignaciones</small>
                         </div>
                       </div>
-                      <div className="col-md-2">
-                        <div className="border rounded p-2 bg-info bg-opacity-10">
-                          <h6 className="mb-1 text-info">{formatearMoneda(totalesGenerales.totalPresupuesto)}</h6>
-                          <small className="text-muted">Presupuesto Total</small>
-                        </div>
-                      </div>
-                      <div className="col-md-2">
-                        <div className="border rounded p-2 bg-success bg-opacity-10">
-                          <h6 className="mb-1 text-success">{formatearMoneda(totalesGenerales.totalPagado)}</h6>
-                          <small className="text-muted">Total Pagado</small>
-                        </div>
-                      </div>
-                      <div className="col-md-2">
-                        <div className="border rounded p-2 bg-primary bg-opacity-10">
-                          <h6 className="mb-1 text-primary">{formatearMoneda(totalesGenerales.saldoDisponible)}</h6>
-                          <small className="text-muted">Saldo Disponible</small>
-                        </div>
-                      </div>
                     </div>
+
+                    {/* Tabla de totales por rubro */}
+                    {calcularTotalesPorRubro().length === 0 ? (
+                      <Alert variant="info" className="mb-0">
+                        <i className="bi bi-info-circle me-2"></i>
+                        No hay rubros con asignaciones activas
+                      </Alert>
+                    ) : (
+                      <div className="table-responsive">
+                        <table className="table table-sm table-hover align-middle mb-0">
+                          <thead className="table-light">
+                            <tr>
+                              <th style={{ width: '30%' }}>
+                                <i className="bi bi-tag-fill me-2 text-primary"></i>
+                                Rubro
+                              </th>
+                              <th className="text-end" style={{ width: '23%' }}>
+                                <i className="bi bi-cash-stack me-1 text-info"></i>
+                                Presupuesto Total
+                              </th>
+                              <th className="text-end" style={{ width: '23%' }}>
+                                <i className="bi bi-check-circle-fill me-1 text-success"></i>
+                                Total Pagado
+                              </th>
+                              <th className="text-end" style={{ width: '24%' }}>
+                                <i className="bi bi-wallet2 me-1 text-primary"></i>
+                                Saldo Disponible
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {calcularTotalesPorRubro().map((rubro, idx) => (
+                              <tr key={idx}>
+                                <td>
+                                  <Badge bg="secondary" className="me-2">{idx + 1}</Badge>
+                                  <strong>{rubro.rubroNombre}</strong>
+                                </td>
+                                <td className="text-end">
+                                  <span className="badge bg-info bg-opacity-75 text-dark" style={{ fontSize: '0.9rem', fontWeight: '500' }}>
+                                    {formatearMoneda(rubro.presupuestoTotal)}
+                                  </span>
+                                </td>
+                                <td className="text-end">
+                                  <span className="badge bg-success bg-opacity-75 text-dark" style={{ fontSize: '0.9rem', fontWeight: '500' }}>
+                                    {formatearMoneda(rubro.totalPagado)}
+                                  </span>
+                                </td>
+                                <td className="text-end">
+                                  <span 
+                                    className={`badge ${rubro.saldoDisponible < 0 ? 'bg-danger' : 'bg-primary'} bg-opacity-75 ${rubro.saldoDisponible < 0 ? 'text-white' : 'text-dark'}`}
+                                    style={{ fontSize: '0.9rem', fontWeight: '500' }}
+                                  >
+                                    {formatearMoneda(rubro.saldoDisponible)}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                            {/* Fila de totales generales */}
+                            <tr className="table-primary fw-bold">
+                              <td>
+                                <i className="bi bi-calculator me-2"></i>
+                                <strong>TOTALES GENERALES</strong>
+                              </td>
+                              <td className="text-end">
+                                <strong>{formatearMoneda(totalesGenerales.totalPresupuesto)}</strong>
+                              </td>
+                              <td className="text-end">
+                                <strong>{formatearMoneda(totalesGenerales.totalPagado)}</strong>
+                              </td>
+                              <td className="text-end">
+                                <strong>{formatearMoneda(totalesGenerales.saldoDisponible)}</strong>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1174,14 +1279,14 @@ const GestionPagosProfesionalesModal = ({
                             <small className="text-muted">Ppto. Base</small>
                           </div>
                           <div className="text-center">
-                            <div className="fw-bold text-primary">{formatearMoneda(totalesGenerales.saldoDisponible)}</div>
+                            <div className="fw-bold text-primary">{formatearMoneda(calcularSaldoPendienteProfesional(prof))}</div>
                             <small className="text-muted">Pendiente</small>
                           </div>
                         </div>
                       </div>
                     </Accordion.Header>
                     <Accordion.Body className="bg-white">
-                      {renderObrasDeProfesional(prof.obras, prof.profesionalNombre, prof, totalesGenerales.saldoDisponible)}
+                      {renderObrasDeProfesional(prof.obras, prof.profesionalNombre, prof)}
                     </Accordion.Body>
                   </Accordion.Item>
                 ))}

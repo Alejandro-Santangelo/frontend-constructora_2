@@ -85,14 +85,17 @@ export function EmpresaProvider({ children }) {
   }, [empresaSeleccionada]);
 
   const setEmpresaSeleccionada = (empresa) => {
+    console.log('🏢 [CONTEXTO] setEmpresaSeleccionada llamado con:', empresa);
     setEmpresaSeleccionadaState(empresa);
 
     // Guardar en localStorage permanentemente
     if (empresa) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(empresa));
       setCurrentEmpresaId(empresa.id);
+      console.log('✅ [CONTEXTO] Empresa actualizada - ID:', empresa.id, 'Nombre:', empresa.nombre);
     } else {
       localStorage.removeItem(STORAGE_KEY);
+      console.log('🗑️ [CONTEXTO] Empresa eliminada');
     }
   };
 

@@ -304,7 +304,6 @@ const RubroSelector = ({
               .map(rubro => (
                 <option key={rubro.id} value={rubro.nombre}>
                   {rubro.nombre}
-                  {rubro.descripcion ? ` - ${rubro.descripcion.substring(0, 40)}` : ''}
                 </option>
               ))
             }
