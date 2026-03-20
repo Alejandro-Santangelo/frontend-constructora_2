@@ -98,6 +98,18 @@ const GestionPagosProfesionalesModal = ({
           primeraAsignacion: profesionalesData[0].obras?.[0]?.asignaciones?.[0],
           todosLosCamposDeAsignacion: Object.keys(profesionalesData[0].obras?.[0]?.asignaciones?.[0] || {})
         });
+        
+        // 🔍 DEBUG COMPLETO: Ver TODOS los datos de cada profesional
+        profesionalesData.forEach(prof => {
+          console.log(`\n📋 PROFESIONAL: ${prof.profesionalNombre} (ID: ${prof.profesionalId})`);
+          prof.obras?.forEach(obra => {
+            console.log(`  🏠 OBRA: ${obra.obraNombre} (ID: ${obra.obraId})`);
+            console.log(`     📊 Total asignaciones en esta obra: ${obra.asignaciones?.length || 0}`);
+            obra.asignaciones?.forEach((asig, idx) => {
+              console.log(`       ${idx + 1}. ${asig.rubroNombre} - Asig ID: ${asig.asignacionId}`);
+            });
+          });
+        });
       }
       
       setProfesionales(profesionalesData);

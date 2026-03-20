@@ -26,7 +26,7 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   const [success, setSuccess] = useState(null);
 
   // Nuevos estados para selector de profesionales
-  const [vistaSeleccion, setVistaSeleccion] = useState(false);
+  const [vistaSeleccion, setVistaSeleccion] = useState(true); // 🆕 Cambiado a true para siempre mostrar la vista con calendarios
   const [todosProfesionales, setTodosProfesionales] = useState([]);
   const [profesionalesSeleccionados, setProfesionalesSeleccionados] = useState([]);
   const [asignacionesPorProfesional, setAsignacionesPorProfesional] = useState({});
@@ -38,12 +38,61 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   const [fechasPorProfesional, setFechasPorProfesional] = useState({}); // { profesionalId: [{ fecha, fraccion }] }
   const [profesionalEditandoFechas, setProfesionalEditandoFechas] = useState(null);
   const [nuevaFecha, setNuevaFecha] = useState('');
+  const [ultimaFechaAgregada, setUltimaFechaAgregada] = useState(''); // Para recordar última fecha agregada
+  
+  // 🆕 Estados para selección de rango de fechas
+  const [modoSeleccion, setModoSeleccion] = useState('unica'); // 'unica' o 'rango'
+  const [fechaInicio, setFechaInicio] = useState('');
+  const [fechaFin, setFechaFin] = useState('');
+  const [incluirFinesSemana, setIncluirFinesSemana] = useState(true);
+  
+  // 🆕 Estado para fechas pendientes (acumulación antes de confirmar)
+  const [fechasPendientes, setFechasPendientes] = useState([]); // Array de strings YYYY-MM-DD
+
+  // 🆕 Estados para pestañas y agregar profesional manualmente
+  const [tabSeleccion, setTabSeleccion] = useState('lista'); // 'lista' o 'manual'
+  const [profesionalManual, setProfesionalManual] = useState({
+    nombre: '',
+    tipoProfesional: '',
+    honorario: '',
+    telefono: '',
+    email: ''
+  });
+  const [profesionalesTemporales, setProfesionalesTemporales] = useState([]);
+  const [guardarEnCatalogo, setGuardarEnCatalogo] = useState(false); // Para controlar si se guarda permanentemente
+
+  // 🇦🇷 Feriados de Argentina 2026
+  const feriadosArgentina2026 = [
+    '2026-01-01', // Año Nuevo
+    '2026-02-16', // Carnaval
+    '2026-02-17', // Carnaval
+    '2026-03-24', // Día Nacional de la Memoria por la Verdad y la Justicia
+    '2026-04-02', // Día del Veterano y de los Caídos en la Guerra de Malvinas
+    '2026-04-03', // Viernes Santo
+    '2026-05-01', // Día del Trabajador
+    '2026-05-25', // Día de la Revolución de Mayo
+    '2026-06-15', // Paso a la Inmortalidad del Gral. Martín Miguel de Güemes
+    '2026-06-20', // Paso a la Inmortalidad del Gral. Manuel Belgrano
+    '2026-07-09', // Día de la Independencia
+    '2026-08-17', // Paso a la Inmortalidad del Gral. José de San Martín (puente)
+    '2026-10-12', // Día del Respeto a la Diversidad Cultural
+    '2026-11-23', // Día de la Soberanía Nacional (puente)
+    '2026-12-08', // Día de la Inmaculada Concepción de María
+    '2026-12-25', // Navidad
+  ];
+
+  // Función para detectar si una fecha es feriado
+  const esFeriado = (fechaStr) => {
+    if (!fechaStr) return false;
+    return feriadosArgentina2026.includes(fechaStr);
+  };
 
   // Cargar profesionales asignados a la obra
   useEffect(() => {
     if (show && obra && empresaSeleccionada) {
       cargarProfesionalesAsignados();
       cargarRubros();
+      cargarTodosProfesionales(); // 🆕 Cargar todos los profesionales para la vista de selección
     }
   }, [show, obra, empresaSeleccionada]);
 
@@ -174,8 +223,10 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   };
 
   const handleVolverAFormulario = () => {
-    setVistaSeleccion(false);
+    // 🆕 Ya no volvemos a la vista antigua, simplemente limpiamos selección
+    // setVistaSeleccion(false); // ❌ ELIMINADO - siempre mantenemos la vista con calendarios
     setProfesionalesSeleccionados([]);
+    setFechasPorProfesional({}); // Limpiar fechas también
     // Recargar profesionales asignados y jornales
     cargarProfesionalesAsignados();
     cargarJornalesExistentes();
@@ -242,6 +293,76 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   const handleAbrirSelectorFechas = (profesionalId) => {
     setProfesionalEditandoFechas(profesionalId);
     setNuevaFecha(''); // No pre-cargar ninguna fecha, el usuario debe seleccionarla
+    setModoSeleccion('unica'); // Resetear a modo único al cambiar de profesional
+    setFechaInicio('');
+    setFechaFin('');
+    setFechasPendientes([]); // Limpiar fechas pendientes
+  };
+
+  // 🆕 Agregar fecha a la lista pendiente (modo único con acumulación)
+  const handleAgregarFechaPendiente = () => {
+    if (!nuevaFecha) {
+      setError('Debes seleccionar una fecha');
+      return;
+    }
+
+    // Verificar si ya está en pendientes
+    if (fechasPendientes.includes(nuevaFecha)) {
+      setError('Esta fecha ya está en la lista pendiente');
+      return;
+    }
+
+    // Verificar si ya está agregada al profesional
+    const fechasActuales = fechasPorProfesional[profesionalEditandoFechas] || [];
+    if (fechasActuales.some(f => f.fecha === nuevaFecha)) {
+      setError('Esta fecha ya está agregada al profesional');
+      return;
+    }
+
+    // Agregar a pendientes
+    setFechasPendientes(prev => [...prev, nuevaFecha]);
+    setUltimaFechaAgregada(nuevaFecha);
+    setNuevaFecha(''); // Limpiar input para siguiente selección
+  };
+
+  // 🆕 Confirmar todas las fechas pendientes
+  const handleConfirmarFechasPendientes = () => {
+    if (fechasPendientes.length === 0) {
+      setError('No hay fechas pendientes para confirmar');
+      return;
+    }
+
+    if (!profesionalEditandoFechas) {
+      setError('Error: no hay profesional seleccionado');
+      return;
+    }
+
+    setFechasPorProfesional(prev => {
+      const fechasActuales = prev[profesionalEditandoFechas] || [];
+      const nuevasFechas = fechasPendientes.map(fecha => ({ fecha, fraccion: 1.0 }));
+
+      return {
+        ...prev,
+        [profesionalEditandoFechas]: [...fechasActuales, ...nuevasFechas]
+      };
+    });
+
+    const cantidadFeriados = fechasPendientes.filter(f => esFeriado(f)).length;
+    setSuccess(`✅ ${fechasPendientes.length} fecha${fechasPendientes.length > 1 ? 's' : ''} confirmada${fechasPendientes.length > 1 ? 's' : ''}${cantidadFeriados > 0 ? ` (incluye ${cantidadFeriados} feriado${cantidadFeriados > 1 ? 's' : ''})` : ''}`);
+    setTimeout(() => setSuccess(null), 4000);
+
+    // Limpiar pendientes
+    setFechasPendientes([]);
+  };
+
+  // 🆕 Limpiar fechas pendientes
+  const handleLimpiarFechasPendientes = () => {
+    setFechasPendientes([]);
+  };
+
+  // 🆕 Eliminar una fecha específica de pendientes
+  const handleEliminarFechaPendiente = (fechaAEliminar) => {
+    setFechasPendientes(prev => prev.filter(f => f !== fechaAEliminar));
   };
 
   const handleAgregarFecha = () => {
@@ -262,7 +383,140 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
       };
     });
 
+    // 🆕 Guardar como última fecha agregada para reutilizar
+    setUltimaFechaAgregada(nuevaFecha);
     setNuevaFecha('');
+  };
+
+  // 🆕 Agregar rango de fechas a pendientes
+  const handleAgregarRangoFechas = () => {
+    if (!fechaInicio || !fechaFin || !profesionalEditandoFechas) {
+      setError('Debes seleccionar fecha de inicio y fin');
+      return;
+    }
+
+    const inicio = new Date(fechaInicio + 'T00:00:00');
+    const fin = new Date(fechaFin + 'T00:00:00');
+
+    if (inicio > fin) {
+      setError('La fecha de inicio debe ser anterior o igual a la fecha de fin');
+      return;
+    }
+
+    // Generar todas las fechas del rango
+    const fechasARango = [];
+    const fechaActual = new Date(inicio);
+
+    while (fechaActual <= fin) {
+      const diaSemana = fechaActual.getDay(); // 0 = domingo, 6 = sábado
+      const esFindeSemana = diaSemana === 0 || diaSemana === 6;
+
+      // Solo agregar si incluye fines de semana, o si no es fin de semana
+      if (incluirFinesSemana || !esFindeSemana) {
+        // Formato YYYY-MM-DD
+        const fechaStr = fechaActual.toISOString().split('T')[0];
+        fechasARango.push(fechaStr);
+      }
+
+      // Avanzar al siguiente día
+      fechaActual.setDate(fechaActual.getDate() + 1);
+    }
+
+    if (fechasARango.length === 0) {
+      setError('No hay fechas válidas en el rango seleccionado (probablemente todos son fines de semana)');
+      return;
+    }
+
+    // Verificar duplicados con fechas ya agregadas y pendientes
+    const fechasActuales = fechasPorProfesional[profesionalEditandoFechas] || [];
+    const fechasExistentes = new Set(fechasActuales.map(f => f.fecha));
+    const fechasPendientesSet = new Set(fechasPendientes);
+
+    // Filtrar fechas ya existentes y pendientes
+    const fechasNuevas = fechasARango
+      .filter(fecha => !fechasExistentes.has(fecha) && !fechasPendientesSet.has(fecha));
+
+    if (fechasNuevas.length === 0) {
+      setError('Todas las fechas del rango ya están agregadas o pendientes');
+      return;
+    }
+
+    // Agregar a pendientes
+    setFechasPendientes(prev => [...prev, ...fechasNuevas]);
+
+    const cantidadFeriadosEnRango = fechasNuevas.filter(f => esFeriado(f)).length;
+
+    setSuccess(`✅ ${fechasNuevas.length} fecha${fechasNuevas.length > 1 ? 's' : ''} agregada${fechasNuevas.length > 1 ? 's' : ''} a la lista${cantidadFeriadosEnRango > 0 ? ` (incluye ${cantidadFeriadosEnRango} feriado${cantidadFeriadosEnRango > 1 ? 's' : ''})` : ''}`);
+    setTimeout(() => setSuccess(null), 4000);
+
+    // Limpiar inputs
+    setFechaInicio('');
+    setFechaFin('');
+  };
+
+  // Agregar rango directamente (sin pasar por lista pendiente)
+  const handleAgregarRangoFechasDirecto = () => {
+    if (!fechaInicio || !fechaFin) {
+      setError('Debes seleccionar fecha de inicio y fin');
+      return;
+    }
+
+    const inicio = new Date(fechaInicio + 'T00:00:00');
+    const fin = new Date(fechaFin + 'T00:00:00');
+
+    if (inicio > fin) {
+      setError('La fecha de inicio debe ser anterior o igual a la fecha de fin');
+      return;
+    }
+
+    // Generar todas las fechas del rango
+    const fechasARango = [];
+    const fechaActual = new Date(inicio);
+
+    while (fechaActual <= fin) {
+      const diaSemana = fechaActual.getDay();
+      const esFindeSemana = diaSemana === 0 || diaSemana === 6;
+
+      if (incluirFinesSemana || !esFindeSemana) {
+        const fechaStr = fechaActual.toISOString().split('T')[0];
+        fechasARango.push(fechaStr);
+      }
+
+      fechaActual.setDate(fechaActual.getDate() + 1);
+    }
+
+    if (fechasARango.length === 0) {
+      setError('No hay fechas válidas en el rango seleccionado');
+      return;
+    }
+
+    // Verificar duplicados solo con fechas ya agregadas
+    const fechasActuales = fechasPorProfesional[profesionalEditandoFechas] || [];
+    const fechasExistentes = new Set(fechasActuales.map(f => f.fecha));
+
+    const fechasNuevas = fechasARango.filter(fecha => !fechasExistentes.has(fecha));
+
+    if (fechasNuevas.length === 0) {
+      setError('Todas las fechas del rango ya están agregadas');
+      return;
+    }
+
+    // Agregar directamente con fracción 1 (día completo)
+    const nuevasFechasConFraccion = fechasNuevas.map(fecha => ({ fecha, fraccion: 1 }));
+
+    setFechasPorProfesional(prev => ({
+      ...prev,
+      [profesionalEditandoFechas]: [...(prev[profesionalEditandoFechas] || []), ...nuevasFechasConFraccion]
+    }));
+
+    const cantidadFeriadosEnRango = fechasNuevas.filter(f => esFeriado(f)).length;
+
+    setSuccess(`✅ ${fechasNuevas.length} fecha${fechasNuevas.length > 1 ? 's' : ''} agregada${fechasNuevas.length > 1 ? 's' : ''} directamente${cantidadFeriadosEnRango > 0 ? ` (incluye ${cantidadFeriadosEnRango} feriado${cantidadFeriadosEnRango > 1 ? 's' : ''})` : ''}`);
+    setTimeout(() => setSuccess(null), 4000);
+
+    // Limpiar inputs
+    setFechaInicio('');
+    setFechaFin('');
   };
 
   const handleEliminarFecha = (profesionalId, fechaAEliminar) => {
@@ -423,123 +677,134 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
     }
   };
 
-  const handleHorasChange = (profesionalId, horas) => {
-    setJornalesDelDia(prev => ({
-      ...prev,
-      [profesionalId]: {
-        ...prev[profesionalId],
-        horasTrabajadasDecimal: horas
-      }
-    }));
-  };
-
-  const handleObservacionesChange = (profesionalId, observaciones) => {
-    setJornalesDelDia(prev => ({
-      ...prev,
-      [profesionalId]: {
-        ...prev[profesionalId],
-        observaciones: observaciones
-      }
-    }));
-  };
-
-  const handleRubroChange = (profesionalId, nombreRubro) => {
-    const rubroEncontrado = rubros.find(r => r.nombreRubro === nombreRubro);
-    setJornalesDelDia(prev => ({
-      ...prev,
-      [profesionalId]: {
-        ...prev[profesionalId],
-        rubroId: rubroEncontrado ? rubroEncontrado.id : null,
-        rubroNombre: nombreRubro
-      }
-    }));
-  };
-
-  const handleGuardar = async () => {
-    setGuardando(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const jornalesAGuardar = Object.entries(jornalesDelDia)
-        .filter(([_, data]) => data.horasTrabajadasDecimal && parseFloat(data.horasTrabajadasDecimal) > 0)
-        .map(([profesionalId, data]) => ({
-          profesionalId: parseInt(profesionalId),
-          obraId: obra.id,
-          fecha: fecha,
-          horasTrabajadasDecimal: parseFloat(data.horasTrabajadasDecimal),
-          observaciones: data.observaciones || null,
-          rubroId: data.rubroId || null
-        }));
-
-      if (jornalesAGuardar.length === 0) {
-        setError('Debe ingresar al menos un jornal con horas trabajadas');
-        setGuardando(false);
-        return;
-      }
-
-      let creados = 0;
-      let actualizados = 0;
-      let errores = 0;
-
-      for (const jornal of jornalesAGuardar) {
-        try {
-          // Verificar si ya existe un jornal para ese profesional en esa fecha
-          const jornalExistente = jornalesExistentes.find(
-            j => j.profesionalId === jornal.profesionalId && j.fecha === jornal.fecha
-          );
-
-          if (jornalExistente) {
-            // Actualizar
-            await jornalesService.actualizarJornalDiario(
-              jornalExistente.id,
-              jornal,
-              empresaSeleccionada.id
-            );
-            actualizados++;
-          } else {
-            // Crear nuevo
-            await jornalesService.crearJornalDiario(jornal, empresaSeleccionada.id);
-            creados++;
-          }
-        } catch (err) {
-          console.error('❌ Error al guardar jornal:', err);
-          errores++;
-        }
-      }
-
-      if (errores === 0) {
-        setSuccess(`✅ Jornales guardados: ${creados} nuevos, ${actualizados} actualizados`);
-        if (onJornalCreado) {
-          onJornalCreado();
-        }
-        setTimeout(() => {
-          onHide();
-        }, 1500);
-      } else {
-        setError(`⚠️ Se guardaron algunos jornales pero ${errores} tuvieron errores`);
-      }
-    } catch (err) {
-      console.error('❌ Error al guardar jornales:', err);
-      setError('Error al guardar los jornales: ' + (err.message || 'Error desconocido'));
-    } finally {
-      setGuardando(false);
-    }
-  };
+  // 🆕 ELIMINADOS: handleHorasChange, handleObservacionesChange, handleRubroChange, handleGuardar
+  // (Eran de la vista antigua que fue eliminada)
 
   const handleClose = () => {
-    setJornalesDelDia({});
+    // 🆕 Limpiar todos los estados
     setJornalesExistentes([]);
     setError(null);
     setSuccess(null);
-    setVistaSeleccion(false);
     setProfesionalesSeleccionados([]);
     setRubros([]);
     // NUEVO: Limpiar estados de multi-fecha
     setFechasPorProfesional({});
     setProfesionalEditandoFechas(null);
     setNuevaFecha('');
+    setFechasPendientes([]);
+    setProfesionalManual({ nombre: '', tipoProfesional: '', honorario: '', telefono: '', email: '' });
+    setProfesionalesTemporales([]);
+    setGuardarEnCatalogo(false);
     onHide();
+  };
+
+  // 🆕 Funciones para agregar profesional manualmente
+  const handleCambiarProfesionalManual = (campo, valor) => {
+    setProfesionalManual(prev => ({ ...prev, [campo]: valor }));
+  };
+
+  const handleAgregarProfesionalManual = async () => {
+    // Validaciones
+    if (!profesionalManual.nombre.trim()) {
+      setError('El nombre del profesional es obligatorio');
+      return;
+    }
+    if (!profesionalManual.tipoProfesional.trim()) {
+      setError('El tipo de profesional es obligatorio');
+      return;
+    }
+
+    try {
+      let nuevoProfesional;
+
+      if (guardarEnCatalogo) {
+        // 🆕 GUARDAR EN CATÁLOGO PERMANENTE (BD)
+        setGuardando(true);
+        setError(null);
+
+        const profesionalDTO = {
+          nombre: profesionalManual.nombre.trim(),
+          tipoProfesional: profesionalManual.tipoProfesional.trim(),
+          honorarioDia: parseFloat(profesionalManual.honorario) || 0,
+          telefono: profesionalManual.telefono?.trim() || null,
+          email: profesionalManual.email?.trim() || null,
+          empresaId: empresaSeleccionada.id,
+          activo: true,
+          categoria: 'INDEPENDIENTE'
+        };
+
+        console.log('📤 Creando profesional permanente:', profesionalDTO);
+
+        const response = await api.post('/api/profesionales', profesionalDTO, {
+          headers: {
+            'empresaId': empresaSeleccionada.id.toString()
+          }
+        });
+
+        console.log('📥 Respuesta completa del backend:', response);
+        console.log('📥 response.data:', response.data);
+
+        // Manejar diferentes formatos de respuesta
+        const profesionalData = response.data || response;
+
+        if (!profesionalData) {
+          throw new Error('El backend no devolvió datos del profesional creado');
+        }
+
+        nuevoProfesional = {
+          id: profesionalData.id,
+          nombre: profesionalData.nombre,
+          tipoProfesional: profesionalData.tipoProfesional,
+          honorario: profesionalData.honorarioDia || profesionalData.honorario || 0,
+          telefono: profesionalData.telefono,
+          email: profesionalData.email,
+          temporal: false // 🔥 NO es temporal, está en la BD
+        };
+
+        console.log('✅ Profesional creado en BD:', nuevoProfesional);
+        setSuccess(`✅ Profesional "${nuevoProfesional.nombre}" guardado permanentemente en el catálogo`);
+      } else {
+        // 📋 AGREGAR SOLO COMO TEMPORAL (sin guardar en BD)
+        nuevoProfesional = {
+          id: `temp-${Date.now()}`,
+          nombre: profesionalManual.nombre,
+          tipoProfesional: profesionalManual.tipoProfesional,
+          honorario: parseFloat(profesionalManual.honorario) || 0,
+          telefono: profesionalManual.telefono || null,
+          email: profesionalManual.email || null,
+          temporal: true
+        };
+
+        setProfesionalesTemporales(prev => [...prev, nuevoProfesional]);
+        setSuccess(`Profesional "${nuevoProfesional.nombre}" agregado temporalmente (no se guardó en catálogo)`);
+      }
+
+      // Agregar a la lista de profesionales disponibles
+      setTodosProfesionales(prev => [...prev, nuevoProfesional]);
+
+      // Limpiar formulario
+      setProfesionalManual({
+        nombre: '',
+        tipoProfesional: '',
+        honorario: '',
+        telefono: '',
+        email: ''
+      });
+      setGuardarEnCatalogo(false); // Reset checkbox
+
+      setTimeout(() => setSuccess(null), 4000);
+    } catch (error) {
+      console.error('❌ Error al agregar profesional:', error);
+      setError(error.response?.data?.message || 'Error al guardar el profesional en el catálogo');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const handleEliminarProfesionalTemporal = (id) => {
+    setProfesionalesTemporales(prev => prev.filter(p => p.id !== id));
+    setTodosProfesionales(prev => prev.filter(p => p.id !== id));
+    setProfesionalesSeleccionados(prev => prev.filter(p => p.id !== id));
   };
 
   const calcularMontoCobrado = (profesional, horas) => {
@@ -579,27 +844,7 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
         )}
 
         {/* Tabla de Profesionales */}
-        {!loading && profesionalesAsignados.length === 0 && !vistaSeleccion && (
-          <div>
-            <Alert variant="warning">
-              <i className="fas fa-exclamation-triangle me-2"></i>
-              No hay profesionales asignados a esta obra para esta fecha.
-            </Alert>
-            <div className="text-center mb-3">
-              <Button
-                variant="success"
-                size="lg"
-                onClick={handleAbrirSelectorProfesionales}
-              >
-                <i className="fas fa-user-plus me-2"></i>
-                Asignar profesionales para este día
-              </Button>
-              <p className="text-muted mt-2">
-                <small>Selecciona profesionales existentes o créalos nuevos</small>
-              </p>
-            </div>
-          </div>
-        )}
+        {/* 🆕 Eliminada la vista antigua - ahora siempre se usa la vista con calendarios y tabs */}
 
         {/* Vista de Selección de Profesionales */}
         {vistaSeleccion && (
@@ -610,22 +855,63 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                 Seleccionar Profesionales ({profesionalesSeleccionados.length} seleccionados)
               </h6>
               <Button variant="outline-secondary" size="sm" onClick={handleVolverAFormulario}>
-                <i className="fas fa-arrow-left me-2"></i>
-                Volver
+                <i className="fas fa-redo me-2"></i>
+                Limpiar Selección
               </Button>
             </div>
 
-            {loading ? (
-              <div className="text-center py-4">
-                <Spinner animation="border" variant="primary" />
-                <p className="mt-2">Cargando profesionales...</p>
-              </div>
-            ) : (
+            {/* 🆕 Pestañas: Seleccionar de Lista / Agregar Manualmente */}
+            <ul className="nav nav-pills mb-4">
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${tabSeleccion === 'lista' ? 'active' : ''}`}
+                  style={{
+                    background: tabSeleccion === 'lista'
+                      ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
+                      : 'transparent',
+                    color: tabSeleccion === 'lista' ? '#fff' : '#6c757d',
+                    border: tabSeleccion === 'lista' ? 'none' : '1px solid #dee2e6',
+                    fontWeight: 600
+                  }}
+                  onClick={() => setTabSeleccion('lista')}
+                >
+                  <i className="fas fa-list me-2"></i>
+                  Seleccionar de Lista
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${tabSeleccion === 'manual' ? 'active' : ''}`}
+                  style={{
+                    background: tabSeleccion === 'manual'
+                      ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
+                      : 'transparent',
+                    color: tabSeleccion === 'manual' ? '#fff' : '#6c757d',
+                    border: tabSeleccion === 'manual' ? 'none' : '1px solid #dee2e6',
+                    fontWeight: 600
+                  }}
+                  onClick={() => setTabSeleccion('manual')}
+                >
+                  <i className="fas fa-user-plus me-2"></i>
+                  Agregar Manualmente
+                </button>
+              </li>
+            </ul>
+
+            {/* Contenido de la pestaña "Seleccionar de Lista" */}
+            {tabSeleccion === 'lista' && (
               <>
-                <Alert variant="info">
-                  <strong>Instrucciones:</strong> Selecciona los profesionales que trabajaron este día.
-                  Puedes ajustar la fracción de jornada (1.0 = día completo, 0.5 = medio día) y la tarifa diaria si es necesario.
-                </Alert>
+                {loading ? (
+                  <div className="text-center py-4">
+                    <Spinner animation="border" variant="primary" />
+                    <p className="mt-2">Cargando profesionales...</p>
+                  </div>
+                ) : (
+                  <>
+                    <Alert variant="info">
+                      <strong>Instrucciones:</strong> Selecciona los profesionales que trabajaron este día.
+                      Puedes ajustar la fracción de jornada (1.0 = día completo, 0.5 = medio día) y la tarifa diaria si es necesario.
+                    </Alert>
 
                 <Table bordered hover responsive>
                   <thead className="table-light">
@@ -796,36 +1082,229 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                   </div>
 
                                   {/* NUEVO: Botón para agregar más fechas */}
-                                  <div className="d-flex gap-1">
-                                    <Form.Control
-                                      type="date"
-                                      size="sm"
-                                      value={profesionalEditandoFechas === prof.id ? nuevaFecha : ''}
-                                      onChange={(e) => {
-                                        setProfesionalEditandoFechas(prof.id);
-                                        setNuevaFecha(e.target.value);
-                                      }}
-                                      style={{ width: '140px' }}
-                                    />
-                                    <Button
-                                      size="sm"
-                                      variant="outline-primary"
-                                      onClick={() => {
-                                        handleAbrirSelectorFechas(prof.id);
-                                        handleAgregarFecha();
-                                      }}
-                                      disabled={!nuevaFecha || profesionalEditandoFechas !== prof.id}
-                                      style={{ whiteSpace: 'nowrap' }}
-                                    >
-                                      <i className="fas fa-plus me-1"></i>Agregar
-                                    </Button>
-                                  </div>
+                                  <div className="d-flex gap-2 align-items-start flex-column">
+                                    {/* Botones de modo de selección */}
+                                    <div className="btn-group btn-group-sm" role="group">
+                                      <button
+                                        type="button"
+                                        className={`btn ${modoSeleccion === 'unica' && profesionalEditandoFechas === prof.id ? 'btn-primary' : 'btn-outline-secondary'}`}
+                                        onClick={() => {
+                                          setProfesionalEditandoFechas(prof.id);
+                                          setModoSeleccion('unica');
+                                        }}
+                                      >
+                                        <i className="fas fa-calendar-day me-1"></i>Fecha única
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`btn ${modoSeleccion === 'rango' && profesionalEditandoFechas === prof.id ? 'btn-primary' : 'btn-outline-secondary'}`}
+                                        onClick={() => {
+                                          setProfesionalEditandoFechas(prof.id);
+                                          setModoSeleccion('rango');
+                                        }}
+                                      >
+                                        <i className="fas fa-calendar-week me-1"></i>Rango de fechas
+                                      </button>
+                                    </div>
 
-                                  {fechasProf.length === 0 && (
-                                    <small className="text-danger d-block mt-1">
-                                      ⚠️ Agrega al menos una fecha
-                                    </small>
-                                  )}
+                                    {/* Modo: Fecha única */}
+                                    {modoSeleccion === 'unica' && profesionalEditandoFechas === prof.id && (
+                                      <div className="d-flex gap-1">
+                                        <div className="position-relative">
+                                          <Form.Control
+                                            type="date"
+                                            size="sm"
+                                            value={nuevaFecha}
+                                            onChange={(e) => setNuevaFecha(e.target.value)}
+                                            onFocus={(e) => {
+                                              // Si está vacío, pre-cargar con la última fecha agregada
+                                              if (!nuevaFecha && ultimaFechaAgregada) {
+                                                setNuevaFecha(ultimaFechaAgregada);
+                                              }
+                                            }}
+                                            style={{ 
+                                              width: '140px',
+                                              borderColor: esFeriado(nuevaFecha) ? '#ffc107' : undefined
+                                            }}
+                                            title={esFeriado(nuevaFecha) ? '🇦🇷 Feriado Nacional' : ''}
+                                          />
+                                          {esFeriado(nuevaFecha) && (
+                                            <Badge 
+                                              bg="warning" 
+                                              text="dark"
+                                              className="position-absolute"
+                                              style={{ 
+                                                top: '-8px', 
+                                                right: '-8px',
+                                                fontSize: '0.65rem',
+                                                padding: '2px 5px'
+                                              }}
+                                            >
+                                              🇦🇷 Feriado
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          variant="success"
+                                          onClick={() => {
+                                            handleAbrirSelectorFechas(prof.id);
+                                            handleAgregarFecha();
+                                          }}
+                                          disabled={!nuevaFecha}
+                                          style={{ whiteSpace: 'nowrap' }}
+                                        >
+                                          <i className="fas fa-check me-1"></i>Agregar
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline-primary"
+                                          onClick={() => {
+                                            handleAbrirSelectorFechas(prof.id);
+                                            handleAgregarFechaPendiente();
+                                          }}
+                                          disabled={!nuevaFecha}
+                                          style={{ whiteSpace: 'nowrap' }}
+                                        >
+                                          <i className="fas fa-list me-1"></i>+ A lista
+                                        </Button>
+                                      </div>
+                                    )}
+
+                                    {/* Modo: Rango de fechas */}
+                                    {modoSeleccion === 'rango' && profesionalEditandoFechas === prof.id && (
+                                      <div className="d-flex flex-column gap-2" style={{ width: '100%' }}>
+                                        <div className="d-flex gap-1 align-items-center flex-wrap">
+                                          <div>
+                                            <small className="text-muted d-block" style={{ fontSize: '0.7rem' }}>Desde</small>
+                                            <Form.Control
+                                              type="date"
+                                              size="sm"
+                                              value={fechaInicio}
+                                              onChange={(e) => {
+                                                const nuevaFechaInicio = e.target.value;
+                                                setFechaInicio(nuevaFechaInicio);
+                                                // Auto-llenar fechaFin con la misma fecha
+                                                if (nuevaFechaInicio && !fechaFin) {
+                                                  setFechaFin(nuevaFechaInicio);
+                                                }
+                                              }}
+                                              style={{ width: '140px' }}
+                                            />
+                                          </div>
+                                          <div>
+                                            <small className="text-muted d-block" style={{ fontSize: '0.7rem' }}>Hasta</small>
+                                            <Form.Control
+                                              type="date"
+                                              size="sm"
+                                              value={fechaFin}
+                                              onChange={(e) => setFechaFin(e.target.value)}
+                                              style={{ width: '140px' }}
+                                            />
+                                          </div>
+                                          <Button
+                                            size="sm"
+                                            variant="success"
+                                            onClick={handleAgregarRangoFechasDirecto}
+                                            disabled={!fechaInicio || !fechaFin}
+                                            style={{ whiteSpace: 'nowrap', marginTop: '18px' }}
+                                          >
+                                            <i className="fas fa-check me-1"></i>Agregar Rango
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline-primary"
+                                            onClick={handleAgregarRangoFechas}
+                                            disabled={!fechaInicio || !fechaFin}
+                                            style={{ whiteSpace: 'nowrap', marginTop: '18px' }}
+                                          >
+                                            <i className="fas fa-list me-1"></i>+ A lista
+                                          </Button>
+                                        </div>
+                                        <div className="form-check">
+                                          <input
+                                            className="form-check-input"
+                                            type="checkbox"
+                                            id={`incluirFinesSemana-${prof.id}`}
+                                            checked={incluirFinesSemana}
+                                            onChange={(e) => setIncluirFinesSemana(e.target.checked)}
+                                          />
+                                          <label className="form-check-label small" htmlFor={`incluirFinesSemana-${prof.id}`}>
+                                            <i className="fas fa-calendar-week me-1"></i>
+                                            Incluir sábados y domingos
+                                          </label>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Visualización de fechas pendientes (acumuladas antes de confirmar) */}
+                                    {profesionalEditandoFechas === prof.id && fechasPendientes.length > 0 && (
+                                      <div className="mt-3 p-2 bg-light border rounded">
+                                        <div className="d-flex justify-content-between align-items-center mb-2">
+                                          <small className="text-muted fw-bold">
+                                            <i className="fas fa-clock me-1"></i>
+                                            Fechas pendientes por confirmar:
+                                          </small>
+                                          <button
+                                            className="btn btn-sm btn-outline-secondary py-0 px-1"
+                                            onClick={handleLimpiarFechasPendientes}
+                                            style={{ fontSize: '0.7rem' }}
+                                            title="Limpiar todas las fechas pendientes"
+                                          >
+                                            <i className="fas fa-trash me-1"></i>Limpiar
+                                          </button>
+                                        </div>
+                                        <div className="d-flex flex-wrap gap-1 mb-2">
+                                          {fechasPendientes.map((fecha) => (
+                                            <Badge 
+                                              key={fecha} 
+                                              bg="primary" 
+                                              className="d-flex align-items-center gap-1"
+                                              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                                            >
+                                              📅 {new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { 
+                                                day: '2-digit', 
+                                                month: '2-digit',
+                                                year: '2-digit'
+                                              })}
+                                              {esFeriado(fecha) && (
+                                                <span title="Feriado Nacional">🇦🇷</span>
+                                              )}
+                                              <button
+                                                className="btn btn-sm p-0 text-white"
+                                                style={{ 
+                                                  background: 'none', 
+                                                  border: 'none',
+                                                  fontSize: '0.9rem',
+                                                  lineHeight: '1',
+                                                  marginLeft: '2px'
+                                                }}
+                                                onClick={() => handleEliminarFechaPendiente(fecha)}
+                                                title="Quitar de la lista"
+                                              >
+                                                ✕
+                                              </button>
+                                            </Badge>
+                                          ))}
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          variant="success"
+                                          onClick={handleConfirmarFechasPendientes}
+                                          className="w-100"
+                                        >
+                                          <i className="fas fa-check me-1"></i>
+                                          ✓ Confirmar {fechasPendientes.length} fecha{fechasPendientes.length !== 1 ? 's' : ''}
+                                        </Button>
+                                      </div>
+                                    )}
+
+                                    {fechasProf.length === 0 && (
+                                      <small className="text-danger d-block">
+                                        ⚠️ Agrega al menos una fecha
+                                      </small>
+                                    )}
+                                  </div>
                                 </div>
                               ) : (
                                 <span className="text-muted">-</span>
@@ -878,98 +1357,192 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                 )}
               </>
             )}
-          </div>
+          </>
         )}
 
-        {!loading && profesionalesAsignados.length > 0 && !vistaSeleccion && (
-          <>
-            <div className="mb-3 d-flex justify-content-between align-items-center">
-              <div>
-                <h6 className="text-muted mb-1">
-                  <i className="fas fa-users me-2"></i>
-                  Profesionales Disponibles para Asignar ({profesionalesAsignados.length})
-                </h6>
-                <small className="text-muted">
-                  <strong>Jornadas:</strong> 0.25 = 1/4 día&nbsp;·&nbsp;0.5 = medio día&nbsp;·&nbsp;0.75 = 3/4 día&nbsp;·&nbsp;1.0 = día completo&nbsp;·&nbsp;5.0 = semana completa&nbsp;·&nbsp;ingresá el número que corresponda
-                </small>
-              </div>
-              <Button
-                variant="outline-success"
-                size="sm"
-                onClick={handleAbrirSelectorProfesionales}
-              >
-                <i className="fas fa-user-plus me-2"></i>
-                Agregar Más Profesionales
-              </Button>
-            </div>
+            {/* Contenido de la pestaña "Agregar Manualmente" */}
+            {tabSeleccion === 'manual' && (
+              <>
+                <Alert variant="info" className="mb-3">
+                  <i className="fas fa-lightbulb me-2"></i>
+                  <strong>Profesionales temporales:</strong> Los profesionales creados aquí son temporales y solo se agregarán a esta planificación. No se guardarán en el catálogo permanente.
+                </Alert>
 
-            <Table bordered hover responsive>
-              <thead className="table-light">
-                <tr>
-                  <th style={{ width: '25%' }}>Profesional</th>
-                  <th style={{ width: '15%' }}>Tipo</th>
-                  <th style={{ width: '25%' }}>Rubro</th>
-                  <th style={{ width: '15%' }}>Jornadas / Días</th>
-                  <th style={{ width: '20%' }}>Observaciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {profesionalesAsignados.map((asignacion) => {
-                  const profesionalId = asignacion.profesionalId;
-                  const jornal = jornalesDelDia[profesionalId] || {};
-                  const horas = jornal.horasTrabajadasDecimal || '';
-                  const observaciones = jornal.observaciones || '';
-                  const tarifa = asignacion.honorario || asignacion.tarifaDiaria || 0;
-                  const monto = calcularMontoCobrado(asignacion, horas);
-                  const tieneJornalExistente = jornalesExistentes.some(j => j.profesionalId === profesionalId);
-
-                  return (
-                    <tr key={profesionalId} className={tieneJornalExistente ? 'table-info' : ''}>
-                      <td>
-                        {asignacion.nombreProfesional || asignacion.profesionalNombre || 'N/A'}
-                        {tieneJornalExistente && (
-                          <Badge bg="info" className="ms-2">Registrado</Badge>
-                        )}
-                      </td>
-                      <td>
-                        <small className="text-muted">
-                          {asignacion.tipoProfesional || 'N/A'}
-                        </small>
-                      </td>
-                      <td>
-                        <RubroSelector
-                          value={jornal.rubroNombre || ''}
-                          onChange={(nombreRubro) => handleRubroChange(profesionalId, nombreRubro)}
-                          placeholder="Seleccionar rubro..."
-                          rubrosDelPresupuesto={rubros}
-                        />
-                      </td>
-                      <td>
-                        <Form.Control
-                          type="number"
-                          step="0.25"
-                          min="0"
-                          value={horas}
-                          onChange={(e) => handleHorasChange(profesionalId, e.target.value)}
-                          placeholder="0.0"
-                          size="sm"
-                        />
-                      </td>
-                      <td>
-                        <Form.Control
+                {/* Formulario para agregar profesional manual */}
+                <div className="card mb-3">
+                  <div className="card-body">
+                    <h6 className="card-title mb-3">
+                      <i className="fas fa-user-plus me-2"></i>
+                      Nuevo Profesional Temporal
+                    </h6>
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        <label className="form-label">
+                          Nombre <span className="text-danger">*</span>
+                        </label>
+                        <input
                           type="text"
-                          value={observaciones}
-                          onChange={(e) => handleObservacionesChange(profesionalId, e.target.value)}
-                          placeholder="Opcional"
-                          size="sm"
+                          className="form-control"
+                          placeholder="Nombre del profesional"
+                          value={profesionalManual.nombre}
+                          onChange={(e) => handleCambiarProfesionalManual('nombre', e.target.value)}
                         />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          </>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label">
+                          Tipo de Profesional <span className="text-danger">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Ej: Albañil, Electricista, Plomero"
+                          value={profesionalManual.tipoProfesional}
+                          onChange={(e) => handleCambiarProfesionalManual('tipoProfesional', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label">Honorario por Día</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          placeholder="0.00"
+                          min="0"
+                          step="0.01"
+                          value={profesionalManual.honorario}
+                          onChange={(e) => handleCambiarProfesionalManual('honorario', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label">Teléfono</label>
+                        <input
+                          type="tel"
+                          className="form-control"
+                          placeholder="Ej: +54 9 11 1234-5678"
+                          value={profesionalManual.telefono}
+                          onChange={(e) => handleCambiarProfesionalManual('telefono', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label">Email</label>
+                        <input
+                          type="email"
+                          className="form-control"
+                          placeholder="email@ejemplo.com"
+                          value={profesionalManual.email}
+                          onChange={(e) => handleCambiarProfesionalManual('email', e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className={`card ${guardarEnCatalogo ? 'bg-success' : 'bg-light'} border-primary`}>
+                        <div className="card-body py-2">
+                          <div className="form-check">
+                            <input 
+                              type="checkbox" 
+                              className="form-check-input" 
+                              id="guardarEnCatalogo" 
+                              checked={guardarEnCatalogo}
+                              onChange={(e) => setGuardarEnCatalogo(e.target.checked)}
+                            />
+                            <label className="form-check-label" htmlFor="guardarEnCatalogo">
+                              <strong className={guardarEnCatalogo ? 'text-white' : ''}>
+                                <i className={`fas fa-save me-2 ${guardarEnCatalogo ? 'text-white' : 'text-primary'}`}></i>
+                                Guardar en catálogo permanente
+                              </strong>
+                              <small className={`d-block mt-1 ${guardarEnCatalogo ? 'text-white' : 'text-muted'}`}>
+                                {guardarEnCatalogo ? (
+                                  <>✅ Se guardará en la base de datos y estará disponible para futuras asignaciones</>
+                                ) : (
+                                  <>⚠️ Solo se agregará temporalmente a esta asignación (no se guardará en el catálogo)</>
+                                )}
+                              </small>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-end">
+                      <Button 
+                        variant="success" 
+                        onClick={handleAgregarProfesionalManual}
+                        disabled={guardando}
+                      >
+                        {guardando ? (
+                          <>
+                            <Spinner animation="border" size="sm" className="me-2" />
+                            {guardarEnCatalogo ? 'Guardando en catálogo...' : 'Agregando...'}
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-plus-circle me-2"></i>
+                            {guardarEnCatalogo ? 'Guardar en Catálogo Permanente' : 'Agregar Temporalmente'}
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Lista de profesionales temporales agregados */}
+                {profesionalesTemporales.length > 0 ? (
+                  <div className="card">
+                    <div className="card-body">
+                      <h6 className="card-title mb-3">
+                        <i className="fas fa-users me-2"></i>
+                        Profesionales Temporales Agregados ({profesionalesTemporales.length})
+                      </h6>
+                      <div className="table-responsive">
+                        <table className="table table-sm table-hover">
+                          <thead>
+                            <tr>
+                              <th>Nombre</th>
+                              <th>Tipo</th>
+                              <th>Honorario</th>
+                              <th>Teléfono</th>
+                              <th>Email</th>
+                              <th className="text-center">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {profesionalesTemporales.map(prof => (
+                              <tr key={prof.id}>
+                                <td><strong>{prof.nombre}</strong></td>
+                                <td><Badge bg="secondary">{prof.tipoProfesional}</Badge></td>
+                                <td>${prof.honorario.toLocaleString('es-AR')}</td>
+                                <td>{prof.telefono || '-'}</td>
+                                <td>{prof.email || '-'}</td>
+                                <td className="text-center">
+                                  <Button
+                                    variant="outline-danger"
+                                    size="sm"
+                                    onClick={() => handleEliminarProfesionalTemporal(prof.id)}
+                                  >
+                                    <i className="fas fa-trash"></i>
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="text-muted small mt-2">
+                        <i className="fas fa-info-circle me-1"></i>
+                        Estos profesionales están disponibles en la pestaña "Seleccionar de Lista" para asignarlos a jornales.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <Alert variant="secondary">
+                    <i className="fas fa-info-circle me-2"></i>
+                    No hay profesionales temporales agregados. Usa el formulario de arriba para crear uno.
+                  </Alert>
+                )}
+              </>
+            )}
+          </div>
+        )}
         )}
       </Modal.Body>
 
@@ -980,8 +1553,8 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
         </Button>
         <Button
           variant="primary"
-          onClick={handleGuardar}
-          disabled={guardando || profesionalesAsignados.length === 0}
+          onClick={handleGuardarProfesionalesSeleccionados}
+          disabled={guardando || profesionalesSeleccionados.length === 0}
         >
           {guardando ? (
             <>

@@ -2585,6 +2585,73 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     });
   };
 
+  // 🆕 Función para limpiar el formulario y crear un nuevo rubro
+  const iniciarNuevoRubro = () => {
+    // Resetear estado de rubro creado
+    setRubroCreado(false);
+
+    // Limpiar campos del formulario básico
+    setTipoProfesionalCalc('');
+    setDescripcionCalc('');
+    setObservacionesCalc('');
+
+    // Limpiar listas temporales
+    setProfesionalesCalc([]);
+    setMaterialesCalc([]);
+    setGastosGeneralesCalc([]);
+    setJornalesCalc([]);
+
+    // Resetear estados de MODO GLOBAL (importes y descripciones globales)
+    setModoCargaJornales('global');
+    setGlobalJornales({ descripcion: '', importe: '' });
+    setModoCargaMateriales('global');
+    setGlobalMateriales({ descripcion: '', importe: '' });
+    setModoCargaGastos('global');
+    setGlobalGastos({ descripcion: '', importe: '' });
+
+    // Resetear estados de "agregados" (expandir secciones)
+    setJornalesAgregados(false);
+    setProfesionalesAgregados(true); // Esta se mantiene colapsada
+    setMaterialesAgregados(false);
+    setGastosGeneralesAgregados(false);
+    setManoObraMaterialesAgregados(true); // Esta se mantiene colapsada
+
+    // Limpiar campos numéricos/globales
+    setCantidadJornalesCalc('');
+    setImporteJornalCalc('');
+    setImporteMaterialesCalc('');
+    setTotalManualCalc('');
+    setTotalManualTempCalc('');
+
+    // Limpiar descripciones y observaciones específicas
+    setDescripcionJornales('');
+    setObservacionesJornales('');
+    setDescripcionMateriales('');
+    setObservacionesMateriales('');
+    setDescripcionTotalManual('');
+    setObservacionesTotalManual('');
+    setDescripcionProfesionales('');
+    setObservacionesProfesionales('');
+    setDescripcionGastosGenerales('');
+    setObservacionesGastosGenerales('');
+
+    // Limpiar items actuales temporales
+    setProfesionalActualCalc({ tipo: '', nombre: '', telefono: '', unidad: 'jornales', cantidadJornales: '', importeJornal: '' });
+    setMaterialActualCalc({ descripcion: '', cantidad: '', precioUnitario: '', unidad: 'unidad' });
+    setJornalActualCalc({ rol: getRolPorDefecto(), rolPersonalizado: '', cantidadJornales: '', importeJornal: '' });
+    setGastoGeneralActual({ descripcion: '', cantidad: '', precioUnitario: '' });
+
+    // Salir del modo edición
+    setItemEditandoId(null);
+    itemEditandoIdRef.current = null;
+    window.currentEditingItemId = null;
+
+    // Expandir la calculadora si estaba colapsada
+    setMostrarCalculadora(true);
+
+    console.log('✨ Formulario de rubro limpiado - Listo para crear nuevo rubro');
+  };
+
   // Función para convertir rubros a gentilicios intuitivos
   const convertirRubroAGentilicio = (rubro) => {
     if (!rubro) return '';
@@ -3716,7 +3783,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     setMaterialesAgregados(false);
     setGastosGeneralesAgregados(false);
     setJornalesAgregados(false);
-    setRubroCreado(false);
+    setRubroCreado(true); // ✅ Marcar como creado para mostrar el botón "Nuevo Rubro"
 
     alert(`✅ Rubro "${nombreRubro}" creado exitosamente. Los campos se han limpiado para crear un nuevo rubro.`);
 
@@ -4906,47 +4973,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     }
   }, [itemsCalculadora, calcularDiasHabilesAutomatico, form.calculoAutomaticoDiasHabiles, form.id, form.tiempoEstimadoTerminacion]);
 
-  const iniciarNuevoRubro = () => {
-
-    setItemEditandoId(null);
-    itemEditandoIdRef.current = null;
-    window.currentEditingItemId = null;
-
-    setProfesionalesAgregados(false);
-    setMaterialesAgregados(false);
-    setGastosGeneralesAgregados(false);
-    setRubroCreado(false);
-
-    setTipoProfesionalCalc('');
-    setCantidadJornalesCalc('');
-    setImporteJornalCalc('');
-    setImporteMaterialesCalc('');
-    setTotalManualCalc('');
-    setDescripcionCalc('');
-    setObservacionesCalc('');
-    setDescripcionMateriales('');
-    setObservacionesMateriales('');
-    setDescripcionTotalManual('');
-    setObservacionesTotalManual('');
-    setDescripcionProfesionales('');
-    setObservacionesProfesionales('');
-    setDescripcionGastosGenerales('');
-    setObservacionesGastosGenerales('');
-
-    setProfesionalesCalc([]);
-    setMaterialesCalc([]);
-    setGastosGeneralesCalc([]);
-    setJornalesCalc([]); // ✅ LIMPIAR JORNALES TAMBIÉN
-    setJornalesAgregados(false); // ✅ RESETEAR ESTADO DE JORNALES
-
-    setProfesionalActualCalc({ tipo: '', nombre: '', telefono: '', unidad: 'jornales', cantidadJornales: '', importeJornal: '' });
-    setMaterialActualCalc({ descripcion: '', cantidad: '', precioUnitario: '', unidad: 'unidad' });
-    setGastoGeneralActual({ descripcion: '', cantidad: '', precioUnitario: '' });
-
-    setRubroGastoGeneral('General');
-    setItemEditandoId(null); // 🔧 Salir del modo edición
-
-  };
+  // ✅ NOTA: La función iniciarNuevoRubro está definida más arriba (línea ~2665) junto con otras funciones de manejo de rubros
 
   const guardarRubroCompletoyLimpiar = () => {
     const hayJornales = jornalesCalc.length > 0;
@@ -12523,6 +12550,19 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                       Agregar Rubro con Jornales - Materiales - Gastos Generales
                       <span className="ms-2 small">{mostrarCalculadora ? '▼' : '▶'}</span>
                     </h6>
+
+                    {/* Botón para crear nuevo rubro */}
+                    {(itemEditandoId || rubroCreado) && (
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={iniciarNuevoRubro}
+                        title="Limpiar formulario para crear un nuevo rubro sin guardar el presupuesto"
+                      >
+                        <i className="fas fa-file me-1"></i>
+                        Nuevo Rubro
+                      </button>
+                    )}
                   </div>
 
                   {mostrarCalculadora && (
@@ -12567,18 +12607,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                 disabled={itemEditandoId && tipoProfesionalCalc?.toLowerCase().includes('gasto general')}
                                 rubrosDelPresupuesto={[]}
                               />
-
-                              {itemEditandoId && (
-                                <button
-                                  type="button"
-                                  className="btn btn-outline-primary btn-sm"
-                                  onClick={iniciarNuevoRubro}
-                                  title="Limpiar formulario para crear un nuevo rubro"
-                                >
-                                  <i className="fas fa-file me-1"></i>
-                                  Nuevo Rubro
-                                </button>
-                              )}
                             </div>
                             <div className="small text-muted mt-1">
                               <i className="fas fa-info-circle me-1"></i>
@@ -12630,17 +12658,6 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               <i className={`fas ${itemEditandoId ? 'fa-save' : (rubroCreado ? 'fa-check' : 'fa-plus-circle')} me-1`}></i>
                               {itemEditandoId ? 'Guardar Cambios' : (rubroCreado ? '✓ Rubro Creado' : 'Crear Rubro')}
                             </button>
-                            {itemEditandoId && (
-                              <button
-                                type="button"
-                                className="btn btn-outline-primary btn-sm"
-                                onClick={iniciarNuevoRubro}
-                                title="Limpiar formulario para crear un nuevo rubro"
-                              >
-                                <i className="fas fa-file me-1"></i>
-                                Nuevo Rubro
-                              </button>
-                            )}
                           </div>
                         </div>
                       </div>
