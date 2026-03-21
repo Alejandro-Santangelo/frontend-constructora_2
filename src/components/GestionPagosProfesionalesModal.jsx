@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
-import { Modal, Button, Badge, Alert, Table, Spinner, Accordion, OverlayTrigger, Popover } from 'react-bootstrap';
+﻿import React, { useState, useEffect, useMemo } from 'react';
+import { Modal, Button, Badge, Alert, Table, Spinner, Accordion, OverlayTrigger, Popover, Row, Col, Form } from 'react-bootstrap';
 import { useEmpresa } from '../EmpresaContext';
 import apiService from '../services/api';
 
@@ -50,6 +50,23 @@ const GestionPagosProfesionalesModal = ({
   const [guardandoPagos, setGuardandoPagos] = useState(false);
   const [mensajeExito, setMensajeExito] = useState(null);
 
+  // 🔍 Estados para filtros
+  // filtrosTemp: valores que se están configurando en el UI (no aplicados)
+  const [filtrosTemp, setFiltrosTemp] = useState({
+    obra: null,             // null = todas las obras
+    rubro: null,            // null = todos los rubros
+    busqueda: '',           // string para buscar por nombre
+    soloPendiente: false    // boolean para mostrar solo con saldo pendiente
+  });
+  
+  // filtrosAplicados: filtros que realmente se usan para filtrar los datos
+  const [filtrosAplicados, setFiltrosAplicados] = useState({
+    obra: null,
+    rubro: null,
+    busqueda: '',
+    soloPendiente: false
+  });
+
   // Cargar profesionales y presupuestos cuando se abre el modal
   useEffect(() => {
     if (show && idEmpresaActual) {
@@ -67,6 +84,114 @@ const GestionPagosProfesionalesModal = ({
       calcularPoolsIniciales(profesionales);
     }
   }, [profesionales, presupuestos]);
+
+  // 🔍 Extraer listas únicas para los selectores de filtros
+  const obrasUnicas = useMemo(() => {
+    const obras = new Map();
+    profesionales.forEach(prof => {
+      prof.obras?.forEach(obra => {
+        if (!obras.has(obra.obraId)) {
+          obras.set(obra.obraId, {
+            id: obra.obraId,
+            nombre: obra.obraNombre
+          });
+        }
+      });
+    });
+    return Array.from(obras.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [profesionales]);
+
+  const rubrosUnicos = useMemo(() => {
+    const rubros = new Set();
+    profesionales.forEach(prof => {
+      prof.obras?.forEach(obra => {
+        obra.asignaciones?.forEach(asig => {
+          rubros.add(asig.rubroNombre);
+        });
+      });
+    });
+    return Array.from(rubros).sort((a, b) => a.localeCompare(b));
+  }, [profesionales]);
+
+  // 🔍 Extraer lista de profesionales únicos con asignaciones
+  const profesionalesUnicos = useMemo(() => {
+    const profesMap = new Map();
+    profesionales.forEach(prof => {
+      if (!profesMap.has(prof.profesionalId)) {
+        profesMap.set(prof.profesionalId, {
+          id: prof.profesionalId,
+          nombre: prof.profesionalNombre,
+          dni: prof.profesionalDni
+        });
+      }
+    });
+    return Array.from(profesMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [profesionales]);
+
+  // 🔍 Aplicar filtros a la lista de profesionales
+  const profesionalesFiltrados = useMemo(() => {
+    let resultado = profesionales;
+
+    // Filtro por búsqueda de nombre
+    if (filtrosAplicados.busqueda.trim()) {
+      resultado = resultado.filter(prof =>
+        prof.profesionalNombre?.toLowerCase().includes(filtrosAplicados.busqueda.toLowerCase())
+      );
+    }
+
+    // Filtro por obra, rubro y/o solo pendiente
+    if (filtrosAplicados.obra || filtrosAplicados.rubro || filtrosAplicados.soloPendiente) {
+      resultado = resultado
+        .map(prof => ({
+          ...prof,
+          obras: prof.obras
+            .filter(obra => !filtrosAplicados.obra || obra.obraId === parseInt(filtrosAplicados.obra))
+            .map(obra => ({
+              ...obra,
+              asignaciones: obra.asignaciones.filter(asig =>
+                (!filtrosAplicados.rubro || asig.rubroNombre === filtrosAplicados.rubro) &&
+                (!filtrosAplicados.soloPendiente || (asig.saldoPendiente && asig.saldoPendiente > 0))
+              )
+            }))
+            .filter(obra => obra.asignaciones.length > 0)
+        }))
+        .filter(prof => prof.obras.length > 0);
+    }
+
+    return resultado;
+  }, [profesionales, filtrosAplicados]);
+
+  // 🔍 Función para aplicar los filtros configurados
+  const aplicarFiltros = () => {
+    setFiltrosAplicados({ ...filtrosTemp });
+  };
+
+  // 🔍 Función para limpiar todos los filtros
+  const limpiarFiltros = () => {
+    const filtrosVacios = {
+      obra: null,
+      rubro: null,
+      busqueda: '',
+      soloPendiente: false
+    };
+    setFiltrosTemp(filtrosVacios);
+    setFiltrosAplicados(filtrosVacios);
+  };
+
+  // 🔍 Contar filtros activos (aplicados)
+  const contarFiltrosActivos = () => {
+    let count = 0;
+    if (filtrosAplicados.obra) count++;
+    if (filtrosAplicados.rubro) count++;
+    if (filtrosAplicados.busqueda.trim()) count++;
+    if (filtrosAplicados.soloPendiente) count++;
+    return count;
+  };
+
+  // 🔍 Verificar si hay cambios pendientes de aplicar
+  const hayCambiosPendientes = () => {
+    return JSON.stringify(filtrosTemp) !== JSON.stringify(filtrosAplicados);
+  };
 
   const cargarProfesionalesConsolidados = async () => {
     if (!idEmpresaActual) {
@@ -419,6 +544,8 @@ const GestionPagosProfesionalesModal = ({
   };
 
   const calcularTotalesGenerales = () => {
+    // 🔍 IMPORTANTE: Siempre calcular desde TODOS los profesionales (sin filtrar)
+    // para mostrar el panorama completo en el resumen por rubro
     let totalProfesionales = profesionales.length;
     let totalAsignaciones = 0;
     let totalPresupuesto = 0; // 💰 Total de todos los pools
@@ -449,6 +576,27 @@ const GestionPagosProfesionalesModal = ({
       totalPresupuesto, 
       totalPagado, 
       saldoDisponible 
+    };
+  };
+
+  // 🔍 Calcular totales de los datos FILTRADOS (para estadísticas del header)
+  const calcularTotalesFiltrados = () => {
+    let totalProfesionales = profesionalesFiltrados.length;
+    let totalAsignaciones = 0;
+    
+    const obrasUnicas = new Set();
+    profesionalesFiltrados.forEach(prof => {
+      prof.obras?.forEach(obra => {
+        obrasUnicas.add(obra.obraId);
+        totalAsignaciones += obra.asignaciones?.length || 0;
+      });
+    });
+    const totalObras = obrasUnicas.size;
+
+    return { 
+      totalProfesionales, 
+      totalObras, 
+      totalAsignaciones
     };
   };
 
@@ -1052,6 +1200,167 @@ const GestionPagosProfesionalesModal = ({
           </Alert>
         )}
 
+        {/* 🔍 SECCIÓN DE FILTROS */}
+        {!loading && profesionales.length > 0 && (
+          <div className="mb-4 p-3 bg-light rounded border">
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h6 className="mb-0">
+                <i className="bi bi-funnel me-2 text-primary"></i>
+                Filtros de Búsqueda
+              </h6>
+              {contarFiltrosActivos() > 0 && (
+                <Badge bg="info" className="d-flex align-items-center gap-1">
+                  <i className="bi bi-filter-circle-fill"></i>
+                  {contarFiltrosActivos()} filtro{contarFiltrosActivos() > 1 ? 's' : ''} activo{contarFiltrosActivos() > 1 ? 's' : ''}
+                </Badge>
+              )}
+            </div>
+            
+            <Row className="g-3">
+              {/* Filtro por Obra */}
+              <Col md={3}>
+                <Form.Label className="small fw-bold mb-1">
+                  <i className="bi bi-building me-1"></i>Obra
+                </Form.Label>
+                <Form.Select
+                  size="sm"
+                  value={filtrosTemp.obra || ''}
+                  onChange={e => setFiltrosTemp({...filtrosTemp, obra: e.target.value || null})}
+                >
+                  <option value="">🏢 Todas las obras</option>
+                  {obrasUnicas.map(obra => (
+                    <option key={obra.id} value={obra.id}>{obra.nombre}</option>
+                  ))}
+                </Form.Select>
+              </Col>
+
+              {/* Filtro por Rubro */}
+              <Col md={3}>
+                <Form.Label className="small fw-bold mb-1">
+                  <i className="bi bi-tag me-1"></i>Rubro
+                </Form.Label>
+                <Form.Select
+                  size="sm"
+                  value={filtrosTemp.rubro || ''}
+                  onChange={e => setFiltrosTemp({...filtrosTemp, rubro: e.target.value || null})}
+                >
+                  <option value="">🏷️ Todos los rubros</option>
+                  {rubrosUnicos.map(rubro => (
+                    <option key={rubro} value={rubro}>{rubro}</option>
+                  ))}
+                </Form.Select>
+              </Col>
+
+              {/* Búsqueda por Nombre con Selector */}
+              <Col md={3}>
+                <Form.Label className="small fw-bold mb-1">
+                  <i className="bi bi-person-check me-1"></i>Profesional
+                </Form.Label>
+                <Form.Control
+                  size="sm"
+                  type="text"
+                  list="profesionales-list"
+                  placeholder="Seleccione o escriba..."
+                  value={filtrosTemp.busqueda}
+                  onChange={e => setFiltrosTemp({...filtrosTemp, busqueda: e.target.value})}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      aplicarFiltros();
+                    }
+                  }}
+                  autoComplete="off"
+                />
+                <datalist id="profesionales-list">
+                  {profesionalesUnicos.map(prof => (
+                    <option key={prof.id} value={prof.nombre}>
+                      {prof.dni && `DNI: ${prof.dni}`}
+                    </option>
+                  ))}
+                </datalist>
+              </Col>
+
+              {/* Toggle Solo Pendientes */}
+              <Col md={3} className="d-flex flex-column">
+                <Form.Label className="small fw-bold mb-1" style={{ visibility: 'hidden' }}>
+                  Acciones
+                </Form.Label>
+                <div className="d-flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={hayCambiosPendientes() ? "primary" : "outline-primary"}
+                    onClick={aplicarFiltros}
+                    className="flex-grow-1"
+                  >
+                    <i className="bi bi-search me-1"></i>
+                    Buscar
+                    {hayCambiosPendientes() && (
+                      <Badge bg="warning" text="dark" className="ms-1">!</Badge>
+                    )}
+                  </Button>
+                  {contarFiltrosActivos() > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline-secondary"
+                      onClick={limpiarFiltros}
+                      title="Limpiar filtros"
+                    >
+                      <i className="bi bi-x-circle"></i>
+                    </Button>
+                  )}
+                </div>
+              </Col>
+            </Row>
+
+            {/* Fila adicional para el switch */}
+            <Row className="mt-2">
+              <Col>
+                <Form.Check
+                  type="switch"
+                  id="switch-solo-pendientes"
+                  label={
+                    <span className="small">
+                      <i className="bi bi-wallet2 me-1"></i>
+                      Mostrar solo asignaciones con saldo pendiente
+                    </span>
+                  }
+                  checked={filtrosTemp.soloPendiente}
+                  onChange={e => setFiltrosTemp({...filtrosTemp, soloPendiente: e.target.checked})}
+                />
+              </Col>
+            </Row>
+
+            {/* Indicador de filtros aplicados */}
+            {contarFiltrosActivos() > 0 && (
+              <div className="mt-2 pt-2 border-top">
+                <small className="text-muted d-flex align-items-center gap-2">
+                  <i className="bi bi-funnel-fill text-primary"></i>
+                  <strong>Filtros activos:</strong>
+                  {filtrosAplicados.obra && (
+                    <Badge bg="info" className="text-dark">
+                      Obra: {obrasUnicas.find(o => o.id === parseInt(filtrosAplicados.obra))?.nombre}
+                    </Badge>
+                  )}
+                  {filtrosAplicados.rubro && (
+                    <Badge bg="info" className="text-dark">
+                      Rubro: {filtrosAplicados.rubro}
+                    </Badge>
+                  )}
+                  {filtrosAplicados.busqueda && (
+                    <Badge bg="info" className="text-dark">
+                      Búsqueda: "{filtrosAplicados.busqueda}"
+                    </Badge>
+                  )}
+                  {filtrosAplicados.soloPendiente && (
+                    <Badge bg="info" className="text-dark">
+                      Solo pendientes
+                    </Badge>
+                  )}
+                </small>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Loading */}
         {loading ? (
           <div className="text-center py-5">
@@ -1068,6 +1377,12 @@ const GestionPagosProfesionalesModal = ({
                     <h6 className="card-title text-primary mb-3">
                       <i className="bi bi-bar-chart-fill me-2"></i>
                       Resumen por Rubro
+                      {/* Indicador de filtrado */}
+                      {contarFiltrosActivos() > 0 && (
+                        <Badge bg="info" className="ms-2">
+                          Vista filtrada
+                        </Badge>
+                      )}
                     </h6>
                     
                     {/* Contadores básicos - fila compacta */}
@@ -1075,22 +1390,37 @@ const GestionPagosProfesionalesModal = ({
                       <div className="col-auto">
                         <div className="border rounded p-2 bg-light d-flex align-items-center gap-2" style={{ fontSize: '0.9rem' }}>
                           <i className="bi bi-people-fill text-primary"></i>
-                          <strong className="text-primary">{totalesGenerales.totalProfesionales}</strong>
+                          <strong className="text-primary">{calcularTotalesFiltrados().totalProfesionales}</strong>
                           <small className="text-muted">Profesionales</small>
+                          {contarFiltrosActivos() > 0 && calcularTotalesFiltrados().totalProfesionales !== totalesGenerales.totalProfesionales && (
+                            <small className="text-muted" style={{ fontSize: '0.75rem' }}>
+                              / {totalesGenerales.totalProfesionales}
+                            </small>
+                          )}
                         </div>
                       </div>
                       <div className="col-auto">
                         <div className="border rounded p-2 bg-light d-flex align-items-center gap-2" style={{ fontSize: '0.9rem' }}>
                           <i className="bi bi-building text-info"></i>
-                          <strong className="text-info">{totalesGenerales.totalObras}</strong>
+                          <strong className="text-info">{calcularTotalesFiltrados().totalObras}</strong>
                           <small className="text-muted">Obras</small>
+                          {contarFiltrosActivos() > 0 && calcularTotalesFiltrados().totalObras !== totalesGenerales.totalObras && (
+                            <small className="text-muted" style={{ fontSize: '0.75rem' }}>
+                              / {totalesGenerales.totalObras}
+                            </small>
+                          )}
                         </div>
                       </div>
                       <div className="col-auto">
                         <div className="border rounded p-2 bg-light d-flex align-items-center gap-2" style={{ fontSize: '0.9rem' }}>
                           <i className="bi bi-list-check text-secondary"></i>
-                          <strong className="text-secondary">{totalesGenerales.totalAsignaciones}</strong>
+                          <strong className="text-secondary">{calcularTotalesFiltrados().totalAsignaciones}</strong>
                           <small className="text-muted">Asignaciones</small>
+                          {contarFiltrosActivos() > 0 && calcularTotalesFiltrados().totalAsignaciones !== totalesGenerales.totalAsignaciones && (
+                            <small className="text-muted" style={{ fontSize: '0.75rem' }}>
+                              / {totalesGenerales.totalAsignaciones}
+                            </small>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1177,14 +1507,16 @@ const GestionPagosProfesionalesModal = ({
             </div>
 
             {/* Listado de Profesionales con Acordeón */}
-            {profesionales.length === 0 ? (
+            {profesionalesFiltrados.length === 0 ? (
               <Alert variant="info" className="text-center">
                 <i className="bi bi-info-circle me-2"></i>
-                No hay profesionales con asignaciones activas
+                {contarFiltrosActivos() > 0 
+                  ? 'No se encontraron profesionales que coincidan con los filtros aplicados'
+                  : 'No hay profesionales con asignaciones activas'}
               </Alert>
             ) : (
               <Accordion>
-                {profesionales.map((prof, idx) => (
+                {profesionalesFiltrados.map((prof, idx) => (
                   <Accordion.Item eventKey={String(idx)} key={idx}>
                     <Accordion.Header>
                       <div className="d-flex justify-content-between align-items-center w-100 pe-3">
