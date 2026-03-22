@@ -6,6 +6,7 @@ import RubroSelector from './RubroSelector';
 import ConfiguracionPresupuestoSection from './ConfiguracionPresupuestoSection';
 import { handlePrint, exportToExcel, exportToCSV, exportToJSON, prepararDatosPresupuesto, compartirPorWhatsApp, compartirPorEmail, generarResumenTexto, capturarYExportarVisual, exportarAPDFReal } from '../utils/exportUtils';
 import api from '../services/api';
+import BotonesExportarPDFPresupuesto from './BotonesExportarPDFPresupuesto';
 import { validarTipoItem, agregarNuevoProfesional } from '../utils/validacionProfesionalesMateriales';
 import { crearGastoGeneral } from '../services/gastosGeneralesService';
 import usePromedioHonorarios from '../hooks/usePromedioHonorarios';
@@ -13,7 +14,7 @@ import { useDetectarModoPresupuesto, BadgeModoPresupuesto } from '../hooks/useDe
 import { ROLES_PROFESIONALES, ROLES_ENUM, generarOpcionesRoles, getRolPorDefecto } from '../constants/rolesProfesionales';
 import eventBus, { FINANCIAL_EVENTS } from '../utils/eventBus';
 
-const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false, showDownloadPdfButton = false, tituloPersonalizado = null }) => {
+const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, tiposProfesional = [], autoGenerarPDF = false, onPDFGenerado = null, abrirWhatsAppDespuesDePDF = false, abrirEmailDespuesDePDF = false, modoTrabajoExtra = false, showDownloadPdfButton = false, tituloPersonalizado = null, tipoPDFAGenerar = 'interno' }) => {
 
   // 🔍 DEBUG: Ver qué props recibe el modal
   console.log('🎯 PresupuestoNoClienteModal - Props recibidos:', {
@@ -2260,7 +2261,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     });
 
     // 🔒 IMPORTANTE: Solo ejecutar UNA VEZ por sesión del modal
-    if (show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF) && !autoClickExecutedRef.current) {
+    if (show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF || autoGenerarPDF) && !autoClickExecutedRef.current) {
       console.log('✅ [AUTO-SCROLL] Condición cumplida - iniciando proceso de auto-scroll');
 
       // 🎯 Función para ejecutar scroll DIRECTO
@@ -2313,7 +2314,103 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
           console.log(`✅ [AUTO-SCROLL] Scroll ejecutado: ${scrollDespues}px`);
           if (scrollDespues > 0) {
             console.log('🖱️ [AUTO-SCROLL] Haciendo click en botón PDF...');
-            setTimeout(() => {
+            setTimeout(async () => {
+              // 🔔 FLUJO INTERACTIVO PARA PDF INTERNO
+              if (tipoPDFAGenerar === 'interno') {
+                // 1️⃣ Primer confirm: ¿Quiere ver las secciones colapsadas?
+                const aceptaContinuar = window.confirm(
+                  '📋 PDF INTERNO - EXPANDIR SECCIONES\n\n' +
+                  'El sistema te llevará automáticamente a cada sección colapsada para que puedas expandirlas:\n\n' +
+                  '   • Configuración de Presupuesto por Jornales\n' +
+                  '   • Configuración de Honorarios\n' +
+                  '   • Configuración de Mayores Costos\n' +
+                  '   • Configuración de Descuentos\n\n' +
+                  '¿Deseas continuar y expandir las secciones?\n\n' +
+                  'Haz clic en "Aceptar" para continuar o "Cancelar" para generar el PDF sin cambios.'
+                );
+
+                if (!aceptaContinuar) {
+                  console.log('❌ Usuario canceló el flujo de expansión');
+                  // Usuario canceló, generar PDF sin esperar
+                  botonPDF.click();
+                  return;
+                }
+
+                // 2️⃣ Usuario aceptó: scrollear a cada sección colapsada
+                console.log('✅ Usuario aceptó, scrolleando a secciones...');
+
+                // Buscar las secciones colapsadas por texto
+                const seccionesABuscar = [
+                  'Configuración de Presupuesto por Jornales',
+                  'Configuración de Honorarios',
+                  'Configuración de Mayores Costos',
+                  'Configuración de Descuentos'
+                ];
+
+                for (const textoSeccion of seccionesABuscar) {
+                  // Buscar el elemento que contiene este texto
+                  const elementos = Array.from(modalBodyCorrecto.querySelectorAll('*'));
+                  const seccion = elementos.find(el =>
+                    el.textContent.includes(textoSeccion) &&
+                    el.textContent.trim().startsWith(textoSeccion)
+                  );
+
+                  if (seccion) {
+                    console.log(`📍 Scrolleando a: ${textoSeccion}`);
+                    seccion.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Esperar 1.5 segundos para que el usuario vea la sección
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                  }
+                }
+
+                // 3️⃣ BOTÓN FLOTANTE: Esperar a que el usuario termine de expandir
+                console.log('🎯 Mostrando botón para confirmar expansión...');
+
+                // Crear botón flotante
+                const botonConfirmar = document.createElement('button');
+                botonConfirmar.innerHTML = '✅ Ya terminé - Generar PDF Interno';
+                botonConfirmar.style.cssText = `
+                  position: fixed;
+                  top: 50%;
+                  left: 50%;
+                  transform: translate(-50%, -50%);
+                  z-index: 99999;
+                  padding: 20px 40px;
+                  font-size: 18px;
+                  font-weight: bold;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  color: white;
+                  border: 3px solid white;
+                  border-radius: 15px;
+                  cursor: pointer;
+                  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                  animation: pulse 2s infinite;
+                `;
+
+                // Agregar animación de pulso
+                const style = document.createElement('style');
+                style.textContent = `
+                  @keyframes pulse {
+                    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+                    50% { transform: translate(-50%, -50%) scale(1.05); }
+                  }
+                `;
+                document.head.appendChild(style);
+                document.body.appendChild(botonConfirmar);
+
+                // Esperar a que el usuario haga clic
+                await new Promise((resolve) => {
+                  botonConfirmar.addEventListener('click', () => {
+                    console.log('✅ Usuario confirmó - generando PDF');
+                    botonConfirmar.remove();
+                    style.remove();
+                    resolve();
+                  });
+                });
+
+                console.log('✅ Generando PDF interno...');
+              }
+              // Para PDF Cliente NO hay flujo interactivo, solo genera directamente
               botonPDF.click();
             }, 500);
           }
@@ -2354,7 +2451,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('🔓 [AUTO-SCROLL] Reseteando flag - modal cerrado');
       autoClickExecutedRef.current = false;
     }
-  }, [show, abrirWhatsAppDespuesDePDF, abrirEmailDespuesDePDF]);
+  }, [show, abrirWhatsAppDespuesDePDF, abrirEmailDespuesDePDF, autoGenerarPDF, tipoPDFAGenerar]);
 
   // 📦 useEffect para cargar gastos generales desde el stock del backend
   useEffect(() => {
@@ -11247,7 +11344,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               </div>
             </div>
             <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto', paddingTop: '6rem' }}>
-            <form ref={modalContentRef} onSubmit={handleSubmit} style={{ padding: '8px 10px' }}>
+            <form ref={modalContentRef} onSubmit={handleSubmit} style={{ padding: '8px 10px', paddingBottom: '200px' }}>
               <div className="row g-2">
                     {/* Eliminado label de Fecha creación fuera del bloque de fechas */}
 
@@ -12506,7 +12603,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
                 {/* ===BLOQUE_ITEMS_ORIGINAL_ELIMINAR=== */}
                 {/* Bloque unificado de Items del Presupuesto */}
-                <div className={`mt-3 border rounded p-3 ${ocultarConfiguracionEnPDF ? 'ocultar-en-pdf' : ''}`} style={{ backgroundColor: '#fff3cd', order: 1 }}>
+                <div className="mt-3 border rounded p-3 ocultar-en-pdf" style={{ backgroundColor: '#fff3cd', order: 1 }}>
                   <div className="d-flex justify-content-between align-items-center mb-3">
                     <h6
                       className="mb-0"
@@ -16031,10 +16128,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 </div> {/* Cierre del bloque unificado de Items del Presupuesto */}
               {/* ===FIN_BLOQUE_ITEMS_ORIGINAL_ELIMINAR=== */}
 
-              <hr className="my-5" style={{border: '3px solid #6c757d', order: 2}} />
+              <hr className="my-5 ocultar-en-pdf" style={{border: '3px solid #6c757d', order: 2}} />
 
               {/* Configuración de Honorarios (solo honorarios, sin presupuestos) */}
-              <div style={{order: 3}}>
+              <div style={{order: 3}} className="ocultar-en-pdf">
               <ConfiguracionPresupuestoSection
                 configsProfesionales={configsProfesionales}
                 configsMateriales={configsMateriales}
@@ -16060,10 +16157,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
               />
               </div>
 
-              <hr className="my-5" style={{border: '3px solid #6c757d', order: 4}} />
+              <hr className="my-5 ocultar-en-pdf" style={{border: '3px solid #6c757d', order: 4}} />
 
               {/* 🆕 MAYORES COSTOS POR RUBRO - Nueva sección tipo Honorarios */}
-              <div style={{order: 5}}>
+              <div style={{order: 5}} className="ocultar-en-pdf">
                 <div className="border rounded p-3" style={{backgroundColor: '#f8f9fa'}}>
                   <div className={`mt-3 border rounded p-3 ${ocultarMayoresCostosEnPDF ? 'ocultar-en-pdf' : ''}`} style={{backgroundColor: '#f8f9fa'}}>
                     <div className="d-flex justify-content-between align-items-center mb-3">
@@ -16776,10 +16873,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 )}
               </div>
 
-              <hr className="my-5" style={{border: '3px solid #6c757d', order: 5.5}} />
+              <hr className="my-5 ocultar-en-pdf" style={{border: '3px solid #6c757d', order: 5.5}} />
 
               {/* 🆕 DESCUENTOS POR RUBRO - Nueva sección tipo Honorarios */}
-              <div style={{order: 6}}>
+              <div style={{order: 6}} className="ocultar-en-pdf">
                 <div className="border rounded p-3" style={{backgroundColor: '#f8f9fa'}}>
                   <div className={`mt-3 border rounded p-3 ${ocultarDescuentosEnPDF ? 'ocultar-en-pdf' : ''}`} style={{backgroundColor: '#f8f9fa'}}>
                     <div className="d-flex justify-content-between align-items-center mb-3">
@@ -17418,10 +17515,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
               </div> {/* Cierre del contenedor flex para reordenar */}
 
-              <hr className="my-5" style={{border: '3px solid #6c757d'}} />
+              <hr className="my-5 ocultar-en-pdf" style={{border: '3px solid #6c757d'}} />
 
               {/* Botones de Imprimir y Exportar */}
-              <div className="mt-4">
+              <div className="mt-4 ocultar-en-pdf">
                 <div className="row g-2">
                   <div className="col-12">
                     <h6 className="mb-2 text-dark fw-bold">Acciones de Exportación y Compartir</h6>
@@ -17791,6 +17888,22 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 </div>
               </div>
 
+              {/* 🆕 BOTONES PARA GENERAR PDF DUAL (Interno / Cliente) */}
+              <div className="ocultar-en-pdf">
+              <BotonesExportarPDFPresupuesto
+                modalContentRef={modalContentRef}
+                presupuesto={form}
+                abrirWhatsAppDespuesDePDF={abrirWhatsAppDespuesDePDF}
+                tipoPDFAGenerar={tipoPDFAGenerar} // ✨ Tipo de PDF a generar (interno/cliente)
+                onPDFGenerado={(blob, tipo) => {
+                  console.log(`✅ PDF ${tipo.toUpperCase()} generado en PresupuestoNoClienteModal`);
+                  if (onPDFGenerado) {
+                    onPDFGenerado(blob, tipo);
+                  }
+                }}
+              />
+              </div>
+
               {/* Cálculo de Base (suma de todos los items agregados) */}
               {/* Espaciador para mejorar paginación en PDF */}
               <div className="espaciador-pdf" style={{ height: '60px' }}></div>
@@ -17999,8 +18112,8 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                                                     </div>
                                                   </div>
                                                 )}
-                                                {item.mayoresCostos > 0 && (
-                                                  <div className="mb-1">
+                                                {false && item.mayoresCostos > 0 && (
+                                                  <div className="mb-1 ocultar-en-pdf">
                                                     <div className="fw-semibold text-danger">
                                                       <i className="fas fa-arrow-up me-2"></i>Mayores Costos: +${item.mayoresCostos.toLocaleString('es-AR', {minimumFractionDigits: 2})}
                                                     </div>

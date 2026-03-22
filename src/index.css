@@ -305,22 +305,47 @@ body {
   }
 }
 
-/* Ocultar elementos en exportación PDF/Captura de pantalla */
+/* Ocultar elementos en exportación PDF/Captura de pantalla - SOLO EN PDF CLIENTE */
 @media print {
   .ocultar-en-pdf {
     display: none !important;
   }
 }
 
-/* Cuando se está capturando para PDF, esta clase hace que el elemento no sea visible */
-.capturando-pdf .ocultar-en-pdf {
+/* 🔑 CRÍTICO: .ocultar-en-pdf SOLO funciona en PDF CLIENTE */
+/* Máxima especificidad para forzar ocultamiento */
+.capturando-pdf.pdf-cliente .ocultar-en-pdf,
+.capturando-pdf.pdf-cliente .ocultar-en-pdf *,
+.capturando-pdf.pdf-cliente div.ocultar-en-pdf,
+.capturando-pdf.pdf-cliente hr.ocultar-en-pdf {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
   height: 0 !important;
+  max-height: 0 !important;
+  min-height: 0 !important;
+  width: 0 !important;
+  max-width: 0 !important;
   overflow: hidden !important;
   margin: 0 !important;
   padding: 0 !important;
+  border: none !important;
+  line-height: 0 !important;
+  font-size: 0 !important;
+  position: absolute !important;
+  left: -99999px !important;
+  top: -99999px !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(100%) !important;
+}
+
+/* 🔓 PDF INTERNO: Mostrar TODO, incluyendo elementos marcados con .ocultar-en-pdf */
+.capturando-pdf.pdf-interno .ocultar-en-pdf {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  height: auto !important;
+  overflow: visible !important;
 }
 
 /* Control de saltos de página para exportación PDF */
@@ -403,3 +428,397 @@ body {
     font-size: 8pt !important;
   }
 }
+
+/* ================================================================
+   SISTEMA DE PDF DUAL: INTERNO vs CLIENTE
+   ================================================================ */
+
+/* ────────────────────────────────────────────────────────────────
+   PDF CLIENTE: Ocultar secciones internas completamente
+   ──────────────────────────────────────────────────────────────── */
+.capturando-pdf.pdf-cliente .seccion-configuracion-honorarios,
+.capturando-pdf.pdf-cliente .seccion-configuracion-descuentos,
+.capturando-pdf.pdf-cliente .seccion-configuracion-mayores-costos,
+.capturando-pdf.pdf-cliente .seccion-datos-internos,
+.capturando-pdf.pdf-cliente .seccion-utilidad-empresa,
+.capturando-pdf.pdf-cliente .seccion-costos-internos,
+.capturando-pdf.pdf-cliente .info-interna,
+.capturando-pdf.pdf-cliente .dato-interno,
+.capturando-pdf.pdf-cliente .badge-interno,
+.capturando-pdf.pdf-cliente .alerta-interna {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  line-height: 0 !important;
+}
+
+/* Colapsar cards vacíos después de ocultar contenido interno */
+.capturando-pdf.pdf-cliente .card:has(.seccion-configuracion-honorarios:only-child),
+.capturando-pdf.pdf-cliente .card:has(.seccion-configuracion-descuentos:only-child),
+.capturando-pdf.pdf-cliente .card:has(.seccion-datos-internos:only-child) {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Eliminar espacios entre secciones cuando hay elementos ocultos */
+.capturando-pdf.pdf-cliente .row:has(> *:not(:empty)) {
+  margin-bottom: 12px !important;
+}
+
+.capturando-pdf.pdf-cliente .row:empty,
+.capturando-pdf.pdf-cliente .col:empty,
+.capturando-pdf.pdf-cliente .card-body:empty {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Reducir espaciado vertical para PDF cliente */
+.capturando-pdf.pdf-cliente .card {
+  margin-bottom: 10px !important;
+}
+
+.capturando-pdf.pdf-cliente .card-body {
+  padding: 10px !important;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   PDF INTERNO: Mostrar todo incluyendo secciones de configuración
+   ──────────────────────────────────────────────────────────────── */
+.capturando-pdf.pdf-interno .seccion-configuracion-honorarios,
+.capturando-pdf.pdf-interno .seccion-configuracion-descuentos,
+.capturando-pdf.pdf-interno .seccion-configuracion-mayores-costos,
+.capturando-pdf.pdf-interno .seccion-datos-internos,
+.capturando-pdf.pdf-interno .seccion-utilidad-empresa,
+.capturando-pdf.pdf-interno .seccion-costos-internos,
+.capturando-pdf.pdf-interno .info-interna,
+.capturando-pdf.pdf-interno .dato-interno,
+.capturando-pdf.pdf-interno .badge-interno,
+.capturando-pdf.pdf-interno .alerta-interna {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+/* Mantener espaciado normal en PDF interno */
+.capturando-pdf.pdf-interno .card {
+  margin-bottom: 15px !important;
+}
+
+.capturando-pdf.pdf-interno .card-body {
+  padding: 12px !important;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   Clases auxiliares para ambos tipos de PDF
+   ──────────────────────────────────────────────────────────────── */
+
+/* Solo visible en PDF cliente */
+.solo-pdf-cliente {
+  display: none !important;
+}
+
+.capturando-pdf.pdf-cliente .solo-pdf-cliente {
+  display: block !important;
+}
+
+/* Solo visible en PDF interno */
+.solo-pdf-interno {
+  display: none !important;
+}
+
+.capturando-pdf.pdf-interno .solo-pdf-interno {
+  display: block !important;
+}
+
+/* Nunca visible en ningún PDF (solo en pantalla) */
+.nunca-en-pdf {
+  display: block !important;
+}
+
+.capturando-pdf .nunca-en-pdf {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Texto profesional para cliente */
+.capturando-pdf.pdf-cliente .texto-cliente {
+  font-weight: 500 !important;
+  color: #2c3e50 !important;
+}
+
+/* Destacar información crítica en ambos PDFs */
+.capturando-pdf .total-presupuesto {
+  font-size: 1.2em !important;
+  font-weight: bold !important;
+  color: #0d6efd !important;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   PDF CONTINUO: Una sola página larga sin saltos
+   ──────────────────────────────────────────────────────────────── */
+
+/* Eliminar TODOS los saltos de página */
+.capturando-pdf,
+.capturando-pdf * {
+  page-break-before: avoid !important;
+  page-break-after: avoid !important;
+  page-break-inside: avoid !important;
+  break-before: avoid !important;
+  break-after: avoid !important;
+  break-inside: avoid !important;
+}
+
+/* 🔑 Colapsar completamente elementos ocultos - SOLO EN PDF CLIENTE */
+/* Esta regla refuerza la anterior con aún más especificidad */
+.capturando-pdf.pdf-cliente .ocultar-en-pdf {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  width: 0 !important;
+  line-height: 0 !important;
+  font-size: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  position: absolute !important;
+  left: -99999px !important;
+  clip: rect(0, 0, 0, 0) !important;
+}
+
+/* Colapsar contenedores padres de elementos ocultos - SOLO EN PDF CLIENTE */
+.capturando-pdf.pdf-cliente div:has(> .ocultar-en-pdf:only-child),
+.capturando-pdf.pdf-cliente section:has(> .ocultar-en-pdf:only-child) {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 🔥 FUERZA EXTRA: Asegurar ocultamiento de elementos con order en flexbox */
+.capturando-pdf.pdf-cliente .ocultar-en-pdf[style*="order"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute !important;
+  left: -9999px !important;
+  height: 0 !important;
+  width: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* 🔥 Ocultar separadores (hr) en PDF CLIENTE */
+.capturando-pdf.pdf-cliente hr.ocultar-en-pdf {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* Reducir espaciado vertical entre secciones visibles */
+.capturando-pdf .row {
+  margin-bottom: 8px !important;
+}
+
+.capturando-pdf .mb-3,
+.capturando-pdf .my-3 {
+  margin-bottom: 8px !important;
+}
+
+.capturando-pdf .mb-4,
+.capturando-pdf .my-4 {
+  margin-bottom: 10px !important;
+}
+
+.capturando-pdf .mb-5,
+.capturando-pdf .my-5 {
+  margin-bottom: 12px !important;
+}
+
+.capturando-pdf .mt-3 {
+  margin-top: 8px !important;
+}
+
+.capturando-pdf .mt-4 {
+  margin-top: 10px !important;
+}
+
+.capturando-pdf .mt-5 {
+  margin-top: 12px !important;
+}
+
+/* Eliminar espacios extra de los hr - SOLO EN PDF CLIENTE */
+.capturando-pdf.pdf-cliente hr.ocultar-en-pdf {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+}
+
+/* 🔓 PDF INTERNO: Expandir TODAS las secciones colapsadas */
+.capturando-pdf.pdf-interno .collapse:not(.show) {
+  display: block !important;
+  height: auto !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.capturando-pdf.pdf-interno .accordion-collapse {
+  display: block !important;
+  height: auto !important;
+}
+
+.capturando-pdf.pdf-interno .collapsed {
+  display: block !important;
+}
+
+/* 🔓 PDF INTERNO: Forzar expansión de collapse de Bootstrap */
+.capturando-pdf.pdf-interno .collapse {
+  display: block !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  transition: none !important;
+}
+
+.capturando-pdf.pdf-interno .collapsing {
+  display: block !important;
+  height: auto !important;
+  transition: none !important;
+}
+
+/* 🔓 PDF INTERNO: Mostrar botones de collapse como expandidos */
+.capturando-pdf.pdf-interno [data-bs-toggle="collapse"] {
+  pointer-events: none !important;
+}
+
+.capturando-pdf.pdf-interno [data-bs-toggle="collapse"]:after {
+  transform: rotate(0deg) !important;
+}
+
+/* 🔓 PDF INTERNO: Accordion headers siempre expandidos */
+.capturando-pdf.pdf-interno .accordion-button {
+  pointer-events: none !important;
+}
+
+.capturando-pdf.pdf-interno .accordion-button:not(.collapsed)::after,
+.capturando-pdf.pdf-interno .accordion-button.collapsed::after {
+  transform: rotate(0deg) !important;
+}
+
+/* Reducir padding de cards para PDF más compacto */
+.capturando-pdf .card {
+  margin-bottom: 8px !important;
+  page-break-inside: avoid !important;
+}
+
+.capturando-pdf .card-body {
+  padding: 8px !important;
+}
+
+/* Asegurar que los contenedores vacíos no ocupen espacio */
+.capturando-pdf div:empty,
+.capturando-pdf section:empty,
+.capturando-pdf .row:empty,
+.capturando-pdf .col:empty {
+  display: none !important;
+  height: 0 !important;
+  line-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Reducir espaciado entre párrafos y elementos de texto */
+.capturando-pdf p {
+  margin-bottom: 6px !important;
+}
+
+.capturando-pdf .small,
+.capturando-pdf small {
+  margin-bottom: 4px !important;
+}
+
+/* 🔑 ELIMINAR ESPACIO AL FINAL - Sin margen/padding en último elemento */
+.capturando-pdf > *:last-child,
+.capturando-pdf .modal-body > *:last-child,
+.capturando-pdf .card:last-child,
+.capturando-pdf .row:last-child,
+.capturando-pdf div:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Eliminar bordes inferiores que puedan crear espacios */
+.capturando-pdf *:last-child::after {
+  display: none !important;
+  content: none !important;
+}
+
+/* 🎯 ELIMINAR ESPACIOS ENTRE SECCIONES - Reducción agresiva */
+.capturando-pdf .border-top,
+.capturando-pdf .border-bottom,
+.capturando-pdf .border {
+  border: none !important; /* Eliminar TODOS los bordes */
+}
+
+.capturando-pdf .border-2 {
+  border: none !important;
+}
+
+.capturando-pdf .pt-1,
+.capturando-pdf .pt-2,
+.capturando-pdf .pt-3,
+.capturando-pdf .pt-4,
+.capturando-pdf .pt-5 {
+  padding-top: 0 !important; /* CERO padding superior */
+}
+
+.capturando-pdf .pb-1,
+.capturando-pdf .pb-2,
+.capturando-pdf .pb-3,
+.capturando-pdf .pb-4,
+.capturando-pdf .pb-5 {
+  padding-bottom: 0 !important; /* CERO padding inferior */
+}
+
+/* Márgenes verticales entre secciones - reducción total */
+.capturando-pdf .mt-1,
+.capturando-pdf .mt-2,
+.capturando-pdf .mt-3,
+.capturando-pdf .mt-4,
+.capturando-pdf .mt-5 {
+  margin-top: 0 !important; /* CERO margen superior */
+}
+
+/* Margen inferior mínimo pero visible para separar elementos */
+.capturando-pdf .mb-1 { margin-bottom: 2px !important; }
+.capturando-pdf .mb-2 { margin-bottom: 3px !important; }
+.capturando-pdf .mb-3 { margin-bottom: 4px !important; }
+.capturando-pdf .mb-4 { margin-bottom: 5px !important; }
+.capturando-pdf .mb-5 { margin-bottom: 6px !important; }
+

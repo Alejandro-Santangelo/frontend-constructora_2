@@ -1325,13 +1325,20 @@ export const capturarYExportarVisual = async (elemento, nombreArchivo, formato =
  * @returns {Promise<Blob>} - Retorna el blob del PDF generado
  */
 export const exportarAPDFReal = async (elemento, nombreArchivo) => {
+  let yaTeníaClaseCapturando = false;
+  
   try {
     if (!elemento) {
       throw new Error('No se encontró el elemento a exportar');
     }
 
-    // Agregar clase temporal para ajustes de estilo
-    elemento.classList.add('capturando-pdf');
+    // 🔍 Verificar si ya tiene la clase capturando-pdf (agregada por BotonesExportarPDFPresupuesto)
+    yaTeníaClaseCapturando = elemento.classList.contains('capturando-pdf');
+    
+    // Solo agregar clase si NO la tiene ya
+    if (!yaTeníaClaseCapturando) {
+      elemento.classList.add('capturando-pdf');
+    }
 
     // Ajustar estilos temporales
     const anchoOriginal = elemento.style.width;
@@ -1340,12 +1347,22 @@ export const exportarAPDFReal = async (elemento, nombreArchivo) => {
     elemento.style.width = '210mm';
     elemento.style.maxWidth = '210mm';
 
-    // Esperar a que se apliquen los estilos
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // ⏱️ ESPERA MAYOR si viene del PDF Cliente (elementos fueron ocultados con !important)
+    if (!yaTeníaClaseCapturando) {
+      console.log('%c⏱️ exportarAPDFReal: Esperando 800ms para repaint...', 'color: orange; font-size: 14px;');
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, 800); // Espera más larga
+          });
+        });
+      });
+      console.log('%c✅ exportarAPDFReal: Tiempo de espera completado', 'color: green; font-size: 14px;');
+    }
 
-    // Configuración optimizada
+    // Configuración optimizada para PDF de PÁGINA CONTINUA
     const opciones = {
-      margin: [8, 8, 12, 8], // [top, left, bottom, right] en mm
+      margin: [5, 5, 5, 5], // [top, left, bottom, right] en mm - Márgenes mínimos
       filename: `${nombreArchivo}.pdf`,
       image: {
         type: 'jpeg',
@@ -1357,27 +1374,34 @@ export const exportarAPDFReal = async (elemento, nombreArchivo) => {
         letterRendering: true,
         logging: false,
         scrollY: 0,
-        scrollX: 0
+        scrollX: 0,
+        windowHeight: elemento.scrollHeight, // 🔑 Capturar TODO el contenido
+        height: elemento.scrollHeight // 🔑 Altura completa
       },
       jsPDF: {
         unit: 'mm',
-        format: 'a4',
+        format: [210, Math.ceil(elemento.scrollHeight * 0.264583 + 20)], // 🔑 Altura dinámica con buffer de 20mm
         orientation: 'portrait',
         compress: true
-      },
-      pagebreak: {
-        mode: 'css',
-        avoid: ['tr', '.card', '.row']
       }
+      // 🚫 NO incluir pagebreak - dejamos que la página única maneje todo
     };
 
+    console.log('%c📸 html2pdf.js: INICIANDO CAPTURA DEL ELEMENTO...', 'background: purple; color: white; font-size: 14px; padding: 5px;');
+    
     // Generar el PDF y obtener el blob
     const pdfBlob = await html2pdf().set(opciones).from(elemento).output('blob');
+
+    console.log('%c✅ html2pdf.js: CAPTURA COMPLETADA', 'background: green; color: white; font-size: 14px; padding: 5px;');
 
     // Restaurar estilos
     elemento.style.width = anchoOriginal;
     elemento.style.maxWidth = maxWidthOriginal;
-    elemento.classList.remove('capturando-pdf');
+    
+    // Solo remover la clase si FUE ESTA FUNCIÓN quien la agregó
+    if (!yaTeníaClaseCapturando) {
+      elemento.classList.remove('capturando-pdf');
+    }
 
     console.log('📄 PDF generado:', {
       tamaño: (pdfBlob.size / 1024).toFixed(2) + ' KB',
@@ -1388,7 +1412,10 @@ export const exportarAPDFReal = async (elemento, nombreArchivo) => {
   } catch (error) {
     console.error('Error al exportar a PDF:', error);
     if (elemento) {
-      elemento.classList.remove('capturando-pdf');
+      // Solo remover si esta función la agregó
+      if (!yaTeníaClaseCapturando) {
+        elemento.classList.remove('capturando-pdf');
+      }
       elemento.style.width = '';
       elemento.style.maxWidth = '';
     }

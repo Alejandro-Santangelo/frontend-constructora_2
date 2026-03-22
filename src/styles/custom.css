@@ -279,3 +279,145 @@
 .navbar {
   z-index: 1030 !important;
 }
+
+/* ========================================
+   📄 CLASES PARA GENERACIÓN DE PDF
+   ======================================== */
+
+/* Clase base para elementos que se pueden ocultar en PDF */
+.ocultar-en-pdf {
+  /* Por defecto visible en pantalla */
+  display: block !important;
+}
+
+/* Cuando se está capturando el PDF */
+.capturando-pdf {
+  background: white !important;
+  padding: 20px;
+}
+
+/* PDF CLIENTE: Ocultar secciones internas/administrativas */
+.capturando-pdf.pdf-cliente .ocultar-en-pdf,
+.capturando-pdf.pdf-cliente .seccion-interna,
+.capturando-pdf.pdf-cliente .metadata-administrativa,
+.capturando-pdf.pdf-cliente .tabla-listado-presupuestos,
+.capturando-pdf.pdf-cliente .acciones-exportacion {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* PDF INTERNO: Mostrar TODO */
+.capturando-pdf.pdf-interno .ocultar-en-pdf,
+.capturando-pdf.pdf-interno .seccion-interna {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Espaciadores que solo aparecen en PDF */
+.espaciador-pdf {
+  display: none;
+}
+
+.capturando-pdf .espaciador-pdf {
+  display: block !important;
+}
+
+/* Eliminar elementos colapsados en PDF */
+.capturando-pdf .collapse:not(.show) {
+  display: none !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Ocultar botones y controles en PDF */
+.capturando-pdf button,
+.capturando-pdf .btn,
+.capturando-pdf input[type="button"],
+.capturando-pdf input[type="submit"],
+.capturando-pdf .form-check-input {
+  display: none !important;
+}
+
+/* Excepciones: mantener elementos decorativos que parecen botones */
+.capturando-pdf .badge,
+.capturando-pdf .alert {
+  display: inherit !important;
+}
+
+/* Limpiar estilos para mejor impresión en PDF */
+.capturando-pdf {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* ========================================
+   🎨 MEJORAS VISUALES PARA PDF
+   ======================================== */
+
+/* Mejorar bordes y espaciado para PDF */
+.capturando-pdf .card,
+.capturando-pdf .border {
+  border: 1px solid #dee2e6 !important;
+}
+
+/* Asegurar que los fondos se vean en PDF */
+.capturando-pdf .bg-light {
+  background-color: #f8f9fa !important;
+}
+
+.capturando-pdf .bg-primary {
+  background-color: #007bff !important;
+  color: white !important;
+}
+
+.capturando-pdf .bg-success {
+  background-color: #28a745 !important;
+  color: white !important;
+}
+
+.capturando-pdf .bg-info {
+  background-color: #17a2b8 !important;
+  color: white !important;
+}
+
+.capturando-pdf .bg-warning {
+  background-color: #ffc107 !important;
+  color: #212529 !important;
+}
+
+/* ========================================
+   🔍 CLASES ESPECÍFICAS POR SECCIÓN
+   ======================================== */
+
+/* Metadata administrativa (fecha creación, versión, estado) */
+.metadata-administrativa {
+  /* Visible por defecto en pantalla */
+}
+
+/* Tabla de listado de presupuestos */
+.tabla-listado-presupuestos {
+  /* Visible por defecto en pantalla */
+}
+
+/* Acciones de exportación (botones PDF/DOC/Excel) */
+.acciones-exportacion {
+  /* Visible por defecto en pantalla */
+}
+
+/* Secciones internas (configuraciones, descuentos, mayores costos) */
+.seccion-interna {
+  /* Visible por defecto en pantalla */
+}

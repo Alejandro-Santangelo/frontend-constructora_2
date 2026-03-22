@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState, useContext, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { SidebarContext } from '../App';
 import apiService from '../services/api';
@@ -160,11 +160,14 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const [autoGenerarPDF, setAutoGenerarPDF] = useState(false);
   const [abrirWhatsAppDespuesDePDF, setAbrirWhatsAppDespuesDePDF] = useState(false);
   const [abrirEmailDespuesDePDF, setAbrirEmailDespuesDePDF] = useState(false);
+  const [tipoPDFParaGenerar, setTipoPDFParaGenerar] = useState('interno'); // Tipo de PDF que se generará: 'interno' o 'cliente'
   const [forzarModoLectura, setForzarModoLectura] = useState(false);
   const [showDownloadPdfButton, setShowDownloadPdfButton] = useState(false); // 🔥 Nuevo: para mostrar botón descarga PDF
   const [mostrarModalSeleccionEnvio, setMostrarModalSeleccionEnvio] = useState(false);
+  const [tipoPDFSeleccionado, setTipoPDFSeleccionado] = useState('interno'); // 'interno' o 'cliente'
+  const presupuestoAEnviarRef = useRef(null); // ✅ Usar useRef en lugar de useState para evitar pérdida en re-renders
 
-  // 🔧 Estados para gestión de trabajos extra desde tabla
+  //  Estados para gestión de trabajos extra desde tabla
   const [mostrarModalSeleccionEnvioTrabajoExtra, setMostrarModalSeleccionEnvioTrabajoExtra] = useState(false);
   const [trabajoExtraSeleccionado, setTrabajoExtraSeleccionado] = useState(null);
 
@@ -1075,15 +1078,54 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     setMostrarModalSeleccionEnvio(true);
   };
 
-  const handleConfirmarEnvio = async (tipo) => {
+  const handleConfirmarEnvio = async (tipo, tipoPDF = 'interno') => {
+    // 🔧 Intentar obtener presupuesto de ref o buscar en la lista por selectedId
+    let presupuesto = presupuestoAEnviarRef.current;
+    
+    if (!presupuesto && selectedId) {
+      console.log('⚠️ [CONFIRMAR] REF vacía, buscando presupuesto por selectedId:', selectedId);
+      presupuesto = list.find(p => p.id === selectedId);
+      if (presupuesto) {
+        console.log('✅ [CONFIRMAR] Presupuesto encontrado en lista');
+      }
+    }
+    
+    console.log('🚀 [CONFIRMAR] Presupuesto final:', {
+      tipo,
+      tipoPDF,
+      presupuesto: presupuesto ? {
+        id: presupuesto.id,
+        numero: presupuesto.numeroPresupuesto,
+        nombre: presupuesto.nombreObra
+      } : 'NULL ❌',
+      origen: presupuestoAEnviarRef.current ? 'REF' : (presupuesto ? 'selectedId' : 'NULL')
+    });
+
     setMostrarModalSeleccionEnvio(false);
 
-    if (!tipo) return; // Cancelado
+    if (!tipo) {
+      console.log('❌ [CONFIRMAR] Cancelado por usuario');
+      presupuestoAEnviarRef.current = null;
+      return;
+    }
+
+    // Guardar el tipo de PDF seleccionado
+    setTipoPDFParaGenerar(tipoPDF);
+    console.log(`📜 [CONFIRMAR] Modo seleccionado: ${tipoPDF.toUpperCase()} - Método: ${tipo.toUpperCase()}`);
 
     try {
+      // ✅ Usar presupuestoAEnviarRef.current en lugar de estado para evitar race condition
+      if (!presupuesto || !presupuesto.id) {
+        console.error('❌ [CONFIRMAR] Error: presupuesto es NULL');
+        showNotification && showNotification('Error: Presupuesto no seleccionado', 'danger');
+        return;
+      }
+
+      console.log('📡 [CONFIRMAR] Cargando presupuesto completo desde API...');
       // Opción de envío elegida: tipo
       // Cargar el presupuesto completo y abrir el MISMO modal de edición
-      const presupuestoCompleto = await api.presupuestosNoCliente.getById(selectedId, empresaId);
+      const presupuestoCompleto = await api.presupuestosNoCliente.getById(presupuesto.id, empresaId);
+      console.log('✅ [CONFIRMAR] Presupuesto cargado exitosamente');
 
       // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
       const presupuestoNormalizado = {
@@ -1108,11 +1150,28 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         setAbrirEmailDespuesDePDF(true);
 
         // Flags configurados para Email
+      } else if (tipo === 'descargar') {
+        // 🆕 SOLO DESCARGAR PDF (sin enviar)
+        setAutoGenerarPDF(true);
+        setAbrirWhatsAppDespuesDePDF(false);
+        setAbrirEmailDespuesDePDF(false);
+        console.log(`📥 Solo descarga - Tipo PDF: ${tipoPDF}`);
       }
 
+      console.log('🎨 [CONFIRMAR] Abriendo modal de edición...');
       setShowEditarModal(true); // ← Abrir modal de edición con scroll a PDF
+      console.log('✅ [CONFIRMAR] Flujo completado exitosamente');
+      
+      // ⏱️ Limpiar presupuesto temporal DESPUÉS de un pequeño delay para asegurar que el modal se abrió
+      setTimeout(() => {
+        console.log('🧹 [CONFIRMAR] Limpiando presupuestoAEnviarRef');
+        presupuestoAEnviarRef.current = null;
+      }, 500);
     } catch (error) {
+      console.error('❌ [CONFIRMAR] Error en handleConfirmarEnvio:', error);
       showNotification && showNotification('Error al cargar el presupuesto: ' + error.message, 'danger');
+      // Limpiar en caso de error
+      presupuestoAEnviarRef.current = null;
     }
   };
 
@@ -2160,6 +2219,12 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       return;
     }
 
+    console.log('🎯 [ENVIAR] Presupuesto seleccionado:', {
+      id: presupuesto.id,
+      numero: presupuesto.numeroPresupuesto,
+      nombre: presupuesto.nombreObra
+    });
+
     // Si es trabajo extra, usar modal específico de trabajos extra
     if (presupuesto.esPresupuestoTrabajoExtra) {
       setTrabajoExtraSeleccionado(presupuesto);
@@ -2167,43 +2232,18 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     } else {
       // Para presupuestos tradicionales, usar modal normal
       setSelectedId(presupuesto.id);
+      presupuestoAEnviarRef.current = presupuesto; // ✅ Guardar en ref para que persista
+      console.log('✅ [ENVIAR] Presupuesto guardado en REF:', {
+        id: presupuesto.id,
+        numero: presupuesto.numeroPresupuesto,
+        refCurrentId: presupuestoAEnviarRef.current?.id,
+        objetoCompleto: presupuesto
+      });
       setMostrarModalSeleccionEnvio(true);
-    }
-  };
-
-  // Cambiar estado genérico desde tabla
-  const handleCambiarEstadoPresupuesto = async (presupuesto, nuevoEstado) => {
-    if (!presupuesto || !presupuesto.id) {
-      showNotification && showNotification('Presupuesto no válido', 'warning');
-      return;
-    }
-
-    try {
-      // 🔧 Normalizar presupuesto para envío
-      const presupuestoNormalizado = {
-        ...presupuesto,
-        estado: nuevoEstado,
-        esPresupuestoTrabajoExtra: presupuesto.esPresupuestoTrabajoExtra || false
-      };
-
-      await api.presupuestosNoCliente.update(
-        presupuesto.id,
-        presupuestoNormalizado,
-        empresaId
-      );
-
-      showNotification && showNotification(
-        `✅ Estado actualizado a ${nuevoEstado}`,
-        'success'
-      );
-
-      await loadList();
-    } catch (error) {
-      console.error('❌ Error al cambiar estado:', error);
-      showNotification && showNotification(
-        `Error al cambiar estado: ${error.message}`,
-        'error'
-      );
+      // Verificar después de abrir modal
+      setTimeout(() => {
+        console.log('🔍 [ENVIAR] REF 200ms después:', presupuestoAEnviarRef.current ? 'EXISTE ✅' : 'NULL ❌');
+      }, 200);
     }
   };
 
@@ -3658,6 +3698,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           abrirWhatsAppDespuesDePDF={abrirWhatsAppDespuesDePDF}
           abrirEmailDespuesDePDF={abrirEmailDespuesDePDF}
           showDownloadPdfButton={showDownloadPdfButton} // 🔥 Nuevo prop
+          tipoPDFAGenerar={tipoPDFParaGenerar} // ✨ Prop para controlar tipo de PDF
           onPDFGenerado={() => {
             console.log('✅ PDF generado, cerrando modal de edición...');
             setAutoGenerarPDF(false);
@@ -3708,47 +3749,171 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       )}
 
       {/* Modal Selección de Envío */}
-      {mostrarModalSeleccionEnvio && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-dialog-centered">
+      {mostrarModalSeleccionEnvio && (() => {
+        const presupuesto = presupuestoAEnviarRef.current;
+        console.log('🎨 [MODAL] Renderizando - REF actual:', presupuesto ? {
+          id: presupuesto.id,
+          numero: presupuesto.numeroPresupuesto,
+          nombre: presupuesto.nombreObra,
+          objetoCompleto: presupuesto
+        } : 'NULL ❌');
+        
+        return (
+        <div 
+          className="modal show d-block" 
+          tabIndex="-1" 
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          onClick={(e) => e.stopPropagation()} // ✅ Evitar propagación de clics hacia la tabla
+        >
+          <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content">
               <div className="modal-header bg-primary text-white">
                 <h5 className="modal-title">
-                  <i className="fas fa-paper-plane me-2"></i>¿Cómo desea enviar el presupuesto?
+                  <i className="fas fa-file-pdf me-2"></i>Generar y Enviar Presupuesto
                 </h5>
                 <button
                   type="button"
                   className="btn-close btn-close-white"
-                  onClick={() => setMostrarModalSeleccionEnvio(false)}
+                  onClick={() => {
+                    setMostrarModalSeleccionEnvio(false);
+                    setTipoPDFSeleccionado('interno');
+                    presupuestoAEnviarRef.current = null; // ✅ Limpiar referencia
+                  }}
                 ></button>
               </div>
-              <div className="modal-body text-center py-4">
-                <p className="mb-4">Seleccione el método de envío:</p>
-                <div className="d-grid gap-3">
-                  <button
-                    className="btn btn-success btn-lg"
-                    onClick={() => handleConfirmarEnvio('whatsapp')}
-                  >
-                    <i className="fab fa-whatsapp me-2"></i>Enviar por WhatsApp
-                  </button>
-                  <button
-                    className="btn btn-primary btn-lg"
-                    onClick={() => handleConfirmarEnvio('email')}
-                  >
-                    <i className="fas fa-envelope me-2"></i>Enviar por Email
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-lg"
-                    onClick={() => setMostrarModalSeleccionEnvio(false)}
-                  >
-                    <i className="fas fa-times me-2"></i>Cancelar
-                  </button>
+              <div className="modal-body py-4">
+                {/* Paso 1: Seleccionar Tipo de PDF */}
+                <div className="mb-4">
+                  <h6 className="mb-3 text-dark fw-bold">
+                    <i className="fas fa-layer-group me-2"></i>
+                    Paso 1: Seleccione el tipo de PDF
+                  </h6>
+                  <div className="row g-3">
+                    <div className="col-md-6">
+                      <div 
+                        className={`card h-100 ${tipoPDFSeleccionado === 'interno' ? 'border-primary border-3 bg-primary bg-opacity-10' : 'border-2'}`}
+                        style={{ cursor: 'pointer' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTipoPDFSeleccionado('interno');
+                        }}
+                      >
+                        <div className="card-body text-center">
+                          <div className="mb-3">
+                            <i className="fas fa-file-alt fa-3x text-primary"></i>
+                          </div>
+                          <h5 className="card-title fw-bold">PDF Interno</h5>
+                          <p className="card-text text-muted small">
+                            Completo • Incluye configuraciones, descuentos, mayores costos y todas las secciones • Para uso de la empresa
+                          </p>
+                          {tipoPDFSeleccionado === 'interno' && (
+                            <div className="mt-2">
+                              <span className="badge bg-primary">✓ Seleccionado</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div 
+                        className={`card h-100 ${tipoPDFSeleccionado === 'cliente' ? 'border-success border-3 bg-success bg-opacity-10' : 'border-2'}`}
+                        style={{ cursor: 'pointer' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTipoPDFSeleccionado('cliente');
+                        }}
+                      >
+                        <div className="card-body text-center">
+                          <div className="mb-3">
+                            <i className="fas fa-file-invoice fa-3x text-success"></i>
+                          </div>
+                          <h5 className="card-title fw-bold">PDF Cliente</h5>
+                          <p className="card-text text-muted small">
+                            Profesional • Solo información relevante para el cliente • Sin configuraciones internas
+                          </p>
+                          {tipoPDFSeleccionado === 'cliente' && (
+                            <div className="mt-2">
+                              <span className="badge bg-success">✓ Seleccionado</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Paso 2: Seleccionar Método */}
+                <div>
+                  <h6 className="mb-3 text-dark fw-bold">
+                    <i className="fas fa-share-alt me-2"></i>
+                    Paso 2: ¿Cómo desea enviarlo?
+                  </h6>
+                  <div className="d-grid gap-3">
+                    <button
+                      className="btn btn-success btn-lg"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('🟢 [BOTON] WhatsApp clickeado - REF actual:', {
+                          refExiste: presupuestoAEnviarRef.current ? 'SÍ ✅' : 'NO ❌',
+                          refId: presupuestoAEnviarRef.current?.id || 'N/A',
+                          presupuestoLocal: presupuesto ? 'EXISTE ✅' : 'NULL ❌'
+                        });
+                        handleConfirmarEnvio('whatsapp', tipoPDFSeleccionado);
+                      }}
+                    >
+                      <i className="fab fa-whatsapp me-2"></i>
+                      Enviar por WhatsApp
+                      <small className="d-block mt-1" style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+                        {tipoPDFSeleccionado === 'interno' ? '📄 PDF Completo (Interno)' : '📋 PDF Limpio (Cliente)'}
+                      </small>
+                    </button>
+                    <button
+                      className="btn btn-primary btn-lg"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('🔵 [BOTON] Email clickeado - presupuesto:', presupuesto ? 'EXISTE ✅' : 'NULL ❌');
+                        handleConfirmarEnvio('email', tipoPDFSeleccionado);
+                      }}
+                    >
+                      <i className="fas fa-envelope me-2"></i>
+                      Enviar por Email
+                      <small className="d-block mt-1" style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+                        {tipoPDFSeleccionado === 'interno' ? '📄 PDF Completo (Interno)' : '📋 PDF Limpio (Cliente)'}
+                      </small>
+                    </button>
+                    <button
+                      className="btn btn-info btn-lg text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('⚪ [BOTON] Descargar clickeado - presupuesto:', presupuesto ? 'EXISTE ✅' : 'NULL ❌');
+                        handleConfirmarEnvio('descargar', tipoPDFSeleccionado);
+                      }}
+                    >
+                      <i className="fas fa-download me-2"></i>
+                      Solo Descargar PDF
+                      <small className="d-block mt-1" style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+                        {tipoPDFSeleccionado === 'interno' ? '📄 PDF Completo (Interno)' : '📋 PDF Limpio (Cliente)'}
+                      </small>
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-lg"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMostrarModalSeleccionEnvio(false);
+                        setTipoPDFSeleccionado('interno');
+                        presupuestoAEnviarRef.current = null; // ✅ Limpiar referencia
+                      }}
+                    >
+                      <i className="fas fa-times me-2"></i>Cancelar
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* 🔧 Modal Selección de Envío para TRABAJOS EXTRA */}
       {mostrarModalSeleccionEnvioTrabajoExtra && (
@@ -3810,7 +3975,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
             setPresupuestoData(null); // Limpiar datos
             fetchPresupuestos(); // Recargar lista
           }}
-          onAbrirPresupuestoParaPDF={(presupuesto) => {
+          onAbrirPresupuestoParaPDF={(presupuesto, tipoPDF) => {
             setShowEnviarPresupuestoModal(false);
 
             // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
@@ -3822,8 +3987,18 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
             setPresupuestoData(presupuestoNormalizado);
             setAutoGenerarPDF(true);
-            setAbrirWhatsAppDespuesDePDF(true); // ✅ Activar flag de WhatsApp
-            setAbrirEmailDespuesDePDF(false);
+
+            if (tipoPDF === 'cliente') {
+              // PDF Cliente: NO abrir WhatsApp, solo generar el PDF limpio
+              setTipoPDFParaGenerar('cliente');
+              setAbrirWhatsAppDespuesDePDF(false);
+              setAbrirEmailDespuesDePDF(false);
+            } else {
+              // Flujo original: PDF + WhatsApp
+              setTipoPDFParaGenerar('interno');
+              setAbrirWhatsAppDespuesDePDF(true);
+              setAbrirEmailDespuesDePDF(false);
+            }
             setShowEditarModal(true);
           }}
           onAbrirPresupuestoParaEmail={(presupuesto) => {

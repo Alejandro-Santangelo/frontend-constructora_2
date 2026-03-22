@@ -4,6 +4,7 @@ import { generarResumenTexto, exportarAPDFReal } from '../utils/exportUtils';
 import apiService from '../services/api';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import BotonesExportarPDFPresupuesto from './BotonesExportarPDFPresupuesto';
 
 const EnviarPresupuestoModal = ({ show, onClose, presupuestoPreseleccionado = null, onAbrirPresupuestoParaPDF = null, onAbrirPresupuestoParaEmail = null, onSuccess = null }) => {
   const { empresaSeleccionada } = useEmpresa();
@@ -2353,7 +2354,7 @@ Saludos.`;
 
                   {/* Cálculo por Metros Cuadrados */}
                   {mostrarBloqueMetrosCuadrados && presupuestoSeleccionado.costosIniciales && (
-                    <div className="row mb-4">
+                    <div className="row mb-4 ocultar-en-pdf">
                       <div className="col-12">
                         <div className="border rounded p-3" style={{backgroundColor: '#d4edda'}}>
                           <h6
@@ -2464,7 +2465,7 @@ Saludos.`;
 
                   {/* Items del Presupuesto - Bloque Colapsable */}
                   {mostrarBloqueItemsPresupuesto && (
-                  <div className="row mb-4">
+                  <div className="row mb-4 ocultar-en-pdf">
                     <div className="col-12">
                       <div className="border rounded p-3" style={{backgroundColor: '#fff3cd'}}>
                         <h6
@@ -2669,7 +2670,7 @@ Saludos.`;
 
                   {/* Mayores Costos - Bloque Colapsable */}
                   {mostrarBloqueMayoresCostos && (
-                  <div className="row mb-4">
+                  <div className="row mb-4 ocultar-en-pdf">
                     <div className="col-12">
                       <div className="border rounded p-3" style={{backgroundColor: '#cce5ff'}}>
                         <h6
@@ -2706,7 +2707,7 @@ Saludos.`;
 
                   {/* Configuración del Presupuesto - Bloque Colapsable */}
                   {mostrarBloqueConfigPresupuesto && (
-                  <div className="row mb-4">
+                  <div className="row mb-4 ocultar-en-pdf">
                     <div className="col-12">
                       <div className="border rounded p-3" style={{backgroundColor: '#e7d4f5'}}>
                         <h6
@@ -2781,7 +2782,7 @@ Saludos.`;
 
                   {/* Importar desde Items Agregados - Bloque Colapsable */}
                   {mostrarBloqueImportarItems && (
-                  <div className="row mb-4">
+                  <div className="row mb-4 ocultar-en-pdf">
                     <div className="col-12">
                       <div className="border rounded p-3" style={{backgroundColor: '#f5e6d3'}}>
                         <h6
@@ -2817,7 +2818,7 @@ Saludos.`;
                   )}
 
                   {/* Configuración de Presupuesto por Profesionales, Materiales, Otros Costos */}
-                  <div className="row mb-4">
+                  <div className="row mb-4 ocultar-en-pdf">
                     <div className="col-12">
                       <div className="mt-3 border rounded p-3" style={{backgroundColor: 'rgb(255, 243, 205)'}}>
                         <h6
@@ -3008,7 +3009,7 @@ Saludos.`;
 
                   {/* Configuración de Honorarios - Bloque Colapsable */}
                   {mostrarBloqueHonorarios && (
-                  <div className="row mb-4">
+                  <div className="row mb-4 ocultar-en-pdf">
                     <div className="col-12">
                       <div className="border rounded p-3" style={{backgroundColor: '#f8d7da'}}>
                         <h6
@@ -3618,6 +3619,48 @@ Saludos.`;
                           )}
                         </button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 🆕 BOTONES PARA GENERAR PDF (Cliente abre modal principal, Interno usa componente) */}
+                <div className="w-100 mb-3 ocultar-en-pdf">
+                  <div className="row g-2">
+                    {/* Botón PDF Cliente - Abre el modal principal que funciona bien */}
+                    <div className="col-12 col-md-6">
+                      <button
+                        type="button"
+                        className="btn btn-primary w-100"
+                        onClick={() => {
+                          console.log('📄 PDF Cliente - Abriendo modal principal...');
+                          if (onAbrirPresupuestoParaPDF && presupuestoSeleccionado) {
+                            // Cerrar este modal y abrir el PresupuestoNoClienteModal con tipo PDF cliente
+                            onAbrirPresupuestoParaPDF(presupuestoSeleccionado, 'cliente');
+                          } else {
+                            console.error('❌ onAbrirPresupuestoParaPDF no disponible');
+                          }
+                        }}
+                        disabled={!presupuestoSeleccionado}
+                      >
+                        <i className="fas fa-file-pdf me-2"></i>
+                        📄 PDF Cliente (sin configuraciones internas)
+                      </button>
+                    </div>
+
+                    {/* Botón PDF Interno - Usa el componente normal */}
+                    <div className="col-12 col-md-6">
+                      <BotonesExportarPDFPresupuesto
+                        modalContentRef={previewRef}
+                        presupuesto={presupuestoSeleccionado}
+                        abrirWhatsAppDespuesDePDF={false}
+                        soloMostrarBotonInterno={true}
+                        onPDFGenerado={(blob, tipo) => {
+                          console.log(`✅ PDF ${tipo.toUpperCase()} generado en EnviarPresupuestoModal`);
+                          if (presupuestoSeleccionado?.id) {
+                            cargarPDFs(presupuestoSeleccionado.id);
+                          }
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
