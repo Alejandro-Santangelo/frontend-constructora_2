@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import ObraSelector from './ObraSelector';
 import ClienteSelector from './ClienteSelector';
@@ -465,6 +465,7 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
   const [mostrarItemsIndividuales, setMostrarItemsIndividuales] = useState(false); // Estado para expandir/contraer secciones de items individuales
   const [mostrarImportarItems, setMostrarImportarItems] = useState(false); // Estado para expandir/contraer Importar Items
   const [ocultarConfiguracionEnPDF, setOcultarConfiguracionEnPDF] = useState(true); // NUEVO: Ocultar Configuración en PDF por defecto
+  const [generandoPDF, setGenerandoPDF] = useState(false); // Estado para mostrar cartel de "Generando PDF..."
 
   // 🎯 Detectar modo del presupuesto usando hook reutilizable
   const modoPresupuestoDetectado = useDetectarModoPresupuesto(safeInitial, show);
@@ -2250,46 +2251,30 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     setForm(prev => ({ ...prev, modoCargaGastos }));
   }, [modoCargaGastos]);
 
-  // useEffect para hacer scroll automático a la sección de exportación cuando viene desde "Enviar" (WhatsApp o Email)
+  // useEffect para hacer scroll automático a la sección de export ación cuando viene desde "Enviar" (WhatsApp o Email)
   useEffect(() => {
-    console.log('🔄 [AUTO-SCROLL] useEffect ejecutado:', {
-      show,
-      abrirWhatsAppDespuesDePDF,
-      abrirEmailDespuesDePDF,
-      autoClickExecuted: autoClickExecutedRef.current,
-      condicionCumplida: show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF) && !autoClickExecutedRef.current
-    });
-
     // 🔒 IMPORTANTE: Solo ejecutar UNA VEZ por sesión del modal
     if (show && (abrirWhatsAppDespuesDePDF || abrirEmailDespuesDePDF || autoGenerarPDF) && !autoClickExecutedRef.current) {
-      console.log('✅ [AUTO-SCROLL] Condición cumplida - iniciando proceso de auto-scroll');
 
       // 🎯 Función para ejecutar scroll DIRECTO
       const ejecutarScrollDirecto = () => {
-        console.log('🎯 [AUTO-SCROLL] Intentando ejecutar scroll...');
         const modalBodies = document.querySelectorAll('.modal-body');
-        const botonPDF = document.getElementById('guardar-pdf-button');
-
-        console.log(`📊 [AUTO-SCROLL] Modal-bodies: ${modalBodies.length}, Botón PDF: ${!!botonPDF}`);
+        const botonPDF = document.getElementById('boton-pdf-dual-auto');
 
         if (!botonPDF) {
-          console.warn('⚠️ [AUTO-SCROLL] Botón PDF no encontrado');
           return false;
         }
-
         // Encontrar modal-body que contiene el botón
         let modalBodyCorrecto = null;
         for (let i = 0; i < modalBodies.length; i++) {
           const mb = modalBodies[i];
           if (mb.contains(botonPDF)) {
             modalBodyCorrecto = mb;
-            console.log(`✅ [AUTO-SCROLL] Modal-body correcto encontrado (índice ${i})`);
             break;
           }
         }
 
         if (!modalBodyCorrecto) {
-          console.warn('⚠️ [AUTO-SCROLL] No se encontró modal-body que contenga el botón');
           return false;
         }
 
@@ -2299,25 +2284,18 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
         const scrollActual = modalBodyCorrecto.scrollTop;
         const scrollPos = Math.max(0, btnRect.top - mbRect.top + scrollActual - 250);
 
-        console.log(`📊 [AUTO-SCROLL] Scroll actual: ${scrollActual}px → Objetivo: ${scrollPos}px`);
-
         // Aplicar scroll DIRECTAMENTE
         modalBodyCorrecto.scrollTop = scrollPos;
 
         // 🔒 MARCAR COMO EJECUTADO SOLO DESPUÉS DEL SCROLL EXITOSO
         autoClickExecutedRef.current = true;
-        console.log('🔒 [AUTO-SCROLL] Flag marcado como ejecutado');
 
         // Verificar y auto-click
         setTimeout(() => {
-          const scrollDespues = modalBodyCorrecto.scrollTop;
-          console.log(`✅ [AUTO-SCROLL] Scroll ejecutado: ${scrollDespues}px`);
-          if (scrollDespues > 0) {
-            console.log('🖱️ [AUTO-SCROLL] Haciendo click en botón PDF...');
-            setTimeout(async () => {
+          // ✅ SIEMPRE ejecutar el click, incluso si no hubo scroll (botón ya visible)
+          setTimeout(async () => {
               // 🔔 FLUJO INTERACTIVO PARA PDF INTERNO
               if (tipoPDFAGenerar === 'interno') {
-                // 1️⃣ Primer confirm: ¿Quiere ver las secciones colapsadas?
                 const aceptaContinuar = window.confirm(
                   '📋 PDF INTERNO - EXPANDIR SECCIONES\n\n' +
                   'El sistema te llevará automáticamente a cada sección colapsada para que puedas expandirlas:\n\n' +
@@ -2330,14 +2308,9 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 );
 
                 if (!aceptaContinuar) {
-                  console.log('❌ Usuario canceló el flujo de expansión');
-                  // Usuario canceló, generar PDF sin esperar
                   botonPDF.click();
                   return;
                 }
-
-                // 2️⃣ Usuario aceptó: scrollear a cada sección colapsada
-                console.log('✅ Usuario aceptó, scrolleando a secciones...');
 
                 // Buscar las secciones colapsadas por texto
                 const seccionesABuscar = [
@@ -2356,15 +2329,13 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                   );
 
                   if (seccion) {
-                    console.log(`📍 Scrolleando a: ${textoSeccion}`);
                     seccion.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     // Esperar 1.5 segundos para que el usuario vea la sección
                     await new Promise(resolve => setTimeout(resolve, 1500));
                   }
                 }
 
-                // 3️⃣ BOTÓN FLOTANTE: Esperar a que el usuario termine de expandir
-                console.log('🎯 Mostrando botón para confirmar expansión...');
+                // Mostrar botón para confirmar expansión
 
                 // Crear botón flotante
                 const botonConfirmar = document.createElement('button');
@@ -2401,54 +2372,54 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                 // Esperar a que el usuario haga clic
                 await new Promise((resolve) => {
                   botonConfirmar.addEventListener('click', () => {
-                    console.log('✅ Usuario confirmó - generando PDF');
                     botonConfirmar.remove();
                     style.remove();
                     resolve();
                   });
                 });
-
-                console.log('✅ Generando PDF interno...');
               }
-              // Para PDF Cliente NO hay flujo interactivo, solo genera directamente
+
               botonPDF.click();
             }, 500);
-          }
         }, 100);
 
         return true;
       };
 
-      // ⏳ ESPERAR 2.5 segundos (después del desbloqueo de useEffects a los 2s)
-      // Esto asegura que el modal esté COMPLETAMENTE renderizado
-      console.log('⏳ [AUTO-SCROLL] Esperando 2.5 segundos antes de iniciar intentos...');
+      // ⏳ ESPERAR más tiempo para PDF Cliente (4 segundos) para asegurar renderizado completo
+      // PDF Interno: 2.5 segundos | PDF Cliente: 4 segundos
+      const delaySegunTipo = tipoPDFAGenerar === 'cliente' ? 4000 : 2500;
+
+      // 📊 Mostrar cartel de "Generando PDF..."
+      setGenerandoPDF(true);
+
+      // ⏱️ Ocultar cartel después de tiempo estimado (delay + 5s estabilización + 8s generación)
+      const tiempoEstimadoTotal = delaySegunTipo + 13000; // ~15-17 segundos total
+      const timeoutOcultarCartel = setTimeout(() => {
+        setGenerandoPDF(false);
+      }, tiempoEstimadoTotal);
+
       let intervalo = null;
       const delayInicial = setTimeout(() => {
-        console.log('🚀 [AUTO-SCROLL] Iniciando intentos de scroll...');
         let intentos = 0;
         intervalo = setInterval(() => {
           intentos++;
-          console.log(`🔄 [AUTO-SCROLL] Intento ${intentos}/12`);
           const exito = ejecutarScrollDirecto();
           if (exito || intentos >= 12) {
-            if (intentos >= 12 && !exito) {
-              console.warn('⚠️ [AUTO-SCROLL] Se alcanzó el máximo de intentos (12)');
-            }
             clearInterval(intervalo);
           }
         }, 400);
-      }, 2500);
+      }, delaySegunTipo);
 
       // Cleanup completo
       return () => {
-        console.log('🧹 [AUTO-SCROLL] Cleanup ejecutado');
         clearTimeout(delayInicial);
+        clearTimeout(timeoutOcultarCartel);
         if (intervalo) clearInterval(intervalo);
+        setGenerandoPDF(false); // Asegurar que se oculte al desmontar
       };
 
     } else if (!show && autoClickExecutedRef.current) {
-      // 🔓 Resetear el flag cuando se cierra el modal
-      console.log('🔓 [AUTO-SCROLL] Reseteando flag - modal cerrado');
       autoClickExecutedRef.current = false;
     }
   }, [show, abrirWhatsAppDespuesDePDF, abrirEmailDespuesDePDF, autoGenerarPDF, tipoPDFAGenerar]);
@@ -11215,6 +11186,49 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
 
   return (
     <>
+      {/* 📄 Cartel flotante "Generando PDF..." */}
+      {generandoPDF && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 99999,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          padding: '30px 50px',
+          borderRadius: '20px',
+          boxShadow: '0 15px 50px rgba(0,0,0,0.5)',
+          fontSize: '24px',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          border: '4px solid white',
+          animation: 'pulse-pdf 2s infinite'
+        }}>
+          <div style={{ marginBottom: '15px', fontSize: '48px' }}>📄</div>
+          <div>Generando PDF...</div>
+          <div style={{ fontSize: '16px', marginTop: '10px', opacity: 0.9 }}>
+            Por favor, esperá unos segundos
+          </div>
+        </div>
+      )}
+
+      {/* Animación CSS para el cartel */}
+      {generandoPDF && (
+        <style>{`
+          @keyframes pulse-pdf {
+            0%, 100% {
+              transform: translate(-50%, -50%) scale(1);
+              box-shadow: 0 15px 50px rgba(0,0,0,0.5);
+            }
+            50% {
+              transform: translate(-50%, -50%) scale(1.05);
+              box-shadow: 0 20px 60px rgba(102,126,234,0.6);
+            }
+          }
+        `}</style>
+      )}
+
       <style>{`
         .campo-obligatorio::after {
           content: ' *';

@@ -1081,7 +1081,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
   const handleConfirmarEnvio = async (tipo, tipoPDF = 'interno') => {
     // 🔧 Intentar obtener presupuesto de ref o buscar en la lista por selectedId
     let presupuesto = presupuestoAEnviarRef.current;
-    
+
     if (!presupuesto && selectedId) {
       console.log('⚠️ [CONFIRMAR] REF vacía, buscando presupuesto por selectedId:', selectedId);
       presupuesto = list.find(p => p.id === selectedId);
@@ -1089,7 +1089,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
         console.log('✅ [CONFIRMAR] Presupuesto encontrado en lista');
       }
     }
-    
+
     console.log('🚀 [CONFIRMAR] Presupuesto final:', {
       tipo,
       tipoPDF,
@@ -1112,20 +1112,26 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
     // Guardar el tipo de PDF seleccionado
     setTipoPDFParaGenerar(tipoPDF);
     console.log(`📜 [CONFIRMAR] Modo seleccionado: ${tipoPDF.toUpperCase()} - Método: ${tipo.toUpperCase()}`);
+    console.log(`🔍 [CONFIRMAR] Presupuesto antes de validar:`, presupuesto);
 
     try {
       // ✅ Usar presupuestoAEnviarRef.current en lugar de estado para evitar race condition
       if (!presupuesto || !presupuesto.id) {
         console.error('❌ [CONFIRMAR] Error: presupuesto es NULL');
+        console.error('   - presupuesto:', presupuesto);
+        console.error('   - presupuestoAEnviarRef.current:', presupuestoAEnviarRef.current);
+        console.error('   - selectedId:', selectedId);
         showNotification && showNotification('Error: Presupuesto no seleccionado', 'danger');
         return;
       }
 
       console.log('📡 [CONFIRMAR] Cargando presupuesto completo desde API...');
+      console.log('   - ID a cargar:', presupuesto.id);
+      console.log('   - empresaId:', empresaId);
       // Opción de envío elegida: tipo
       // Cargar el presupuesto completo y abrir el MISMO modal de edición
       const presupuestoCompleto = await api.presupuestosNoCliente.getById(presupuesto.id, empresaId);
-      console.log('✅ [CONFIRMAR] Presupuesto cargado exitosamente');
+      console.log('✅ [CONFIRMAR] Presupuesto cargado exitosamente:', presupuestoCompleto);
 
       // 🔧 Normalizar: Si es trabajo extra, NO cargar clienteId
       const presupuestoNormalizado = {
@@ -1159,9 +1165,13 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       }
 
       console.log('🎨 [CONFIRMAR] Abriendo modal de edición...');
+      console.log('   - presupuestoData antes de abrir:', presupuestoData);
+      console.log('   - autoGenerarPDF:', autoGenerarPDF);
+      console.log('   - abrirWhatsAppDespuesDePDF:', abrirWhatsAppDespuesDePDF);
+      console.log('   - tipoPDFParaGenerar:', tipoPDFParaGenerar);
       setShowEditarModal(true); // ← Abrir modal de edición con scroll a PDF
-      console.log('✅ [CONFIRMAR] Flujo completado exitosamente');
-      
+      console.log('✅ [CONFIRMAR] setShowEditarModal(true) ejecutado');
+
       // ⏱️ Limpiar presupuesto temporal DESPUÉS de un pequeño delay para asegurar que el modal se abrió
       setTimeout(() => {
         console.log('🧹 [CONFIRMAR] Limpiando presupuestoAEnviarRef');
@@ -1733,7 +1743,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
           // ✅ OPTIMIZACIÓN: Actualizar solo la fila modificada (sin recargar toda la lista)
           if (respuestaFechas) {
-            setList(prevList => prevList.map(item => 
+            setList(prevList => prevList.map(item =>
               item.id === respuestaFechas.id ? respuestaFechas : item
             ));
           } else {
@@ -1929,7 +1939,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
 
         // ✅ OPTIMIZACIÓN: Actualizar solo la fila modificada (sin recargar toda la lista)
         if (respuestaActualizacion) {
-          setList(prevList => prevList.map(item => 
+          setList(prevList => prevList.map(item =>
             item.id === respuestaActualizacion.id ? respuestaActualizacion : item
           ));
         } else {
@@ -3016,11 +3026,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                             {(() => {
                               // 🔥 CALCULAR TOTAL DINÁMICAMENTE CON PRIORIDAD A VALORES DEL BACKEND
                               // El backend ya calcula correctamente: base + honorarios + mayores costos - descuentos
-                              
+
                               // PRIORIDAD 1: Valores del backend (INCLUYEN TODO: base + honorarios + MC - descuentos)
                               const totalConDescuentos = row.totalConDescuentos;
                               const totalFinal = row.totalFinal;
-                              
+
                               // ✅ Detectar si hay descuentos configurados (legacy O por rubro)
                               const hayDescuentos = (row.totalDescuentos && Number(row.totalDescuentos) > 0) ||
                                                    (row.descuentosPorRubro && Array.isArray(row.descuentosPorRubro) && row.descuentosPorRubro.length > 0);
@@ -3054,7 +3064,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                   return `$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
                                 }
                               }
-                              
+
                               // PRIORIDAD 2: Recalcular desde itemsCalculadora (SOLO si no hay valores del backend)
                               const items = row.itemsCalculadora;
                               if (items && Array.isArray(items) && items.length > 0) {
@@ -3757,11 +3767,11 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
           nombre: presupuesto.nombreObra,
           objetoCompleto: presupuesto
         } : 'NULL ❌');
-        
+
         return (
-        <div 
-          className="modal show d-block" 
-          tabIndex="-1" 
+        <div
+          className="modal show d-block"
+          tabIndex="-1"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
           onClick={(e) => e.stopPropagation()} // ✅ Evitar propagación de clics hacia la tabla
         >
@@ -3790,7 +3800,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                   </h6>
                   <div className="row g-3">
                     <div className="col-md-6">
-                      <div 
+                      <div
                         className={`card h-100 ${tipoPDFSeleccionado === 'interno' ? 'border-primary border-3 bg-primary bg-opacity-10' : 'border-2'}`}
                         style={{ cursor: 'pointer' }}
                         onClick={(e) => {
@@ -3815,7 +3825,7 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                       </div>
                     </div>
                     <div className="col-md-6">
-                      <div 
+                      <div
                         className={`card h-100 ${tipoPDFSeleccionado === 'cliente' ? 'border-success border-3 bg-success bg-opacity-10' : 'border-2'}`}
                         style={{ cursor: 'pointer' }}
                         onClick={(e) => {
