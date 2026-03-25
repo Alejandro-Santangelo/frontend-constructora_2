@@ -18,19 +18,19 @@ import axios from 'axios';
 // Detectar automáticamente el entorno
 const isProduction = import.meta.env.MODE === 'production';
 
-// URL del backend Railway (hardcodeada para producción)
-const RAILWAY_BACKEND_URL = 'https://backend-constructora2-production-8bc9.up.railway.app';
-
-// Leer configuración de variable de entorno (solo para desarrollo local)
+// Leer configuración de variable de entorno
 const ENV_API_URL = import.meta.env.VITE_API_URL;
 
+// URL de fallback para producción (solo si no hay VITE_API_URL)
+const FALLBACK_BACKEND_URL = 'https://backend-constructora-tnt.onrender.com';
+
 // Determinar la URL base:
-// PRODUCCIÓN: Siempre usar Railway backend
+// PRODUCCIÓN: Usar VITE_API_URL si existe, sino fallback a Render
 // DESARROLLO:
-//   - Si hay VITE_API_URL en .env.development, usarla (permite conectar a Railway desde local)
+//   - Si hay VITE_API_URL en .env.development, usarla (permite conectar a backend remoto desde local)
 //   - Si no, usar '' (proxy de Vite a localhost:8080)
 const API_BASE_URL = isProduction
-  ? RAILWAY_BACKEND_URL
+  ? (ENV_API_URL || FALLBACK_BACKEND_URL)
   : (ENV_API_URL || '');
 
 console.log('🔧 API Service - Modo:', import.meta.env.MODE);
