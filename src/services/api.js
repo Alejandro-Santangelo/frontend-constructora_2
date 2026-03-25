@@ -19,7 +19,7 @@ import axios from 'axios';
 const isProduction = import.meta.env.MODE === 'production';
 
 // URL del backend Railway (hardcodeada para producción)
-const RAILWAY_BACKEND_URL = 'https://backend-constructora2-production.up.railway.app';
+const RAILWAY_BACKEND_URL = 'https://backend-constructora2-production-8bc9.up.railway.app';
 
 // Leer configuración de variable de entorno (solo para desarrollo local)
 const ENV_API_URL = import.meta.env.VITE_API_URL;
