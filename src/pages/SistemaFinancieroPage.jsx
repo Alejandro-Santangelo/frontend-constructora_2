@@ -103,86 +103,85 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const loadingEstadisticas = loadingFinancial;
   const errorEstadisticas = errorFinancial;
 
+  // 🆕 Modo consolidado - siempre activo para mostrar selector de obras múltiples
+  const modoConsolidado = true;
+
   // 🆕 Total de cobros asignados a Trabajos Adicionales y Obras Independientes
   const [totalAsignadoTAOI, setTotalAsignadoTAOI] = useState(0);
+  // Estado para el bloque colapsable de otras formas de pago
+  const [seccionBalanceExpandida, setSeccionBalanceExpandida] = useState(false);
 
   // Estado para la obra/presupuesto seleccionado - cargar desde sessionStorage
   const [obraSeleccionada, setObraSeleccionada] = useState(() => {
     try {
       const stored = sessionStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const obra = JSON.parse(stored);
-        // ✅ Permitir obras independientes (sin presupuesto)
-        // Ya no validamos presupuestoNoClienteId
-        return obra;
-      }
-      return null;
-    } catch (e) {
-      console.error('Error cargando obra desde sessionStorage:', e);
-      sessionStorage.removeItem(STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error al cargar obraSeleccionada desde sessionStorage:', error);
       return null;
     }
   });
+
+  // Estado para refrescar datos
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Estado para modal de resumen consolidado
+  const [showResumenConsolidado, setShowResumenConsolidado] = useState(false);
+  const [resumenConsolidado, setResumenConsolidado] = useState({
+    profesionales: [],
+    materiales: [],
+    otrosCostos: [],
+    totalProfesionales: 0,
+    totalMateriales: 0,
+    totalOtrosCostos: 0,
+    totalGeneral: 0
+  });
+
+  // Estado para modal de lista de presupuestos
   const [showListaPresupuestos, setShowListaPresupuestos] = useState(false);
-  const [presupuestosAprobados, setPresupuestosAprobados] = useState([]);
   const [loadingPresupuestos, setLoadingPresupuestos] = useState(false);
 
-  // Estado para modo consolidado (TODAS las obras) - Siempre activo
-  const [modoConsolidado, setModoConsolidado] = useState(true);
-
-  // 🆕 Estados para selección de obras en modo consolidado
+  // Estado general de la vista consolidada y feedback
+  const [notification, setNotification] = useState(null);
+  const [loadingObras, setLoadingObras] = useState(false);
+  const [presupuestosAprobados, setPresupuestosAprobados] = useState([]);
   const [obrasDisponibles, setObrasDisponibles] = useState([]);
   const [obrasSeleccionadas, setObrasSeleccionadas] = useState(new Set());
   const [trabajosExtraSeleccionados, setTrabajosExtraSeleccionados] = useState(new Set());
-  const [gruposColapsadosSF, setGruposColapsadosSF] = useState({});
   const [trabajosAdicionalesDisponibles, setTrabajosAdicionalesDisponibles] = useState([]);
   const [trabajosAdicionalesSeleccionados, setTrabajosAdicionalesSeleccionados] = useState(new Set());
-  const [loadingObras, setLoadingObras] = useState(false);
-  const [tipoGastoSeleccionado, setTipoGastoSeleccionado] = useState('PROFESIONALES'); // PROFESIONALES, MATERIALES, OTROS_COSTOS
 
-  // Estados para modales
+  // Estados de modales y paneles
   const [showRegistrarNuevoCobro, setShowRegistrarNuevoCobro] = useState(false);
   const [showAsignarCobroDisponible, setShowAsignarCobroDisponible] = useState(false);
   const [showListarCobros, setShowListarCobros] = useState(false);
-  const [showListarRetiros, setShowListarRetiros] = useState(false);
-  const [showRegistrarRetiro, setShowRegistrarRetiro] = useState(false);
   const [showRegistrarPago, setShowRegistrarPago] = useState(false);
   const [showRegistrarPagoConsolidado, setShowRegistrarPagoConsolidado] = useState(false);
-  const [showListarPagos, setShowListarPagos] = useState(false);
-  const [showResumenFinanciero, setShowResumenFinanciero] = useState(false);
-  const [showConsolidarPagosGeneral, setShowConsolidarPagosGeneral] = useState(false);
   const [showDarAdelanto, setShowDarAdelanto] = useState(false);
-  const [profesionalParaAdelanto, setProfesionalParaAdelanto] = useState(null);
   const [showPagoCuenta, setShowPagoCuenta] = useState(false);
-  const [presupuestoParaPagoCuenta, setPresupuestoParaPagoCuenta] = useState(null);
   const [showGestionPagosProfesionales, setShowGestionPagosProfesionales] = useState(false);
   const [showGestionPagosMateriales, setShowGestionPagosMateriales] = useState(false);
   const [showGestionPagosGastosGenerales, setShowGestionPagosGastosGenerales] = useState(false);
-
-  // Estados para modal de desglose por obra
+  const [showListarPagos, setShowListarPagos] = useState(false);
+  const [showResumenFinanciero, setShowResumenFinanciero] = useState(false);
+  const [showConsolidarPagosGeneral, setShowConsolidarPagosGeneral] = useState(false);
+  const [showRegistrarRetiro, setShowRegistrarRetiro] = useState(false);
+  const [showListarRetiros, setShowListarRetiros] = useState(false);
   const [showDesglose, setShowDesglose] = useState(false);
   const [desgloseTipo, setDesgloseTipo] = useState('');
   const [desgloseTitulo, setDesgloseTitulo] = useState('');
-
-  // Estado para modal de distribución de cobros
   const [showDistribucionCobros, setShowDistribucionCobros] = useState(false);
 
-  // 🆕 Estado para distribución real de cobros por obra
-  const [distribucionPorObra, setDistribucionPorObra] = useState([]);
-
-  // Estados para colapsar/expandir secciones (por defecto expandidas)
+  // Estados auxiliares de UI
   const [seccionCobrosExpandida, setSeccionCobrosExpandida] = useState(true);
   const [seccionPagosExpandida, setSeccionPagosExpandida] = useState(true);
+  const [accionesPagosExpandida, setAccionesPagosExpandida] = useState(false);
   const [seccionRetirosExpandida, setSeccionRetirosExpandida] = useState(true);
-  const [seccionCajaChicaExpandida, setSeccionCajaChicaExpandida] = useState(true);
+  const [gruposColapsadosSF, setGruposColapsadosSF] = useState({});
+  const [profesionalParaAdelanto, setProfesionalParaAdelanto] = useState(null);
+  const [presupuestoParaPagoCuenta, setPresupuestoParaPagoCuenta] = useState(null);
 
-  // Estado para notificaciones
-  const [notification, setNotification] = useState(null);
-
-  // Estado para forzar recarga de modales
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-  // Hook de estadísticas consolidadas para TODAS las obras
+  // Estadísticas financieras consolidadas (todas las obras activas de la empresa)
   const {
     estadisticas: estadisticasConsolidadas,
     loading: loadingConsolidadas,
@@ -193,61 +192,46 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     modoConsolidado
   );
 
-  // 🆕 Cargar cobros de TA y OI para la tarjeta "Total disponible de lo ya cobrado"
   useEffect(() => {
     const cargarTotalTAOI = async () => {
       if (!empresaSeleccionada?.id) return;
+
       try {
         const todasEF = await listarEntidadesFinancieras(empresaSeleccionada.id, true);
         const efSinDist = (todasEF || []).filter(
           ef => ef.tipoEntidad === 'TRABAJO_ADICIONAL' || ef.tipoEntidad === 'OBRA_INDEPENDIENTE'
         );
-        if (efSinDist.length === 0) { setTotalAsignadoTAOI(0); return; }
+
+        if (efSinDist.length === 0) {
+          setTotalAsignadoTAOI(0);
+          return;
+        }
+
         const estadisticasEF = await obtenerEstadisticasMultiples(
           empresaSeleccionada.id,
           efSinDist.map(ef => ef.id)
         );
-        const total = (estadisticasEF || []).reduce((sum, e) => sum + parseFloat(e.totalCobrado || 0), 0);
+
+        const total = (estadisticasEF || []).reduce(
+          (sum, entidad) => sum + parseFloat(entidad.totalCobrado || 0),
+          0
+        );
         setTotalAsignadoTAOI(total);
       } catch (err) {
         console.warn('⚠️ [SistemaFinanciero] Error cargando total TA/OI:', err.message);
         setTotalAsignadoTAOI(0);
       }
     };
+
     cargarTotalTAOI();
   }, [empresaSeleccionada?.id, refreshTrigger]);
 
-  // 🆕 Cargar distribución real de cobros por obra
-  useEffect(() => {
-    const cargarDistribucion = async () => {
-      if (!empresaSeleccionada?.id) return;
-
-      try {
-        const distribucion = await obtenerDistribucionPorObra(empresaSeleccionada.id);
-        const distribucionUnica = Array.isArray(distribucion)
-          ? distribucion.filter((obra, index, self) =>
-              index === self.findIndex(o => o.obraId === obra.obraId)
-            )
-          : [];
-        setDistribucionPorObra(distribucionUnica);
-      } catch (error) {
-        console.error('Error cargando distribución:', error);
-        setDistribucionPorObra([]);
-      }
-    };
-
-    cargarDistribucion();
-  }, [empresaSeleccionada?.id, refreshTrigger]);
-
-  // 🆕 Hook para estadísticas de OBRAS SELECCIONADAS (con checkboxes)
   const presupuestosSeleccionadosArray = useMemo(() => {
-    // ✅ Incluir TODAS las obras seleccionadas (con presupuesto Y obras independientes) + TRABAJOS EXTRA
     const array = [];
 
     obrasDisponibles
       .filter(obra => obrasSeleccionadas.has(obra.id))
       .forEach(obra => {
-        // Agregar la obra principal
         if (obra.presupuestoCompleto) {
           array.push(obra.presupuestoCompleto);
         } else if (obra.esObraIndependiente) {
@@ -267,34 +251,32 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           });
         }
 
-        // Agregar trabajos extra de esta obra
         if (obra.trabajosExtra && Array.isArray(obra.trabajosExtra)) {
           obra.trabajosExtra.forEach(te => {
             const estaSeleccionado = obrasSeleccionadas.has(te.id) || trabajosExtraSeleccionados.has(te.id);
-            if (estaSeleccionado) {
-              if (te.presupuestoCompleto) {
-                array.push(te.presupuestoCompleto);
-              } else {
-                // Construir estructura similar para trabajos extra sin presupuestoCompleto
-                const teObject = {
-                  id: te.id,
-                  obraId: te.obraId, // ✅ Usar el obraId real de la tabla obras
-                  direccionObraId: te.obraId,
-                  nombreObra: te.nombre || te.descripcion || te.nombreObra || `Trabajo Extra ${te.id}`,
-                  direccionObraCalle: obra.direccionObraCalle || obra.direccion || '',
-                  direccionObraAltura: obra.direccionObraAltura || '',
-                  estado: te.estado || 'APROBADO',
-                  totalPresupuesto: te.totalCalculado || te.presupuestoEstimado || te.total || 0,
-                  esTrabajoExtra: true,
-                  obraPrincipalId: obra.id,
-                  itemsCalculadora: [],
-                  profesionalesObra: [],
-                  materialesAsignados: [],
-                  gastosGeneralesAsignados: []
-                };
-                array.push(teObject);
-              }
+            if (!estaSeleccionado) return;
+
+            if (te.presupuestoCompleto) {
+              array.push(te.presupuestoCompleto);
+              return;
             }
+
+            array.push({
+              id: te.id,
+              obraId: te.obraId,
+              direccionObraId: te.obraId,
+              nombreObra: te.nombre || te.descripcion || te.nombreObra || `Trabajo Extra ${te.id}`,
+              direccionObraCalle: obra.direccionObraCalle || obra.direccion || '',
+              direccionObraAltura: obra.direccionObraAltura || '',
+              estado: te.estado || 'APROBADO',
+              totalPresupuesto: te.totalCalculado || te.presupuestoEstimado || te.total || 0,
+              esTrabajoExtra: true,
+              obraPrincipalId: obra.id,
+              itemsCalculadora: [],
+              profesionalesObra: [],
+              materialesAsignados: [],
+              gastosGeneralesAsignados: []
+            });
           });
         }
       });
@@ -2703,7 +2685,19 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         });
         return null;
       })()}
-      {modoConsolidado && (
+
+      {modoConsolidado && (() => {
+        // Definir statsFinales en el scope del render para que esté disponible en el bloque de tarjetas
+        const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
+        const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
+        const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
+        const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
+        const stats = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
+        const loading = usarSeleccionadas ? loadingSeleccionadas : loadingConsolidadas;
+        const error = usarSeleccionadas ? errorSeleccionadas : errorConsolidadas;
+        const statsFinales = estadisticasPersonalizadas;
+
+        return (
         <div className="row mb-4">
           <div className="col-12">
             <div className="card border-primary shadow">
@@ -2722,52 +2716,30 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                 </button>
               </div>
               <div className="card-body">
-                {(() => {
-                  // 🎯 Usar la misma lógica que el modal para consistencia
-                  const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
-                  const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
-                  const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
-
-                  // Solo usar estadísticas seleccionadas si hay selección PARCIAL
-                  const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
-                  const stats = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
-                  const loading = usarSeleccionadas ? loadingSeleccionadas : loadingConsolidadas;
-                  const error = usarSeleccionadas ? errorSeleccionadas : errorConsolidadas;
-
-                  // Usar estadísticas personalizadas calculadas en useMemo
-                  const statsFinales = estadisticasPersonalizadas;
-
-                  if (loading) {
-                    return (
-                      <div className="text-center py-4">
-                        <div className="spinner-border text-primary" role="status">
-                          <span className="visually-hidden">Cargando estadísticas...</span>
-                        </div>
-                        <p className="text-muted mt-2 small">
-                          {usarSeleccionadas
-                            ? `Consolidando datos de ${obrasSeleccionadas.size} obra(s) seleccionada(s)...`
-                            : 'Consolidando datos de todas las obras...'}
-                        </p>
-                      </div>
-                    );
-                  }
-
-                  if (error) {
-                    return (
-                      <div className="alert alert-warning mb-0">
-                        <i className="bi bi-exclamation-triangle me-2"></i>
-                        {error}
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <>
+                {/* Manejo de loading y error fuera del return JSX */}
+                {loading ? (
+                  <div className="text-center py-4">
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Cargando estadísticas...</span>
+                    </div>
+                    <p className="text-muted mt-2 small">
+                      {usarSeleccionadas
+                        ? `Consolidando datos de ${obrasSeleccionadas.size} obra(s) seleccionada(s)...`
+                        : 'Consolidando datos de todas las obras...'}
+                    </p>
+                  </div>
+                ) : error ? (
+                  <div className="alert alert-warning mb-0">
+                    <i className="bi bi-exclamation-triangle me-2"></i>
+                    {error}
+                  </div>
+                ) : (
+                  <>
                       {/* Primera fila: 4 tarjetas principales */}
-                      <div className="row text-center mb-3">
-                        <div className="col-md-3 mb-3 mb-md-0">
+                      <div className="row g-3 text-center mb-3">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-light"
+                            className="sf-summary-card sf-summary-card--info"
                             onClick={() => abrirDesglose('presupuestos', '📋 Desglose de Presupuestos por Obra')}
                             style={{cursor: 'pointer'}}
                           >
@@ -2786,9 +2758,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             </div>
                           </div>
                         </div>
-                        <div className="col-md-3 mb-3 mb-md-0">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-light"
+                            className="sf-summary-card sf-summary-card--success"
                             onClick={() => abrirDesglose('cobros', '💵 Desglose de Cobros por Obra')}
                             style={{cursor: 'pointer'}}
                           >
@@ -2805,9 +2777,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             </div>
                           </div>
                         </div>
-                        <div className="col-md-3 mb-3 mb-md-0">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-light"
+                            className="sf-summary-card sf-summary-card--danger"
                             onClick={() => abrirDesglose('pagos', '💸 Desglose de Pagos por Obra')}
                             style={{cursor: 'pointer'}}
                           >
@@ -2824,9 +2796,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             </div>
                           </div>
                         </div>
-                        <div className="col-md-3 mb-3 mb-md-0">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-light"
+                            className="sf-summary-card sf-summary-card--warning"
                             onClick={() => setShowListarRetiros(true)}
                             style={{cursor: 'pointer'}}
                           >
@@ -2845,11 +2817,26 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         </div>
                       </div>
 
-                      {/* Segunda fila: 4 tarjetas de balance */}
-                      <div className="row text-center">
-                        <div className="col-md-3 mb-3 mb-md-0">
+                      <div className="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-2 mb-3">
+                        <div>
+                          <h6 className="mb-1 text-dark">Balance y disponibilidad</h6>
+                          <small className="text-muted">Métricas secundarias para seguimiento operativo</small>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-2"
+                          onClick={() => setSeccionBalanceExpandida(prev => !prev)}
+                        >
+                          <i className={`bi bi-chevron-${seccionBalanceExpandida ? 'up' : 'down'}`}></i>
+                          {seccionBalanceExpandida ? 'Ocultar balance extendido' : 'Ver balance extendido'}
+                        </button>
+                      </div>
+
+                      {seccionBalanceExpandida && (
+                      <div className="row g-3 text-center">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-light"
+                            className="sf-summary-card sf-summary-card--amber"
                             onClick={() => abrirDesglose('saldoPorCobrar', '⏳ Desglose de Saldo por Cobrar por Obra')}
                             style={{cursor: 'pointer'}}
                           >
@@ -2870,9 +2857,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             </div>
                           </div>
                         </div>
-                        <div className="col-md-3 mb-3 mb-md-0">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-light"
+                            className="sf-summary-card sf-summary-card--primary"
                             onClick={() => setShowDistribucionCobros(true)}
                             style={{cursor: 'pointer'}}
                           >
@@ -2889,9 +2876,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             </div>
                           </div>
                         </div>
-                        <div className="col-md-3 mb-3 mb-md-0">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-light"
+                            className="sf-summary-card sf-summary-card--sky"
                             onClick={() => abrirDesglose('saldoDisponible', '💰 Desglose de Saldo Disponible')}
                             style={{cursor: 'pointer'}}
                           >
@@ -2920,9 +2907,9 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             </div>
                           </div>
                         </div>
-                        <div className="col-md-3">
+                        <div className="col-sm-6 col-xl-3">
                           <div
-                            className="border rounded p-3 bg-danger bg-opacity-10"
+                            className="sf-summary-card sf-summary-card--danger-soft"
                             onClick={() => abrirDesglose('deficit', '⚠️ Desglose de Déficit por Obra')}
                             style={{cursor: 'pointer'}}
                           >
@@ -2950,6 +2937,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                           </div>
                         </div>
                       </div>
+                      )}
 
                       {/* COMENTADO: Sección de Alertas Financieras */}
                       {/* {statsFinales.alertas && statsFinales.alertas.length > 0 && (
@@ -2980,24 +2968,25 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             ))}
                           </div>
                         </div>
-                      )}
-
-                      {statsFinales.alertas && statsFinales.alertas.length === 0 && (
-                        <div className="mt-3 text-center">
-                          <p className="text-success small mb-0">
-                            <i className="bi bi-check-circle-fill me-1"></i>
-                            <strong>Todo en orden:</strong> No hay alertas financieras en este momento
-                          </p>
-                        </div>
                       )} */}
-                    </>
-                  );
-                })()}
+
+
+                    {statsFinales.alertas && statsFinales.alertas.length === 0 && (
+                      <div className="mt-3 text-center">
+                        <p className="text-success small mb-0">
+                          <i className="bi bi-check-circle-fill me-1"></i>
+                          <strong>Todo en orden:</strong> No hay alertas financieras en este momento
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>
         </div>
-      )}
+      );
+      })()}
 
       {/* Sección de Cobros */}
       <div className="row mb-4">
@@ -3076,7 +3065,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
         {seccionPagosExpandida && (
           <>
-        <div className="col-md-6 mb-3">
+        {/* Subsección: Otras Acciones - COLAPSADA POR DEFECTO */}
+        <div className="col-12">
+          <div
+            className="d-flex justify-content-between align-items-center mb-2 p-2 bg-white border rounded cursor-pointer"
+            onClick={() => setAccionesPagosExpandida(!accionesPagosExpandida)}
+            style={{ cursor: 'pointer' }}
+          >
+            <h5 className="mb-0 text-success">▶ Otras Acciones</h5>
+            <i className={`bi bi-chevron-${accionesPagosExpandida ? 'up' : 'down'} fs-5`}></i>
+          </div>
+        </div>
+
+        {accionesPagosExpandida && (
+          <>
+        {/* Fila 1: Registrar Pago + Dar Adelantos + Pagos a Cuenta */}
+        <div className="col-md-4 mb-3">
           <div className="card h-100 border-success shadow-sm hover-shadow">
             <div className="card-header bg-success text-white">
               <h5 className="mb-0">
@@ -3100,26 +3104,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           </div>
         </div>
 
-        <div className="col-md-6 mb-3">
-          <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #198754'}}>
-            <div className="card-header" style={{backgroundColor: '#20c997', color: 'white'}}>
-              <h5 className="mb-0">
-                <i className="bi bi-receipt"></i> Listar / Eliminar Pagos
-              </h5>
-            </div>
-            <div className="card-footer bg-transparent">
-              <button
-                className="btn btn-outline-success w-100"
-                onClick={() => setShowListarPagos(true)}
-              >
-                <i className="bi bi-list-ul"></i> Abrir Tarjeta
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* 💸 NUEVO: Dar Adelantos */}
-        <div className="col-md-6 mb-3">
+        <div className="col-md-4 mb-3">
           <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #28a745'}}>
             <div className="card-header" style={{backgroundColor: '#28a745', color: 'white'}}>
               <h5 className="mb-0">
@@ -3140,8 +3125,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           </div>
         </div>
 
-        {/* 💰 NUEVO: Pagos a Cuenta (sobre rubros del presupuesto) */}
-        <div className="col-md-6 mb-3">
+        <div className="col-md-4 mb-3">
           <div className="card h-100 border-info shadow-sm hover-shadow" style={{borderLeft: '4px solid #17a2b8'}}>
             <div className="card-header" style={{backgroundColor: '#17a2b8', color: 'white'}}>
               <h5 className="mb-0">
@@ -3216,9 +3200,32 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             </div>
           </div>
         </div>
+          </>
+        )}
 
-        {/* 📊 Gestión Consolidada de Pagos - 3 Cards */}
-        <div className="col-md-4 mb-3">
+        {/* Fila 2: Listar Pagos + 3 Cards de Gestión Consolidada - SIEMPRE VISIBLE */}
+        <div className="col-md-3 mb-3">
+          <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #198754'}}>
+            <div className="card-header py-2" style={{backgroundColor: '#20c997', color: 'white'}}>
+              <h6 className="mb-0">
+                <i className="bi bi-receipt"></i> Listar / Eliminar Pagos
+              </h6>
+            </div>
+            <div className="card-body py-2">
+              <small className="text-muted">Consultar y eliminar pagos registrados</small>
+            </div>
+            <div className="card-footer bg-transparent py-2">
+              <button
+                className="btn btn-outline-success btn-sm w-100"
+                onClick={() => setShowListarPagos(true)}
+              >
+                <i className="bi bi-list-ul"></i> Abrir
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-3 mb-3">
           <div className="card h-100 border-primary shadow-sm hover-shadow" style={{borderLeft: '4px solid #0d6efd'}}>
             <div className="card-header py-2" style={{backgroundColor: '#0d6efd', color: 'white'}}>
               <h6 className="mb-0"><i className="bi bi-people-fill"></i> Pagos Profesionales</h6>
@@ -3237,7 +3244,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           </div>
         </div>
 
-        <div className="col-md-4 mb-3">
+        <div className="col-md-3 mb-3">
           <div className="card h-100 border-success shadow-sm hover-shadow" style={{borderLeft: '4px solid #198754'}}>
             <div className="card-header py-2" style={{backgroundColor: '#198754', color: 'white'}}>
               <h6 className="mb-0"><i className="bi bi-box-seam"></i> Pagos Materiales</h6>
@@ -3256,7 +3263,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           </div>
         </div>
 
-        <div className="col-md-4 mb-3">
+        <div className="col-md-3 mb-3">
           <div className="card h-100 border-warning shadow-sm hover-shadow" style={{borderLeft: '4px solid #ffc107'}}>
             <div className="card-header py-2" style={{backgroundColor: '#ffc107', color: 'white'}}>
               <h6 className="mb-0"><i className="bi bi-receipt"></i> Pagos Gastos Generales</h6>
@@ -3419,6 +3426,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         onHide={() => setShowGestionPagosMateriales(false)}
         onSuccess={handleSuccess}
         empresaId={empresaSeleccionada?.id}
+        obrasSeleccionadas={obrasSeleccionadas}
+        obrasDisponibles={obrasDisponibles}
       />
 
       {/* 📄 Modal de Gestión de Pagos - Gastos Generales */}
@@ -3848,6 +3857,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                   </div>
                 )}
 
+
                 {resumenConsolidado.profesionales.length === 0 &&
                  resumenConsolidado.materiales.length === 0 &&
                  resumenConsolidado.otrosCostos.length === 0 && (
@@ -3870,106 +3880,147 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             </div>
           </div>
         </div>
+
       )}
+      {/* Agrupar estilos y modales en un solo fragmento para evitar errores de JSX adyacente */}
+      <>
+        <style>{`
+          .sf-summary-card {
+            height: 100%;
+            padding: 1rem;
+            border: 1px solid rgba(13, 110, 253, 0.12);
+            border-radius: 16px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+            box-shadow: 0 10px 24px rgba(16, 24, 40, 0.06);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+          }
+          .sf-summary-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 32px rgba(16, 24, 40, 0.1);
+          }
+          .sf-summary-card--info {
+            border-color: rgba(13, 202, 240, 0.22);
+            background: linear-gradient(180deg, #f5fdff 0%, #eef9ff 100%);
+          }
+          .sf-summary-card--success {
+            border-color: rgba(25, 135, 84, 0.2);
+            background: linear-gradient(180deg, #f4fff8 0%, #ecfbf1 100%);
+          }
+          .sf-summary-card--danger {
+            border-color: rgba(220, 53, 69, 0.18);
+            background: linear-gradient(180deg, #fff6f7 0%, #fff0f2 100%);
+          }
+          .sf-summary-card--warning,
+          .sf-summary-card--amber {
+            border-color: rgba(255, 193, 7, 0.24);
+            background: linear-gradient(180deg, #fffdf4 0%, #fff8e7 100%);
+          }
+          .sf-summary-card--primary,
+          .sf-summary-card--sky {
+            border-color: rgba(13, 110, 253, 0.18);
+            background: linear-gradient(180deg, #f5f9ff 0%, #edf4ff 100%);
+          }
+          .sf-summary-card--danger-soft {
+            border-color: rgba(220, 53, 69, 0.22);
+            background: linear-gradient(180deg, #fff5f5 0%, #fdeeee 100%);
+          }
+          .hover-shadow {
+            transition: all 0.3s ease;
+          }
+          .hover-shadow:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+          }
+          .opacity-50 {
+            opacity: 0.6;
+            cursor: not-allowed;
+          }
+        `}</style>
 
-      <style>{`
-        .hover-shadow {
-          transition: all 0.3s ease;
-        }
-        .hover-shadow:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-        }
-        .opacity-50 {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-      `}</style>
+        {showDesglose && (() => {
+          // Determinar qué datos mostrar en el modal
+          const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
+          const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
+          const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
+          const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
 
-      {/* Modal de Desglose por Obra */}
-      {showDesglose && (() => {
-        // Determinar qué datos mostrar en el modal
-        const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
-        const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
-        const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
-        const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
+          const estadisticasActuales = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
+          const datosDesgloseBase = estadisticasActuales?.desglosePorObra || [];
 
-        const estadisticasActuales = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
-        const datosDesgloseBase = estadisticasActuales?.desglosePorObra || [];
+          // ✅ Agregar obras independientes seleccionadas al desglose
+          const obrasIndependientesSeleccionadas = obrasDisponibles
+            .filter(obra => obra.esObraIndependiente && obrasSeleccionadas.has(obra.id))
+            .map(obra => ({
+              id: obra.id,
+              obraId: obra.id,
+              nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
+              numeroPresupuesto: null, // No tiene presupuesto
+              estado: obra.estado || 'APROBADO',
+              totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0,
+              esObraIndependiente: true // ✅ Flag para identificarla en el modal
+            }));
 
-        // ✅ Agregar obras independientes seleccionadas al desglose
-        const obrasIndependientesSeleccionadas = obrasDisponibles
-          .filter(obra => obra.esObraIndependiente && obrasSeleccionadas.has(obra.id))
-          .map(obra => ({
-            id: obra.id,
-            obraId: obra.id,
-            nombreObra: obra.nombreObra || obra.direccion || `Obra ${obra.id}`,
-            numeroPresupuesto: null, // No tiene presupuesto
-            estado: obra.estado || 'APROBADO',
-            totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0,
-            esObraIndependiente: true // ✅ Flag para identificarla en el modal
-          }));
+          const datosDesglose = [...datosDesgloseBase, ...obrasIndependientesSeleccionadas];
 
-        const datosDesglose = [...datosDesgloseBase, ...obrasIndependientesSeleccionadas];
+          return (
+            <DetalleConsolidadoPorObraModal
+              show={showDesglose}
+              onHide={() => setShowDesglose(false)}
+              tipo={desgloseTipo}
+              datos={datosDesglose}
+              titulo={desgloseTitulo}
+              estadisticas={estadisticasActuales}
+              empresaSeleccionada={empresaSeleccionada}
+            />
+          );
+        })()}
 
-        return (
-          <DetalleConsolidadoPorObraModal
-            show={showDesglose}
-            onHide={() => setShowDesglose(false)}
-            tipo={desgloseTipo}
-            datos={datosDesglose}
-            titulo={desgloseTitulo}
-            estadisticas={estadisticasActuales}
-            empresaSeleccionada={empresaSeleccionada}
-          />
-        );
-      })()}
+        {/* Modal de Registrar Retiro Personal */}
+        <RegistrarRetiroModal
+          show={showRegistrarRetiro}
+          onHide={() => setShowRegistrarRetiro(false)}
+          onSuccess={() => {
+            // Recargar estadísticas cuando se registre un retiro
+            setRefreshTrigger(prev => prev + 1);
+            setNotification({
+              message: 'Retiro registrado correctamente',
+              type: 'success'
+            });
+            setTimeout(() => setNotification(null), 5000);
+          }}
+        />
 
-      {/* Modal de Registrar Retiro Personal */}
-      <RegistrarRetiroModal
-        show={showRegistrarRetiro}
-        onHide={() => setShowRegistrarRetiro(false)}
-        onSuccess={() => {
-          // Recargar estadísticas cuando se registre un retiro
-          setRefreshTrigger(prev => prev + 1);
-          setNotification({
-            message: 'Retiro registrado correctamente',
-            type: 'success'
-          });
-          setTimeout(() => setNotification(null), 5000);
-        }}
-      />
+        {/* Modal de Listar Retiros Personales */}
+        <ListarRetirosModal
+          show={showListarRetiros}
+          onHide={() => setShowListarRetiros(false)}
+          onSuccess={() => {
+            // Recargar estadísticas cuando se modifiquen retiros
+            setRefreshTrigger(prev => prev + 1);
+          }}
+        />
 
-      {/* Modal de Listar Retiros Personales */}
-      <ListarRetirosModal
-        show={showListarRetiros}
-        onHide={() => setShowListarRetiros(false)}
-        onSuccess={() => {
-          // Recargar estadísticas cuando se modifiquen retiros
-          setRefreshTrigger(prev => prev + 1);
-        }}
-      />
+        {/* Modal de Distribución de Cobros por Obra */}
+        {showDistribucionCobros && (() => {
+          const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
+          const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
+          const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
+          const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
 
-      {/* Modal de Distribución de Cobros por Obra */}
-      {showDistribucionCobros && (() => {
-        const todasSeleccionadas = obrasSeleccionadas.size === obrasDisponibles.length;
-        const ningunnaSeleccionada = obrasSeleccionadas.size === 0;
-        const seleccionParcial = !todasSeleccionadas && !ningunnaSeleccionada;
-        const usarSeleccionadas = seleccionParcial && !loadingSeleccionadas && estadisticasSeleccionadas?.totalPresupuesto > 0;
+          const estadisticasActuales = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
+          const datosDistribucion = estadisticasActuales?.desglosePorObra || [];
 
-        const estadisticasActuales = usarSeleccionadas ? estadisticasSeleccionadas : estadisticasConsolidadas;
-        const datosDistribucion = estadisticasActuales?.desglosePorObra || [];
-
-        return (
-          <DetalleDistribucionCobrosModal
-            show={showDistribucionCobros}
-            onHide={() => setShowDistribucionCobros(false)}
-            datos={datosDistribucion}
-            estadisticas={estadisticasActuales}
-            obrasDisponibles={obrasDisponibles}
-          />
-        );
-      })()}
+          return (
+            <DetalleDistribucionCobrosModal
+              show={showDistribucionCobros}
+              onHide={() => setShowDistribucionCobros(false)}
+              datos={datosDistribucion}
+              estadisticas={estadisticasActuales}
+              obrasDisponibles={obrasDisponibles}
+            />
+          );
+        })()}
+      </>
     </div>
   );
 };

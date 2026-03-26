@@ -39,13 +39,13 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   const [profesionalEditandoFechas, setProfesionalEditandoFechas] = useState(null);
   const [nuevaFecha, setNuevaFecha] = useState('');
   const [ultimaFechaAgregada, setUltimaFechaAgregada] = useState(''); // Para recordar última fecha agregada
-  
+
   // 🆕 Estados para selección de rango de fechas
   const [modoSeleccion, setModoSeleccion] = useState('unica'); // 'unica' o 'rango'
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
   const [incluirFinesSemana, setIncluirFinesSemana] = useState(true);
-  
+
   // 🆕 Estado para fechas pendientes (acumulación antes de confirmar)
   const [fechasPendientes, setFechasPendientes] = useState([]); // Array de strings YYYY-MM-DD
 
@@ -274,15 +274,15 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
     // Buscar el ID del rubro seleccionado por su nombre
     const rubroEncontrado = rubros.find(r => r.nombreRubro === nombreRubro);
     const rubroId = rubroEncontrado ? rubroEncontrado.id : null;
-    
+
     setProfesionalesSeleccionados(prev =>
-      prev.map(p => p.id === profesionalId ? { 
-        ...p, 
+      prev.map(p => p.id === profesionalId ? {
+        ...p,
         rubroId: rubroId,
-        rubroNombre: nombreRubro 
+        rubroNombre: nombreRubro
       } : p)
     );
-    
+
     // Si el rubro no existe aún (nuevo), se creará automáticamente en el backend
     if (!rubroEncontrado && nombreRubro) {
       console.log(`ℹ️ Rubro "${nombreRubro}" no existe aún - se creará automáticamente al guardar`);
@@ -580,13 +580,13 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
               categoria: 'personalizado',
               activo: true
             });
-            
+
             const nuevoRubroId = response.data.id;
             console.log(`✅ Rubro "${prof.rubroNombre}" creado con ID: ${nuevoRubroId}`);
-            
+
             // Actualizar el profesional con el nuevo ID
             prof.rubroId = nuevoRubroId;
-            
+
             // Actualizar también el estado de rubros
             setRubros(prev => [...prev, {
               id: nuevoRubroId,
@@ -1122,19 +1122,19 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                                 setNuevaFecha(ultimaFechaAgregada);
                                               }
                                             }}
-                                            style={{ 
+                                            style={{
                                               width: '140px',
                                               borderColor: esFeriado(nuevaFecha) ? '#ffc107' : undefined
                                             }}
                                             title={esFeriado(nuevaFecha) ? '🇦🇷 Feriado Nacional' : ''}
                                           />
                                           {esFeriado(nuevaFecha) && (
-                                            <Badge 
-                                              bg="warning" 
+                                            <Badge
+                                              bg="warning"
                                               text="dark"
                                               className="position-absolute"
-                                              style={{ 
-                                                top: '-8px', 
+                                              style={{
+                                                top: '-8px',
                                                 right: '-8px',
                                                 fontSize: '0.65rem',
                                                 padding: '2px 5px'
@@ -1256,14 +1256,14 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                         </div>
                                         <div className="d-flex flex-wrap gap-1 mb-2">
                                           {fechasPendientes.map((fecha) => (
-                                            <Badge 
-                                              key={fecha} 
-                                              bg="primary" 
+                                            <Badge
+                                              key={fecha}
+                                              bg="primary"
                                               className="d-flex align-items-center gap-1"
                                               style={{ fontSize: '0.75rem', padding: '4px 8px' }}
                                             >
-                                              📅 {new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { 
-                                                day: '2-digit', 
+                                              📅 {new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', {
+                                                day: '2-digit',
                                                 month: '2-digit',
                                                 year: '2-digit'
                                               })}
@@ -1272,8 +1272,8 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                               )}
                                               <button
                                                 className="btn btn-sm p-0 text-white"
-                                                style={{ 
-                                                  background: 'none', 
+                                                style={{
+                                                  background: 'none',
                                                   border: 'none',
                                                   fontSize: '0.9rem',
                                                   lineHeight: '1',
@@ -1438,10 +1438,10 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                       <div className={`card ${guardarEnCatalogo ? 'bg-success' : 'bg-light'} border-primary`}>
                         <div className="card-body py-2">
                           <div className="form-check">
-                            <input 
-                              type="checkbox" 
-                              className="form-check-input" 
-                              id="guardarEnCatalogo" 
+                            <input
+                              type="checkbox"
+                              className="form-check-input"
+                              id="guardarEnCatalogo"
                               checked={guardarEnCatalogo}
                               onChange={(e) => setGuardarEnCatalogo(e.target.checked)}
                             />
@@ -1464,8 +1464,8 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                     </div>
 
                     <div className="mt-3 text-end">
-                      <Button 
-                        variant="success" 
+                      <Button
+                        variant="success"
                         onClick={handleAgregarProfesionalManual}
                         disabled={guardando}
                       >
@@ -1542,7 +1542,6 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
               </>
             )}
           </div>
-        )}
         )}
       </Modal.Body>
 
