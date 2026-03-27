@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { useEmpresa } from '../EmpresaContext';
 import { useFinancialData } from '../context/FinancialDataContext';
 import { useEstadisticasConsolidadas } from '../hooks/useEstadisticasConsolidadas';
@@ -233,11 +233,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
     obrasDisponibles.forEach(obra => {
       // ✅ Agregar obra principal SOLO si está seleccionada
       const obraPrincipalSeleccionada = obrasSeleccionadas.has(obra.id);
-      
+
       if (obraPrincipalSeleccionada) {
         if (obra.presupuestoCompleto) {
           array.push(obra.presupuestoCompleto);
         } else if (obra.esObraIndependiente) {
+          const importeOI = obra.totalPresupuesto || obra.presupuestoEstimado || 0;
           array.push({
             id: obra.id,
             obraId: obra.id,
@@ -245,7 +246,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             direccionObraCalle: obra.direccion || '',
             direccionObraAltura: '',
             estado: obra.estado || 'APROBADO',
-            totalPresupuesto: obra.totalPresupuesto || obra.presupuestoEstimado || 0,
+            totalFinal: importeOI, // 🔧 Prioridad 1 para calcularTotalPresupuestoObra
+            totalPresupuesto: importeOI,
             esObraIndependiente: true,
             itemsCalculadora: [],
             profesionalesObra: [],
@@ -255,17 +257,23 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
         }
       }
 
-      // ✅ Agregar adicionales/tareas leves si están seleccionados (independiente de la obra principal)
+      // ✅ Agregar trabajos extra (adicionales de obra) si están seleccionados (independiente de la obra principal)
       if (obra.trabajosExtra && Array.isArray(obra.trabajosExtra)) {
-        obra.trabajosExtra.forEach(te => {
-          const estaSeleccionado = obrasSeleccionadas.has(te.id) || trabajosExtraSeleccionados.has(te.id);
+        obra.trabajosExtra.forEach((te, idx) => {
+          const estaSeleccionado = trabajosExtraSeleccionados.has(te.id);
           if (!estaSeleccionado) return;
 
           if (te.presupuestoCompleto) {
-            array.push(te.presupuestoCompleto);
+            // 🔧 Para trabajos extra, usar totalConDescuentos si está disponible (es el valor real mostrado en UI)
+            const presupuestoConTotal = {
+              ...te.presupuestoCompleto,
+              totalFinal: te.presupuestoCompleto.totalConDescuentos || te.presupuestoCompleto.totalFinal || te.totalCalculado || 0
+            };
+            array.push(presupuestoConTotal);
             return;
           }
 
+          const importeTE = te.totalCalculado || te.presupuestoEstimado || te.total || 0;
           array.push({
             id: te.id,
             obraId: te.obraId,
@@ -274,7 +282,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             direccionObraCalle: obra.direccionObraCalle || obra.direccion || '',
             direccionObraAltura: obra.direccionObraAltura || '',
             estado: te.estado || 'APROBADO',
-            totalPresupuesto: te.totalCalculado || te.presupuestoEstimado || te.total || 0,
+            totalFinal: importeTE, // 🔧 Usar totalCalculado (incluye descuentos/ajustes)
+            totalPresupuesto: importeTE,
             esTrabajoExtra: true,
             obraPrincipalId: obra.id,
             itemsCalculadora: [],
@@ -284,10 +293,66 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           });
         });
       }
+
+      // 🆕 Agregar tareas leves si están seleccionadas (independiente de la obra principal)
+      if (!obraPrincipalSeleccionada) {
+        const esTareaLeve = obra.presupuestoCompleto?.tipoPresupuesto === 'TAREA_LEVE' ||
+          obra.presupuestoCompleto?.tipo_presupuesto === 'TAREA_LEVE' ||
+          obra.presupuestoCompleto?.tipo_origen === 'TAREA_LEVE' ||
+          obra.presupuestoCompleto?.tipoOrigen === 'TAREA_LEVE' ||
+          obra.tipo_origen === 'TAREA_LEVE' ||
+          obra.tipoOrigen === 'TAREA_LEVE';
+
+        if (esTareaLeve && obrasSeleccionadas.has(obra.id)) {
+          if (obra.presupuestoCompleto) {
+            array.push(obra.presupuestoCompleto);
+          } else {
+            const importeTL = obra.totalPresupuesto || obra.presupuestoEstimado || 0;
+            array.push({
+              id: obra.id,
+              obraId: obra.id,
+              nombreObra: obra.nombreObra || obra.direccion || `Tarea Leve ${obra.id}`,
+              direccionObraCalle: obra.direccionObraCalle || obra.direccion || '',
+              direccionObraAltura: obra.direccionObraAltura || '',
+              estado: obra.estado || 'APROBADO',
+              totalFinal: importeTL, // 🔧 Prioridad 1 para calcularTotalPresupuestoObra
+              totalPresupuesto: importeTL,
+              esTareaLeve: true,
+              itemsCalculadora: [],
+              profesionalesObra: [],
+              materialesAsignados: [],
+              gastosGeneralesAsignados: []
+            });
+          }
+        }
+      }
+    });
+
+    // ✅ Agregar trabajos adicionales seleccionados independientemente
+    trabajosAdicionalesDisponibles.forEach(ta => {
+      const estaSeleccionado = trabajosAdicionalesSeleccionados.has(ta.id);
+      if (!estaSeleccionado) return;
+
+      const importeTA = ta.importe || 0;
+      array.push({
+        id: ta.id,
+        obraId: ta.obraOrigenId || ta.obra_origen_id || ta.obraPadreId,
+        nombreObra: ta.nombre || ta.descripcion || `Trabajo Adicional ${ta.id}`,
+        direccionObraCalle: ta.direccionObraCalle || '',
+        direccionObraAltura: ta.direccionObraAltura || '',
+        estado: ta.estado || 'APROBADO',
+        totalFinal: importeTA, // 🔧 Prioridad 1 para calcularTotalPresupuestoObra
+        totalPresupuesto: importeTA,
+        esTrabajoAdicional: true,
+        itemsCalculadora: [],
+        profesionalesObra: [],
+        materialesAsignados: [],
+        gastosGeneralesAsignados: []
+      });
     });
 
     return array;
-  }, [obrasDisponibles, obrasSeleccionadas, trabajosExtraSeleccionados]);
+  }, [obrasDisponibles, obrasSeleccionadas, trabajosExtraSeleccionados, trabajosAdicionalesDisponibles, trabajosAdicionalesSeleccionados]);
 
   const {
     profesionales: profesionalesSeleccionados,
@@ -747,57 +812,90 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
 
     const presupuestosUnicos = new Map();
     const obrasIndependientes = new Map();
+    const tareasLeves = new Map(); // 🆕 Mapa para tareas leves
     let totalTrabajosExtra = 0;
     let totalTrabajosAdicionales = 0;
     let cantidadObrasConPresupuesto = 0;
     let cantidadObrasIndependientes = 0;
+    let cantidadTareasLeves = 0; // 🆕 Contador de tareas leves
 
-    obrasDisponibles
-      .filter(o => obrasSeleccionadas.has(o.id))
-      .forEach(o => {
-        if (o.esObraIndependiente) {
-          if (!obrasIndependientes.has(o.id)) {
-            const monto = o.totalPresupuesto || 0;
-            obrasIndependientes.set(o.id, monto);
-            cantidadObrasIndependientes++;
-          }
-          return;
+    // Iterar sobre TODAS las obras para capturar trabajos extra seleccionados independientemente
+    obrasDisponibles.forEach(o => {
+      const obraSeleccionada = obrasSeleccionadas.has(o.id);
+
+      // ✅ CASO 1: Obras independientes (sin presupuesto) - solo si están seleccionadas
+      if (o.esObraIndependiente && obraSeleccionada) {
+        if (!obrasIndependientes.has(o.id)) {
+          const monto = o.totalPresupuesto || 0;
+          obrasIndependientes.set(o.id, monto);
+          cantidadObrasIndependientes++;
         }
+        return;
+      }
 
+      // ✅ CASO 2: Tareas Leves (obras con presupuesto tipo TAREA_LEVE) - solo si están seleccionadas
+      const esTareaLeve = o.presupuestoCompleto?.tipoPresupuesto === 'TAREA_LEVE' ||
+                         o.presupuestoCompleto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                         o.presupuestoCompleto?.tipo_origen === 'TAREA_LEVE' ||
+                         o.presupuestoCompleto?.tipoOrigen === 'TAREA_LEVE' ||
+                         o.tipo_origen === 'TAREA_LEVE' ||
+                         o.tipoOrigen === 'TAREA_LEVE';
+
+      if (esTareaLeve && obraSeleccionada) {
+        if (!tareasLeves.has(o.id)) {
+          const monto = o.totalPresupuesto || 0;
+          tareasLeves.set(o.id, monto);
+          cantidadTareasLeves++;
+        }
+        return; // ⚠️ No procesar como obra principal
+      }
+
+      // ✅ CASO 3: Obras principales con presupuesto - solo si están seleccionadas
+      if (obraSeleccionada) {
         const idPresupuesto = o.presupuestoCompleto?.id ?? o.presupuestoNoClienteId ?? o.presupuesto_no_cliente_id ?? o.presupuestoNoCliente?.id;
-        if (!idPresupuesto) return;
-        if (!presupuestosUnicos.has(idPresupuesto)) {
+        if (idPresupuesto && !presupuestosUnicos.has(idPresupuesto)) {
           const monto = o.totalPresupuesto || 0;
           presupuestosUnicos.set(idPresupuesto, monto);
           cantidadObrasConPresupuesto++;
         }
+      }
 
-        if (o.trabajosExtra && o.trabajosExtra.length > 0) {
-          const trabajosExtraSeleccionadosDeEstaObra = o.trabajosExtra.filter(te =>
-            trabajosExtraSeleccionados.has(te.id)
-          );
-          const totalTE = trabajosExtraSeleccionadosDeEstaObra.reduce((sum, t) =>
-            sum + (t.totalCalculado || 0), 0
-          );
-          totalTrabajosExtra += totalTE;
-        }
-      });
+      // ✅ CASO 4: Trabajos extra de esta obra (independiente de si la obra principal está seleccionada)
+      if (o.trabajosExtra && o.trabajosExtra.length > 0) {
+        const trabajosExtraSeleccionadosDeEstaObra = o.trabajosExtra.filter(te =>
+          trabajosExtraSeleccionados.has(te.id)
+        );
+        const totalTE = trabajosExtraSeleccionadosDeEstaObra.reduce((sum, t) => {
+          // Usar totalConDescuentos si está disponible (es el valor real mostrado en la UI)
+          const montoTE = t.presupuestoCompleto?.totalConDescuentos ||
+                         t.totalCalculado ||
+                         t.presupuestoCompleto?.totalFinal ||
+                         0;
+          return sum + montoTE;
+        }, 0);
+        totalTrabajosExtra += totalTE;
+      }
+    });
 
+    // ✅ CASO 5: Trabajos adicionales seleccionados
     const trabajosAdicionalesSeleccionadosArray = trabajosAdicionalesDisponibles
       .filter(ta => trabajosAdicionalesSeleccionados.has(ta.id));
     totalTrabajosAdicionales = trabajosAdicionalesSeleccionadosArray.reduce((sum, ta) => sum + (ta.importe || 0), 0);
 
+    // 🧮 SUMATORIA TOTAL
     const totalPresupuestos = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
     const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
-    const totalPresupuestosPersonalizado = totalPresupuestos + totalIndependientes + totalTrabajosExtra + totalTrabajosAdicionales;
+    const totalTareasLevesCalc = Array.from(tareasLeves.values()).reduce((sum, val) => sum + val, 0);
+    const totalPresupuestosPersonalizado = totalPresupuestos + totalIndependientes + totalTareasLevesCalc + totalTrabajosExtra + totalTrabajosAdicionales;
 
     return {
       totalPresupuesto: totalPresupuestosPersonalizado,
-      cantidadObras: cantidadObrasConPresupuesto + cantidadObrasIndependientes,
+      cantidadObras: cantidadObrasConPresupuesto + cantidadObrasIndependientes + cantidadTareasLeves, // ✅ Incluir tareas leves
       cantidadTrabajosExtra: trabajosExtraSeleccionados.size,
       cantidadTrabajosAdicionales: trabajosAdicionalesSeleccionados.size,
       cantidadObrasConPresupuesto,
       cantidadObrasIndependientes,
+      cantidadTareasLeves, // 🆕 Agregar al objeto retornado
       // Mantener otros campos de stats para cobros, pagos, etc.
       totalCobrado: stats?.totalCobrado || 0,
       totalCobradoEmpresa: stats?.totalCobradoEmpresa || 0,
@@ -1748,12 +1846,65 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   }, [refreshTrigger, modoConsolidado, empresaSeleccionada]);
   */
 
+  // 🔒 Ref para prevenir scroll automático - PERMANENTE
+  const scrollContainerRef = useRef(null);
+  const scrollPositionRef = useRef(0);
+  const isTogglingRef = useRef(false);
+
+  // 🔒 Forzar restauración del scroll después de cada render
+  useLayoutEffect(() => {
+    if (scrollContainerRef.current && isTogglingRef.current) {
+      const targetPosition = scrollPositionRef.current;
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = targetPosition;
+        }
+      });
+    }
+  });
+
+  // 🔒 Bloqueo AGRESIVO del scroll durante toggles
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = (e) => {
+      if (isTogglingRef.current) {
+        // BLOQUEAR completamente el evento de scroll
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        // Restaurar posición inmediatamente
+        const targetPosition = scrollPositionRef.current;
+        requestAnimationFrame(() => {
+          if (container && isTogglingRef.current) {
+            container.scrollTop = targetPosition;
+          }
+        });
+        return false;
+      } else {
+        // Actualizar posición guardada solo cuando NO estamos en toggle
+        scrollPositionRef.current = container.scrollTop;
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: false, capture: true });
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll, { capture: true });
+    };
+  }, []);
+
   // 🆕 Funciones para manejar selección de obras
   const toggleObraSeleccion = useCallback((obraId) => {
-    // 🔧 Guardar posición del scroll antes del cambio
-    const scrollContainer = document.querySelector('.table-responsive') || document.documentElement;
-    const scrollPosition = scrollContainer.scrollTop;
-    
+    // Capturar posición del scroll ANTES del cambio de estado
+    if (scrollContainerRef.current) {
+      scrollPositionRef.current = scrollContainerRef.current.scrollTop;
+      // 🔒 Activar bloqueo PERMANENTE (no se desactiva nunca hasta reload)
+      isTogglingRef.current = true;
+    }
+
     setObrasSeleccionadas(prev => {
       const newSet = new Set(prev);
       if (newSet.has(obraId)) {
@@ -1763,21 +1914,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
       return newSet;
     });
-
-    // 🔧 Restaurar posición del scroll después del render
-    requestAnimationFrame(() => {
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollPosition;
-      }
-    });
   }, []);
 
   // 🆕 Funciones para manejar selección de trabajos extra
   const toggleTrabajoExtraSeleccion = useCallback((trabajoExtraId) => {
-    // 🔧 Guardar posición del scroll antes del cambio
-    const scrollContainer = document.querySelector('.table-responsive') || document.documentElement;
-    const scrollPosition = scrollContainer.scrollTop;
-    
+    // Capturar posición del scroll ANTES del cambio de estado
+    if (scrollContainerRef.current) {
+      scrollPositionRef.current = scrollContainerRef.current.scrollTop;
+      // 🔒 Activar bloqueo PERMANENTE (no se desactiva nunca hasta reload)
+      isTogglingRef.current = true;
+    }
+
     setTrabajosExtraSeleccionados(prev => {
       const newSet = new Set(prev);
       if (newSet.has(trabajoExtraId)) {
@@ -1787,20 +1934,16 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
       return newSet;
     });
-
-    // 🔧 Restaurar posición del scroll después del render
-    requestAnimationFrame(() => {
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollPosition;
-      }
-    });
   }, []);
 
   const toggleTrabajoAdicionalSeleccion = useCallback((trabajoAdicionalId) => {
-    // 🔧 Guardar posición del scroll antes del cambio
-    const scrollContainer = document.querySelector('.table-responsive') || document.documentElement;
-    const scrollPosition = scrollContainer.scrollTop;
-    
+    // Capturar posición del scroll ANTES del cambio de estado
+    if (scrollContainerRef.current) {
+      scrollPositionRef.current = scrollContainerRef.current.scrollTop;
+      // 🔒 Activar bloqueo PERMANENTE (no se desactiva nunca hasta reload)
+      isTogglingRef.current = true;
+    }
+
     setTrabajosAdicionalesSeleccionados(prev => {
       const newSet = new Set(prev);
       if (newSet.has(trabajoAdicionalId)) {
@@ -1810,19 +1953,18 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
       return newSet;
     });
-
-    // 🔧 Restaurar posición del scroll después del render
-    requestAnimationFrame(() => {
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollPosition;
-      }
-    });
   }, []);
 
   const seleccionarTodasObras = () => {
-    setObrasSeleccionadas(new Set(obrasDisponibles.map(o => o.id)));
-    // Seleccionar todos los trabajos extra también
+    // Capturar posición del scroll ANTES del cambio
+    if (scrollContainerRef.current) {
+      scrollPositionRef.current = scrollContainerRef.current.scrollTop;
+      // 🔒 Activar bloqueo PERMANENTE (no se desactiva nunca hasta reload)
+      isTogglingRef.current = true;
+    }
+
     const todosLosTrabajosExtra = [];
+    setObrasSeleccionadas(new Set(obrasDisponibles.map(obra => obra.id)));
     obrasDisponibles.forEach(obra => {
       if (obra.trabajosExtra && obra.trabajosExtra.length > 0) {
         obra.trabajosExtra.forEach(te => todosLosTrabajosExtra.push(te.id));
@@ -1834,6 +1976,13 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   };
 
   const deseleccionarTodasObras = () => {
+    // Capturar posición del scroll ANTES del cambio
+    if (scrollContainerRef.current) {
+      scrollPositionRef.current = scrollContainerRef.current.scrollTop;
+      // 🔒 Activar bloqueo PERMANENTE (no se desactiva nunca hasta reload)
+      isTogglingRef.current = true;
+    }
+
     setObrasSeleccionadas(new Set());
     setTrabajosExtraSeleccionados(new Set());
     setTrabajosAdicionalesSeleccionados(new Set());
@@ -1945,14 +2094,22 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           <div className="btn-group btn-group-sm">
             <button
               className="btn btn-light btn-sm"
-              onClick={seleccionarTodasObras}
+              onClick={(e) => {
+                e.preventDefault();
+                e.target.blur();
+                seleccionarTodasObras();
+              }}
               title="Seleccionar todas"
             >
               <i className="bi bi-check-all"></i> Todas
             </button>
             <button
               className="btn btn-outline-light btn-sm"
-              onClick={deseleccionarTodasObras}
+              onClick={(e) => {
+                e.preventDefault();
+                e.target.blur();
+                deseleccionarTodasObras();
+              }}
               title="Deseleccionar todas"
             >
               <i className="bi bi-x"></i> Ninguna
@@ -1960,7 +2117,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
           </div>
         </div>
         <div className="card-body p-0">
-          <div className="table-responsive" style={{maxHeight: '400px', overflowY: 'auto'}}>
+          <div
+            ref={scrollContainerRef}
+            className="table-responsive"
+            style={{
+              maxHeight: '400px',
+              overflowY: 'auto',
+              scrollBehavior: 'auto',
+              scrollSnapType: 'none',
+              overscrollBehavior: 'none'
+            }}
+          >
             <table className="table table-hover mb-0">
               <thead className="table-light sticky-top">
                 <tr>
@@ -1969,7 +2136,10 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                       type="checkbox"
                       className="form-check-input"
                       checked={obrasSeleccionadas.size === obrasDisponibles.length}
+                      tabIndex="-1"
+                      onFocus={(e) => e.target.blur()}
                       onChange={(e) => {
+                        e.preventDefault();
                         if (e.target.checked) {
                           seleccionarTodasObras();
                         } else {
@@ -2386,21 +2556,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         <tr
                           className={isSelected ? 'table-active' : ''}
                           style={{
-                            cursor: 'pointer',
                             backgroundColor: isSelected ? undefined : colorGrupo,
                             borderBottom: perteneceAGrupo ? '1px solid rgba(253, 126, 20, 0.45)' : undefined
                           }}
-                          onClick={() => toggleObraSeleccion(item.id)}
                         >
-                          <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                          <td className="text-center">
                             <input
                               type="checkbox"
                               className="form-check-input"
                               checked={isSelected}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                toggleObraSeleccion(item.id);
-                              }}
+                              style={{ cursor: 'pointer' }}
+                              onChange={() => toggleObraSeleccion(item.id)}
                             />
                           </td>
                           <td>
@@ -2465,7 +2631,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                             <>
                               {/* Header subgrupo */}
                               <tr
-                                onClick={() => setGruposColapsadosSF(p => ({ ...p, [claveGrupo]: !p[claveGrupo] }))}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.currentTarget.blur();
+                                  setGruposColapsadosSF(p => ({ ...p, [claveGrupo]: !p[claveGrupo] }));
+                                }}
                                 style={headerStyle}
                               >
                                 <td colSpan="6" className="py-1 px-3 small">
@@ -2487,6 +2657,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                   subMonto = subItem.totalCalculado || 0;
                                   toggleFunction = toggleTrabajoExtraSeleccion;
                                 } else if (tipoItem === 'tareaLeve') {
+                                  // 🐛 DEBUG: Log para diagnosticar Casa de Paula
+                                  if (subItem.nombreObra && subItem.nombreObra.includes('Paula')) {
+                                    console.log('🔍 Tarea Leve Paula:', {
+                                      id: subItem.id,
+                                      nombreObra: subItem.nombreObra,
+                                      obrasSeleccionadas: Array.from(obrasSeleccionadas),
+                                      estaSeleccionada: obrasSeleccionadas.has(subItem.id),
+                                      presupuestoId: subItem.presupuestoCompleto?.id,
+                                      obraId: subItem.obraId || subItem.id
+                                    });
+                                  }
                                   subIsSelected = obrasSeleccionadas.has(subItem.id);
                                   subMonto = subItem.totalPresupuesto || 0;
                                   toggleFunction = toggleObraSeleccion;
@@ -2503,21 +2684,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                                     className={subIsSelected ? 'table-active' : ''}
                                     style={{
                                       backgroundColor: subIsSelected ? undefined : adjustColorBrightness(colorBaseGrupo, tipoItem === 'extra' ? -15 : -25),
-                                      cursor: 'pointer',
                                       borderLeft: itemBorderLeft,
                                       borderBottom: '1px solid rgba(253, 126, 20, 0.45)'
                                     }}
-                                    onClick={() => toggleFunction(subItem.id)}
                                   >
-                                    <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                                    <td className="text-center">
                                       <input
                                         type="checkbox"
                                         className="form-check-input"
                                         checked={subIsSelected}
-                                        onChange={(e) => {
-                                          e.stopPropagation();
-                                          toggleFunction(subItem.id);
-                                        }}
+                                        style={{ cursor: 'pointer' }}
+                                        onChange={() => toggleFunction(subItem.id)}
                                       />
                                     </td>
                                     <td colSpan="4" className="ps-3">
@@ -2587,6 +2764,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                       {(() => {
                         const presupuestosUnicos = new Map();
                         const obrasIndependientes = new Map(); // ✅ Para obras sin presupuesto
+                        const tareasLeves = new Map(); // 🆕 Para tareas leves
                         const debugRows = [];
                         let totalTrabajosExtra = 0;
                         let totalTrabajosAdicionales = 0;
@@ -2596,7 +2774,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                           .filter(o => !o.esTrabajoExtra && o.estado !== 'CANCELADO')
                           .filter(o => obrasSeleccionadas.has(o.id))
                           .forEach(o => {
-                            // ✅ Verificar si es obra independiente
+                            // ✅ CASO 1: Verificar si es obra independiente
                             if (o.esObraIndependiente) {
                               // Usar el ID de la obra como identificador único
                               if (!obrasIndependientes.has(o.id)) {
@@ -2607,7 +2785,24 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               return; // No tiene trabajos extra ni presupuesto detallado
                             }
 
-                            // Obras con presupuesto (lógica existente)
+                            // ✅ CASO 2: Verificar si es Tarea Leve
+                            const esTareaLeve = o.presupuestoCompleto?.tipoPresupuesto === 'TAREA_LEVE' ||
+                                               o.presupuestoCompleto?.tipo_presupuesto === 'TAREA_LEVE' ||
+                                               o.presupuestoCompleto?.tipo_origen === 'TAREA_LEVE' ||
+                                               o.presupuestoCompleto?.tipoOrigen === 'TAREA_LEVE' ||
+                                               o.tipo_origen === 'TAREA_LEVE' ||
+                                               o.tipoOrigen === 'TAREA_LEVE';
+
+                            if (esTareaLeve) {
+                              if (!tareasLeves.has(o.id)) {
+                                const monto = o.totalPresupuesto || 0;
+                                tareasLeves.set(o.id, monto);
+                                debugRows.push(`TL-${o.id}: $${monto.toLocaleString()}`);
+                              }
+                              return; // No procesar como obra principal
+                            }
+
+                            // ✅ CASO 3: Obras con presupuesto (lógica existente)
                             const idPresupuesto = o.presupuestoCompleto?.id
                               ?? o.presupuestoNoClienteId
                               ?? o.presupuesto_no_cliente_id
@@ -2636,7 +2831,8 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                         // ✅ Calcular totales
                         const totalPresupuestos = Array.from(presupuestosUnicos.values()).reduce((sum, val) => sum + val, 0);
                         const totalIndependientes = Array.from(obrasIndependientes.values()).reduce((sum, val) => sum + val, 0);
-                        const totalCompleto = totalPresupuestos + totalIndependientes + totalTrabajosExtra + totalTrabajosAdicionales;
+                        const totalTareasLevesCalc = Array.from(tareasLeves.values()).reduce((sum, val) => sum + val, 0); // 🆕 Total tareas leves
+                        const totalCompleto = totalPresupuestos + totalIndependientes + totalTareasLevesCalc + totalTrabajosExtra + totalTrabajosAdicionales;
 
                         return (
                           <>
@@ -2645,7 +2841,7 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
                               <span>IDs sumados: </span>
                               {debugRows.join(' | ')}
                               {totalTrabajosExtra > 0 && ` + Adic.Obra: $${totalTrabajosExtra.toLocaleString()}`}
-                              {totalTrabajosAdicionales > 0 && ` + TareasLeves: $${totalTrabajosAdicionales.toLocaleString()}`}
+                              {totalTrabajosAdicionales > 0 && ` + TrabAdicionales: $${totalTrabajosAdicionales.toLocaleString()}`}
                             </div>
                           </>
                         );
@@ -3973,6 +4169,17 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             opacity: 0.6;
             cursor: not-allowed;
           }
+
+          /* 🔒 PREVENIR SCROLL AUTOMÁTICO EN LA TABLA DE OBRAS */
+          .table-responsive * {
+            scroll-margin-top: 0 !important;
+            scroll-margin-bottom: 0 !important;
+            scroll-snap-align: none !important;
+          }
+          .table-responsive input[type="checkbox"]:focus {
+            scroll-margin-top: 0 !important;
+            scroll-margin-bottom: 0 !important;
+          }
         `}</style>
 
         {showDesglose && (() => {
@@ -4061,6 +4268,6 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       </>
     </div>
   );
-};
+}; // Fin de SistemaFinancieroPage
 
 export default SistemaFinancieroPage;

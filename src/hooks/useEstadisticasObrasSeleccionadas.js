@@ -140,22 +140,29 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
     setError(null);
 
     try {
-      // Separar obras que tienen presupuesto de las que no (obras independientes y trabajos adicionales)
+      // Separar obras que tienen presupuesto de las que no (obras independientes, trabajos adicionales y trabajos extra)
       const obrasConPresupuesto = presupuestosSeleccionados.filter(p =>
-        !p.esObraIndependiente && !p._esTrabajoAdicional && p.id
+        !p.esObraIndependiente &&
+        !p._esTrabajoAdicional &&
+        !p.esTrabajoExtra &&
+        !p.esPresupuestoTrabajoExtra &&
+        p.id
       );
       const obrasSinPresupuesto = presupuestosSeleccionados.filter(p =>
-        p.esObraIndependiente || p._esTrabajoAdicional
+        p.esObraIndependiente ||
+        p._esTrabajoAdicional ||
+        p.esTrabajoExtra ||
+        p.esPresupuestoTrabajoExtra
       );
 
-      // Cargar datos completos solo de las obras que tienen presupuesto
+      // Cargar datos completos solo de las obras que tienen presupuesto (excluye trabajos extra)
       const presupuestosCompletos = obrasConPresupuesto.length > 0
         ? await Promise.all(
             obrasConPresupuesto.map(p => api.presupuestosNoCliente.getById(p.id, empresaId))
           )
         : [];
 
-      // Para obras sin presupuesto, usar sus datos directamente
+      // Para obras sin presupuesto Y trabajos extra, usar sus datos directamente
       const todasLasObras = [
         ...presupuestosCompletos,
         ...obrasSinPresupuesto.map(obra => ({
@@ -174,11 +181,11 @@ export const useEstadisticasObrasSeleccionadas = (presupuestosSeleccionados, emp
 
         // Validar que obraId sea un número válido
         if (!obraId || isNaN(obraId)) {
-          console.warn('⚠️ [useEstadisticasObrasSeleccionadas] Obra sin obraId válido:', { 
-            nombreObra: obra.nombreObra || obra.direccionObraCalle, 
+          console.warn('⚠️ [useEstadisticasObrasSeleccionadas] Obra sin obraId válido:', {
+            nombreObra: obra.nombreObra || obra.direccionObraCalle,
             direccionObraId: obra.direccionObraId,
             obraId: obra.obraId,
-            id: obra.id 
+            id: obra.id
           });
           return [];
         }
