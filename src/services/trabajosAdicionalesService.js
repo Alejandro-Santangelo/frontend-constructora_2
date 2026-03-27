@@ -136,6 +136,11 @@ export const obtenerTrabajoAdicionalPorId = async (id) => {
   }
 };
 
+// Alias de compatibilidad con código legado
+export const obtenerTrabajoPorId = async (id) => {
+  return obtenerTrabajoAdicionalPorId(id);
+};
+
 /**
  * Obtener trabajos adicionales de una obra específica
  * @param {number} obraId - ID de la obra
@@ -248,6 +253,7 @@ export default {
   confirmarBorradorTrabajoAdicional,
   listarBorradoresTrabajoAdicional,
   listarTrabajosAdicionales,
+  obtenerTrabajoPorId,
   obtenerTrabajoAdicionalPorId,
   obtenerTrabajosAdicionalesPorObra,
   actualizarTrabajoAdicional,
