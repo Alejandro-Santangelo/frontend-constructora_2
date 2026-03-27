@@ -229,9 +229,12 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   const presupuestosSeleccionadosArray = useMemo(() => {
     const array = [];
 
-    obrasDisponibles
-      .filter(obra => obrasSeleccionadas.has(obra.id))
-      .forEach(obra => {
+    // 🔧 Recorrer TODAS las obras (no solo las seleccionadas) para capturar adicionales/tareas leves
+    obrasDisponibles.forEach(obra => {
+      // ✅ Agregar obra principal SOLO si está seleccionada
+      const obraPrincipalSeleccionada = obrasSeleccionadas.has(obra.id);
+      
+      if (obraPrincipalSeleccionada) {
         if (obra.presupuestoCompleto) {
           array.push(obra.presupuestoCompleto);
         } else if (obra.esObraIndependiente) {
@@ -250,36 +253,38 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
             gastosGeneralesAsignados: []
           });
         }
+      }
 
-        if (obra.trabajosExtra && Array.isArray(obra.trabajosExtra)) {
-          obra.trabajosExtra.forEach(te => {
-            const estaSeleccionado = obrasSeleccionadas.has(te.id) || trabajosExtraSeleccionados.has(te.id);
-            if (!estaSeleccionado) return;
+      // ✅ Agregar adicionales/tareas leves si están seleccionados (independiente de la obra principal)
+      if (obra.trabajosExtra && Array.isArray(obra.trabajosExtra)) {
+        obra.trabajosExtra.forEach(te => {
+          const estaSeleccionado = obrasSeleccionadas.has(te.id) || trabajosExtraSeleccionados.has(te.id);
+          if (!estaSeleccionado) return;
 
-            if (te.presupuestoCompleto) {
-              array.push(te.presupuestoCompleto);
-              return;
-            }
+          if (te.presupuestoCompleto) {
+            array.push(te.presupuestoCompleto);
+            return;
+          }
 
-            array.push({
-              id: te.id,
-              obraId: te.obraId,
-              direccionObraId: te.obraId,
-              nombreObra: te.nombre || te.descripcion || te.nombreObra || `Trabajo Extra ${te.id}`,
-              direccionObraCalle: obra.direccionObraCalle || obra.direccion || '',
-              direccionObraAltura: obra.direccionObraAltura || '',
-              estado: te.estado || 'APROBADO',
-              totalPresupuesto: te.totalCalculado || te.presupuestoEstimado || te.total || 0,
-              esTrabajoExtra: true,
-              obraPrincipalId: obra.id,
-              itemsCalculadora: [],
-              profesionalesObra: [],
-              materialesAsignados: [],
-              gastosGeneralesAsignados: []
-            });
+          array.push({
+            id: te.id,
+            obraId: te.obraId,
+            direccionObraId: te.obraId,
+            nombreObra: te.nombre || te.descripcion || te.nombreObra || `Trabajo Extra ${te.id}`,
+            direccionObraCalle: obra.direccionObraCalle || obra.direccion || '',
+            direccionObraAltura: obra.direccionObraAltura || '',
+            estado: te.estado || 'APROBADO',
+            totalPresupuesto: te.totalCalculado || te.presupuestoEstimado || te.total || 0,
+            esTrabajoExtra: true,
+            obraPrincipalId: obra.id,
+            itemsCalculadora: [],
+            profesionalesObra: [],
+            materialesAsignados: [],
+            gastosGeneralesAsignados: []
           });
-        }
-      });
+        });
+      }
+    });
 
     return array;
   }, [obrasDisponibles, obrasSeleccionadas, trabajosExtraSeleccionados]);
@@ -1744,7 +1749,11 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
   */
 
   // 🆕 Funciones para manejar selección de obras
-  const toggleObraSeleccion = (obraId) => {
+  const toggleObraSeleccion = useCallback((obraId) => {
+    // 🔧 Guardar posición del scroll antes del cambio
+    const scrollContainer = document.querySelector('.table-responsive') || document.documentElement;
+    const scrollPosition = scrollContainer.scrollTop;
+    
     setObrasSeleccionadas(prev => {
       const newSet = new Set(prev);
       if (newSet.has(obraId)) {
@@ -1754,10 +1763,21 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
       return newSet;
     });
-  };
+
+    // 🔧 Restaurar posición del scroll después del render
+    requestAnimationFrame(() => {
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollPosition;
+      }
+    });
+  }, []);
 
   // 🆕 Funciones para manejar selección de trabajos extra
-  const toggleTrabajoExtraSeleccion = (trabajoExtraId) => {
+  const toggleTrabajoExtraSeleccion = useCallback((trabajoExtraId) => {
+    // 🔧 Guardar posición del scroll antes del cambio
+    const scrollContainer = document.querySelector('.table-responsive') || document.documentElement;
+    const scrollPosition = scrollContainer.scrollTop;
+    
     setTrabajosExtraSeleccionados(prev => {
       const newSet = new Set(prev);
       if (newSet.has(trabajoExtraId)) {
@@ -1767,9 +1787,20 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
       return newSet;
     });
-  };
 
-  const toggleTrabajoAdicionalSeleccion = (trabajoAdicionalId) => {
+    // 🔧 Restaurar posición del scroll después del render
+    requestAnimationFrame(() => {
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollPosition;
+      }
+    });
+  }, []);
+
+  const toggleTrabajoAdicionalSeleccion = useCallback((trabajoAdicionalId) => {
+    // 🔧 Guardar posición del scroll antes del cambio
+    const scrollContainer = document.querySelector('.table-responsive') || document.documentElement;
+    const scrollPosition = scrollContainer.scrollTop;
+    
     setTrabajosAdicionalesSeleccionados(prev => {
       const newSet = new Set(prev);
       if (newSet.has(trabajoAdicionalId)) {
@@ -1779,7 +1810,14 @@ const SistemaFinancieroPage = ({ setSidebarCollapsed: setSidebarCollapsedProp, s
       }
       return newSet;
     });
-  };
+
+    // 🔧 Restaurar posición del scroll después del render
+    requestAnimationFrame(() => {
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollPosition;
+      }
+    });
+  }, []);
 
   const seleccionarTodasObras = () => {
     setObrasSeleccionadas(new Set(obrasDisponibles.map(o => o.id)));
