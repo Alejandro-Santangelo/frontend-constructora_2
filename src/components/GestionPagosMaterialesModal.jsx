@@ -45,7 +45,7 @@ const GestionPagosMaterialesModal = ({
   });
   const [procesandoPago, setProcesandoPago] = useState(false);
   const [errorPago, setErrorPago] = useState(null);
-  
+
   // 💰 Estado para montos a pagar por material (key: asignacionId, value: monto)
   const [montosAPagar, setMontosAPagar] = useState({});
 
@@ -207,7 +207,7 @@ const GestionPagosMaterialesModal = ({
           // ✅ Usar obra.obraId (ID de la tabla obras) en lugar de obra.id (ID del presupuesto)
           const obraIdReal = obra.obraId || obra.id;
           console.log(`🔍 Consultando materiales de obra ${obraIdReal} (presupuesto ${obra.id}): ${obra.nombreObra}`);
-          
+
           const response = await apiService.get(`/api/obras/${obraIdReal}/materiales`, {
             headers: { empresaId: idEmpresaActual }
           });
@@ -679,19 +679,19 @@ const GestionPagosMaterialesModal = ({
   // 💰 Actualizar monto a pagar de un material
   const actualizarMontoAPagar = (asignacionId, monto, saldoPendiente) => {
     const montoNumerico = Number(monto);
-    
+
     // Validar que no supere el saldo pendiente
     if (montoNumerico > saldoPendiente) {
       setMontosAPagar(prev => ({ ...prev, [asignacionId]: saldoPendiente }));
       return;
     }
-    
+
     // Validar que no sea negativo
     if (montoNumerico < 0) {
       setMontosAPagar(prev => ({ ...prev, [asignacionId]: 0 }));
       return;
     }
-    
+
     setMontosAPagar(prev => ({ ...prev, [asignacionId]: montoNumerico }));
   };
 
@@ -699,7 +699,7 @@ const GestionPagosMaterialesModal = ({
   const abrirModalPago = (material, asignacion, obraId, obraNombre, presupuestoId) => {
     // Usar el monto ingresado en el input o el saldo pendiente completo
     const montoPreCargado = montosAPagar[asignacion.id] || asignacion.saldoPendiente || 0;
-    
+
     setMaterialAPagar({
       materialNombre: material.materialNombre,
       materialCalculadoraId: asignacion.materialCalculadoraId || null,
@@ -810,7 +810,7 @@ const GestionPagosMaterialesModal = ({
         delete nuevo[materialAPagar.asignacionId];
         return nuevo;
       });
-      
+
       // Cerrar modal
       cerrarModalPago();
 
@@ -963,7 +963,7 @@ const GestionPagosMaterialesModal = ({
             const montoAPagar = montosAPagar[asig.id] || '';
             const saldoPendienteActual = Number(asig.saldoPendiente || 0);
             const tieneSaldo = saldoPendienteActual > 0;
-            
+
             return (
               <tr key={idx}>
                 <td>
@@ -1187,7 +1187,7 @@ const GestionPagosMaterialesModal = ({
         {loading ? (
           <div className="text-center py-5">
             <Spinner animation="border" variant="primary" />
-            <p className="mt-3 text-muted">Cargando informaciÃ³n de pagos...</p>
+            <p className="mt-3 text-muted">Cargando información de pagos...</p>
           </div>
         ) : (
           <>
