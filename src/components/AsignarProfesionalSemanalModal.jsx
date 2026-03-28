@@ -98,7 +98,8 @@ const AsignarProfesionalSemanalModal = ({
   const [loadingPresupuesto, setLoadingPresupuesto] = useState(false);
   const [asignacionesExistentes, setAsignacionesExistentes] = useState([]);
   const [loadingAsignaciones, setLoadingAsignaciones] = useState(false);
-  
+  const [mostrarOpcionesAntiguas, setMostrarOpcionesAntiguas] = useState(false); // Colapsar opciones antiguas por defecto
+
   // Estado para rubros del presupuesto de la obra
   const [rubros, setRubros] = useState([]);
 
@@ -233,8 +234,8 @@ getObraId() retorna: ${obraIdReal}
   const handleCambiarRubroProfesional = (profesionalId, rubroId) => {
     const rubroSeleccionado = rubros.find(r => r.id === parseInt(rubroId));
     setProfesionalesSeleccionados(prev =>
-      prev.map(p => p.id === profesionalId ? { 
-        ...p, 
+      prev.map(p => p.id === profesionalId ? {
+        ...p,
         rubroId: rubroId ? parseInt(rubroId) : null,
         rubroNombre: rubroSeleccionado ? rubroSeleccionado.nombreRubro : null
       } : p)
@@ -553,9 +554,9 @@ getObraId() retorna: ${obraIdReal}
       try {
         const responseJornales = await obtenerJornalesPorObra(obraIdParaQuery, empresaSeleccionada.id);
         console.log('🔍 Jornales diarios response:', responseJornales);
-        
+
         dataJornales = Array.isArray(responseJornales) ? responseJornales : (responseJornales?.data || []);
-        
+
         // 🔄 Transformar jornales al formato de asignaciones para mostrar en la tabla
         dataJornales = dataJornales.map(jornal => ({
           tipoAsignacion: 'JORNAL_DIARIO', // ✨ Marcador para identificar jornales
@@ -571,7 +572,7 @@ getObraId() retorna: ${obraIdReal}
           montoCobrado: jornal.montoCobrado || 0,
           observaciones: jornal.observaciones || '-'
        }));
-        
+
         console.log('✅ Jornales diarios transformados:', dataJornales.length, 'items');
       } catch (errorJornales) {
         console.warn('⚠️ No se pudieron cargar jornales diarios:', errorJornales.message);
@@ -614,7 +615,7 @@ getObraId() retorna: ${obraIdReal}
           if (asignacion.tipoAsignacion === 'JORNAL_DIARIO') {
             return true;
           }
-          
+
           // Si la asignación tiene presupuestoId, filtrar por el presupuesto APROBADO
           if (asignacion.presupuestoId) {
             return asignacion.presupuestoId === presupuestoAprobado.id;
@@ -636,7 +637,7 @@ getObraId() retorna: ${obraIdReal}
         if (asignacion.tipoAsignacion === 'JORNAL_DIARIO') {
           return true;
         }
-        
+
         const esInactivo = asignacionesInactivasTotal.includes(asignacion.asignacionId);
         if (esInactivo) {
           console.log(`🚫 Filtrando asignación INACTIVA - ID: ${asignacion.asignacionId} (eliminada previamente)`);
@@ -1804,7 +1805,7 @@ getObraId() retorna: ${obraIdReal}
           return;
         }
       }
-      
+
       // Validar que todos los profesionales tengan rubro seleccionado (solo si hay rubros disponibles)
       if (rubros.length > 0) {
         const profesionalesSinRubro = profesionalesSeleccionados.filter(p => !p.rubroId);
@@ -1814,7 +1815,7 @@ getObraId() retorna: ${obraIdReal}
           return;
         }
       }
-      
+
       // Ya no validamos cantidades porque cada profesional = 1 jornal/día automáticamente
     } else if (modalidadAsignacion === 'semanal') {
       if (Object.keys(asignacionesPorSemana).length === 0) {
@@ -1978,6 +1979,75 @@ getObraId() retorna: ${obraIdReal}
       if (mapaIdAdhocANumerico.size > 0) {
         console.log('🔄 Mapa de conversión adhoc → numérico:', Array.from(mapaIdAdhocANumerico.entries()));
       }
+
+      // 🔄 VALIDACIÓN: Si está en modo AGREGAR pero no seleccionó profesionales nuevos, abrir modal de jornales
+      if (!eliminarExistentes && profesionalesConIdNumerico.length === 0) {
+        console.log('⚠️ [MODO AGREGAR] No se seleccionaron profesionales nuevos - abriendo modal de asignación individualizada');
+        setCargando(false);
+
+        // Si existe la función para abrir el modal de jornales, usarla
+        if (onAbrirRegistrarJornales) {
+          onHide();
+          onAbrirRegistrarJornales();
+        } else {
+          // Si no existe, simplemente cerrar
+          onHide();
+        }
+        return;
+      }
+
+      // 🔄 PASO 2.5: Si NO estamos reemplazando, obtener asignaciones existentes para merge
+      let profesionalesExistentes = [];
+      if (!eliminarExistentes) {
+        console.log('🔍 [MODO AGREGAR] Obteniendo asignaciones existentes para merge...');
+        try {
+          const responseAsignaciones = await obtenerAsignacionesSemanalPorObra(obraIdParaQuery, empresaSeleccionada.id);
+
+          // Manejar diferentes estructuras de respuesta
+          let asignacionesArray = [];
+          if (Array.isArray(responseAsignaciones)) {
+            asignacionesArray = responseAsignaciones;
+          } else if (Array.isArray(responseAsignaciones?.data)) {
+            asignacionesArray = responseAsignaciones.data;
+          } else if (Array.isArray(responseAsignaciones?.data?.content)) {
+            asignacionesArray = responseAsignaciones.data.content;
+          } else if (Array.isArray(responseAsignaciones?.content)) {
+            asignacionesArray = responseAsignaciones.content;
+          }
+
+          console.log(`📋 Encontradas ${asignacionesArray.length} asignaciones existentes`);
+
+          // Convertir asignaciones existentes al formato de profesionalesConIdNumerico
+          asignacionesArray.forEach(asig => {
+            // Verificar que no esté duplicado (por ID)
+            const yaExiste = profesionalesConIdNumerico.some(p => Number(p.id) === Number(asig.profesionalId));
+            if (!yaExiste) {
+              profesionalesExistentes.push({
+                id: asig.profesionalId,
+                nombre: asig.profesionalNombre || asig.nombre || 'Profesional',
+                tipoProfesional: asig.tipoProfesional || asig.tipo || '',
+                rubroId: asig.rubroId || null,
+                rubroNombre: asig.rubroNombre || null,
+                honorarioDia: asig.honorarioDia || 0,
+                cantidadPorDia: asig.cantidadPorDia || 1,
+                _existiaAntes: true // Flag para tracking
+              });
+            }
+          });
+
+          console.log(`✅ Se agregarán ${profesionalesExistentes.length} profesionales existentes al payload`);
+          console.log('📝 Profesionales existentes:', profesionalesExistentes.map(p => ({ id: p.id, nombre: p.nombre })));
+
+          // Combinar existentes con nuevos
+          profesionalesConIdNumerico.push(...profesionalesExistentes);
+          console.log(`🔄 Total profesionales a enviar (existentes + nuevos): ${profesionalesConIdNumerico.length}`);
+
+        } catch (error) {
+          console.warn('⚠️ No se pudieron obtener asignaciones existentes (puede no haber):', error.message);
+          // Continuar de todas formas - puede que no haya asignaciones previas
+        }
+      }
+
       // Construir payload según el contrato del backend
       const payload = {
         obraId: Number(obraIdParaQuery), // ✅ Usa ID real de la obra
@@ -2430,9 +2500,9 @@ getObraId() retorna: ${obraIdReal}
 
     try {
       console.log('🗑️ Eliminando jornal:', jornalId);
-      
+
       await eliminarJornalDiario(jornalId, empresaSeleccionada.id);
-      
+
       alert('✅ Jornal eliminado correctamente');
 
       // Recargar asignaciones para actualizar la vista
@@ -2627,7 +2697,7 @@ getObraId() retorna: ${obraIdReal}
     // � PRIORIDAD 0: Separar jornales diarios de asignaciones planificadas
     const jornalesDiarios = asignacionesExistentes.filter(a => a.tipoAsignacion === 'JORNAL_DIARIO');
     const asignacionesPlanificadas = asignacionesExistentes.filter(a => a.tipoAsignacion !== 'JORNAL_DIARIO');
-    
+
     console.log('✅ Jornales diarios encontrados:', jornalesDiarios.length);
     console.log('✅ Asignaciones planificadas encontradas:', asignacionesPlanificadas.length);
 
@@ -2687,7 +2757,7 @@ getObraId() retorna: ${obraIdReal}
                     const asignacionCompleta = asignacionesTotales.find(a => a.profesionalId === prof.id);
                     const rubroNombre = asignacionCompleta?.rubroNombre || 'Sin rubro';
                     const asignacionId = asignacionCompleta?.asignacionId || asignacionCompleta?.id;
-                    
+
                     return (
                       <tr key={prof.id}>
                         <td>
@@ -2827,17 +2897,17 @@ getObraId() retorna: ${obraIdReal}
                             const fechaFormateada = new Date(j.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
                             const fraccion = j.horasTrabajadasDecimal || 0;
                             return (
-                              <span 
-                                key={idx} 
-                                className="badge bg-light text-dark border d-inline-flex align-items-center gap-1" 
+                              <span
+                                key={idx}
+                                className="badge bg-light text-dark border d-inline-flex align-items-center gap-1"
                                 style={{ fontSize: '0.75rem', paddingRight: '4px' }}
                               >
                                 📅 {fechaFormateada} ({fraccion}d)
                                 <button
                                   type="button"
                                   className="btn btn-sm p-0 text-danger"
-                                  style={{ 
-                                    border: 'none', 
+                                  style={{
+                                    border: 'none',
                                     background: 'transparent',
                                     fontSize: '0.9rem',
                                     lineHeight: '1',
@@ -2908,7 +2978,7 @@ getObraId() retorna: ${obraIdReal}
                             type="button"
                             className="btn btn-sm btn-info text-white"
                             onClick={() => {
-                              // Abrir historial para ver jornales individuales  
+                              // Abrir historial para ver jornales individuales
                               if (onAbrirHistorialJornales) {
                                 onAbrirHistorialJornales();
                               } else {
@@ -2933,12 +3003,12 @@ getObraId() retorna: ${obraIdReal}
                                     await eliminarJornalDiario(jornal.jornalId, empresaSeleccionada.id);
                                     eliminados++;
                                   }
-                                  
+
                                   alert(`✅ ${eliminados} jornal(es) eliminado(s) correctamente`);
-                                  
+
                                   // Recargar asignaciones
                                   await cargarAsignacionesExistentes();
-                                  
+
                                   // Refrescar lista de profesionales disponibles
                                   if (onRefreshProfesionales) {
                                     await onRefreshProfesionales();
@@ -3202,6 +3272,53 @@ getObraId() retorna: ${obraIdReal}
           </div>
 
           <div className="modal-body" style={{ minHeight: '65vh', maxHeight: '85vh', overflowY: 'auto' }}>
+
+            {/* Sección Principal: Asignación Diaria */}
+            {(onAbrirRegistrarJornales || onAbrirHistorialJornales) && (
+              <div className="mb-4 pb-3" style={{ borderBottom: '2px solid #e9ecef' }}>
+                <h6 className="text-primary mb-3">
+                  <i className="fas fa-calendar-day me-2"></i>
+                  Asignación por Día / Fracción de Día
+                </h6>
+                <div className="row">
+                  {onAbrirRegistrarJornales && (
+                    <div className="col-md-6 mb-2">
+                      <button
+                        className="btn btn-success w-100"
+                        onClick={() => {
+                          if (onAbrirRegistrarJornales) {
+                            onHide();
+                            onAbrirRegistrarJornales();
+                          }
+                        }}
+                        title="Asignar profesionales con jornadas por día o fracciones (0.25, 0.5, 0.75, 1.0)"
+                      >
+                        <i className="fas fa-user-plus me-2"></i>
+                        Asignación Individualizada
+                      </button>
+                    </div>
+                  )}
+                  {onAbrirHistorialJornales && (
+                    <div className="col-md-6 mb-2">
+                      <button
+                        className="btn btn-info w-100"
+                        onClick={() => {
+                          if (onAbrirHistorialJornales) {
+                            onHide();
+                            onAbrirHistorialJornales();
+                          }
+                        }}
+                        title="Ver el historial completo de asignaciones diarias"
+                      >
+                        <i className="fas fa-history me-2"></i>
+                        Ver Historial Diario
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
         {/* Paso 1: Definir semanas objetivo - Solo si no hay configuración global */}
         {paso === 1 && !configuracionObra && (
           <div>
@@ -3254,51 +3371,61 @@ getObraId() retorna: ${obraIdReal}
         {/* Paso 2: Seleccionar modalidad */}
         {paso === 2 && (
           <div>
-            <h5 className="mb-4">Paso 2: Elige el tipo de asignación</h5>
-
-            <div className="alert alert-secondary mb-4">
-              <strong>Recordatorio:</strong> Necesitas {capacidadNecesaria} trabajadores/día durante {diasHabilesObjetivo} días
+            {/* Botón para mostrar/ocultar opciones antiguas */}
+            <div className="mb-3">
+              <button
+                type="button"
+                className="btn btn-link text-muted p-0"
+                onClick={() => setMostrarOpcionesAntiguas(!mostrarOpcionesAntiguas)}
+                style={{ textDecoration: 'none', fontSize: '0.9rem' }}
+              >
+                <i className={`fas fa-chevron-${mostrarOpcionesAntiguas ? 'up' : 'down'} me-2`}></i>
+                {mostrarOpcionesAntiguas ? 'Ocultar' : 'Mostrar'} opciones de asignación por obra/semana
+              </button>
             </div>
 
-            <div className="row">
-              <div className="col-md-6 mb-3">
-                <div
-                  className={`border rounded p-4 cursor-pointer h-100 ${modalidadAsignacion === 'total' ? 'border-primary bg-light' : ''}`}
-                  onClick={() => handleSeleccionarModalidad('total')}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <h6 className="text-primary">
-                    <i className="bi bi-people-fill me-2"></i>
-                    Asignación por Obra Completa
-                  </h6>
-                  <p className="text-muted mb-0">
-                    Asigna los mismos profesionales a toda la obra de forma constante
-                  </p>
-                  <small className="text-muted">
-                    Recomendado cuando el mismo equipo trabaja toda la obra
-                  </small>
+            {/* Opciones antiguas (colapsables) */}
+            {mostrarOpcionesAntiguas && (
+              <div className="row">
+                <div className="col-md-6 mb-3">
+                  <div
+                    className={`border rounded p-4 cursor-pointer h-100 ${modalidadAsignacion === 'total' ? 'border-primary bg-light' : ''}`}
+                    onClick={() => handleSeleccionarModalidad('total')}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <h6 className="text-primary">
+                      <i className="bi bi-people-fill me-2"></i>
+                      Asignación por Obra Completa
+                    </h6>
+                    <p className="text-muted mb-0">
+                      Asigna los mismos profesionales a toda la obra de forma constante
+                    </p>
+                    <small className="text-muted">
+                      Recomendado cuando el mismo equipo trabaja toda la obra
+                    </small>
+                  </div>
                 </div>
-              </div>
 
-              <div className="col-md-6 mb-3">
-                <div
-                  className={`border rounded p-4 cursor-pointer h-100 ${modalidadAsignacion === 'semanal' ? 'border-primary bg-light' : ''}`}
-                  onClick={() => handleSeleccionarModalidad('semanal')}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <h6 className="text-success">
-                    <i className="bi bi-calendar-week-fill me-2"></i>
-                    Asignación por Semana
-                  </h6>
-                  <p className="text-muted mb-0">
-                    Asigna diferentes profesionales por semana según las necesidades de cada etapa
-                  </p>
-                  <small className="text-muted">
-                    Recomendado para obras con fases diferenciadas o equipos rotativos
-                  </small>
+                <div className="col-md-6 mb-3">
+                  <div
+                    className={`border rounded p-4 cursor-pointer h-100 ${modalidadAsignacion === 'semanal' ? 'border-primary bg-light' : ''}`}
+                    onClick={() => handleSeleccionarModalidad('semanal')}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <h6 className="text-success">
+                      <i className="bi bi-calendar-week-fill me-2"></i>
+                      Asignación por Semana
+                    </h6>
+                    <p className="text-muted mb-0">
+                      Asigna diferentes profesionales por semana según las necesidades de cada etapa
+                    </p>
+                    <small className="text-muted">
+                      Recomendado para obras con fases diferenciadas o equipos rotativos
+                    </small>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Sección de profesionales ya asignados */}
             {(profesionalesSeleccionados.length > 0 || Object.keys(asignacionesPorSemana).length > 0) && (
@@ -3434,7 +3561,7 @@ getObraId() retorna: ${obraIdReal}
                     No hay profesionales asignados aún. <strong>Selecciona una modalidad arriba para comenzar.</strong>
                   </div>
                 )}
-                
+
                 {/* Debug info */}
                 {!loadingAsignaciones && asignacionesExistentes.length === 0 && (
                   <details className="mt-2">
@@ -3930,54 +4057,7 @@ getObraId() retorna: ${obraIdReal}
           </div>
         )} {/* Fin paso 3 */}
 
-        {/* Sección de Asignación Diaria - Asignar por día o fracción de día */}
-        {(onAbrirRegistrarJornales || onAbrirHistorialJornales) && (
-          <div style={{ borderTop: '2px solid #e9ecef', marginTop: '20px', paddingTop: '20px' }}>
-            <h6 className="text-muted mb-3">
-              <i className="fas fa-calendar-day me-2"></i>
-              Asignación por Día / Fracción de Día
-            </h6>
-            <div className="alert alert-info mb-3" style={{ fontSize: '0.9em' }}>
-              <strong>Nueva opción:</strong> Asignar profesionales por día o fracciones (0.25, 0.5, 0.75, 1.0 día)
-            </div>
-            <div className="row">
-              {onAbrirRegistrarJornales && (
-                <div className="col-md-6 mb-2">
-                  <button
-                    className="btn btn-outline-success w-100"
-                    onClick={() => {
-                      if (onAbrirRegistrarJornales) {
-                        onHide(); // Cerrar este modal
-                        onAbrirRegistrarJornales(); // Abrir modal de asignación diaria
-                      }
-                    }}
-                    title="Asignar profesionales con jornadas por día o fracciones (0.25, 0.5, 0.75, 1.0)"
-                  >
-                    <i className="fas fa-user-plus me-2"></i>
-                    Asignación Individualizada
-                  </button>
-                </div>
-              )}
-              {onAbrirHistorialJornales && (
-                <div className="col-md-6 mb-2">
-                  <button
-                    className="btn btn-outline-info w-100"
-                    onClick={() => {
-                      if (onAbrirHistorialJornales) {
-                        onHide(); // Cerrar este modal
-                        onAbrirHistorialJornales(); // Abrir modal de historial
-                      }
-                    }}
-                    title="Ver el historial completo de asignaciones diarias"
-                  >
-                    <i className="fas fa-history me-2"></i>
-                    Ver Historial Diario
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+
 
         </div> {/* Cierra modal-body */}
 

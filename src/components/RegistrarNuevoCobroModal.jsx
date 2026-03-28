@@ -49,6 +49,33 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
   // Determinar si es modo INDIVIDUAL (obra pre-seleccionada)
   const modoIndividual = !!obraDireccion;
 
+  // Helper: Calcular totales de rubros desde presupuesto
+  const calcularTotalesPresupuesto = (presupuesto) => {
+    let totalJornales = 0;
+    let totalMateriales = 0;
+    let totalGastosGenerales = 0;
+
+    // Calcular desde itemsCalculadora usando los subtotales directos
+    if (presupuesto.itemsCalculadora && Array.isArray(presupuesto.itemsCalculadora)) {
+      presupuesto.itemsCalculadora.forEach(item => {
+        // Sumar jornales/mano de obra (ya calculado por el backend)
+        totalJornales += item.subtotalManoObra || 0;
+
+        // Sumar materiales (ya calculado por el backend)
+        totalMateriales += item.subtotalMateriales || 0;
+
+        // Sumar gastos generales (ya calculado por el backend)
+        totalGastosGenerales += item.subtotalGastosGenerales || 0;
+      });
+    }
+
+    return {
+      totalJornales,
+      totalMateriales,
+      totalGastosGenerales
+    };
+  };
+
   // Cargar obras disponibles al abrir O cuando cambia refreshTrigger
   useEffect(() => {
     if (show && empresaSeleccionada && !modoIndividual) {
@@ -131,20 +158,34 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
 
       const presupuestosUnicos = Object.values(obrasPorDireccion);
 
-      // Convertir a formato de obras normales
-      const obrasNormales = presupuestosUnicos.map(p => ({
-        tipo: 'OBRA',
-        obraId: p.obraId || p.id,
-        presupuestoNoClienteId: p.id,
-        barrio: p.direccionObraBarrio || null,
-        calle: p.direccionObraCalle || '',
-        altura: p.direccionObraAltura || '',
-        ciudad: p.direccionObraCiudad || '',
-        numero: p.direccionObraAltura || '',
-        nombreObra: p.nombreObra || p.nombre || null,
-        direccion: `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim(),
-        nombre: p.nombreObra || p.nombre || `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim()
-      }));
+      // Convertir a formato de obras normales CON totales de rubros
+      const obrasNormalesPromises = presupuestosUnicos.map(async (p) => {
+        let presupuestoCompleto = p;
+
+        // Si no tiene itemsCalculadora, cargar el detalle completo
+        if (!p.itemsCalculadora || !Array.isArray(p.itemsCalculadora) || p.itemsCalculadora.length === 0) {
+          presupuestoCompleto = await api.presupuestosNoCliente.getById(p.id, empresaSeleccionada.id);
+        }
+
+        const totales = calcularTotalesPresupuesto(presupuestoCompleto);
+        return {
+          tipo: 'OBRA',
+          obraId: p.obraId || p.id,
+          presupuestoNoClienteId: p.id,
+          barrio: p.direccionObraBarrio || null,
+          calle: p.direccionObraCalle || '',
+          altura: p.direccionObraAltura || '',
+          ciudad: p.direccionObraCiudad || '',
+          numero: p.direccionObraAltura || '',
+          nombreObra: p.nombreObra || p.nombre || null,
+          direccion: `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim(),
+          nombre: p.nombreObra || p.nombre || `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim(),
+          ...totales,  // ✅ Agregar totalJornales, totalMateriales, totalGastosGenerales
+          itemsCalculadora: presupuestoCompleto.itemsCalculadora || []  // ✅ Desglose por rubro
+        };
+      });
+
+      const obrasNormales = await Promise.all(obrasNormalesPromises);
 
       // 3. Procesar TRABAJOS EXTRA (última versión por obraId)
       const trabajosExtraPorObraId = {};
@@ -157,19 +198,35 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
         }
       });
 
-      const trabajosExtra = Object.values(trabajosExtraPorObraId).map(p => ({
-        tipo: 'TRABAJO_EXTRA',
-        trabajoExtraId: p.id, // El ID del presupuesto
-        trabajoExtraObraId: p.obraId || p.obra_id || p.direccionObraId, // ✅ El ID de la obra del trabajo extra (para vincular trabajos adicionales)
-        presupuestoNoClienteId: p.id,
-        obraId: p.obraId || p.obra_id || p.direccionObraId,
-        obraPadreId: p.obra_origen_id || p.obraOrigenId, // 🔍 ID de la obra principal (si existe)
-        nombre: p.nombreObra || p.nombre || p.titulo || `Trabajo Extra #${p.id}`,
-        nombreObra: p.nombreObra || p.nombre,
-        direccion: `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim(),
-        montoEstimado: p.totalPresupuesto || p.presupuestoTotal || p.total || 0,
-        estado: p.estado
-      }));
+      const trabajosExtraPromises = Object.values(trabajosExtraPorObraId).map(async (p) => {
+        // Si no tiene itemsCalculadora, cargar el detalle completo
+        let presupuestoCompleto = p;
+        if (!p.itemsCalculadora || !Array.isArray(p.itemsCalculadora) || p.itemsCalculadora.length === 0) {
+          console.log(`📥 Cargando detalle completo para trabajo extra presupuesto #${p.id}`);
+          presupuestoCompleto = await api.presupuestosNoCliente.getById(p.id, empresaSeleccionada.id);
+        }
+
+        const totales = calcularTotalesPresupuesto(presupuestoCompleto);
+        console.log(`📊 Totales calculados para trabajo extra ${p.id}:`, totales);
+
+        return {
+          tipo: 'TRABAJO_EXTRA',
+          trabajoExtraId: p.id, // El ID del presupuesto
+          trabajoExtraObraId: p.obraId || p.obra_id || p.direccionObraId, // ✅ El ID de la obra del trabajo extra (para vincular trabajos adicionales)
+          presupuestoNoClienteId: p.id,
+          obraId: p.obraId || p.obra_id || p.direccionObraId,
+          obraPadreId: p.obra_origen_id || p.obraOrigenId, // 🔍 ID de la obra principal (si existe)
+          nombre: p.nombreObra || p.nombre || p.titulo || `Trabajo Extra #${p.id}`,
+          nombreObra: p.nombreObra || p.nombre,
+          direccion: `${p.direccionObraCalle || ''} ${p.direccionObraAltura || ''}, ${p.direccionObraCiudad || ''}`.trim(),
+          montoEstimado: p.totalPresupuesto || p.presupuestoTotal || p.total || 0,
+          estado: p.estado,
+          ...totales,  // ✅ Agregar totalJornales, totalMateriales, totalGastosGenerales
+          itemsCalculadora: presupuestoCompleto.itemsCalculadora || []  // ✅ Desglose por rubro
+        };
+      });
+
+      const trabajosExtra = await Promise.all(trabajosExtraPromises);
 
       console.log('✅ Trabajos Extra procesados:', trabajosExtra);
 
@@ -1068,6 +1125,24 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                         />
                                       </th>
                                       <th>Obra / Trabajo / Proyecto</th>
+                                      <th width="120" className="text-end text-muted">
+                                        <div className="d-flex flex-column align-items-end">
+                                          <span>💼 Jornales</span>
+                                          <small style={{fontSize: '0.65rem', fontWeight: 'normal'}}>(Presup. Base)</small>
+                                        </div>
+                                      </th>
+                                      <th width="120" className="text-end text-muted">
+                                        <div className="d-flex flex-column align-items-end">
+                                          <span>🔨 Materiales</span>
+                                          <small style={{fontSize: '0.65rem', fontWeight: 'normal'}}>(Presup. Base)</small>
+                                        </div>
+                                      </th>
+                                      <th width="120" className="text-end text-muted">
+                                        <div className="d-flex flex-column align-items-end">
+                                          <span>💰 Gastos Gral.</span>
+                                          <small style={{fontSize: '0.65rem', fontWeight: 'normal'}}>(Presup. Base)</small>
+                                        </div>
+                                      </th>
                                       <th width="150" className="text-end">Monto ($)</th>
                                       <th width="100" className="text-end text-muted">%</th>
                                     </tr>
@@ -1177,6 +1252,21 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                                 </div>
                                               </div>
                                             </td>
+                                            <td className="text-end text-muted">
+                                              <small className="fw-bold">
+                                                {d.obra.totalJornales > 0 ? `$${d.obra.totalJornales.toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}` : '-'}
+                                              </small>
+                                            </td>
+                                            <td className="text-end text-muted">
+                                              <small className="fw-bold">
+                                                {d.obra.totalMateriales > 0 ? `$${d.obra.totalMateriales.toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}` : '-'}
+                                              </small>
+                                            </td>
+                                            <td className="text-end text-muted">
+                                              <small className="fw-bold">
+                                                {d.obra.totalGastosGenerales > 0 ? `$${d.obra.totalGastosGenerales.toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}` : '-'}
+                                              </small>
+                                            </td>
                                             <td>
                                               <input
                                                 type="number"
@@ -1199,10 +1289,50 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                             </td>
                                           </tr>
 
+                                          {/* Desglose por rubros cuando está expandido */}
+                                          {isExpanded && d.obra.itemsCalculadora && d.obra.itemsCalculadora.length > 0 && (
+                                            <tr className="bg-light">
+                                              <td colSpan="2" className="ps-5">
+                                                <small className="text-muted fst-italic">
+                                                  <i className="bi bi-caret-right-fill me-1"></i>
+                                                  Desglose por rubros:
+                                                </small>
+                                              </td>
+                                              <td colSpan="6" className="py-1">
+                                                <div style={{fontSize: '0.75rem'}}>
+                                                  {/* Header del desglose */}
+                                                  <div className="d-flex align-items-center mb-1 fw-bold text-muted" style={{fontSize: '0.7rem'}}>
+                                                    <span className="me-3" style={{minWidth: '100px'}}>Rubro</span>
+                                                    <span className="me-3" style={{minWidth: '120px'}}>💼 Jornales</span>
+                                                    <span className="me-3" style={{minWidth: '120px'}}>🔨 Materiales</span>
+                                                    <span style={{minWidth: '120px'}}>💰 Gastos Gral.</span>
+                                                  </div>
+                                                  {/* Items */}
+                                                  {d.obra.itemsCalculadora.map((item, idx) => (
+                                                    <div key={idx} className="d-flex align-items-center mb-1">
+                                                      <span className="text-muted me-3" style={{minWidth: '100px'}}>
+                                                        {item.tipoProfesional || item.descripcion || `Rubro ${idx + 1}`}:
+                                                      </span>
+                                                      <span className="me-3" style={{minWidth: '120px'}}>
+                                                        ${(item.subtotalManoObra || 0).toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                                                      </span>
+                                                      <span className="me-3" style={{minWidth: '120px'}}>
+                                                        ${(item.subtotalMateriales || 0).toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                                                      </span>
+                                                      <span style={{minWidth: '120px'}}>
+                                                        ${(item.subtotalGastosGenerales || 0).toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                                                      </span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )}
+
                                           {/* Distribución por ítems de esta obra */}
                                           {isExpanded && isSelected && permiteItems && (
                                             <tr className={isSelected ? 'table-success' : ''}>
-                                              <td colSpan="5" className="p-0">
+                                              <td colSpan="8" className="p-0">
                                                 <div className="bg-light border-top" style={{padding: '12px 20px'}}>
                                                   <div className="d-flex justify-content-between align-items-center mb-2">
                                                     <small className="text-muted fw-bold">
@@ -1396,7 +1526,7 @@ const RegistrarNuevoCobroModal = memo(({ show, onHide, onSuccess, obraId, obraDi
                                   </tbody>
                                   <tfoot>
                                     <tr className="table-dark">
-                                      <td colSpan="2"><strong>TOTAL A ASIGNAR</strong></td>
+                                      <td colSpan="5"><strong>TOTAL A ASIGNAR</strong></td>
                                       <td className="text-end"><strong>{formatearMoneda(totalMonto)}</strong></td>
                                       <td className="text-end"><strong>{totalPorcentaje.toFixed(2)}%</strong></td>
                                     </tr>

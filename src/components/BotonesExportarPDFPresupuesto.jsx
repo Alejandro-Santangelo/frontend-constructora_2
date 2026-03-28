@@ -164,7 +164,46 @@ const BotonesExportarPDFPresupuesto = ({
             '4. Buscá el archivo en tu carpeta Descargas\n\n' +
             'Presioná Aceptar para continuar'
           );
-        }
+          // 🚀 ABRIR WHATSAPP AUTOMÁTICAMENTE
+          console.log('📱 Abriendo WhatsApp automáticamente desde BotonesExportarPDFPresupuesto...');
+
+          const numeroPresup = presupuesto?.numeroPresupuesto || 'Nuevo';
+          const version = presupuesto?.numeroVersion || presupuesto?.version || 1;
+          const obra = presupuesto?.nombreObra ||
+                      (presupuesto?.direccionObraCalle ? `${presupuesto.direccionObraCalle} ${presupuesto.direccionObraAltura || ''}`.trim() : 'Sin especificar');
+          const totalFinal = presupuesto?.totalFinal || presupuesto?.totalPresupuestoConHonorarios || presupuesto?.montoTotal || 0;
+
+          const mensajeCompleto =
+            `📋 *PRESUPUESTO N° ${numeroPresup}* (v${version})\n\n` +
+            `🏗️ Obra: ${obra}\n` +
+            `💰 Total: $${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}\n\n` +
+            `Adjunto encontrará el presupuesto detallado en formato PDF.`;
+
+          // Si hay teléfono, abrir chat directo con el cliente
+          if (presupuesto?.telefono) {
+            const numeroLimpio = presupuesto.telefono.replace(/\D/g, '');
+            const urlWhatsApp = `https://wa.me/${numeroLimpio}?text=${encodeURIComponent(mensajeCompleto)}`;
+            console.log('📱 Abriendo chat directo con:', presupuesto.telefono);
+
+            try {
+              const ventana = window.open(urlWhatsApp, '_blank');
+              if (ventana) {
+                console.log('✅ WhatsApp abierto correctamente');
+              } else {
+                console.warn('⚠️ window.open retornó null - bloqueador de popups activo');
+              }
+            } catch (error) {
+              console.error('❌ Error al abrir WhatsApp:', error);
+            }
+          } else {
+            // Sin teléfono: abrir WhatsApp Web general
+            console.log('📱 Abriendo WhatsApp Web general (sin teléfono)');
+            try {
+              window.open('https://web.whatsapp.com/', '_blank');
+            } catch (error) {
+              console.error('❌ Error al abrir WhatsApp Web:', error);
+            }
+          }        }
 
         if (onPDFGenerado) {
           onPDFGenerado(pdfBlob, 'cliente');
@@ -288,6 +327,48 @@ const BotonesExportarPDFPresupuesto = ({
             '4. Buscá el archivo en tu carpeta Descargas\n\n' +
             'Presioná Aceptar para continuar'
           );
+
+          // 🚀 ABRIR WHATSAPP AUTOMÁTICAMENTE
+          console.log('📱 Abriendo WhatsApp automáticamente...');
+
+          const numeroPresup = presupuesto?.numeroPresupuesto || 'Nuevo';
+          const version = presupuesto?.numeroVersion || presupuesto?.version || 1;
+          const obra = presupuesto?.nombreObra ||
+                      (presupuesto?.direccionObraCalle ? `${presupuesto.direccionObraCalle} ${presupuesto.direccionObraAltura || ''}`.trim() : 'Sin especificar');
+          const totalFinal = presupuesto?.totalFinal || presupuesto?.totalPresupuestoConHonorarios || presupuesto?.montoTotal || 0;
+
+          const mensajeCompleto =
+            `📋 *PRESUPUESTO N° ${numeroPresup}* (v${version})\n\n` +
+            `🏗️ Obra: ${obra}\n` +
+            `💰 Total: $${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}\n\n` +
+            `Adjunto encontrará el presupuesto detallado en formato PDF.`;
+
+          // Si hay teléfono, abrir chat directo con el cliente
+          if (presupuesto?.telefono) {
+            const numeroLimpio = presupuesto.telefono.replace(/\D/g, '');
+            const url = `https://wa.me/${numeroLimpio}?text=${encodeURIComponent(mensajeCompleto)}`;
+            console.log('📱 Abriendo chat directo con:', presupuesto.telefono);
+
+            try {
+              const ventana = window.open(url, '_blank');
+              if (ventana) {
+                console.log('✅ WhatsApp abierto correctamente');
+              } else {
+                console.warn('⚠️ window.open retornó null - bloqueador de popups activo');
+                alert('⚠️ No se pudo abrir WhatsApp automáticamente.\n\nPor favor, permite las ventanas emergentes.');
+              }
+            } catch (error) {
+              console.error('❌ Error al abrir WhatsApp:', error);
+            }
+          } else {
+            // Sin teléfono: abrir WhatsApp Web general
+            console.log('📱 Abriendo WhatsApp Web general (sin teléfono)');
+            try {
+              window.open('https://web.whatsapp.com/', '_blank');
+            } catch (error) {
+              console.error('❌ Error al abrir WhatsApp Web:', error);
+            }
+          }
         }
 
         if (onPDFGenerado) {

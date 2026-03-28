@@ -3683,14 +3683,27 @@ Saludos.`;
                   <button
                     type="button"
                     className="btn btn-success"
-                    onClick={() => {
+                    onClick={async () => {
                       console.log('🟢 CLIC EN BOTÓN WHATSAPP - EnviarPresupuestoModal');
                       console.log('  - presupuestoSeleccionado:', presupuestoSeleccionado?.id);
+                      console.log('  - estado actual:', presupuestoSeleccionado?.estado);
                       console.log('  - onAbrirPresupuestoParaPDF existe:', !!onAbrirPresupuestoParaPDF);
 
                       if (onAbrirPresupuestoParaPDF && presupuestoSeleccionado) {
+                        // ✅ Cambiar estado a ENVIADO si está en A_ENVIAR o TERMINADO
+                        const estadoActual = presupuestoSeleccionado.estado;
+                        let presupuestoActualizado = { ...presupuestoSeleccionado };
+
+                        if (estadoActual === 'A_ENVIAR' || estadoActual === 'TERMINADO') {
+                          console.log(`📤 Cambiando estado de ${estadoActual} → ENVIADO`);
+                          await actualizarEstadoAEnviado();
+                          // Actualizar el objeto con el nuevo estado
+                          presupuestoActualizado.estado = 'ENVIADO';
+                          console.log('✅ Estado actualizado localmente a ENVIADO');
+                        }
+
                         console.log('✅ Llamando a onAbrirPresupuestoParaPDF...');
-                        onAbrirPresupuestoParaPDF(presupuestoSeleccionado);
+                        onAbrirPresupuestoParaPDF(presupuestoActualizado);
                       } else {
                         console.error('❌ No se puede abrir:', {
                           tieneCallback: !!onAbrirPresupuestoParaPDF,

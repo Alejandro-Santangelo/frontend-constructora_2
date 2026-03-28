@@ -9612,11 +9612,11 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     payload.totalDescuentosPorRubro = totalDescuentosReales;
     payload.totalMateriales = totalGlobalMat;
 
-    // ✅ TOTAL FINAL = totalPresupuesto (base + MCs) + Honorarios - Descuentos
-    // NO sumar mayores costos porque ya están en totalPresupuesto
-    const totalFinalCalculado = payload.totalPresupuesto
-      + totalHonorarios
-      - totalDescuentosReales; // ✅ Usar el valor correcto de descuentos
+    // 🔥 SOLUCIÓN DEFINITIVA: Usar el MISMO total que se muestra en el modal (totalUIVisible)
+    // Este valor es el que ve el usuario y es calculado correctamente desde itemsCalculadoraConsolidados
+    // totalUIVisible = suma de (item.total - item.descuentosAplicados) para todos los items
+    // donde item.total YA incluye: base + honorarios + mayores costos
+    const totalFinalCalculado = totalUIVisible; // ✅ USAR VALOR DE UI, NO RECALCULAR
 
     payload.honorarioDireccionImporte = totalFinalCalculado; // ✅ TOTAL FINAL (no solo honorarios)
     payload.totalPresupuestoConHonorarios = totalFinalCalculado;
@@ -9634,10 +9634,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
     console.log('totalDescuentos (CORRECTO desde consolidados):', totalDescuentosReales.toLocaleString('es-AR'));
     console.log('───────────────────────────────────────────────────────────────────');
     console.log('totalPresupuesto (base + MC):', payload.totalPresupuesto.toLocaleString('es-AR'));
-    console.log('+ totalHonorarios:', totalHonorarios.toLocaleString('es-AR'));
-    console.log('- descuentos:', totalDescuentosReales.toLocaleString('es-AR'));
-    console.log('═══════════════════════════════════════════════════════════════════');
-    console.log('✅ TOTAL FINAL CALCULADO:', totalFinalCalculado.toLocaleString('es-AR'));
+    console.log('💎 totalUIVisible (LO QUE VE EL USUARIO):', totalUIVisible.toLocaleString('es-AR'));
+    console.log('───────────────────────────────────────────────────────────────────');
+    console.log('✅ TOTAL FINAL CALCULADO (= totalUIVisible):', totalFinalCalculado.toLocaleString('es-AR'));
+    console.log('🎯 ESTE VALOR SE GUARDARÁ Y DEBE APARECER EN LA LISTA');
     console.log('═══════════════════════════════════════════════════════════════════');
 
     payload.honorariosDesglosados = honorariosDesglosados;
@@ -10992,46 +10992,53 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
       console.log('📥 RESULTADO COMPLETO DEL BACKEND:', resultado);
       console.log('📥 ¿Tiene itemsCalculadora?', !!resultado?.itemsCalculadora, 'Cantidad:', resultado?.itemsCalculadora?.length);
 
-      // 🔍 VALIDACIÓN ROBUSTA: Verificar coherencia de totales retornados por el backend
+      // 🎯 VALIDACIÓN CRÍTICA: Verificar que el total guardado coincide con el que se mostró en UI
       if (resultado) {
+        const totalUIVisibleEnviado = totalUIVisible; // El valor que se mostró en el modal
         const totalFinalEnviado = datosParaEnviar.totalPresupuestoConHonorarios;
         const totalFinalRecibido = resultado.totalFinal || resultado.totalPresupuestoConHonorarios;
         const totalConDescuentosRecibido = resultado.totalConDescuentos;
         const hayDescuentos = resultado.totalDescuentos && Number(resultado.totalDescuentos) > 0;
 
-        console.log('🔍 VALIDACIÓN DE TOTALES:', {
-          'Enviado al backend': totalFinalEnviado?.toLocaleString('es-AR'),
-          'totalFinal recibido': totalFinalRecibido?.toLocaleString('es-AR'),
-          'totalConDescuentos recibido': totalConDescuentosRecibido?.toLocaleString('es-AR'),
-          'Hay descuentos': hayDescuentos,
-          'Descuentos': resultado.totalDescuentos?.toLocaleString('es-AR') || '0'
-        });
+        console.log('═══════════════════════════════════════════════════════════════════');
+        console.log('🎯 VALIDACIÓN TOTAL FINAL - ¿MODAL = GUARDADO = LISTA?');
+        console.log('═══════════════════════════════════════════════════════════════════');
+        console.log('💎 Total en modal (totalUIVisible):', totalUIVisibleEnviado?.toLocaleString('es-AR'));
+        console.log('📤 Total enviado al backend:', totalFinalEnviado?.toLocaleString('es-AR'));
+        console.log('📥 Total recibido (totalFinal):', totalFinalRecibido?.toLocaleString('es-AR'));
+        console.log('📋 Total que aparecerá en lista:', totalFinalRecibido?.toLocaleString('es-AR'));
+        console.log('───────────────────────────────────────────────────────────────────');
+
+        // ✅ Verificar coherencia: MODAL = ENVIADO = RECIBIDO
+        const diferenciaEnvioRecibo = Math.abs(Number(totalFinalEnviado || 0) - Number(totalFinalRecibido || 0));
+        const diferenciaUIEnvio = Math.abs(Number(totalUIVisibleEnviado || 0) - Number(totalFinalEnviado || 0));
+
+        if (diferenciaUIEnvio > 1) {
+          console.error('❌ ERROR CRÍTICO: Total del modal ≠ Total enviado');
+          console.error('   Modal:', totalUIVisibleEnviado?.toLocaleString('es-AR'));
+          console.error('   Enviado:', totalFinalEnviado?.toLocaleString('es-AR'));
+          console.error('   Diferencia:', diferenciaUIEnvio.toLocaleString('es-AR'));
+        } else if (diferenciaEnvioRecibo > 1) {
+          console.error('❌ ERROR: El backend modificó el total');
+          console.error('   Enviado:', totalFinalEnviado?.toLocaleString('es-AR'));
+          console.error('   Recibido:', totalFinalRecibido?.toLocaleString('es-AR'));
+          console.error('   Diferencia:', diferenciaEnvioRecibo.toLocaleString('es-AR'));
+        } else {
+          console.log('✅✅✅ PERFECTO: Modal = Guardado = Lista');
+          console.log('🎉 El importe $' + totalFinalRecibido?.toLocaleString('es-AR') + ' coincidirá en todos lados');
+        }
+
+        console.log('═══════════════════════════════════════════════════════════════════');
 
         // ✅ Si NO hay descuentos, totalConDescuentos DEBE ser igual a totalFinal
         if (!hayDescuentos && totalConDescuentosRecibido && totalFinalRecibido) {
           const diferencia = Math.abs(Number(totalConDescuentosRecibido) - Number(totalFinalRecibido));
           if (diferencia > 1) { // Tolerancia de $1 por redondeos
-            console.error('❌ INCONSISTENCIA DETECTADA EN BACKEND:', {
+            console.warn('⚠️ ADVERTENCIA: totalConDescuentos ≠ totalFinal (sin descuentos):', {
               'totalFinal (correcto)': totalFinalRecibido.toLocaleString('es-AR'),
-              'totalConDescuentos (incorrecto)': totalConDescuentosRecibido.toLocaleString('es-AR'),
-              'Diferencia': diferencia.toLocaleString('es-AR'),
-              'CAUSA': 'El backend está recalculando totalConDescuentos incorrectamente (no incluye honorarios por rubro)',
-              'SOLUCIÓN': 'El backend debe usar totalFinal cuando no hay descuentos, o recalcular correctamente'
-            });
-          }
-        }
-
-        // ✅ Verificar que el backend no modificó el total que enviamos
-        if (totalFinalEnviado && totalFinalRecibido) {
-          const diferencia = Math.abs(Number(totalFinalEnviado) - Number(totalFinalRecibido));
-          if (diferencia > 1) {
-            console.warn('⚠️ El backend modificó el total final:', {
-              'Enviado': totalFinalEnviado.toLocaleString('es-AR'),
-              'Recibido': totalFinalRecibido.toLocaleString('es-AR'),
+              'totalConDescuentos': totalConDescuentosRecibido.toLocaleString('es-AR'),
               'Diferencia': diferencia.toLocaleString('es-AR')
             });
-          } else {
-            console.log('✅ Total final guardado correctamente');
           }
         }
       }
@@ -17660,6 +17667,10 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                               { params: { empresaId } }
                             );
 
+                            // ✅ Marcar como ENVIADO - todos los presupuestos usan la misma función
+                            await marcarComoEnviado();
+
+                            // Mostrar alert de confirmación
                             if (response.data && response.data.id) {
                               const mensaje = modoTrabajoExtra
                                 ? `✅ PDF generado, descargado Y guardado en la base de datos\n\nArchivo: ${archivoConExtension}\nID en BD: ${response.data.id}\nFecha: ${new Date(response.data.fechaGeneracion).toLocaleString('es-AR')}`
@@ -17668,45 +17679,65 @@ const PresupuestoNoClienteModal = ({ show, onClose, onSave, initialData = {}, ti
                             } else {
                               alert(`✅ PDF generado, descargado Y guardado en la base de datos\n\nArchivo: ${archivoConExtension}\nEstado: ${response.status || 'OK'}`);
                             }
-
-                            // ✅ Marcar como ENVIADO - todos los presupuestos usan la misma función
-                            await marcarComoEnviado();
                           }
 
-                          // 📱 IMPORTANTE: Abrir WhatsApp/Email SIEMPRE que los flags estén activos (independiente de si se guardó en BD)
-                          // Si viene desde WhatsApp, abrir WhatsApp Web después de generar el PDF
-                          console.log('🔍 Verificando apertura de WhatsApp:', {
+                          // 📱 FALLBACK: Si no se guardó en BD pero hay flag de WhatsApp
+                          console.log('🔍 FALLBACK - Verificando apertura de WhatsApp:', {
                             abrirWhatsAppDespuesDePDF,
                             telefono: form.telefono
                           });
 
+                          // 📱 CRÍTICO: Abrir WhatsApp FUERA del if, para que se ejecute SIEMPRE
                           if (abrirWhatsAppDespuesDePDF) {
-                            console.log('✅ SÍ abrirWhatsAppDespuesDePDF - Preparando apertura de WhatsApp...');
-                            setTimeout(() => {
-                              console.log('📱 Abriendo WhatsApp Web...');
+                            console.log('✅ SÍ abrirWhatsAppDespuesDePDF - Abriendo WhatsApp INMEDIATAMENTE...');
+                            console.log('📱 EJECUTANDO apertura de WhatsApp...');
 
-                              // Si hay teléfono, abrir chat directo, sino solo WhatsApp Web
-                              if (form.telefono) {
-                                const numeroLimpio = form.telefono.replace(/\D/g, '');
-                                const mensaje = `Presupuesto N° ${form.numeroPresupuesto || 'Nuevo'}`;
-                                const url = `https://wa.me/${numeroLimpio}?text=${encodeURIComponent(mensaje)}`;
-                                console.log('📱 Abriendo chat con teléfono:', url);
-                                window.open(url, '_blank');
-                              } else {
-                                console.log('📱 Abriendo WhatsApp Web general (sin teléfono)');
+                            // Preparar mensaje pre-llenado para WhatsApp
+                            const numeroPresup = form.numeroPresupuesto || 'Nuevo';
+                            const version = form.numeroVersion || form.version || 1;
+                            const obra = form.nombreObra ||
+                                        (form.direccionObraCalle ? `${form.direccionObraCalle} ${form.direccionObraAltura || ''}`.trim() : 'Sin especificar');
+                            const totalFinal = form.totalFinal || form.totalPresupuestoConHonorarios || form.montoTotal || 0;
+
+                            const mensajeCompleto =
+                              `📋 *PRESUPUESTO N° ${numeroPresup}* (v${version})\n\n` +
+                              `🏗️ Obra: ${obra}\n` +
+                              `💰 Total: $${Number(totalFinal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}\n\n` +
+                              `Adjunto encontrará el presupuesto detallado en formato PDF.`;
+
+                            console.log('📝 Mensaje preparado:', mensajeCompleto);
+
+                            // Si hay teléfono, abrir chat directo con el cliente
+                            if (form.telefono) {
+                              const numeroLimpio = form.telefono.replace(/\D/g, '');
+                              const url = `https://wa.me/${numeroLimpio}?text=${encodeURIComponent(mensajeCompleto)}`;
+                              console.log('📱 Intentando abrir chat directo:', url);
+
+                              try {
+                                const ventana = window.open(url, '_blank');
+                                if (ventana) {
+                                  console.log('✅ WhatsApp abierto correctamente');
+                                } else {
+                                  console.warn('⚠️ window.open retornó null - puede estar bloqueado por popup blocker');
+                                }
+                              } catch (error) {
+                                console.error('❌ Error al abrir WhatsApp:', error);
+                              }
+                            } else {
+                              // Sin teléfono: abrir WhatsApp Web general
+                              console.log('📱 Abriendo WhatsApp Web general (sin teléfono del cliente)');
+                              try {
                                 window.open('https://web.whatsapp.com/', '_blank');
+                              } catch (error) {
+                                console.error('❌ Error al abrir WhatsApp Web:', error);
                               }
+                            }
+                          }
 
-                              const mensaje = `Presupuesto N° ${form.numeroPresupuesto || 'Nuevo'}`;
-                              navigator.clipboard.writeText(mensaje);
-                              console.log('📋 Mensaje copiado al portapapeles:', mensaje);
-
-                              if (onPDFGenerado) {
-                                onPDFGenerado();
-                              }
-                            }, 500);
-                          } else {
-                            console.log('❌ NO abrirWhatsAppDespuesDePDF - WhatsApp NO se abrirá');
+                          // Llamar a onPDFGenerado si existe (para cerrar modal)
+                          if (onPDFGenerado) {
+                            console.log('🔔 Llamando a onPDFGenerado callback');
+                            onPDFGenerado();
                           }
 
                           // Si viene desde Email, abrir Gmail Web después de generar el PDF

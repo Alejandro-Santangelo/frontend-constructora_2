@@ -696,6 +696,19 @@ body {
   display: block !important;
 }
 
+/* ========== MODAL ANCHO PARA ASIGNACIÓN DE JORNALES ========== */
+.modal-90w {
+  max-width: 95% !important;
+  width: 95% !important;
+}
+
+@media (min-width: 1400px) {
+  .modal-90w {
+    max-width: 90% !important;
+    width: 90% !important;
+  }
+}
+
 /* 🔓 PDF INTERNO: Forzar expansión de collapse de Bootstrap */
 .capturando-pdf.pdf-interno .collapse {
   display: block !important;

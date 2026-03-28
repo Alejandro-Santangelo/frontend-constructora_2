@@ -1074,6 +1074,27 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
       return;
     }
 
+    // ✅ Obtener el presupuesto seleccionado
+    const presupuesto = list.find(p => p.id === selectedId);
+
+    // ✅ Si está en A_ENVIAR o TERMINADO, cambiar a ENVIADO automáticamente
+    if (presupuesto && (presupuesto.estado === 'A_ENVIAR' || presupuesto.estado === 'TERMINADO')) {
+      try {
+        console.log(`📤 Cambiando estado de ${presupuesto.estado} → ENVIADO para presupuesto ${presupuesto.numeroPresupuesto}`);
+        await api.presupuestosNoCliente.actualizarEstado(presupuesto.id, 'ENVIADO', empresaId);
+        console.log('✅ Estado actualizado a ENVIADO en BD');
+
+        // Actualizar lista local
+        setList(prevList => prevList.map(item =>
+          item.id === presupuesto.id ? { ...item, estado: 'ENVIADO' } : item
+        ));
+      } catch (error) {
+        console.error('❌ Error al actualizar estado:', error);
+        showNotification && showNotification('Error al actualizar estado del presupuesto', 'danger');
+        return;
+      }
+    }
+
     // Mostrar modal de selección de envío
     setMostrarModalSeleccionEnvio(true);
   };
@@ -3024,48 +3045,32 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                         <div>
                           <div className="fw-bold text-primary">
                             {(() => {
-                              // 🔥 CALCULAR TOTAL DINÁMICAMENTE CON PRIORIDAD A VALORES DEL BACKEND
-                              // El backend ya calcula correctamente: base + honorarios + mayores costos - descuentos
+                              // 🎯 SOLUCIÓN DEFINITIVA: Usar SOLO el valor guardado por el backend
+                              // totalFinal ahora contiene EXACTAMENTE el mismo valor que se mostró en el modal (totalUIVisible)
+                              // Incluye: base + honorarios + mayores costos - descuentos
 
-                              // PRIORIDAD 1: Valores del backend (INCLUYEN TODO: base + honorarios + MC - descuentos)
-                              const totalConDescuentos = row.totalConDescuentos;
-                              const totalFinal = row.totalFinal;
-
-                              // ✅ Detectar si hay descuentos configurados (legacy O por rubro)
+                              // ✅ Detectar si hay descuentos para mostrar badge
                               const hayDescuentos = (row.totalDescuentos && Number(row.totalDescuentos) > 0) ||
                                                    (row.descuentosPorRubro && Array.isArray(row.descuentosPorRubro) && row.descuentosPorRubro.length > 0);
 
-                              // Con descuentos → usar totalConDescuentos
-                              if (hayDescuentos && totalConDescuentos != null) {
-                                const valor = Number(totalConDescuentos);
+                              // 1️⃣ USAR totalFinal (es el valor guardado = totalUIVisible del modal)
+                              const totalFinal = row.totalFinal || row.totalConDescuentos || row.totalPresupuestoConHonorarios;
+
+                              if (totalFinal != null) {
+                                const valor = Number(totalFinal);
                                 if (valor > 0) {
                                   return (
                                     <>
                                       {`$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                                      <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
+                                      {hayDescuentos && (
+                                        <span className="ms-1" title="Incluye descuentos aplicados" style={{fontSize:'0.85em', opacity:0.65}}>🏷️</span>
+                                      )}
                                     </>
                                   );
                                 }
                               }
 
-                              // Sin descuentos → usar totalFinal o totalPresupuestoConHonorarios
-                              if (totalFinal != null) {
-                                const valor = Number(totalFinal);
-                                if (valor > 0) {
-                                  return `$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                                }
-                              }
-
-                              // Fallback a totalPresupuestoConHonorarios (incluye base + honorarios + MC)
-                              const totalLegacy = row.totalPresupuestoConHonorarios;
-                              if (totalLegacy != null) {
-                                const valor = Number(totalLegacy);
-                                if (valor > 0) {
-                                  return `$${valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
-                                }
-                              }
-
-                              // PRIORIDAD 2: Recalcular desde itemsCalculadora (SOLO si no hay valores del backend)
+                              // 2️⃣ Fallback SOLO para presupuestos muy antiguos (sin totalFinal guardado)
                               const items = row.itemsCalculadora;
                               if (items && Array.isArray(items) && items.length > 0) {
                                 try {
@@ -3149,34 +3154,20 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                             </button>
                           )}
 
-                          {/* A_ENVIAR → Botones para volver a borrador o enviar */}
+                          {/* A_ENVIAR → Botón para volver a borrador */}
                           {row.estado === 'A_ENVIAR' && (
-                            <>
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCambiarEstadoPresupuesto(row, 'BORRADOR');
-                                }}
-                                title="Volver a modo edición"
-                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
-                              >
-                                <i className="fas fa-undo me-1"></i>
-                                Volver
-                              </button>
-                              <button
-                                className="btn btn-primary btn-sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEnviarPresupuestoDesdeTabla(row);
-                                }}
-                                title="Enviar a cliente por WhatsApp o Email"
-                                style={{ fontSize: '0.75em', padding: '4px 8px' }}
-                              >
-                                <i className="fas fa-paper-plane me-1"></i>
-                                Enviar Cliente
-                              </button>
-                            </>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCambiarEstadoPresupuesto(row, 'BORRADOR');
+                              }}
+                              title="Volver a modo edición"
+                              style={{ fontSize: '0.75em', padding: '4px 8px' }}
+                            >
+                              <i className="fas fa-undo me-1"></i>
+                              Volver
+                            </button>
                           )}
 
                           {/* ENVIADO → Botones para cancelar envío o aprobar */}
@@ -3395,34 +3386,20 @@ const PresupuestosNoClientePage = ({ showNotification }) => {
                                           </button>
                                         )}
 
-                                        {/* A_ENVIAR → Botones para volver a borrador o enviar */}
+                                        {/* A_ENVIAR → Botón para volver a borrador */}
                                         {adic.estado === 'A_ENVIAR' && (
-                                          <>
-                                            <button
-                                              className="btn btn-secondary btn-sm"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleCambiarEstadoPresupuesto(adic, 'BORRADOR');
-                                              }}
-                                              title="Volver a modo edición"
-                                              style={{ fontSize: '0.7em', padding: '3px 6px' }}
-                                            >
-                                              <i className="fas fa-undo me-1"></i>
-                                              Volver
-                                            </button>
-                                            <button
-                                              className="btn btn-primary btn-sm"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEnviarPresupuestoDesdeTabla(adic);
-                                              }}
-                                              title="Enviar a cliente"
-                                              style={{ fontSize: '0.7em', padding: '3px 6px' }}
-                                            >
-                                              <i className="fas fa-paper-plane me-1"></i>
-                                              Enviar
-                                            </button>
-                                          </>
+                                          <button
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleCambiarEstadoPresupuesto(adic, 'BORRADOR');
+                                            }}
+                                            title="Volver a modo edición"
+                                            style={{ fontSize: '0.7em', padding: '3px 6px' }}
+                                          >
+                                            <i className="fas fa-undo me-1"></i>
+                                            Volver
+                                          </button>
                                         )}
 
                                         {/* ENVIADO → Botones para cancelar envío o aprobar */}

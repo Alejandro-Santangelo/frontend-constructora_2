@@ -61,6 +61,9 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   const [profesionalesTemporales, setProfesionalesTemporales] = useState([]);
   const [guardarEnCatalogo, setGuardarEnCatalogo] = useState(false); // Para controlar si se guarda permanentemente
 
+  // 🆕 Estado para mostrar/ocultar tarifas diarias
+  const [mostrarTarifas, setMostrarTarifas] = useState(false); // Por defecto NO muestra tarifas
+
   // 🇦🇷 Feriados de Argentina 2026
   const feriadosArgentina2026 = [
     '2026-01-01', // Año Nuevo
@@ -616,9 +619,10 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
             observaciones: prof.observaciones || null
           };
 
-          // Agregar tarifa si existe y es distinta de 0
-          if (prof.tarifaDiaria && prof.tarifaDiaria > 0) {
-            jornal.tarifaDiaria = prof.tarifaDiaria;
+          // 🆕 Agregar tarifa SOLO si el switch de mostrarTarifas está activado
+          const tarifaAUsar = mostrarTarifas ? (prof.tarifaDiaria || 0) : 0;
+          if (tarifaAUsar > 0) {
+            jornal.tarifaDiaria = tarifaAUsar;
           }
 
           jornalesAGuardar.push(jornal);
@@ -635,6 +639,18 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
         try {
           console.log(`🔍 Procesando jornal para profesional ${jornal.profesionalId} en fecha ${jornal.fecha}:`, jornal);
           console.log(`🔍 ¿Tiene tarifaDiaria?:`, jornal.tarifaDiaria);
+          console.log(`🔍 rubroId:`, jornal.rubroId, '(tipo:', typeof jornal.rubroId, ')');
+          console.log(`🔍 obraId:`, jornal.obraId, '(tipo:', typeof jornal.obraId, ')');
+          console.log(`🔍 profesionalId:`, jornal.profesionalId, '(tipo:', typeof jornal.profesionalId, ')');
+          console.log(`🔍 empresaId:`, empresaSeleccionada.id);
+
+          // ⚠️ VALIDACIÓN: Si rubroId es null, mostrar error
+          if (!jornal.rubroId) {
+            console.error(`❌ FALTA RUBRO para profesional ${jornal.profesionalId}`);
+            errores++;
+            setError(`El profesional no tiene rubro asignado. Selecciona un rubro antes de guardar.`);
+            continue;
+          }
 
           // Verificar si ya existe un jornal para este profesional en esta fecha
           const jornalExistente = jornalesExistentes.find(
@@ -814,7 +830,13 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
   };
 
   return (
-    <Modal show={show} onHide={handleClose} size="xl" backdrop="static">
+    <Modal
+      show={show}
+      onHide={handleClose}
+      size="xl"
+      backdrop="static"
+      dialogClassName="modal-90w"
+    >
       <Modal.Header closeButton>
         <Modal.Title>
           <i className="fas fa-calendar-day me-2"></i>
@@ -921,7 +943,20 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                       <th>Tipo</th>
                       <th>Obras Asignadas</th>
                       <th style={{ width: '180px' }}>Rubro</th>
-                      <th>Tarifa Diaria</th>
+                      <th>
+                        <div className="d-flex align-items-center justify-content-between">
+                          <span>Tarifa Diaria</span>
+                          <Form.Check
+                            type="switch"
+                            id="switch-mostrar-tarifas"
+                            label="Mostrar"
+                            checked={mostrarTarifas}
+                            onChange={(e) => setMostrarTarifas(e.target.checked)}
+                            className="ms-2"
+                            style={{ fontSize: '0.85em' }}
+                          />
+                        </div>
+                      </th>
                       <th style={{ width: '300px' }}>Fechas y Fracciones</th>
                       <th style={{ width: '120px' }}>Total</th>
                     </tr>
@@ -936,7 +971,8 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                     ) : (
                       todosProfesionales.map(prof => {
                         const seleccionado = profesionalesSeleccionados.find(p => p.id === prof.id);
-                        const tarifa = seleccionado?.tarifaDiaria ?? prof.honorario ?? 0;
+                        const tarifaReal = seleccionado?.tarifaDiaria ?? prof.honorario ?? 0;
+                        const tarifa = mostrarTarifas ? tarifaReal : 0; // 🆕 Mostrar 0 si el switch está OFF
                         const fechasProf = fechasPorProfesional[prof.id] || [];
 
                         // NUEVO: Calcular total sumando todas las fechas
@@ -1025,17 +1061,26 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                             </td>
                             <td className="text-end">
                               {seleccionado ? (
-                                <div>
-                                  <Form.Control
-                                    type="number"
-                                    size="sm"
-                                    step="1000"
-                                    min="0"
-                                    value={tarifa}
-                                    onChange={(e) => handleCambiarTarifaSeleccionado(prof.id, e.target.value)}
-                                    onFocus={(e) => e.target.select()}
-                                  />
-                                </div>
+                                mostrarTarifas ? (
+                                  <div>
+                                    <Form.Control
+                                      type="number"
+                                      size="sm"
+                                      step="1000"
+                                      min="0"
+                                      value={tarifaReal}
+                                      onChange={(e) => handleCambiarTarifaSeleccionado(prof.id, e.target.value)}
+                                      onFocus={(e) => e.target.select()}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <strong>$0</strong>
+                                    <small className="text-muted d-block mt-1">
+                                      Tarifa oculta
+                                    </small>
+                                  </div>
+                                )
                               ) : (
                                 <div>
                                   ${tarifa.toLocaleString('es-AR')}
@@ -1168,6 +1213,24 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                         >
                                           <i className="fas fa-list me-1"></i>+ A lista
                                         </Button>
+                                        {fechasProf.length > 0 && (
+                                          <Button
+                                            size="sm"
+                                            variant="success"
+                                            onClick={() => {
+                                              // Guardar solo este profesional
+                                              const profSeleccionado = profesionalesSeleccionados.find(p => p.id === prof.id);
+                                              if (profSeleccionado && profSeleccionado.fechas && profSeleccionado.fechas.length > 0) {
+                                                handleGuardarProfesionalesSeleccionados();
+                                              }
+                                            }}
+                                            disabled={guardando || !seleccionado.rubroNombre || fechasProf.length === 0}
+                                            title="Guardar jornal de este profesional"
+                                            style={{ whiteSpace: 'nowrap' }}
+                                          >
+                                            <i className="fas fa-save me-1"></i>Guardar
+                                          </Button>
+                                        )}
                                       </div>
                                     )}
 
@@ -1204,22 +1267,40 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                           </div>
                                           <Button
                                             size="sm"
-                                            variant="success"
-                                            onClick={handleAgregarRangoFechasDirecto}
-                                            disabled={!fechaInicio || !fechaFin}
-                                            style={{ whiteSpace: 'nowrap', marginTop: '18px' }}
-                                          >
-                                            <i className="fas fa-check me-1"></i>Agregar Rango
-                                          </Button>
-                                          <Button
-                                            size="sm"
-                                            variant="outline-primary"
+                                            variant="primary"
                                             onClick={handleAgregarRangoFechas}
                                             disabled={!fechaInicio || !fechaFin}
                                             style={{ whiteSpace: 'nowrap', marginTop: '18px' }}
                                           >
                                             <i className="fas fa-list me-1"></i>+ A lista
                                           </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline-secondary"
+                                            onClick={handleAgregarRangoFechasDirecto}
+                                            disabled={!fechaInicio || !fechaFin}
+                                            style={{ whiteSpace: 'nowrap', marginTop: '18px' }}
+                                          >
+                                            <i className="fas fa-check me-1"></i>Agregar Rango
+                                          </Button>
+                                          {fechasProf.length > 0 && (
+                                            <Button
+                                              size="sm"
+                                              variant="success"
+                                              onClick={() => {
+                                                // Guardar solo este profesional
+                                                const profSeleccionado = profesionalesSeleccionados.find(p => p.id === prof.id);
+                                                if (profSeleccionado && profSeleccionado.fechas && profSeleccionado.fechas.length > 0) {
+                                                  handleGuardarProfesionalesSeleccionados();
+                                                }
+                                              }}
+                                              disabled={guardando || !seleccionado.rubroNombre || fechasProf.length === 0}
+                                              title="Guardar jornal de este profesional"
+                                              style={{ whiteSpace: 'nowrap', marginTop: '18px' }}
+                                            >
+                                              <i className="fas fa-save me-1"></i>Guardar
+                                            </Button>
+                                          )}
                                         </div>
                                         <div className="form-check">
                                           <input
@@ -1317,9 +1398,28 @@ const RegistrarJornalesDiariosModal = ({ show, onHide, obra, onJornalCreado, onA
                                     ${parseFloat(montoTotal).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                   </strong>
                                   {fechasProf.length > 0 && (
-                                    <div className="small text-muted">
-                                      {totalDias.toFixed(2)} días
-                                    </div>
+                                    <>
+                                      <div className="small text-muted">
+                                        {totalDias.toFixed(2)} días
+                                      </div>
+                                      <Button
+                                        size="sm"
+                                        variant="success"
+                                        className="mt-2"
+                                        onClick={() => {
+                                          // Guardar solo este profesional
+                                          const profSeleccionado = profesionalesSeleccionados.find(p => p.id === prof.id);
+                                          if (profSeleccionado && profSeleccionado.fechas && profSeleccionado.fechas.length > 0) {
+                                            handleGuardarProfesionalesSeleccionados();
+                                          }
+                                        }}
+                                        disabled={guardando || !seleccionado.rubroNombre || fechasProf.length === 0}
+                                        title="Guardar jornal de este profesional"
+                                      >
+                                        <i className="fas fa-save me-1"></i>
+                                        Guardar
+                                      </Button>
+                                    </>
                                   )}
                                 </div>
                               ) : (
